@@ -1,7 +1,9 @@
 #include "DetailModule.h"
 
+#include "../KnobLaws.h"
 #include "../MonsterFeatures.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace roar
@@ -40,14 +42,18 @@ namespace roar
         constexpr double c_noBoostAboveFloorDb = 2.0;
         constexpr double c_fullBoostAboveFloorDb = 8.0;
         constexpr double c_maxExpansionDb = 6.0;
+        constexpr double c_gateGuardFromDb = 1.0, c_gateGuardFullDb = 5.0;   // CLEAN's gate reduction
+        constexpr double c_minSegmentSeconds = 0.25;    // quiet tracker: segment length
+        constexpr double c_quietBiasDb = 5.0;           // the quietest moment sits this far under the room's level
+        constexpr double c_quietMaxDb = -45.0;          // never above this (speech dips in a dense take)
+        constexpr double c_boostPerDbAboveFloor = 1.0;  // the boost cap: dB of boost per dB above the floor guard's no-boost zone
 
         constexpr double c_dbToLog = 0.11512925464970228;   // ln (10) / 20
     }
 
     double DetailModule::depthForKnob (double u)
     {
-        u = std::clamp (u, 0.0, 1.0);
-        return 48.0 * std::pow (u, 1.68);
+        return laws::detailDepthDb (u);
     }
 
     double DetailModule::softMin (double a, double b)
@@ -107,6 +113,7 @@ namespace roar
         m_qualifyBlocks = std::max (1, static_cast<int> (std::lround (c_runSeconds * blockRate)));
         m_floorFallCoeff = dsp::onePoleCoeff (c_floorFallSeconds, blockRate);
         m_floorRiseDb = c_floorRiseDbPerSecond / blockRate;
+        m_minSegmentBlocks = std::max (1, static_cast<int> (std::lround (c_minSegmentSeconds * blockRate)));
 
         reset();
     }
@@ -145,6 +152,12 @@ namespace roar
         m_s.floorDb = c_unknownFloorDb;
         m_s.floorKnown = m_s.activitySeen = false;
         m_s.floorWeight = m_s.floorCutDb = 0.0;
+        m_s.boostCapDb = 1.0e9;
+        m_s.minSegments.fill (150.0);
+        m_s.minSegmentsFilled = m_s.minSegmentBlocks = 0;
+        m_s.minSegmentCur = 150.0;
+        m_s.gateBlockMinDb = 0.0;
+        m_s.quietFloorDb = -150.0;
     }
 
     void DetailModule::setParams (const DetailSettings& s)
@@ -232,6 +245,25 @@ namespace roar
         if (levDb > c_activityDb)
             s.activitySeen = true;
 
+        // Quiet tracker (blocks where CLEAN's gate is taking the level down do not count: that is
+        // not the room the guard must hold).
+        if (s.gateBlockMinDb > -c_gateGuardFromDb)
+            s.minSegmentCur = std::min (s.minSegmentCur, levDb);
+        s.gateBlockMinDb = 0.0;
+        if (++s.minSegmentBlocks >= m_minSegmentBlocks)
+        {
+            std::copy (s.minSegments.begin() + 1, s.minSegments.end(), s.minSegments.begin());
+            s.minSegments.back() = s.minSegmentCur;
+            s.minSegmentsFilled = std::min (s.minSegmentsFilled + 1, c_minSegments);
+            s.minSegmentCur = 150.0;
+            s.minSegmentBlocks = 0;
+            if (s.minSegmentsFilled >= 2)
+            {
+                const double quietest = *std::min_element (s.minSegments.end() - s.minSegmentsFilled, s.minSegments.end());
+                s.quietFloorDb = quietest < 100.0 ? std::min (quietest + c_quietBiasDb, c_quietMaxDb) : -150.0;
+            }
+        }
+
         if (s.runBlocks >= m_qualifyBlocks)
         {
             const double target = std::clamp (runMean, c_floorMinDb, c_floorMaxDb);
@@ -250,12 +282,16 @@ namespace roar
         double floorDb = s.floorDb;
         if (! s.floorKnown && ! s.activitySeen && runMean <= c_floorMaxDb)
             floorDb = std::clamp (runMean, c_floorMinDb, c_floorMaxDb);
+        floorDb = std::max (floorDb, s.quietFloorDb);
 
         const double aboveFloor = s.levHeldDb - floorDb;
         s.floorWeight = dsp::smoothstep01 ((c_fullBoostAboveFloorDb - aboveFloor)
                                            / (c_fullBoostAboveFloorDb - c_noBoostAboveFloorDb));
         const double depthLimit = std::min (c_maxExpansionDb, 0.5 * (m_curve.L + m_curve.M));
         s.floorCutDb = std::clamp (-aboveFloor, 0.0, depthLimit);
+        // Material just above the floor can rise only in proportion to its distance from it, so a
+        // gap's room tone and tails never jump over the voice (the full boost needs 25 dB of contrast).
+        s.boostCapDb = c_boostPerDbAboveFloor * std::max (0.0, aboveFloor - c_noBoostAboveFloorDb);
     }
 
     void DetailModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& /*voice*/)
@@ -319,7 +355,16 @@ namespace roar
             }
 
             const double net = gLow + gHigh - m_curve.trim;
-            const double target = net - s.floorWeight * std::max (net, 0.0) - s.floorCutDb;
+            double noBoost = s.floorWeight;
+            if (m_gateTrace != nullptr && s.floorOn)
+            {
+                // CLEAN's gate is closing: this is room tone it is taking out, never lift it.
+                const double closing = -static_cast<double> (m_gateTrace[i]);
+                s.gateBlockMinDb = std::min (s.gateBlockMinDb, -closing);
+                noBoost = std::max (noBoost, dsp::smoothstep01 ((closing - c_gateGuardFromDb) / (c_gateGuardFullDb - c_gateGuardFromDb)));
+            }
+            const double boost = std::min (std::max (net, 0.0) * (1.0 - noBoost), s.floorOn ? s.boostCapDb : 1.0e9);
+            const double target = std::min (net, 0.0) + boost - s.floorCutDb;
 
             s.gainDb = target < s.gainDb ? target : s.gainDb + m_gainRise * (target - s.gainDb);
             s.gainDb = dsp::flushTiny (s.gainDb);

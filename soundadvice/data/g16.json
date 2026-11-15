@@ -67,12 +67,6 @@
    "imdb": "https://www.imdb.com/name/nm6823232/"
   },
   {
-   "name": "Bryan Higa",
-   "role": "Sound design lead (player)",
-   "credits": "God of War Ragnarök",
-   "imdb": "https://www.imdb.com/name/nm4371114/"
-  },
-  {
    "name": "Byron Wilson",
    "role": "Dialogue & ADR editor",
    "credits": "True Grit; Blade Runner 2049",
@@ -2032,70 +2026,6 @@
    "text": "Ingrid, the talking sword in God of War Ragnarök, was kept organic rather than digital: glass particles scattered on a bowed cymbal, recorded with a Sanken and slowed down for magic tinkle, plus ocarina and human whistles morphed together in Logic's Alchemy to form her 'voice'.",
    "categories": [
     "creatures",
-    "recording",
-    "games"
-   ],
-   "source": {
-    "title": "The Sound of God of War Ragnarök",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
-    "year": 2023
-   }
-  },
-  {
-   "person": "Bryan Higa",
-   "kind": "insight",
-   "text": "For Atreus's Sonic Arrow in God of War Ragnarök, Higa slingshotted bullet casings and paper clips in the desert, since objects that disturb the air whistle best. A whip crack recorded on the same trip became the hit-confirm transient, and ocarina tones gave the arrow a pitch players can pick out in battle.",
-   "categories": [
-    "weapons",
-    "recording",
-    "games"
-   ],
-   "source": {
-    "title": "The Sound of God of War Ragnarök",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
-    "year": 2023
-   }
-  },
-  {
-   "person": "Bryan Higa",
-   "kind": "insight",
-   "text": "The energy core of the Sonic Arrow in God of War Ragnarök came from a warbly laser-bass synth patch: Higa simply EQ'd out all the synthetic high mids, leaving a smooth, chaotic motion layer he could build the arrow around.",
-   "categories": [
-    "weapons",
-    "craft",
-    "games"
-   ],
-   "source": {
-    "title": "The Sound of God of War Ragnarök",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
-    "year": 2023
-   }
-  },
-  {
-   "person": "Bryan Higa",
-   "kind": "insight",
-   "text": "For the elegant Light Elf assassins in God of War Ragnarök, Higa's team struck tuning forks and waved them past the mic, borrowing the lightsaber idea of a moving mic for natural Doppler, then pitched the takes way down in the sampler for slow, regal passbys.",
-   "categories": [
-    "recording",
-    "creatures",
-    "games"
-   ],
-   "source": {
-    "title": "The Sound of God of War Ragnarök",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
-    "year": 2023
-   }
-  },
-  {
-   "person": "Bryan Higa",
-   "kind": "insight",
-   "text": "Bifrost powers in God of War Ragnarök are used by many enemies and cinematics, so the team recorded hydrophones in tubs and canteens, stretched the sloshing, added small glassy debris, then wrote a style guide with shared source and references so every designer pulled from the same library.",
-   "categories": [
-    "collaboration",
     "recording",
     "games"
    ],

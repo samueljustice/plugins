@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "MorphWander.h"
 #include "Theme.h"
 
 #include <array>
@@ -10,31 +11,30 @@
 /**
  * Morph pad: the control surface for SpectralMorph. Kept simple: the pad IS the control.
  *
- *   [ON] [Blend|Glide|Cross]           [shape] [speed] [play]
+ *   [ON] [Blend|Glide|Cross]                              [play]
  *   +-------------------------------------------------------------+
  *   |            Fuse / Shape / A thru B   (top label)            |
  *   | A                          o (dot = x, y)                 B |
  *   |            Mix / Move / B thru A     (bottom label)         |
  *   +-------------------------------------------------------------+
- *   (A  Air)                                             (B  Sample 2)
+ *   (A  Bus A)            [shape] [speed]             (Energy Bed  B)
  *
  *  - Click / drag on the pad: sets x (0 = A, 1 = B) and y (mode axis). Double-click: centre.
  *  - Mode: tiny segmented control, Blend (default) / Glide / Cross.
- *  - Rope handles A and B, in their source lanes' colours: press and drag to pull a sagging, wobbly
- *    rope across the editor, drop it on a lane to make that lane the source. The rope is drawn on a
- *    transparent, click-through overlay added to the component given to setRopeOverlayParent()
- *    (falls back to the top-level component).
- *  - Wander (play button): the dot flies along the chosen shape, normalised into the pad, at a
- *    constant visual speed set by the Speed slider. The default, Lorenz, is the Lorenz attractor
- *      dx/dt = 10 (y - x),  dy/dt = x (28 - z) - y,  dz/dt = x y - 8/3 z
- *    seen side on (x across, z up): integrated live, so the dot loops round one wing or the other
- *    chaotically and never repeats. The closed shapes precess slowly (1 degree per lap) so they
- *    never repeat exactly either. The whole shape is drawn faintly while wandering, with a short
- *    bright trail behind the dot. Dragging the pad stops wandering.
+ *  - Rope handles A and B. A side with no rope is its bus (the handle says so, in the bus's colour). Press
+ *    and drag a handle to pull a sagging, wobbly rope across the editor and drop it on a track: that track
+ *    alone is the side's source, the handle takes its name and colour, and the rope stays hanging between
+ *    the two while the pad is showing. Double-click a handle to let its rope go. The ropes are drawn on a
+ *    transparent, click-through overlay added to the component given to setRopeOverlayParent() (falls back
+ *    to the top-level component).
+ *  - Wander (play button): the dot flies along the chosen shape (see MorphWander) at the speed set by
+ *    the Speed slider. The flying is done by whoever owns the morph (the processor, so it carries on
+ *    with the window closed): the pad asks wanderPosition for the dot's place and draws it, with the
+ *    whole shape faintly behind it and a short bright trail. Dragging the pad stops wandering.
  *
  * Independent of the processor: wire it through the callbacks / setters below (message thread only).
  */
-class MorphPad : public juce::Component, private juce::Timer
+class MorphPad : public juce::Component, public juce::TooltipClient, private juce::Timer
 {
 public:
     explicit MorphPad(const Theme::Fonts& fonts);
@@ -48,23 +48,41 @@ public:
     std::function<void(int shape)> onShapeChanged;
     std::function<void(bool on)> onEnableChanged;
     void setMorphEnabled(bool on);
-    std::function<int(juce::Point<int> screenPos)> laneAtScreenPosition; // lane 0..11 or -1
+    std::function<int(juce::Point<int> screenPos)> laneAtScreenPosition; // the track under a point, or -1
+    /** A rope was dropped on a track, or let go (lane -1: the side is its bus again). */
     std::function<void(int slot /*0 = A, 1 = B*/, int lane)> onSourceAssigned;
+    /** Where a roped track's lane is on screen (false: it isn't shown, so its rope isn't drawn). */
+    std::function<bool(int lane, juce::Point<int>& screenPos)> laneAnchor;
+    /** A track's colour, as its lane shows it (a shade of its bus). */
+    std::function<juce::Colour(int lane)> laneColourFor;
+    juce::Colour trackColour(int lane) const { return laneColourFor ? laneColourFor(lane) : Theme::trackColour(lane); }
+    /** The lanes moved (scrolled, added, removed): the hanging ropes are drawn again. */
+    void ropesMoved();
 
-    /** Host -> UI. Ignored while the user drags the dot or while wandering (the pad is the source then). */
+    /** A rope handle's plate, in this component's own coordinates. No rope is ever drawn over one, so that the
+        letter and the name on it stay readable: the UI test paints the window with and without the rope layer
+        and compares what is inside these two plates. */
+    juce::Rectangle<float> handlePlate(int slot) const noexcept { return m_handles[static_cast<size_t>(slot)]; }
+    /** The layer the ropes hang on, or nullptr while no rope is shown. */
+    juce::Component* ropeLayer() const noexcept;
+
+    /** While wandering: where the dot is now (0..1 across and up) and how far its shape has turned (radians). */
+    std::function<void(float& x, float& y, float& rotation)> wanderPosition;
+
+    /** Host -> UI. Ignored while the user drags the dot or while wandering (the dot shows the wander then). */
     void setXY(float x, float y);
     void setMode(int mode);
     void setWander(bool on, float speed);
 
     /** The path the dot wanders along. */
-    enum Shape { Lorenz = 0, SweetJustice, FigureEight, Rose, Circle, NumShapes };
-    static juce::StringArray shapeNames() { return { "Lorenz", "Sweet Justice", "Figure Eight", "Rose", "Circle" }; }
+    static juce::StringArray shapeNames() { return MorphWander::shapeNames(); }
     void setShape(int shape);
-    /** lane -1 = unassigned. */
+    /** The track each side is roped to and its name (lane -1 = no rope: the side is its bus). */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);
     void setRopeOverlayParent(juce::Component* topLevel);
-    /** Fixed sources (e.g. "Bus A" / "Bus B"): the handles become labels and can't be dragged. */
-    void setFixedSources(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB);
+    /** What an unroped side is called and its colour ("Bus A" / "Bus B"). */
+    void setBusLabels(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB);
+    juce::String getTooltip() override;
 
     float getX() const { return m_x; }
     float getY() const { return m_y; }
@@ -83,6 +101,9 @@ public:
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseMove(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
+    void visibilityChanged() override;
+    void moved() override;
+    void parentHierarchyChanged() override;
 
 private:
     class RopeOverlay;
@@ -95,15 +116,6 @@ private:
     juce::Point<float> padToLocal(float x, float y) const;
     juce::Colour laneColour(int slot) const;
 
-    // Wander curve (the shape's points, precomputed; for Lorenz, a long stretch of the attractor)
-    juce::Point<float> shapeRaw(double t) const;
-    void updateShapeTransform();
-    juce::Point<float> shapeNorm(double t) const; // 0..1 in pad space (y up)
-    void stepWander(float dt);
-    void stepLorenz(float distance);
-    juce::Point<float> lorenzNorm(const juce::Vector3D<double>& v) const;
-    float wanderUnitsPerSecond() const;
-
     // Rope
     void startRope(int slot, juce::Point<int> screenPos);
     void dragRope(juce::Point<int> screenPos);
@@ -115,11 +127,10 @@ private:
     std::unique_ptr<WanderButton> m_wanderButton;
     juce::Slider m_speed;
     juce::ComboBox m_shapeBox;
-    juce::TextButton m_enable { "OFF" };
+    juce::TextButton m_enable { "Off" };
     bool m_enabled = false;
     void applyEnabledLook(bool on);
-    int m_shape = Lorenz;
-    void buildCurve();
+    int m_shape = MorphWander::Lorenz;
 
     juce::Rectangle<float> m_pad;
     std::array<juce::Rectangle<float>, 2> m_handles;
@@ -131,19 +142,12 @@ private:
 
     std::array<int, 2> m_lanes { -1, -1 };
     std::array<juce::String, 2> m_names;
-    bool m_fixedSources = false;
-    std::array<juce::Colour, 2> m_fixedColours;
+    std::array<juce::String, 2> m_busNames { "Bus A", "Bus B" };
+    std::array<juce::Colour, 2> m_busColours { Theme::Colours::textFaint, Theme::Colours::textFaint };
 
     // Wander state
     bool m_wander = false;
-    double m_t = 0.0;
-    double m_laps = 0.0;
-    float m_rotation = 0.0f;                 // radians
-    juce::Rectangle<float> m_bbox;           // rotated raw-curve bounds
-    static constexpr int c_curvePoints = 2400;
-    std::array<juce::Point<float>, c_curvePoints> m_curve; // raw curve, precomputed
-    std::vector<juce::Vector3D<double>> m_lorenzStates;    // Lorenz only: the 3-D states behind m_curve
-    juce::Vector3D<double> m_lorenz { 1.0, 1.0, 20.0 };    // Lorenz only: the live state
+    float m_rotation = 0.0f;                 // radians: how far the shape has turned
     static constexpr int c_trail = 40;
     std::array<juce::Point<float>, c_trail> m_trail {};
     int m_trailCount = 0, m_trailHead = 0;
@@ -155,6 +159,10 @@ private:
     int m_ropeSlot = -1;
     juce::Point<float> m_ropeEndScreen, m_ropeLastScreen, m_ropeOffset, m_ropeVelocity;
     int m_ropeHoverLane = -1;
+    bool m_ropeMoved = false;       // the handle was dragged (a plain click leaves the rope as it is)
+    /** Makes the overlay if there is somewhere to put it, and shows it while a rope hangs or is being dragged. */
+    void updateOverlay();
+    bool anyRopeShown() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MorphPad)
 };

@@ -4,7 +4,7 @@
 #include "Theme.h"
 
 /**
- * Pitch Flattener's LookAndFeel (the same design system as Subbertone's SubbertoneLookAndFeel): the editor and
+ * Pitch Flattener's LookAndFeel, in the HUD style (Hud.h: chamfered shapes, sheared bold type): the editor and
  * everything it opens (ComboBox popups, TextEditor right-click menus, the preset dialogs, its tooltip window,
  * the knob value boxes, the corner resizer and the About window) are drawn with one instance of this class,
  * owned by the editor.
@@ -15,9 +15,8 @@
  *
  * Accents keep Theme's meanings where a surface belongs to a section (a ComboBox popup takes the colour of its
  * box). Chrome that belongs to no section (focus rings, text selection and caret, links, the fallback menu
- * accent) is amber, the colour of the header mark's flat line and the version, as in Subbertone. Dialogs:
- * a question (replace, reset) or a plain prompt (save) is amber, information teal, a warning (delete, errors)
- * rose.
+ * accent) is amber, orange's highlight. Dialogs: a question or a plain prompt is orange, good news lime, a
+ * warning magenta.
  *
  * Lifetime: menus, alerts, tooltip windows and the About window keep a (weak) reference to the LookAndFeel
  * they are drawn with. The owner closes them before this object goes (PopupMenu::dismissAllActiveMenus(),
@@ -48,11 +47,15 @@ public:
     /** The accent of a dialog of this kind: its header dot and its Return-key button. */
     static juce::Colour accentFor (juce::MessageBoxIconType);
 
-    /** The Pitch Flattener mark: a wobbling teal line that settles into a flat amber line (editor header,
-        designed at 34 x 22 and scaled to the area). */
+    /** Draws a button that is not in an AlertWindow (the update popup's) as a dialog button: capitals, the
+        dialog font and pill, focus ring in `accent`, and tinted in `accent` when it is the primary action. */
+    static void setDialogButton (juce::Button&, juce::Colour accent, bool primary);
+
+    /** The Pitch Flattener mark: a cyan wobble that settles into a flat lime line, leaning forward (editor
+        header, designed at 34 x 22 and scaled to the area). */
     static void drawMark (juce::Graphics&, juce::Rectangle<float> area);
 
-    /** A panel like the editor's sections (fill, outline, accent dot, title, divider); returns its header row. */
+    /** A panel like the editor's sections (chamfered, speed-striped heading, divider); returns its header row. */
     juce::Rectangle<float> drawPanel (juce::Graphics&, juce::Rectangle<float> bounds, const juce::String& title,
                                       juce::Colour accent, float headerHeight = 32.0f) const;
 
@@ -65,8 +68,9 @@ public:
     juce::Slider::SliderLayout getSliderLayout (juce::Slider&) override;
     juce::Label* createSliderTextBox (juce::Slider&) override;
 
-    // Labels
+    // Labels (a gauge's value is drawn large, its qualifier small)
     juce::Font getLabelFont (juce::Label&) override;
+    void drawLabel (juce::Graphics&, juce::Label&) override;
 
     // Combo boxes and their popups
     void drawComboBox (juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
@@ -134,6 +138,7 @@ private:
     juce::Font menuFont (float scale) const;
     juce::TextLayout layoutTooltip (const juce::String& text, juce::Colour colour) const;
     static bool isPrimaryDialogButton (const juce::Button&);
+    static juce::Colour dialogAccentFor (const juce::Button&);
 
     const Theme::Fonts& m_fonts;
 

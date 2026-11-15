@@ -372,11 +372,43 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
     setSize (defaultWidth, defaultHeight);
     applyTheme();
     refreshButtons();
+
+   #ifndef SOUNDADVICE_NO_UPDATE_CHECK
+    // Once a day at most, on its own thread; silent if it can't reach GitHub.
+    updateCheck = std::make_unique<sammyj::UpdateCheck> ("soundadvice", "soundadvice-v", JucePlugin_VersionString,
+                                                         [this] (const sammyj::UpdateInfo& info) { showUpdatePopup (info); });
+   #endif
 }
 
 SoundAdviceEditor::~SoundAdviceEditor()
 {
+    updateCheck = nullptr;
     setLookAndFeel (nullptr);
+}
+
+void SoundAdviceEditor::showUpdatePopup (const sammyj::UpdateInfo& info)
+{
+    if (updatePopup != nullptr)
+        return;
+
+    updatePopup = std::make_unique<UpdatePopup> (info);
+    updatePopup->setPalette (palette);
+    updatePopup->onDismiss = [this]
+    {
+        // Hide now; delete once the button that asked has finished its click.
+        updatePopup->setVisible (false);
+        if (isShowing())
+            grabKeyboardFocus();
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<SoundAdviceEditor> (this)]
+        {
+            if (safe != nullptr)
+                safe->updatePopup = nullptr;
+        });
+    };
+    addAndMakeVisible (*updatePopup);
+    updatePopup->setBounds (getLocalBounds());
+    updatePopup->toFront (false);
+    updatePopup->focusDefaultButton();
 }
 
 void SoundAdviceEditor::applyTheme()
@@ -391,6 +423,8 @@ void SoundAdviceEditor::applyTheme()
     nightButton.setPalette (palette);
     nightButton.setGlyph (night ? GlyphButton::Glyph::sun : GlyphButton::Glyph::moon);
     nightButton.setTooltip (night ? "Paper" : "Night");
+    if (updatePopup != nullptr)
+        updatePopup->setPalette (palette);
     rebuildGrain();
     repaint();
 }
@@ -426,6 +460,10 @@ void SoundAdviceEditor::refreshButtons()
 
 bool SoundAdviceEditor::keyPressed (const juce::KeyPress& key)
 {
+    // The card was shown while the editor held focus (e.g. not yet on screen): its keys, not the page's.
+    if (updatePopup != nullptr && updatePopup->isVisible())
+        return updatePopup->keyPressed (key);
+
     const auto code = key.getKeyCode();
     if (code == juce::KeyPress::returnKey || code == juce::KeyPress::rightKey)
         rollDice();
@@ -498,6 +536,9 @@ void SoundAdviceEditor::resized()
     const auto footY = r.getBottom() - 10;
     backButton.setBounds (juce::Rectangle<int> (30, 30).withCentre ({ r.getX() + 15, footY }));
     dice.setBounds (juce::Rectangle<int> (34, 34).withCentre ({ r.getRight() - 17, footY }));
+
+    if (updatePopup != nullptr)
+        updatePopup->setBounds (getLocalBounds());
 
     rebuildGrain();
 }

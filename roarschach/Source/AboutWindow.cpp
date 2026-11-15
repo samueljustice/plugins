@@ -9,14 +9,17 @@ namespace
     constexpr int c_connectionTimeoutMs = 5000;
     constexpr int c_stopTimeoutMs = 10000; // a cancelled request unwinds in milliseconds; this is a backstop
 
-    // Layout of the About window's content (500 x 650), in the editor's design units.
+    // Layout of the About window's content (500 x 760), in the editor's design units.
     constexpr int c_margin = 16;
     constexpr int c_headerBlockHeight = 66;  // mark + name, tagline, version
-    constexpr int c_panelGap = 12;
-    constexpr int c_panelHeaderHeight = 32;  // as the editor's sections
-    constexpr int c_creditsHeight = 98;
-    constexpr int c_textInset = 26;          // body text lines up with the panel title, after its dot
+    constexpr int c_panelGap = 10;
+    constexpr int c_panelHeaderHeight = 32;  // a section's ruled heading
+    constexpr int c_creditsHeight = 88;      // the header row, the name, the links
+    constexpr int c_textInset = 14;          // body text lines up with the panel title
     constexpr int c_linkHeight = 22;
+    constexpr int c_quickNumberWidth = 18;   // the step numbers' column
+    constexpr int c_quickLineGap = 5;
+    constexpr int c_quickBottomPad = 7;
 
     // Release tags of this plug-in in the shared repository: "roarschach-v1.2.3".
     const char* const c_tagPrefix = "roarschach-v";
@@ -34,10 +37,10 @@ namespace
 //-----------------------------------------------------------------
 // AboutWindow
 //-----------------------------------------------------------------
-AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose)
-    : DocumentWindow("About Roarschach", Theme::Colours::background, DocumentWindow::closeButton)
+AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose, const juce::String& latencyNote)
+    : DocumentWindow("About Roarschach", Theme::Colours::paper, DocumentWindow::closeButton)
     , m_onClose(std::move(onClose))
-    , m_content(editorLookAndFeel)
+    , m_content(editorLookAndFeel, latencyNote)
 {
     setLookAndFeel(&editorLookAndFeel); // the editor's: it outlives this window (the editor deletes it first)
     RoarschachLookAndFeel::showFocusRingsAfterTab(*this);
@@ -45,7 +48,10 @@ AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function
     setUsingNativeTitleBar(true);
     setContentNonOwned(&m_content, false);
 
-    centreWithSize(500, 650);
+    int height = c_height;
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        height = heightForDisplay(display->userArea.getHeight());
+    centreWithSize(c_width, height);
     setVisible(true);
     setResizable(false, false);
     setAlwaysOnTop(true);
@@ -57,6 +63,48 @@ AboutWindow::~AboutWindow()
     m_content.stopUpdateCheck(); // aborts a request in flight and joins its thread
     clearContentComponent();
     setLookAndFeel(nullptr);
+}
+
+int AboutWindow::heightForDisplay(int workAreaHeight) noexcept
+{
+    // Room for the title bar. On a short display the licence panel gives up the height (it scrolls).
+    return workAreaHeight > 0 ? juce::jlimit(c_minHeight, c_height, workAreaHeight - c_titleBarReserve) : c_height;
+}
+
+juce::StringArray AboutWindow::quickStartLines()
+{
+   #if JUCE_MAC
+    const juce::String undoKey = "Cmd+Z";
+   #else
+    const juce::String undoKey = "Ctrl+Z";
+   #endif
+    return {
+        "Put it on a voice track and play. The creature wakes when it hears sound.",
+        "Pick a preset from the name at the top, step with < and >, or roll the die beside them.",
+        "Each tile is one module: its light switches it on, its knobs shape it, its chip picks a mode.",
+        "Drag a tile by its header to move it in the chain. A tile's die gives that module new settings.",
+        undoKey + " straight after a roll or a preset load brings back the sound you had. OUTPUT sets the level."
+    };
+}
+
+juce::String AboutWindow::latencyLine(const juce::String& latencyNote)
+{
+    return latencyNote.isNotEmpty()
+         ? "Latency: " + latencyNote + ". The host lines the track up with it; monitoring live, you hear yourself that much late."
+         : juce::String("Latency: the plug-in reports its delay to the host, which lines the track up with it; monitoring live, you hear yourself late.");
+}
+
+std::unique_ptr<juce::Component> AboutWindow::createContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote)
+{
+    auto content = std::make_unique<AboutContent>(editorLookAndFeel, latencyNote);
+    content->setSize(c_width, c_height);
+    return content;
+}
+
+void AboutWindow::refreshColours()
+{
+    setBackgroundColour(Theme::Colours::paper);
+    m_content.refreshColours();
 }
 
 void AboutWindow::closeButtonPressed()
@@ -134,7 +182,7 @@ void AboutWindow::UpdateCheck::run()
         return;
 
     auto result = connected ? interpret(response, m_currentVersion)
-                            : Result { "Failed to check for updates", Theme::Colours::bad };
+                            : Result { "Failed to check for updates", Tone::warning };
     {
         const juce::ScopedLock sl(m_lock);
         m_result = std::move(result);
@@ -157,13 +205,14 @@ void AboutWindow::UpdateCheck::handleAsyncUpdate()
 
 AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce::String& response, const juce::String& currentVersion)
 {
-    // Status colours as in the editor: failure 'bad', success 'good', something to act on amber,
-    // anything else (no Roarschach release listed) the dim text colour.
+    // Status tones (coloured on the message thread, as in the editor): a failure in the warning ink, a
+    // result in the dyed ink, anything else (no Roarschach release listed) the dim ink. (The words carry
+    // the meaning; colour only adds. This runs on the worker thread: it never reads the palette.)
     const juce::var releases = juce::JSON::parse(response);
     const juce::Array<juce::var>* releasesArray = releases.getArray();
 
     if (releasesArray == nullptr)
-        return { "Invalid response from server", Theme::Colours::bad };
+        return { "Invalid response from server", Tone::warning };
 
     // Releases are listed newest first; the first one tagged for Roarschach is the latest.
     juce::String latestVersion;
@@ -181,7 +230,7 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce:
     }
 
     if (latestVersion.isEmpty())
-        return { "No releases found", Theme::Colours::textDim };
+        return { "No releases found", Tone::neutral };
 
     // Parse version numbers for proper comparison
     auto parseVersion = [](const juce::String& version) -> int
@@ -197,33 +246,41 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce:
     };
 
     if (parseVersion(latestVersion) > parseVersion(currentVersion))
-        return { "New version " + latestVersion + " available!", Theme::Colours::output };
+        return { "New version " + latestVersion + " available!", Tone::result };
 
-    return { "You have the latest version", Theme::Colours::good };
+    return { "You have the latest version", Tone::result };
+}
+
+juce::Colour AboutWindow::UpdateCheck::colourOf(Tone tone)
+{
+    return tone == Tone::warning ? Theme::Colours::warn : tone == Tone::result ? Theme::Colours::accentInk : Theme::Colours::inkDim;
 }
 
 
 //-----------------------------------------------------------------
 // AboutContent
 //-----------------------------------------------------------------
-AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel)
+AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote)
     : m_lookAndFeel(editorLookAndFeel)
+    , m_latencyLine(latencyLine(latencyNote))
     , m_updateCheck(juce::URL(c_releasesUrl), JucePlugin_VersionString, [this](const UpdateCheck::Result& result)
       {
           m_updateStatusLabel.setText(result.text, juce::dontSendNotification);
-          m_updateStatusLabel.setColour(juce::Label::textColourId, result.colour);
+          m_statusTone = result.tone;
+          repaint();   // (the heading's rule makes room for it)
+          m_updateStatusLabel.setColour(juce::Label::textColourId, UpdateCheck::colourOf(result.tone));
           m_checkUpdatesButton.setEnabled(true);
       })
 {
     // Set here as well as on the window, so the children are drawn with it from the start.
     setLookAndFeel(&m_lookAndFeel);
 
-    // Links: dim text, amber and underlined under the mouse (the LookAndFeel's link style for a text
-    // button with a transparent fill).
+    // Links: the dim ink, the dyed ink and underlined under the mouse (the LookAndFeel's link style for
+    // a text button with a transparent fill).
     for (auto* link : { &m_websiteButton, &m_emailButton })
     {
         link->setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        link->setColour(juce::TextButton::textColourOffId, Theme::Colours::textDim);
+        link->setColour(juce::TextButton::textColourOffId, Theme::Colours::inkDim);
         link->setMouseCursor(juce::MouseCursor::PointingHandCursor);
     }
 
@@ -247,17 +304,17 @@ AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel
     m_checkUpdatesButton.onClick = [this] { checkForUpdates(); };
     addAndMakeVisible(m_checkUpdatesButton);
 
-    // The result, in the header row next to the button (like a readout in an editor section header).
+    // The result, in the heading's row before the button.
     m_updateStatusLabel.setText("", juce::dontSendNotification);
     m_updateStatusLabel.setJustificationType(juce::Justification::centredRight);
-    m_updateStatusLabel.setColour(juce::Label::textColourId, Theme::Colours::textDim);
-    m_updateStatusLabel.setFont(m_fonts->body(11.0f));
+    m_updateStatusLabel.setColour(juce::Label::textColourId, Theme::Colours::inkDim);
+    m_updateStatusLabel.setFont(m_fonts->body(Theme::Type::prose));
     m_updateStatusLabel.setBorderSize(juce::BorderSize<int>(0));
     m_updateStatusLabel.setMinimumHorizontalScale(1.0f); // never squashed
     m_updateStatusLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(m_updateStatusLabel);
 
-    // The licence text sits on its panel, in the dim text colour, with the theme's scrollbar.
+    // The licence text sits on its panel, in the dim ink, with the theme's scrollbar.
     m_licenseText.setMultiLine(true);
     m_licenseText.setReadOnly(true);
     m_licenseText.setScrollbarsShown(true);
@@ -265,9 +322,9 @@ AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel
     m_licenseText.setBorder(juce::BorderSize<int>(0));
     m_licenseText.setIndents(6, 4);
     m_licenseText.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-    m_licenseText.setColour(juce::TextEditor::textColourId, Theme::Colours::textDim);
-    m_licenseText.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack); // amber ring after Tab only
-    m_licenseText.setFont(m_fonts->body(11.5f));
+    m_licenseText.setColour(juce::TextEditor::textColourId, Theme::Colours::inkDim);
+    m_licenseText.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack); // the focus ring after Tab only
+    m_licenseText.setFont(m_fonts->body(Theme::Type::prose));
     m_licenseText.setLineSpacing(1.25f);
     m_licenseText.setText(
         "MIT License\n\n"
@@ -292,53 +349,131 @@ AboutWindow::AboutContent::~AboutContent()
     setLookAndFeel(nullptr);
 }
 
+void AboutWindow::AboutContent::refreshColours()
+{
+    // The colours children keep (set once), taken from the palette as it is now; the quick start's
+    // laid-out lines are made again in the new inks.
+    for (auto* link : { &m_websiteButton, &m_emailButton })
+        link->setColour(juce::TextButton::textColourOffId, Theme::Colours::inkDim);
+    m_updateStatusLabel.setColour(juce::Label::textColourId, UpdateCheck::colourOf(m_statusTone));
+    m_licenseText.setColour(juce::TextEditor::textColourId, Theme::Colours::inkDim);
+    m_licenseText.applyColourToAllText(Theme::Colours::inkDim, true);
+    resized();
+    repaint();
+}
+
 void AboutWindow::AboutContent::paint(juce::Graphics& g)
 {
     using namespace Theme::Colours;
 
-    g.fillAll(background);
+    g.fillAll(paper);
+    Theme::fillPaperGrain(g, getLocalBounds().toFloat());
 
-    // Header, as the editor's: the mark and the name, then the tagline and the version (amber).
+    // Header: the mark in colour (here only), the name in the display face, then the tagline and the
+    // version (in the dyed ink).
     const float x = static_cast<float>(c_margin);
     const float width = static_cast<float>(getWidth()) - 2.0f * x;
     const auto titleRow = juce::Rectangle<float>(x, static_cast<float>(c_margin), width, 30.0f);
-    RoarschachLookAndFeel::drawMark(g, juce::Rectangle<float>(30.0f, 22.0f).withPosition(x, titleRow.getCentreY() - 11.0f));
+    RoarschachLookAndFeel::drawColourMark(g, juce::Rectangle<float>(34.0f, 25.0f).withPosition(x, titleRow.getCentreY() - 12.5f));
 
-    const float textX = x + 30.0f + 12.0f;
-    g.setFont(m_fonts->heading(22.0f));
-    g.setColour(text);
-    g.drawText("ROARSCHACH", titleRow.withLeft(textX), juce::Justification::centredLeft, false);
+    const float textX = x + 34.0f + 12.0f;
+    g.setFont(m_fonts->display(Theme::Type::wordmark));
+    g.setColour(ink);
+    g.drawText("ROARSCHACH", titleRow.withLeft(textX).translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
 
-    const auto small = m_fonts->label(10.5f);
+    const auto small = m_fonts->caption(Theme::Type::credit);
     g.setFont(small);
-    g.setColour(textFaint);
-    g.drawText(Theme::tagline, juce::Rectangle<float>(textX, titleRow.getBottom() + 2.0f, width, 16.0f),
+    g.setColour(inkDim);
+    g.drawText(Theme::tagline, juce::Rectangle<float>(textX, titleRow.getBottom() + 3.0f, width, 16.0f),
                juce::Justification::centredLeft, false);
 
     juce::AttributedString version;
     version.setJustification(juce::Justification::centredLeft);
-    version.append(juce::String("VERSION ") + JucePlugin_VersionString, small, output);
-    version.append("  /  BUILT " + buildText().toUpperCase(), small, textFaint);
+    version.append(juce::String("VERSION ") + JucePlugin_VersionString, small, accentInk);
+    version.append("  /  BUILT " + buildText().toUpperCase(), small, inkDim);
     juce::TextLayout versionLayout;
     versionLayout.createLayout(version, width);
-    versionLayout.draw(g, juce::Rectangle<float>(textX, titleRow.getBottom() + 18.0f, width, 16.0f));
+    versionLayout.draw(g, juce::Rectangle<float>(textX, titleRow.getBottom() + 19.0f, width, 16.0f));
 
-    // Panels like the editor's sections.
-    m_lookAndFeel.drawPanel(g, m_creditsPanel.toFloat(), "CREATED BY", output);
-    m_lookAndFeel.drawPanel(g, m_updatesPanel.toFloat(), "UPDATES", input, static_cast<float>(m_updatesPanel.getHeight()));
-    m_lookAndFeel.drawPanel(g, m_licencePanel.toFloat(), "LICENSE", master);
+    // Sections on the plain sheet, each under a ruled heading in the display face (as a menu's).
+    m_lookAndFeel.drawPanel(g, m_creditsPanel.toFloat(), "CREATED BY");
+    m_lookAndFeel.drawPanel(g, m_quickStartPanel.toFloat(), "QUICK START");
+    {
+        // (the rule stops before the result, or before the button while there is none)
+        const auto status = m_updateStatusLabel.getText();
+        const float statusWidth = status.isEmpty() ? 0.0f
+                                : juce::GlyphArrangement::getStringWidth(m_updateStatusLabel.getFont(), status) + 12.0f;
+        m_lookAndFeel.drawPanel(g, m_updatesPanel.toFloat(), "UPDATES", static_cast<float>(c_panelHeaderHeight),
+                                static_cast<float>(m_updateStatusLabel.getRight()) - statusWidth - 2.0f);
+    }
+    m_lookAndFeel.drawPanel(g, m_licencePanel.toFloat(), "LICENSE");
 
     // Credits: the name, then the links separated as in the editor header.
     const auto body = m_creditsPanel.withTrimmedTop(c_panelHeaderHeight).withTrimmedLeft(c_textInset);
-    g.setFont(m_fonts->body(13.0f));
-    g.setColour(text);
+    g.setFont(m_fonts->body(Theme::Type::body));
+    g.setColour(ink);
     g.drawText("Samuel Justice", body.withTrimmedTop(10).withHeight(18).toFloat(), juce::Justification::centredLeft, false);
 
     g.setFont(small);
-    g.setColour(textFaint);
+    g.setColour(inkFaint);
     g.drawText("/", juce::Rectangle<int>(m_websiteButton.getRight(), m_websiteButton.getY(),
                                          m_emailButton.getX() - m_websiteButton.getRight(), m_websiteButton.getHeight()).toFloat(),
                juce::Justification::centred, false);
+
+    // Quick start: numbered steps, then the latency line (no number, dimmer).
+    {
+        const float left = static_cast<float>(m_quickStartPanel.getX() + c_textInset);
+        float y = static_cast<float>(m_quickStartPanel.getY() + c_panelHeaderHeight + 4);
+        const int steps = static_cast<int>(m_quickStart.size()) - 1;
+        for (int i = 0; i < static_cast<int>(m_quickStart.size()); ++i)
+        {
+            const auto& layout = m_quickStart[static_cast<size_t>(i)];
+            if (i < steps)
+            {
+                // (the sans' figures: the display face's 1 reads as a capital I)
+                g.setFont(m_fonts->label(Theme::Type::prose));
+                g.setColour(accentInk);
+                g.drawText(juce::String(i + 1), juce::Rectangle<float>(left, y + 1.0f, static_cast<float>(c_quickNumberWidth), 17.0f),
+                           juce::Justification::topLeft, false);
+            }
+            else
+            {
+                y += 3.0f;
+                g.setColour(ruleSoft);
+                g.fillRect(juce::Rectangle<float>(left, y, static_cast<float>(m_quickStartPanel.getRight() - 12) - left, 1.0f));
+                y += 3.0f + static_cast<float>(c_quickLineGap);
+            }
+            const float textLeft = i < steps ? left + static_cast<float>(c_quickNumberWidth) : left;
+            layout.draw(g, juce::Rectangle<float>(textLeft, y, layout.getWidth(), layout.getHeight()));
+            y += layout.getHeight() + static_cast<float>(c_quickLineGap);
+        }
+    }
+}
+
+int AboutWindow::AboutContent::layoutQuickStart(int width)
+{
+    m_quickStart.clear();
+    const auto font = m_fonts->body(Theme::Type::prose);
+    const float textWidth = static_cast<float>(width - c_textInset - 12);
+    float height = static_cast<float>(c_panelHeaderHeight + 4);
+
+    const auto add = [&](const juce::String& line, juce::Colour colour, float lineWidth)
+    {
+        juce::AttributedString text;
+        text.setJustification(juce::Justification::topLeft);
+        text.setLineSpacing(2.0f);
+        text.append(line, font, colour);
+        juce::TextLayout layout;
+        layout.createLayout(text, lineWidth);
+        height += layout.getHeight() + static_cast<float>(c_quickLineGap);
+        m_quickStart.push_back(std::move(layout));
+    };
+
+    for (const auto& line : quickStartLines())
+        add(line, Theme::Colours::ink, textWidth - static_cast<float>(c_quickNumberWidth));
+    height += 6.0f + static_cast<float>(c_quickLineGap);   // the rule above the latency line
+    add(m_latencyLine, Theme::Colours::inkDim, textWidth);
+    return juce::roundToInt(std::ceil(height)) + c_quickBottomPad - c_quickLineGap;
 }
 
 void AboutWindow::AboutContent::resized()
@@ -347,6 +482,8 @@ void AboutWindow::AboutContent::resized()
     area.removeFromTop(c_headerBlockHeight + 14);
 
     m_creditsPanel = area.removeFromTop(c_creditsHeight);
+    area.removeFromTop(c_panelGap);
+    m_quickStartPanel = area.removeFromTop(layoutQuickStart(area.getWidth()));
     area.removeFromTop(c_panelGap);
     m_updatesPanel = area.removeFromTop(c_panelHeaderHeight);
     area.removeFromTop(c_panelGap);
@@ -368,13 +505,15 @@ void AboutWindow::AboutContent::resized()
     linkRow.removeFromLeft(20);
     m_emailButton.setBounds(linkRow.removeFromLeft(linkWidth(m_emailButton)));
 
-    // UPDATES header row: the title, the status, the button (as a switch in an editor section header).
-    auto header = m_updatesPanel.reduced(8, 5);
-    const int buttonWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_fonts->label(11.0f), "CHECK FOR UPDATES")) + 30;
+    // UPDATES: the heading with the button at the end of its row (inset as far from the right as the
+    // text is from the left), the result just before the button; the heading's rule stops short of it.
+    auto header = m_updatesPanel.withTrimmedRight(c_textInset).reduced(0, 3);
+    const int buttonWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_lookAndFeel.getTextButtonFont(m_checkUpdatesButton, header.getHeight()),
+                                                                                    "CHECK FOR UPDATES")) + 30;
     m_checkUpdatesButton.setBounds(header.removeFromRight(buttonWidth));
     header.removeFromRight(10);
     const int titleRight = m_updatesPanel.getX() + c_textInset
-                         + juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_fonts->heading(11.0f), "UPDATES")) + 12;
+                         + juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_fonts->title(Theme::Type::menuHeader), "UPDATES")) + 12;
     m_updateStatusLabel.setBounds(header.withLeft(titleRight));
 
     // The licence text inside its panel, text aligned with the title.
@@ -389,5 +528,7 @@ void AboutWindow::AboutContent::checkForUpdates()
 
     m_checkUpdatesButton.setEnabled(false);
     m_updateStatusLabel.setText("Checking for updates...", juce::dontSendNotification);
-    m_updateStatusLabel.setColour(juce::Label::textColourId, Theme::Colours::textDim);
+    m_statusTone = UpdateCheck::Tone::neutral;
+    repaint();
+    m_updateStatusLabel.setColour(juce::Label::textColourId, UpdateCheck::colourOf(m_statusTone));
 }

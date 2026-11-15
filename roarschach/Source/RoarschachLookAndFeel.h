@@ -1,6 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
+
+#include <optional>
 #include "Theme.h"
 
 /**
@@ -8,7 +10,7 @@
  * popups, TextEditor right-click menus, alerts, its tooltip window, the knob value boxes, the corner
  * resizer and the About window) are drawn with one instance of this class, owned by the editor.
  *
- * Fonts: every font comes from Theme::Fonts (Azeret Mono). JUCE builds several of its own fonts without a
+ * Fonts: every font comes from Theme::Fonts' roles. JUCE builds several of its own fonts without a
  * typeface (menus, alerts, tooltips, V4 buttons), which resolve to the system sans-serif whatever the
  * LookAndFeel's default typeface is, so each of those hooks is overridden here.
  *
@@ -16,13 +18,50 @@
  * they are drawn with. The owner closes them before this object goes (PopupMenu::dismissAllActiveMenus(),
  * resetting the alerts and the About window, setLookAndFeel(nullptr)).
  *
- * The rules it implements: accents per section, chrome in capitals, strokes instead of glyph icons, popups no
- * smaller than at the editor's default size.
+ * The rules it implements: ink on paper (Theme's roles, the mood's dye as the one accent), strokes instead of
+ * glyph icons, state shown by shape as well as tone, popups no smaller than at the editor's default size.
+ * Colours are read from the live palette whenever something is drawn; refreshColours() takes a changed
+ * palette into the colour ids JUCE's own drawing reads.
  */
 class RoarschachLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     explicit RoarschachLookAndFeel(const Theme::Fonts& fonts);
+
+    /** Takes the palette's current (mood-toned) roles into the colour ids. Call after Theme::applyMood(). */
+    void refreshColours();
+
+    /** How a knob is drawn (a property on the slider): in use, doing little, not used by the current
+        settings, or its module is Off. The last two are drawn as outlines, their values in the faint ink. */
+    enum class KnobStyle { full = 0, weak = 1, unused = 2, off = 3 };
+    static void setKnobStyle(juce::Slider&, KnobStyle);
+    static KnobStyle getKnobStyle(const juce::Slider&);
+
+    /** A caption whose ink follows the palette by rank: dim while its control is in use, the faint ink
+        when it is not (or its module is Off). */
+    static void setCaptionLive(juce::Label&, bool live);
+    static bool isCaptionLive(const juce::Label&);
+
+    /** A chip that opens a menu (a mode chip): drawn with a caret at its right. `off`: its module is Off, so
+        the chip is drawn without its fill and its label in the faint ink (still readable, still clickable). */
+    static void setMenuChip(juce::Button&, bool off = false);
+    /** 0: not a menu chip, 1: a menu chip, 2: ... of an Off module. */
+    static int getMenuChip(const juce::Button&);
+
+    /** A switch (IN's and OUTPUT's AUTO): an ink outline with a lamp; it reads its own name, or ON and OFF
+        where a caption names it (wordsOnOff). */
+    static void setSwitch(juce::Button&, bool wordsOnOff = false);
+    /** A tag (SAVE): an outlined ink tag, no raised fill, filled with the dyed ink while toggled on. */
+    static void setTag(juce::Button&);
+    /** A glyph button drawn in an outlined ink circle (the header's ?). */
+    static void setCircled(juce::Button&);
+    /** A header button drawn as a quiet glyph: no chip until the mouse is over it. */
+    static void setQuiet(juce::Button&);
+    /** A text button whose label is set in the display face (the preset name). */
+    static void setDisplayFace(juce::Button&);
+
+    /** A brushed value arc: from `from` to `to` (radians), swelling from a fine start to a round end. */
+    static void strokeBrush(juce::Graphics&, juce::Point<float> centre, float radius, float from, float to, float width);
 
     //==============================================================================
     /** Row height of a menu at design size; every other menu metric follows it. */
@@ -41,16 +80,27 @@ public:
     /** Draws a button's label in capitals, like the editor's buttons. Its text (and accessible name) is kept. */
     static void setLabelDrawnInCapitals(juce::Button&);
 
-    /** The accent of a dialog of this kind: its header dot and its Return-key button. */
+    /** The accent of a dialog of this kind: its Return-key button (the warning ink for a warning). */
     static juce::Colour accentFor(juce::MessageBoxIconType);
 
-    /** The Roarschach mark (editor header, About window): a small mirror-symmetric ink-blot maw, horned, with
-        an open jaw, fangs top and bottom and slit eyes, designed at 30 x 22 and scaled to the area. */
-    static void drawMark(juce::Graphics&, juce::Rectangle<float> area);
+    /** The room a menu chip of this width gives its label (between its left end and its caret's zone). */
+    static float menuChipTextWidth(int buttonWidth);
 
-    /** A panel like the editor's sections (fill, outline, accent dot, title, divider); returns its header row. */
+    /** Lays a dialog out as the house does (after JUCE's layout): fields from the title's left edge, the
+        buttons at the right, the primary one rightmost. */
+    static void arrangeDialog(juce::AlertWindow&);
+
+    /** The Roarschach mark: a small mirror-symmetric ink-blot maw, horned, with an open jaw, fangs top and
+        bottom and slit eyes, designed at 30 x 22 and scaled to the area. drawMark is one ink with nothing
+        behind it (the editor header); drawColourMark is the mark in colour (the About window only). */
+    static void drawMark(juce::Graphics&, juce::Rectangle<float> area);
+    static void drawColourMark(juce::Graphics&, juce::Rectangle<float> area);
+
+    /** A section on the plain sheet (the About window's): no card, its title in the display face and a
+        hairline running on from it to ruleEnd (the section's right edge when 0), as a menu's section header.
+        Returns its header row. */
     juce::Rectangle<float> drawPanel(juce::Graphics&, juce::Rectangle<float> bounds, const juce::String& title,
-                                     juce::Colour accent, float headerHeight = 32.0f) const;
+                                     float headerHeight = 32.0f, float ruleEnd = 0.0f) const;
 
     const Theme::Fonts& getFonts() const noexcept { return m_fonts; }
 
@@ -61,16 +111,17 @@ public:
     juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
     juce::Label* createSliderTextBox(juce::Slider&) override;
 
-    /** A knob whose value box uses a smaller font than the default 12 px (the chain tiles). */
-    static void setValueFontHeight(juce::Slider&, float height);
+    /** A knob whose value box uses another size than Theme::Type::value (a point height). */
+    static void setValueFontHeight(juce::Slider&, float pointHeight);
 
-    // Labels
+    // Labels (a knob's value box is drawn here too: ink, or the faint ink for an unused or Off knob)
     juce::Font getLabelFont(juce::Label&) override;
+    void drawLabel(juce::Graphics&, juce::Label&) override;
 
-    // Toggle buttons: an On LED (the chain tiles' switches). No tick boxes anywhere: every ToggleButton is
-    // drawn as an LED in its tickColourId, lit when on, with its text (if any) beside it.
+    // Toggle buttons: an On lamp (the chain tiles' switches). No tick boxes anywhere: every ToggleButton is
+    // drawn as a lamp, filled when on and hollow when off, with its text (if any) beside it.
     void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool isMouseOverButton, bool isButtonDown) override;
-    static void drawLed(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, bool on, bool hot, bool focused);
+    static void drawLed(juce::Graphics&, juce::Rectangle<float> area, bool on, bool hot, bool focused);
 
     // Combo boxes and their popups
     void drawComboBox(juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
@@ -126,6 +177,9 @@ public:
                                           juce::Rectangle<int> parentArea) override;
     void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
 
+    // A menu shown inside a component (withParentComponent) would get a V4 frame line inside its border: none.
+    void drawResizableFrame(juce::Graphics&, int, int, const juce::BorderSize<int>&) override {}
+
     // The resizer AudioProcessorEditor::setResizable(true, true) puts in the bottom-right corner
     void drawCornerResizer(juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
 
@@ -146,9 +200,8 @@ private:
 //==============================================================================
 /**
  * A HyperlinkButton in the theme's link style. juce::HyperlinkButton draws its hover and pressed states as
- * textColourId.darker(0.4 / 1.3), which turns the theme's amber brown, and has no LookAndFeel hook; this one
- * draws the idle colour (textColourId), its hover colour on hover and a slightly darker one when pressed,
- * and an underline for keyboard focus.
+ * textColourId.darker(0.4 / 1.3) and has no LookAndFeel hook; this one draws the idle colour (textColourId),
+ * the dyed ink under the mouse, and an underline on hover and for keyboard focus.
  */
 class ThemeLink : public juce::HyperlinkButton
 {
@@ -158,16 +211,19 @@ public:
     /** Hides HyperlinkButton::setFont (whose font is private) so the link draws with the same font. */
     void setFont(const juce::Font& newFont, bool resizeToMatchComponentHeight,
                  juce::Justification newJustification = juce::Justification::horizontallyCentred);
-    void setHoverColour(juce::Colour colour);
+
+    /** Draws the text with its baseline's left end at this point (local, fractional), so it can sit
+        exactly on another line's baseline whatever whole-pixel bounds the button has. */
+    void setTextOrigin(juce::Point<float> baselineStart) { m_origin = baselineStart; repaint(); }
 
 protected:
     void paintButton(juce::Graphics&, bool isMouseOverButton, bool isButtonDown) override;
 
 private:
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
-    juce::Font m_font { m_fonts->label(12.0f) };
+    juce::Font m_font { m_fonts->caption(Theme::Type::credit) };
     juce::Justification m_justification { juce::Justification::horizontallyCentred };
-    juce::Colour m_hoverColour { Theme::Colours::output };
+    std::optional<juce::Point<float>> m_origin;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ThemeLink)
 };

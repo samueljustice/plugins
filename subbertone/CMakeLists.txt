@@ -7,7 +7,7 @@ if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
-project(Subbertone VERSION 1.3.1)
+project(Subbertone VERSION 1.4.0)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -101,7 +101,12 @@ target_sources(Subbertone
     Source/LearnWorker.cpp
     Source/LearnButton.cpp
     Source/LearnView.cpp
+    Source/UpdatePopup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The update check shared by every Sammy J plug-in (common/).
+target_include_directories(Subbertone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 # Plugin unique ID is set in juce_add_plugin above
 

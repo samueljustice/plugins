@@ -8,6 +8,7 @@
 // and the speed budget (< 150 ms for 10 s mono 48 kHz). Returns non-zero on failure.
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "Cargo.h"
 #include "SampleClassifier.h"
 
@@ -269,11 +270,11 @@ int main(int, char*[])
         std::vector<float> ten(static_cast<size_t>(10.0 * c_rate));
         for (size_t i = 0; i < ten.size(); ++i)
             ten[i] = ((i / 24000) % 3 == 2) ? 0.0f : 0.3f * (rng.nextFloat() * 2.0f - 1.0f);
-        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        const auto t0 = TestClock::cpuMs();
         auto regions = CargoData::detectRegions(ten.data(), static_cast<int>(ten.size()), c_rate);
         const auto a = SampleClassifier::analyse(ten.data(), static_cast<int>(ten.size()), c_rate, regions, "test");
         SampleClassifier::findFocusPoints(ten.data(), static_cast<int>(ten.size()), c_rate, regions);
-        const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+        const double ms = TestClock::cpuMs() - t0;
         juce::ignoreUnused(a);
        #if JUCE_DEBUG
         check(true, "10 s analysis took " + juce::String(ms, 1) + " ms (debug build, budget 150 ms not enforced)");

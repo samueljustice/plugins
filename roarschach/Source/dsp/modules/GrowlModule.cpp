@@ -76,6 +76,12 @@ namespace roar
         m_envAttack = static_cast<float> (dsp::onePoleCoeff (c_envAttack, m_fs));
         m_envRelease = static_cast<float> (dsp::onePoleCoeff (c_envRelease, m_fs));
         m_voicingCoeff = static_cast<float> (dsp::onePoleCoeff (c_voicingTau, m_fs));
+        m_voicingHoldSamples = static_cast<float> (c_voicingHold * m_fs);
+        m_levelPeakDecay = static_cast<float> (std::pow (10.0, -c_levelPeakDbPerSecond / (20.0 * m_fs)));
+        m_hissSplit.prepare (m_fs);
+        m_hissSplit.setCutoff (c_hissSplitHz);
+        m_hissAttack = static_cast<float> (dsp::onePoleCoeff (c_hissAttack, m_fs));
+        m_hissRelease = static_cast<float> (dsp::onePoleCoeff (c_hissRelease, m_fs));
         m_f0Coeff = static_cast<float> (dsp::onePoleCoeff (0.010, m_fs));
         m_fadeStep = 1.0f / static_cast<float> (std::max (1, dsp::samplesFor (c_fadeSeconds, m_fs)));
         m_maxCycleSamples = static_cast<int> (1.1 * m_fs);   // the slowest cycle is 1 Hz (-0.5 % drift)
@@ -128,6 +134,7 @@ namespace roar
     {
         m_state = State {};
         m_state.gRing.fill (1.0f);
+        m_hissSplit.reset();
         m_lamp.reset (0.0f);
         m_drift.seed (0x5bd1e995u);
         snapToTargets();
@@ -161,7 +168,7 @@ namespace roar
         const double depth = depthForAmount (static_cast<double> (m_settings.depth));
         m_state.depth = static_cast<float> (depth);
         m_state.depthEff = m_settings.shape == Params::GrowlShape::throat ? 0.0f : m_state.depth;   // Throat waits for voicing
-        m_state.logRate = std::log (std::clamp (static_cast<double> (m_settings.rateHz), 1.0, 150.0));
+        m_state.logRate = std::log (std::clamp (static_cast<double> (m_settings.rateHz), laws::growlMinRateHz, 150.0));
         m_state.rateNow = std::exp (m_state.logRate);
         m_state.lampRate = m_state.rateNow;
         m_lamp.setRate (m_state.lampRate);
@@ -184,7 +191,7 @@ namespace roar
     {
         m_settings = s;
         m_settings.depth = std::clamp (dsp::finiteOrZero (s.depth), 0.0f, 1.0f);
-        m_settings.rateHz = std::clamp (std::isfinite (s.rateHz) ? s.rateHz : 27.0f, 1.0f, 150.0f);
+        m_settings.rateHz = std::clamp (std::isfinite (s.rateHz) ? s.rateHz : 27.0f, static_cast<float> (laws::growlMinRateHz), 150.0f);
         m_fade.setOn (s.on);
     }
 
@@ -301,10 +308,16 @@ namespace roar
         const int charSetting = static_cast<int> (m_settings.character);
         const bool clean = charSetting == c_clean;
         const float envThreshold = static_cast<float> (c_envThresholdDb);
+        const float rattleThreshold = static_cast<float> (c_rattleThresholdDb);
         const float envRange = static_cast<float> (c_envRangeDb);
         const float maxDepth = static_cast<float> (c_maxDepth);
         const float makeupCap = static_cast<float> (dsp::dbToGain (c_makeupCapDb));
         const double invFs = 1.0 / m_fs;
+        const float holdFast = static_cast<float> (c_voicingHoldFast);
+        const float invHoldConfidence = static_cast<float> (1.0 / c_voicingHoldConfidence);
+        const float holdRange = static_cast<float> (dsp::dbToGain (-c_voicingHoldRangeDb));
+        const float holdFloor = static_cast<float> (dsp::dbToGain (c_voicingHoldFloorDb));
+        const float hissConfidence = static_cast<float> (c_hissConfidence);
         const int numChannels = stereo ? 2 : 1;
         float* const io[2] = { l, r };
 
@@ -317,9 +330,9 @@ namespace roar
             const float peak = std::max (std::abs (x0), std::abs (x1));
             st.env += (peak > st.env ? m_envAttack : m_envRelease) * (peak - st.env);
             st.env = dsp::flushTiny (st.env);
-            const float mEnv = m_diagnostics.envelope
-                                 ? std::clamp ((dsp::gainToDb (st.env) - envThreshold) / envRange, 0.0f, 1.0f)
-                                 : 0.0f;
+            const float envDb = dsp::gainToDb (st.env);
+            const float mEnv = m_diagnostics.envelope ? std::clamp ((envDb - envThreshold) / envRange, 0.0f, 1.0f) : 0.0f;
+            const float rEnv = m_diagnostics.envelope ? std::clamp ((envDb - rattleThreshold) / envRange, 0.0f, 1.0f) : 0.0f;
 
             st.depth += m_paramCoeff * (depthTarget - st.depth);
             st.logRate += static_cast<double> (m_paramCoeff) * (logRateTarget - st.logRate);
@@ -328,7 +341,32 @@ namespace roar
             const VoiceFrame& frame = voice.atSample (i);
             if (frame.f0Hz > 0.0f && std::isfinite (frame.f0Hz))
                 st.f0 += static_cast<double> (m_f0Coeff) * (std::clamp (static_cast<double> (frame.f0Hz), 20.0, 2000.0) - st.f0);
-            const float voicedTarget = (frame.voiced && frame.f0Hz > 0.0f) ? 1.0f : 0.0f;
+            // Throat's voicing gate, with a hangover: the tracker drops out for a few tens of
+            // milliseconds inside rough or breathy words, and a rasp that switched off there would
+            // flicker. The f0 / 2 line keeps running at the held pitch while the level stays up;
+            // the hold runs out up to four times sooner as the confidence falls to zero, and hiss
+            // with no periodicity left ends it at once, so a sibilant is not modulated.
+            const bool voicedNow = frame.voiced && frame.f0Hz > 0.0f;
+            st.levelPeak = dsp::flushTiny (std::max (st.env, st.levelPeak * m_levelPeakDecay));
+            {
+                // Hiss: the part above c_hissSplitHz against the part below it (5 / 30 ms followers).
+                const float mono = stereo ? 0.5f * (x0 + x1) : x0;
+                const float low = m_hissSplit.processLowpass (mono);
+                const float lowAbs = std::abs (low), highAbs = std::abs (mono - low);
+                st.lowEnv += (lowAbs > st.lowEnv ? m_hissAttack : m_hissRelease) * (lowAbs - st.lowEnv);
+                st.highEnv += (highAbs > st.highEnv ? m_hissAttack : m_hissRelease) * (highAbs - st.highEnv);
+                st.lowEnv = dsp::flushTiny (st.lowEnv);
+                st.highEnv = dsp::flushTiny (st.highEnv);
+            }
+            const bool hiss = st.highEnv > st.lowEnv && frame.confidence < hissConfidence;
+            if (voicedNow)
+                st.voicingHold = m_voicingHoldSamples;
+            else if (hiss)
+                st.voicingHold = 0.0f;
+            else if (st.voicingHold > 0.0f)
+                st.voicingHold -= 1.0f + holdFast * (1.0f - std::clamp (frame.confidence * invHoldConfidence, 0.0f, 1.0f));
+            const bool held = st.voicingHold > 0.0f && st.env > std::max (st.levelPeak * holdRange, holdFloor);
+            const float voicedTarget = (voicedNow || held) ? 1.0f : 0.0f;
             if (voicedTarget > 0.0f && st.voicing < 1.0e-3f)
                 st.throatPhase = 0.0;   // lock the f0 / 2 phase to the voicing onset
             st.voicing += m_voicingCoeff * (voicedTarget - st.voicing);
@@ -347,7 +385,7 @@ namespace roar
             const double drift = c_driftAmount * static_cast<double> (m_drift.process());
             double rate = std::exp (st.logRate) * (m_diagnostics.drift ? 1.0 + drift : 1.0);
             if (wRattle > 0.0f)
-                rate *= 1.0 + (std::exp2 (c_rattleOctaves * static_cast<double> (mEnv)) - 1.0) * static_cast<double> (wRattle);
+                rate *= 1.0 + (std::exp2 (c_rattleOctaves * static_cast<double> (rEnv)) - 1.0) * static_cast<double> (wRattle);
             st.rateNow = wThroat > 0.5f ? 0.5 * st.f0 : rate;
 
             if ((st.controlCount++ & 31u) == 0u)
@@ -389,7 +427,12 @@ namespace roar
             if (wFrom > 0.0f)
                 s = wTo * s + wFrom * shapeValue (st.shapeFrom, st.phase, st.throatPhase);
 
-            float depthNow = st.depth * (1.0f + static_cast<float> (c_envDepthPush) * mEnv)
+            // Grind's curve flattens the open part of the cycle: its depth is scaled up so the
+            // tremolo stays as deep as Warm's at the same Depth.
+            const float wc = dsp::smoothstep01 (st.charMix);
+            const float wGrind = st.osWeight * ((st.charTo == c_grind ? wc : 0.0f) + (st.charFrom == c_grind ? 1.0f - wc : 0.0f));
+            float depthNow = st.depth * (1.0f + static_cast<float> (c_grindDepthScale - 1.0) * wGrind)
+                                      * (1.0f + static_cast<float> (c_envDepthPush) * mEnv)
                                       * (1.0f + static_cast<float> (c_humanizeDepth) * st.humanize)
                                       * (1.0f + (st.voicing - 1.0f) * wThroat);
             depthNow = std::clamp (depthNow, 0.0f, maxDepth);
@@ -470,6 +513,7 @@ namespace roar
         }
         m_lamp.setRate (m_state.lampRate);
         m_lamp.copyStateFrom (o.m_lamp);
+        m_hissSplit.copyStateFrom (o.m_hissSplit);
         m_drift.copyStateFrom (o.m_drift);
         m_fade.copyStateFrom (o.m_fade);
     }

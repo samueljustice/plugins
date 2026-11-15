@@ -2,95 +2,184 @@
 
 # Sammy J's Plugins
 
-**Toys I've made for sound designers.**
-
-<!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 9 Nov 2026, 07:46 UTC)
-
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.46/SammyJ-Plugins-2026-11-09-0746-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.46/SammyJ-Plugins-2026-11-09-0746-Windows-Installer.exe)
-
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.3.0 · Sound Advice 1.0.11 · Subbertone 1.3.1 · Pitch Flattener 2.2.0 · Reversinator 2.0.3. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
-Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
-<!-- get-them-all:end -->
+**Some of the toys and utilities I've made for us at [Sweet Justice Sound](https://www.sweetjusticesound.com), given for free.**
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
 ![Standalone](https://img.shields.io/badge/Standalone-222?style=flat-square)
+![AAX](https://img.shields.io/badge/AAX-222?style=flat-square)
 [![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
 ![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
+<!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
+### Get them all
+
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.15.158/SammyJ-Plugins-2026-11-15-1441-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.15.158/SammyJ-Plugins-2026-11-15-1441-Windows-Installer.exe)
+
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 3.0.0 · Reversinator 2.1.0 · Roarschach 1.3.0 · Tonal Recall 0.2.2.<br>
+Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
+Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
+<!-- get-them-all:end -->
+
+<sub>If these get some use in your work and you'd like to chip in, you can <a href="https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins">toss a coin in the jar</a> on PayPal. Every bit goes towards more of them.</sub>
+
 <br>
 
-| [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#-swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#-subbertone) |
-|:---:|:---:|
-| **[Swooshbuckler](#-swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#-subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
-| [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
-| **[Pitch Flattener](#-pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#-reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
+| [Roarschach](#roarschach) | [Swooshbuckler](#swooshbuckler) | [Tonal Recall](#tonal-recall) |
+|:---:|:---:|:---:|
+| [<img src="roarschach/docs/hero.gif" width="250" alt="Roarschach">](#roarschach) | [<img src="swooshbuckler/docs/screenshot.png" width="250" alt="Swooshbuckler">](#swooshbuckler) | [<img src="tonalrecall/docs/screenshot.png" width="250" alt="Tonal Recall">](#tonal-recall) |
+| <sub>A modular voice processor for exploration and fun</sub> | <sub>Generates whooshes from up to ten sounds</sub> | <sub>Pitch-matches sound effects to music in Pro Tools AudioSuite</sub> |
 
-[<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#-roarschach)<br>
-**[Roarschach](#-roarschach)**<br>Turn a voice into a creature
-
-[<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
-**[Sound Advice](#-sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
+| [Pitch Flattener](#pitch-flattener) | [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) |
+|:---:|:---:|:---:|:---:|
+| [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) |
+| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
 
 </div>
 
----
+## Roarschach
 
-## ⚔️ Swooshbuckler
+<p align="center">
+  <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
+</p>
 
-> Generates whooshes from up to ten sounds, and records them.
+A modular voice processor. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
+
+The picture above the chain is an ink blot that forms out of cloud and moves with the voice. It does nothing to the sound.
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="roarschach/docs/view-forming.gif" alt="Roarschach ink blot gathering out of the cloud" width="400"> <img src="roarschach/docs/view-dissolving.gif" alt="Roarschach ink blot tearing back into smoke" width="400">
+</p>
+<p align="center">
+  <img src="roarschach/docs/colour-moods.gif" alt="Roarschach cloud settled in three colours: pale blue-grey at Init, ember red and warm stone" width="604">
+</p>
+<p align="center">
+  <img src="roarschach/docs/panel-out.png" alt="Roarschach output stage" width="300"> <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="474">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](roarschach/README.md)
+
+## Swooshbuckler
 
 <p align="center">
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
 </p>
 
-Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **LAST 60s** grabs the last minute anyway.
+A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buses and a hits layer, then moves every fader by itself so the layers swell, pass and fall away. Hold Swell (or the space bar, or a MIDI note) to push it harder.
 
-- 🎚️ **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
-- 🧠 **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
-- 🎛️ **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
-- 🌀 **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
-- 🧬 **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
-- 💥 **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
-- 🔌 **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets** and a RANDOMISE button
+The quickest way to work is the renderer. Dial in a sound you like, then ask for a hundred variations of it, or a thousand. It renders them in the background, much faster than real time, as separate files or as one long file with a marker on each. You can also record by hand: a tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
+
+There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in. Surround output, up to 7.1.4, is nearly finished and will come in a later version.
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
   <img src="swooshbuckler/docs/images/morph-pad.png" alt="Swooshbuckler spectral morph pad" width="400">
-  <img src="swooshbuckler/docs/images/cables.png" alt="Swooshbuckler modulation cables" width="400">
+  <img src="swooshbuckler/docs/images/sea.png" alt="Swooshbuckler the sea" width="400">
 </p>
 <p align="center">
   <img src="swooshbuckler/docs/images/tracks.png" alt="Swooshbuckler tracks" width="820">
 </p>
 </details>
 
-**App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.3.0) &nbsp;
-[Read the manual →](swooshbuckler/README.md)
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](swooshbuckler/README.md)
 
----
+## Tonal Recall
 
-## 🔊 Subbertone
+<p align="center">
+  <img src="tonalrecall/docs/screenshot.png" alt="Tonal Recall" width="820">
+</p>
 
-> Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
+Pitch-matches a sound effect to the music under it. It's for trailer work, where stings, hits and tails should land on one of the music's notes. You play it the music, then the effect, and it works out a shift, shows it as a curve you can edit, and stamps it onto the clip when you render. The clip keeps its length and its hits stay where they were.
+
+It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and AU versions work the same way in other hosts.
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="tonalrecall/docs/music.png" alt="Tonal Recall music panel" width="400"> <img src="tonalrecall/docs/tail.png" alt="Tonal Recall effect scan with a predicted tail" width="400">
+</p>
+<p align="center">
+  <img src="tonalrecall/docs/strip-shift.png" alt="Tonal Recall shift, Bend, Stamp and Trim" width="820">
+</p>
+<p align="center">
+  <img src="tonalrecall/docs/playing.png" alt="Tonal Recall playing the stamped effect, with the playhead on the effect's scan" width="820">
+</p>
+</details>
+
+**AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](tonalrecall/README.md)
+
+## Pitch Flattener
+
+<p align="center">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
+</p>
+
+Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends, and the length changes. Play the same sound again and you hear the flat version, from wherever you start.
+
+It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
+</p>
+<p align="center">
+  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT and LINE" width="820">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
+
+## Reversinator
+
+<p align="center">
+  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="820">
+</p>
+
+A real-time reverser. It recreates the three effects of Backwards Machine (Reverse Playback, Forward Backwards and Reverse Repeat), rebuilt from a study of the original's signal flow and checked against the original's own renders, which it matches at better than 0.999 correlation. What's different is a resizable window, a display that shows the read heads sweeping back along a road into the past, and no clicks when you change a setting.
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](reversinator/README.md)
+
+## Sound Advice
+
+<p align="center">
+  <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
+</p>
+
+Not an effect: a page of advice. Pick what you're working on (mixing, creatures, dialogue, silence, running a team) and roll the die, and it shows you something a working sound person said or did about it, with the production it came from and a link to the source. There are 839 entries from 147 people: mixers, sound designers, editors, game audio directors, and a Disney Imagineer on leading creative work.
+
+Audio passes straight through it, so it can sit on a mix bus, or run as an app on another screen.
+
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](soundadvice/README.md)
+
+## Work in progress
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
+This one works, but I'm still changing it, so expect differences between releases.
+
+### Subbertone
 
 <p align="center">
   <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
 </p>
 
-Subbertone follows the pitch of your bass, engine or drone and adds a clean sub one octave below. That's only the start: build its harmonics bar by bar, from pure sub reinforcement, to the trick that makes a bass audible on speakers that can't play a sub, to a growling, talking octave-down monster. Saturation, a resonant filter and a mastering stage finish it off, with about 2 ms of latency that your host compensates for.
-
-- 🧠 **LEARN** for passages that are hard to track as they play, such as engine run-ups: loop the passage in your host, press LEARN and play the loop. Subbertone works out the pitch of the whole pass with hindsight, the sub follows what it learned from then on, and what it learned is saved with your session
-- 🧲 **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
-- 🎹 **18-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics, and S2 and S3 add deeper subs two and three octaves down. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
-- 🔥 **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
-- 🧱 **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
-- 🎯 **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a steep Lo Cut takes out the lowest sub for systems that can't play it
-- 🚗 **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
+Follows the pitch of a bass, engine or drone and adds a sub an octave below. You can then draw in its harmonics, up to the sixteenth, and add deeper subs two and three octaves down, which takes it from plain sub reinforcement to a bass you can hear on small speakers, or to a growl. Phase Align lines the added harmonics up with the ones already in the sound, so they add instead of cancelling. After that come saturation, a resonant filter and a limiter. It has about 2 ms of latency, which it reports to the host. For passages that are hard to track as they play, such as engine run-ups, loop the passage in your host and press LEARN: Subbertone works out the pitch of the whole pass with hindsight, and the sub follows what it learned.
 
 <details>
 <summary>More screenshots</summary>
@@ -107,135 +196,10 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.1) &nbsp;
-[Read the manual →](subbertone/README.md)
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](subbertone/README.md)
 
----
-
-## 🚨 Pitch Flattener
-
-> Removes pitch movement from Doppler passes, sirens and vibrato.
-
-<p align="center">
-  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
-</p>
-
-Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
-
-- 🎯 **Eight Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
-- 🔭 **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
-- 🎚️ **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
-- 📈 **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
-- 🚨 **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
-- 📏 **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
-- 💾 **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="pitchflattener/docs/display-engine.png" alt="Pitch Flattener display on an engine pass-by" width="400">
-  <img src="pitchflattener/docs/display-voice.png" alt="Pitch Flattener display on a voice" width="400">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.2.0) &nbsp;
-[Read the manual →](pitchflattener/README.md)
-
----
-
-## ⏪ Reversinator
-
-> Real-time reverse effects, recreating Backwards Machine's three modes.
-
-<p align="center">
-  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
-</p>
-
-A real-time reverser that faithfully recreates Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, rebuilt from a study of the original's signal flow. It lives in a new resizable interface with a live display of each read head sweeping backwards through your audio, and it fixes the original's glitches, so every change is click-free.
-
-- 🎯 **Checked against the real thing**: nulls against the original's own renders at 0.999+ correlation
-- ⏪ **Three classic effects**, with the original's sweeps, windows, vibrato and gain staging
-- 👀 **Live snippet display** that draws every read head as it sweeps backwards through your input
-- 🤫 **Click-free everywhere**: TIME sweeps, mode switches, the big REVERSER button and host bypass all crossfade, at any buffer size
-- ⏳ **Hourglass TIME** from 0.5 to 4 s, plus feedback that builds cascades of echoes, alternating direction
-- 🔍 **Resizable from 75% to 200%**, mono or stereo, any sample rate, zero latency
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="reversinator/docs/guide/display-reverse-playback.png" alt="Reversinator display in Reverse Playback" width="400">
-  <img src="reversinator/docs/guide/display-reverse-repeat.png" alt="Reversinator display in Reverse Repeat" width="400">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.3-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.3) &nbsp;
-[Read the manual →](reversinator/README.md)
-
----
-
-## 👹 Roarschach
-
-> *Say the line. The monster says it back.*
-
-<p align="center">
-  <img src="roarschach/docs/screenshot.jpg" alt="Roarschach" width="820">
-</p>
-
-Roarschach turns a spoken or shouted performance into a big, liquid, gravelly creature voice that still reads as words. Fourteen modules (PITCH, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order, and a creature drawn in OpenGL reacts to every sound and every knob.
-
-- 🗣️ **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
-- 🐉 **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
-- 🤖 **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
-- 🧩 **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
-- 🔊 **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
-- 👁️ **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Plus **39 factory presets** in six groups
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="roarschach/docs/view-forming.jpg" alt="Roarschach creature forming out of the fog" width="400"> <img src="roarschach/docs/view-crown.jpg" alt="Roarschach creature after a long, loud session" width="400">
-</p>
-<p align="center">
-  <img src="roarschach/docs/panel-out.png" alt="Roarschach output stage" width="300"> <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="474">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Roarschach](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0) &nbsp;
-[Read the manual →](roarschach/README.md)
-
----
-
-## 🎲 Sound Advice
-
-> Shows a random piece of advice from film, TV and game sound professionals and other creative people.
-
-<p align="center">
-  <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
-</p>
-
-A page of advice from people who work on film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and others, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
-
-- 📚 **843 entries from 148 people**, each name linked to their credits
-- 🔗 **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
-- 🛠️ **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
-- 🗂️ **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
-- 🌗 **Paper by day, ink by night**, with keyboard shortcuts and right-click to copy
-- 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
-
-**App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.11-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.11) &nbsp;
-[Read the manual →](soundadvice/README.md)
-
----
-
-## 🛠️ For developers
+## For developers
 
 <details>
 <summary><b>Building from source</b></summary>
@@ -245,8 +209,8 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 
 | Dependency | Used by |
 |---|---|
-| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Stretch Armstrong |
-| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Stretch Armstrong |
+| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Tonal Recall, Stretch Armstrong |
+| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Tonal Recall, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
 Then, from a project's folder:
@@ -258,7 +222,7 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. It's unsigned, so it loads only in Pro Tools Developer until it is signed with PACE's wraptool.
+**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned: Pro Tools needs it signed with PACE's wraptool, which needs the iLok, so signing is done by hand on the machine the iLok is plugged into. After each release, the **AAX signing** workflow waits at two stages: *Sign on the Mac* (plug the iLok into the Mac and run `sign-aax`; Notarise AAX then publishes `<Name>-<version>-macOS-AAX.zip`) and *Sign on the PC* (move the iLok to the PC and run `sign-aax` there; publishes `<Name>-<version>-Windows-AAX.zip`). Each stage waits 30 minutes; re-run the workflow with the tag to sign later. When both stages are done, the Sammy J's Plugins installer rebuilds with the signed AAX, so it always carries every plug-in's AAX; the per-plug-in pages all link to that installer. `sign-aax` signs every release waiting at its stage, so one iLok swap covers releases made together. `bundle/install-aax-signer.sh` installs it on the Mac, with a Sign AAX app to click (keep it in the Dock), and `bundle/install-aax-signer-windows.ps1` on the PC, with a Sign AAX shortcut to click (on the Desktop and in the Start menu; pin it to the taskbar), each with a prompt that asks when signing is waiting. On the PC, `sign-aax` runs `bundle/sign-aax-windows.ps1`, which signs with a code-signing certificate instead of a Developer ID and uploads the zip straight to the release (there's no notarisation on Windows). The *Sign on the PC* stage only runs while the repository variable `AAX_WINDOWS_SIGNING` is `true`.
 
 </details>
 
@@ -273,9 +237,18 @@ git tag swooshbuckler-v1.0.0
 git push origin swooshbuckler-v1.0.0
 ```
 
-The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `roarschach-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
+The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `roarschach-v`, `tonalrecall-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
-When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`, with the build's date and time in the file names, like `SammyJ-Plugins-2026-11-08-1253-macOS-Installer.pkg`). It then points the **Get them all** buttons at the top of this README at those files and says when they were built (it rewrites the block between the `get-them-all` markers and commits it), and deletes the installer releases it replaces. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). After publishing, it points the Get them all buttons at the new files and sets every plug-in's download link, here and in each plug-in's own README, to that plug-in's newest release, so those never need editing by hand. On macOS the download is a disk image holding the installer and **Uninstall Sammy J's Plugins**, an app that removes everything again and, if asked, the settings and presets listed in [`bundle/userdata.txt`](bundle/userdata.txt); on Windows the installer's own uninstaller does the same. Run it by hand from the Actions tab to rebuild it now.
+**Every update, before tagging:**
+
+1. Bump the version (each project's CMakeLists, and where its workflow says so, its installer script).
+2. Say what's new in the plug-in's own docs: its `CHANGELOG.md`, the version history in its `README.md`, or its `RELEASE_NOTES.md` (which becomes the release text, so head it with the new version). Update its README's tour and screenshots for anything that looks or works differently.
+3. Update the plug-in's section on this page. This README is also the website, [samueljustice.github.io/plugins](https://samueljustice.github.io/plugins/), which the Pages workflow republishes whenever it changes.
+4. Run `bundle/check-release-docs.sh <id> <version>`. The Release docs workflow runs it again on the tag and fails (GitHub emails) if a step was missed.
+5. Push the tag, one tag per push (GitHub ignores pushes of more than three tags). Every update must be its own tagged release: installed copies find new versions by their plug-in's own tag (`<prefix>X.Y.Z`), not by the combined installer.
+6. Sign the AAX when the AAX signing run asks (iLok in the Mac, **Sign AAX**, then the PC); the combined installer then rebuilds.
+
+When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`, with the build's date and time in the file names, like `SammyJ-Plugins-2026-11-08-1253-macOS-Installer.pkg`). It then points the **Get them all** buttons at the top of this README at those files and says when they were built (it rewrites the block between the `get-them-all` markers and commits it), and deletes the installer releases it replaces. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). Every plug-in's own download link, here and in its README, points to this installer, so those never need editing. On macOS the download is a disk image holding the installer and **Uninstall Sammy J's Plugins**, an app that removes everything again and, if asked, the settings and presets listed in [`bundle/userdata.txt`](bundle/userdata.txt); on Windows the installer's own uninstaller does the same. Run it by hand from the Actions tab to rebuild it now.
 
 </details>
 
@@ -285,9 +258,11 @@ When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combi
 
 <div align="center">
 
-### 👋 Made by Samuel Justice
+### Made by Samuel Justice
 
 Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com)**
+
+I taught myself C++ during the development of SOMA, but my knowledge only goes so far. These plug-ins are experiments: ideas that have been sitting in my head for a while, built with what I know and with help from Claude.
 
 <sub>Found a bug or have an idea? <a href="https://github.com/samueljustice/plugins/issues">Open an issue</a>.</sub>
 

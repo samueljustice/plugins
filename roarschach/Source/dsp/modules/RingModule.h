@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../common/CarrierPitchGate.h"
 #include "../common/DelayLine.h"
 #include "../common/Module.h"
 #include "../common/Oversampler2x.h"
@@ -41,10 +42,12 @@ namespace roar
      *
      * Carrier frequency, every 32 samples (then linear in log2 per sample):
      *   Fixed   fc = Freq (smoothed in log2, 20 ms)
-     *   Follow  fc = Ratio f0, f0 from the VoiceStream when its confidence is >= 0.4, otherwise
-     *           held (140 Hz before any pitch). The first pitch is taken at once; after that f0
-     *           glides in log2 with a 7 ms time constant (settled within about 20 ms), and an
-     *           octave jump must persist for 40 ms before it is followed.
+     *   Follow  fc = Ratio f0, f0 from the frames of the VoiceStream that are voiced, confident
+     *           (>= 0.4) and loud enough (CarrierPitchGate: within 30 dB of the recent level),
+     *           otherwise held (140 Hz before any pitch; in a pause it moves to the voice's usual
+     *           pitch). The first pitch, and the first pitch of a new phrase, are taken at once;
+     *           after that f0 glides in log2 with a 7 ms time constant (settled within about
+     *           20 ms), and an octave jump must persist for 40 ms before it is followed.
      *   A Track switch glides fc in log2 over 30 ms. fc is clamped to [10 Hz, 0.45 fs].
      *   The phase is a double accumulator, never reset by a parameter change, so fc moves without
      *   clicks; reset() sets it to 0.
@@ -54,7 +57,8 @@ namespace roar
      *   Triangle  odd harmonics 8 / (pi^2 k^2), alternating sign, kS = sqrt 3
      *   Square    odd harmonics 4 / (pi k), kS = 1
      *   Triangle and Square are mip-mapped: level L covers fc in [10 2^L, 10 2^(L+1)) Hz and holds
-     *   the odd harmonics with k 10 2^(L+1) <= fmaxC = min (20 kHz, 0.42 fs) (the fundamental
+     *   the odd harmonics with k 10 2^(L+1) <= fmaxC = min (10 kHz, 0.42 fs) (the fundamental
+     *   always; above 10 kHz the products would only add fizz to a voice)
      *   always). The table of a level has max (2048, 8 kmax) points (a power of two), read with
      *   cubic Hermite. Within an octave the reader crossfades from level L to level L+1 by the
      *   log position in the octave, so no harmonic switches on or off as fc sweeps. With the input
@@ -62,7 +66,8 @@ namespace roar
      *   Carrier changes crossfade the two carriers over 10 ms.
      *
      * Mode changes crossfade the Ring and AM outputs over 20 ms. kAM = 1 / rms (g) of the AM gain
-     * g = 1 - a/2 + (a/2) c, capped at +3 dB.
+     * g = 1 - a/2 + (a/2) c, capped at +3 dB, with a = sqrt (Amount) in AM mode (laws::ringAmAmount:
+     * the index is sqrt (Amount) / 2, so the low end of the travel already modulates audibly).
      *
      * Body (on the mixed output, at the base rate):
      *   z = y + fb LP1 (z[n - D]);   out = (1 - bm) y + bm z sqrt (1 - fb^2)
@@ -89,7 +94,7 @@ namespace roar
         static constexpr double c_maxCarrierFraction = 0.45;     // of fs
         static constexpr double c_minFreqHz = 20.0, c_maxFreqHz = 4000.0;
         static constexpr double c_minRatio = 0.25, c_maxRatio = 4.0;
-        static constexpr double c_harmonicMaxHz = 20000.0;
+        static constexpr double c_harmonicMaxHz = 10000.0;
         static constexpr double c_harmonicMaxFraction = 0.42;    // of fs
         static constexpr double c_levelBaseHz = 10.0;
         static constexpr int c_maxLevels = 18;
@@ -99,7 +104,6 @@ namespace roar
         static constexpr double c_f0GlideTau = 0.007;
         static constexpr double c_octaveConfirmSeconds = 0.040;
         static constexpr double c_octaveTolerance = 0.125;       // octaves
-        static constexpr double c_minConfidence = 0.4;
         static constexpr double c_initialF0Hz = 140.0;
         static constexpr double c_minF0Hz = 30.0, c_maxF0Hz = 2500.0;
         static constexpr double c_trackGlideSeconds = 0.030;
@@ -185,6 +189,7 @@ namespace roar
             double candidateLog = 0.0;
             int candidateSamples = 0;
             bool hasPitch = false;
+            float gatePeak = 0.0f;     // peak |input| since the last control tick
             double trackMix = 0.0;     // 0 Fixed .. 1 Follow (linear, smoothstep applied)
             double logNow = 0.0;       // per-sample log2 fc
             double logStep = 0.0;
@@ -205,7 +210,7 @@ namespace roar
         void controlTick (const VoiceFrame& frame);
         void updateTracker (const VoiceFrame& frame);
         double targetLog() const;
-        void advanceControl (int i, const VoiceFrameView& voice);
+        void advanceControl (int i, const VoiceFrameView& voice, float peak);
         float shapeAt (int shape, double phase, int level, float t) const;
         float carrierAt (double phase, int level, float t) const;
         float readTable (const TableRef& table, double phase) const;
@@ -224,7 +229,7 @@ namespace roar
         double m_invFsOs = 1.0 / 96000.0;
         bool m_oversample = true;
         int m_maxBlock = 512;
-        double m_harmonicMaxHz = 20000.0;
+        double m_harmonicMaxHz = 10000.0;
         double m_logMin = 0.0, m_logMax = 0.0, m_logBase = 0.0;
         int m_numLevels = 2;
 
@@ -241,6 +246,7 @@ namespace roar
 
         RingSettings m_settings;
         State m_s;
+        CarrierPitchGate m_pitchGate;
         std::array<Channel, 2> m_channels;
         OnFade m_fade;
     };

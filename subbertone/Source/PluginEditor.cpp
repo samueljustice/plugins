@@ -1,6 +1,8 @@
 #include "PluginEditor.h"
 
 #include "AboutWindow.h"
+#include "UpdatePopup.h"
+#include "SammyJUpdateCheck.h"
 
 namespace
 {
@@ -346,6 +348,9 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     m_sizeRestored = true;
 
     startTimerHz(20);
+
+    // The update check waits until the editor is on screen (see startUpdateCheckWhenShown()).
+    startUpdateCheckWhenShown();
 }
 
 SubbertoneAudioProcessorEditor::~SubbertoneAudioProcessorEditor()
@@ -358,8 +363,11 @@ SubbertoneAudioProcessorEditor::~SubbertoneAudioProcessorEditor()
     m_learnPrompt.setGlow(nullptr);
     m_limiterButton.onStateChange = nullptr;
 
-    // Nothing the editor opened may outlive it: the About window (and its update check), any
-    // popup menu (it would keep using m_lookAndFeel), alerts and the tooltip window.
+    // Nothing the editor opened may outlive it: the update check (stopped first, so its callback can't
+    // run), the update popup, the About window (and its update check), any popup menu (it would keep
+    // using m_lookAndFeel), alerts and the tooltip window.
+    m_updateCheck.reset();
+    m_updatePopup.reset();
     m_aboutWindow.reset();
     juce::PopupMenu::dismissAllActiveMenus();
     m_alert.reset();
@@ -490,6 +498,10 @@ void SubbertoneAudioProcessorEditor::resized()
 
     if (m_sizeRestored)
         m_audioProcessor.setViewValue(c_viewEditorScale, scale);
+
+    // The update popup covers the editor at its own scale (like the alerts), its card centred.
+    if (m_updatePopup != nullptr)
+        m_updatePopup->setBounds(getLocalBounds());
 }
 
 void SubbertoneAudioProcessorEditor::paint(juce::Graphics& g)
@@ -766,6 +778,11 @@ void SubbertoneAudioProcessorEditor::paintContent(juce::Graphics& g)
 void SubbertoneAudioProcessorEditor::timerCallback()
 {
     updatePresetDisplay();
+
+    // A host can show its window without telling the editor (no visibility or hierarchy change); this
+    // catches that. Once the check exists this is a single pointer test.
+    if (m_updateCheck == nullptr)
+        startUpdateCheckWhenShown();
 
     const float rms = m_audioProcessor.getCurrentSignalLevel();
     const float signalDb = rms > 1.0e-8f ? 20.0f * std::log10(rms) : -160.0f;
@@ -1250,4 +1267,54 @@ void SubbertoneAudioProcessorEditor::showAboutWindow()
     }
 
     m_aboutWindow = std::make_unique<AboutWindow>(m_lookAndFeel, [this] { m_aboutWindow.reset(); });
+}
+
+//==============================================================================
+void SubbertoneAudioProcessorEditor::parentHierarchyChanged()
+{
+    juce::AudioProcessorEditor::parentHierarchyChanged();
+    startUpdateCheckWhenShown();
+}
+
+void SubbertoneAudioProcessorEditor::visibilityChanged()
+{
+    juce::AudioProcessorEditor::visibilityChanged();
+    startUpdateCheckWhenShown();
+}
+
+void SubbertoneAudioProcessorEditor::startUpdateCheckWhenShown()
+{
+    // Once per editor, and only when it is on screen in a host: an editor that is only built (a test,
+    // a snapshot, an offline render) never goes online. Never from the processor or the audio thread.
+    if (m_updateCheck != nullptr || !isShowing())
+        return;
+
+    m_updateCheck = std::make_unique<sammyj::UpdateCheck>("subbertone", "subbertone-v", JucePlugin_VersionString,
+        [this](const sammyj::UpdateInfo& info) { showUpdatePopup(info); });
+}
+
+void SubbertoneAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)
+{
+    if (m_updatePopup != nullptr)
+        return;
+
+    m_updatePopup = std::make_unique<UpdatePopup>(m_lookAndFeel, info, [this] { closeUpdatePopup(); });
+
+    // The scope's OpenGL view is a native view on top of the editor's window, so nothing the editor paints
+    // can cover it: it is hidden while the popup is up (which also pauses its rendering).
+    m_waveformVisualizer.setVisible(false);
+
+    addAndMakeVisible(*m_updatePopup); // last child: above the scaled content
+    m_updatePopup->setBounds(getLocalBounds());
+    m_updatePopup->toFront(false);
+
+    // Return / Escape answer it, as in the alerts; not while an alert is up (it keeps the keys until it closes).
+    if (m_updatePopup->isShowing() && !m_updatePopup->isCurrentlyBlockedByAnotherModalComponent())
+        m_updatePopup->grabKeyboardFocus();
+}
+
+void SubbertoneAudioProcessorEditor::closeUpdatePopup()
+{
+    m_updatePopup.reset();
+    m_waveformVisualizer.setVisible(true);
 }

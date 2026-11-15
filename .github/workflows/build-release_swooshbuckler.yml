@@ -216,6 +216,7 @@ jobs:
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DSWOOSHBUCKLER_VERSION="$VERSION" \
           -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" \
+          -DSWOOSHBUCKLER_TOOLS=ON \
           -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
           -DBUILD_COMMIT="$(git rev-parse --short HEAD)"
 
@@ -243,11 +244,28 @@ jobs:
     - name: Run tests
       run: |
         cd swooshbuckler
-        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch; do
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerStowaway SwooshbucklerFirstRun SwooshbucklerUi; do
           exe=$(find build -name "$t" -type f -perm +111 | head -1)
           echo "== $t"
           "$exe"
         done
+
+    # Draws the real editor offline in every state and checks each text it draws: it fits its box, is big enough,
+    # sits on no other text and is capitalised by the rule. Fails the build when one does not (tools/UiShot.cpp).
+    # The pictures are kept as an artifact, to look at.
+    - name: Check the interface's text and draw it
+      run: |
+        cd swooshbuckler
+        exe=$(find build -name SwooshbucklerUiShot -type f -perm +111 | head -1)
+        "$exe" --out build/ui-shots --scale 1.0
+
+    - name: Upload the interface pictures
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: Swooshbuckler-ui-shots
+        path: swooshbuckler/build/ui-shots
+        if-no-files-found: ignore
 
     - name: Check for certificates
       id: check_certs
@@ -386,7 +404,23 @@ jobs:
         mkdir -p dmg
         cp -R staging/app/Swooshbuckler.app dmg/
         ln -s /Applications dmg/Applications
-        hdiutil create -volname "Swooshbuckler $VERSION" -srcfolder dmg -ov -format UDZO Swooshbuckler.dmg
+        # hdiutil mounts a scratch image to fill it, and on a shared runner that sometimes fails with
+        # "Resource busy" (Spotlight or a virus scan has the volume open). Retry with a pause, first
+        # detaching whatever a failed attempt left mounted and removing its half-made image.
+        make_dmg() {
+          local delay=5
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname "Swooshbuckler $VERSION" -srcfolder dmg -ov -format UDZO Swooshbuckler.dmg; then return 0; fi
+            echo "hdiutil create failed (attempt $attempt of 5)"
+            for vol in "/Volumes/Swooshbuckler $VERSION"*; do
+              if [ -d "$vol" ]; then hdiutil detach "$vol" -force || true; fi
+            done
+            rm -f Swooshbuckler.dmg
+            if [ "$attempt" -lt 5 ]; then sleep "$delay"; delay=$((delay + 10)); fi
+          done
+          return 1
+        }
+        make_dmg
 
     - name: Sign disk image
       if: steps.check_certs.outputs.has_certs == 'true'

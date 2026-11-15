@@ -10,8 +10,9 @@ tags=$(gh release list --limit 200 --exclude-drafts --exclude-pre-releases --jso
 grep -v '^#' "$here/plugins.txt" | grep -v '^$' | while IFS='|' read -r id prefix _name _bundle _app; do
   tag=$(printf '%s\n' "$tags" | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)
   if [[ -z "$tag" ]]; then
-    echo "No release found for $id (tags like ${prefix}1.2.3)" >&2
-    exit 1
+    # Not released yet (a new plug-in): the installer leaves it out until its first release.
+    echo "No release yet for $id (tags like ${prefix}1.2.3): left out" >&2
+    continue
   fi
   echo "$id|$tag|${tag#"$prefix"}"
 done

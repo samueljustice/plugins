@@ -1,417 +1,255 @@
 # SammyJs Pitch Flattener
 
-A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
+A plug-in by **Samuel Justice** that learns one sound and plays it back with its pitch flattened. Play it the sound once: it reads the pitch of the whole sound and renders a flat version by speeding the playback up and slowing it down from moment to moment, the way a tape would. Play the sound again, from the start or from any point in it, and the flat version plays in its place. Use it to take the sweep out of a pass-by, the wail out of a siren, the climb out of an engine run-up or the wobble out of a held note.
 
-### 🎉 Latest Release v2.2.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.2.0)
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
-![Pitch Flattener flattening a siren wail: the teal detected pitch sweeps up and down while the violet output stays on the amber target line](docs/screenshot.png)
+<img src="docs/screenshot.png" alt="The Pitch Flattener window playing a learned siren: the SCOPE display shows the siren's pitch rising and falling in cyan, the orange target line at its high point, G#6 +36, and the lime play head at 12 seconds with a trail of lime ticks behind it; the readouts show the length going from 17.22 s to 12.78 s; the guidance bar says PLAYING THE FLATTENED SOUND; TARGET is on HIGH POINT and LINE on AUTO" width="980">
 
-> **2.0 is a rewrite of the detection and correction engine.** 1.x reacted late and fought itself, so it mostly made "weird cool sounds". 2.0 looks ahead, picks a pitch detector built for your kind of source, and lines the correction up with the audio sample-accurately. See [What changed in 2.0](#what-changed-in-20).
+## Features
 
-## Contents
+- **Learn by playing**: press LEARN and play the sound once. It passes through untouched while it is recorded, and Learn stops by itself after a second of silence.
+- **Flat however fast it bends**: the pitch is taken out by changing the playback speed, not by shifting the pitch, so a fast sweep comes out as flat as a slow one, with nothing smeared and no warble. The length changes with it.
+- **Recognises the sound wherever it starts**: play the learned sound again from the top or from the middle, and the flat version takes over at the matching moment. Anything else passes through.
+- **Two pitch readings**: one follows the whole series of harmonics (voices, engines, whines), the other follows the strongest partial (sirens, whistles and higher sounds). The plug-in picks the one that flattens the sound better, and you can overrule it with a click.
+- **Five targets**: flatten to the top of the pitch, the bottom, where it spends its time, where it starts, or a note you choose.
+- **Amount**: take out all of the movement, or leave some of it in.
+- **Two views**: SCOPE draws the pitch over time exactly; FLIGHT flies the sound as a course, its pitch as a track that rises and falls beside the level lane of the flattened sound.
+- **Says what to do next**: the next button to press pulses, a banner across the display announces each change, and a bar under it says what is happening in plain words.
+- **A fixed delay of 0.4 s**, reported to the host, so hosts that compensate delay line the result up with the original.
+- **Mono or stereo**.
 
-- [Designed for offline rendering](#designed-for-offline-rendering)
-- [Quick start](#quick-start)
-- [A tour of the interface](#a-tour-of-the-interface)
-  1. [Header and presets](#1-header-and-presets)
-  2. [Source strip](#2-source-strip)
-  3. [Pitch display](#3-pitch-display)
-  4. [Readouts](#4-readouts)
-  5. [Target](#5-target)
-  6. [Tracking](#6-tracking)
-  7. [Input](#7-input)
-  8. [Output](#8-output)
-  9. [Help bar, tooltips and shortcuts](#9-help-bar-tooltips-and-shortcuts)
-  - [About window](#about-window)
-- [Source Types and detectors](#source-types-and-detectors)
-- [Measured performance](#measured-performance)
-- [Tips](#tips)
-- [What changed in 2.0](#what-changed-in-20)
-- [Building](#building)
-- [Credits and licences](#credits-and-licences)
-- [Version history](#version-history)
+## How to use it
 
-## Designed for offline rendering
+Pitch Flattener is made for a rack, such as a sound library's DSP rack, or a track in a DAW: learn the sound, then play or render it.
 
-Pitch Flattener runs as a normal realtime plugin, so it loads in any VST3/AU host or rack. It is built for hosts that render offline, such as the **Soundminer DSP rack**, a DAW bounce, or AudioSuite-style processing:
+1. **Put it on the sound.** Load Pitch Flattener in the rack or on the track that plays the sound.
+2. **Press LEARN.** The button shows ARMED and waits for sound.
+3. **Play the sound once, to its end.** The button shows LISTENING and counts the seconds. The sound passes through untouched while it is recorded. Learn stops after a second of silence, when the player stops, or when you press the button again.
+4. **Wait a moment.** The button shows ANALYSING while the plug-in reads the pitch and renders the flat version, then LEARNED.
+5. **Play the sound again.** From the start or from any point in it, the flattened sound plays in its place. Audition it, or render it as you would any effect.
+6. **Choose the result.** Change TARGET, NOTE, AMOUNT or LINE at any time; the flat version is rendered again from the same reading, with no need to learn the sound again.
 
-- It looks **about 2.6 s ahead**, so it knows where the pitch is going before it shifts anything.
-- It reports that delay to the host. With delay compensation, which Soundminer and every major DAW have, the output lines up with the input exactly.
-- The latency is the same whatever the settings, so changing Source Type never shifts your audio in time.
-- It is not meant for live monitoring.
+**CLEAR** forgets the sound. Press LEARN again to learn another one in its place.
 
-## Quick start
+## The window
 
-1. Pick the **Source Type** that matches your sound (Siren, Engine / Doppler, Vocal / Speech...). This loads a tuned detector and settings for it.
-2. Leave **Target** on **Latch** to hold each sound at the pitch it starts on, or choose **Fixed** and set **Target Hz** to flatten everything to one note.
-3. Play or render the sound. In the display, the teal **TRACK** line should follow the pitch of the source and the violet **OUTPUT** line should sit flat on the amber **TARGET** line.
-4. If the track jumps or drops out, narrow **Min / Max Freq** around the source, or try another Source Type.
-5. Save the result as a preset with **SAVE** if you'll want it again.
+The window is drawn in chunky pixels, like an old console screen.
 
-## A tour of the interface
+### LEARN, CLEAR and the readouts
 
-![The Pitch Flattener window with numbered call-outs: 1 header and presets, 2 source strip, 3 pitch display, 4 readouts, 5 Target, 6 Tracking, 7 Input, 8 Output, 9 help bar](docs/overview-annotated.png)
+<img src="docs/learn-row.png" alt="The top of the window: the title, DELAY 0.40 S, VERSION 3.0.0 and the ? button; below, the LEARN button reading LEARNED, PRESS TO LEARN ANOTHER, the CLEAR button, and the readouts LENGTH 17.22 S to 12.78 S and FLAT ON G#6 +36" width="964">
 
-| # | Part | What it's for |
+The **LEARN** button shows what the plug-in is doing, with a hint under the word:
+
+| LEARN shows | Hint | What it means |
 |---|---|---|
-| 1 | [Header and presets](#1-header-and-presets) | Load, step through and save presets; open the About window. |
-| 2 | [Source strip](#2-source-strip) | Say what you're flattening; see which detector is running. |
-| 3 | [Pitch display](#3-pitch-display) | The last 8 s of detected pitch, target and output over a spectrogram. |
-| 4 | [Readouts](#4-readouts) | Numbers for the newest analysed moment: pitch, target, correction, confidence, level. |
-| 5 | [Target](#5-target) | What pitch the sound is flattened to, and how much. |
-| 6 | [Tracking](#6-tracking) | How the pitch is found and followed. |
-| 7 | [Input](#7-input) | What the detector listens to. |
-| 8 | [Output](#8-output) | How the audio is shifted and mixed. |
-| 9 | [Help bar](#9-help-bar-tooltips-and-shortcuts) | Explains whatever is under the mouse. |
+| **LEARN** | PLAY THE SOUND ONCE | Nothing is learned. The button pulses: it is the next thing to press. |
+| **ARMED** | WAITING FOR SOUND | Learn is on and waiting for the sound to start. Press again to cancel. |
+| **LISTENING** | the seconds recorded | The sound is being recorded, and passes through untouched. Press again to stop there. |
+| **ANALYSING** | READING THE PITCH | The plug-in is reading the sound's pitch and rendering the flat version. |
+| **LEARNED** | PRESS TO LEARN ANOTHER | A sound is learned. Press to learn another one in its place. |
 
-The window can be resized from the bottom-right corner, from 60 % to 200 % of its normal size. It keeps its proportions and the layout scales as a whole.
+Recording starts at the first sound that is not silent, keeping 50 ms before it, so the start is not cut off. A click shorter than 50 ms is not taken for the sound: Learn keeps waiting.
 
-### 1. Header and presets
-
-![The header: Pitch Flattener title on the left, the preset bar with previous, preset name, next, SAVE and the ? button on the right](docs/header.png)
-
-The preset bar on the right of the header holds:
-
-- **<** and **>**: step to the previous or next preset. They go through the factory presets and then your own, in menu order, and wrap around at the ends.
-- **The preset name**: click it to open the preset menu. It reads "No preset" when the settings didn't come from a preset: on a new instance, after Reset to Defaults, or once the preset they came from has been deleted.
-- **SAVE**: stores the current settings as a user preset.
-- **?**: opens the [About window](#about-window).
-
-#### The preset menu
-
-<p>
-  <img src="docs/presets-menu.png" alt="The preset menu with a factory preset ticked: FACTORY section with one preset per Source Type, USER section with the User Presets submenu, then Save As, Delete, Reset to Defaults and Show Presets Folder" width="49%">
-  <img src="docs/presets-user.png" alt="The preset menu with a user preset current: the User Presets submenu is open and Fire Truck Yelp is ticked" width="49%">
-</p>
-
-- **FACTORY**: one preset per Source Type, with its tuned detector, frequency range, tracking and target settings.
-- **USER**: your own presets, in the **User Presets** submenu, sorted by name.
-- A tick marks the current preset. When it is one of yours, the User Presets entry is ticked too (right).
-- **Save As...**: saves the current settings under a new name.
-- **Delete "*name*"**: moves the current user preset to the trash (or deletes it where there is no trash). It is greyed out when the current preset isn't one of yours.
-- **Reset to Defaults**: sets every parameter back to its default, after asking.
-- **Show Presets Folder**: opens the folder your presets are stored in.
-
-#### Preset dialogs
-
-Saving, replacing, deleting and resetting each ask first:
-
-<p>
-  <img src="docs/dialog-save.png" alt="Save Preset dialog: Enter a name for the preset, with a name field and Save and Cancel buttons" width="49%">
-  <img src="docs/dialog-overwrite.png" alt="Overwrite Preset dialog: A preset called Fire Truck Yelp already exists. Replace it?" width="49%">
-</p>
-<p>
-  <img src="docs/dialog-delete.png" alt="Delete Preset dialog: Move the preset Fire Truck Yelp to the trash?" width="49%">
-  <img src="docs/dialog-reset.png" alt="Reset All dialog: Set every parameter back to its default?" width="49%">
-</p>
-
-- **Save Preset** asks for a name. The characters `" # @ , ; : < > * ^ | ? \ /` are removed, and the name is kept to 128 characters.
-- **Overwrite Preset** appears when a preset with that name already exists.
-- **Delete Preset** moves the file to the trash, so it can be recovered. Where there is no trash, the file is deleted.
-- **Reset All** puts every parameter back to its default value.
-
-#### Where presets live
-
-User presets are plain `.xml` files, named after the preset, so they are easy to back up, share or rename:
-
-- macOS: `~/Library/SammyJs/PitchFlattener/Presets/User`
-- Windows: `%APPDATA%\SammyJs\PitchFlattener\Presets\User`
-
-Extra `.xml` presets dropped into the `Factory` folder next to `User` are listed after the built-in factory presets. The current preset is saved with your session.
-
-Presets saved with 1.x lived in `Documents/PitchFlattener Presets`. To use them, copy their `.xml` files into the User folder above; they are converted when loaded.
-
-### 2. Source strip
-
-![The source strip: Source Type menu set to Siren, a description of the detector, the Detector menu set to Spectral + MPM, and RUNNING: SPECTRAL + MPM](docs/source-strip.png)
-
-From left to right:
-
-- **SOURCE**: what you're flattening. Picking a Source Type loads tuned detector, frequency range, tracking, filter and shifter settings for that kind of sound. You can change any of them afterwards.
-- **The description**: a short note on the chosen Source Type: which detector it uses and the sounds it suits.
-- **DETECTOR** (*set by source*): the pitch detection algorithm. Each Source Type picks one; change it here to override it.
-- **RUNNING**: the detector that is actually running. After a change it can lag for a moment while the new detector is set up.
-
-<p>
-  <img src="docs/menu-source.png" alt="The Source Type menu: Vocal / Speech, Instrument, Siren (ticked), Whistle / Tone, Engine / Doppler, Drone / Hum, Noisy Field, Custom" width="38%">
-  <img src="docs/menu-detector.png" alt="The Detector menu: pYIN, MPM (McLeod), Spectral Peak, Harmonic Sum, Spectral + MPM (ticked)" width="34%">
-</p>
-
-See [Source Types and detectors](#source-types-and-detectors) for which to pick and how each detector works.
-
-### 3. Pitch display
-
-![The pitch display flattening a siren wail](docs/display-siren.png)
-
-The display shows the last 8 s of pitch on a log-frequency axis, with note names on the left and seconds along the bottom. The title says how far behind the input it runs: each moment is drawn once the tracker has decided it, so the display lags by the lookahead (about 2.6 s).
-
-The legend chips along the bottom each switch one layer on or off:
-
-| Chip | Shows |
+| Control or readout | What it does |
 |---|---|
-| **SPECTRUM** | A spectrogram of the signal the detector hears (after the detection filters), drawn behind the lines. |
-| **RAW** | Dim teal dots: the detector's raw best guess for each analysis frame, before tracking. |
-| **TRACK** | The teal line: the final, cleaned pitch track the flattener follows. |
-| **TARGET** | The amber line: the pitch the sound is flattened to. |
-| **OUTPUT** | The violet line: the detected pitch after the correction. When flattening works it sits on the target line. |
+| **CLEAR** | Forgets the learned sound. Audio then passes through unchanged until another sound is learned. |
+| **LENGTH** | The learned sound's length (cyan) and the flattened sound's length (lime). |
+| **FLAT ON** | The note the sound is flattened to, with cents. |
+| **DELAY** | The delay the plug-in reports to the host: always 0.40 s. |
+| **?** | Opens the About window: version, credits and the update check. |
 
-**ZOOM** (top right) switches the vertical range. **AUTO** fits the view to the recent pitch; **RANGE** shows the whole Min..Max Freq detection range:
+### SCOPE
 
-![The same siren with ZOOM: RANGE, showing the whole 300 Hz to 3 kHz detection range, with the siren's harmonics visible in the spectrogram above the track](docs/display-siren-range.png)
+<img src="docs/scope.png" alt="The SCOPE display: a note scale up the left from E4 to G#6 and seconds along the bottom; the RIDGE line in cyan, marked PICKED, sweeping up and down; the HARMONIC line in grey below it, dashed where it bridges a gap; the orange target line with its TARGET G#6 +36 tag; the lime play head at 12 s with lime ticks behind it on the target line; the sound's level along the bottom; and the FLAT tag beside the SCOPE and FLIGHT tabs" width="964">
 
-#### Wobble warning
+SCOPE draws the learned sound from start to end: its pitch over time on a note scale, seconds along the bottom.
 
-![A red warning across the top of the graph: WOBBLING: OUTPUT 45 CT OFF TARGET. Siren comes out about 2.2x flatter here. With TRY SIREN and close buttons](docs/display-wobble.png)
+- **The two pitch lines**: the harmonic reading and the ridge reading, each labelled. The line the sound is flattened by is drawn in cyan, on top; the other is grey. With LINE on AUTO, **PICKED** marks the one Auto chose.
+- **Clicking the other line** flattens the sound by it instead (it sets LINE to that reading). Hover over a line to see what it is good at. A line that found too little pitch in the sound to flatten by is drawn faint and cannot be picked; its tooltip says so. If LINE is set to that reading, the sound is flattened by the other one, and SCOPE draws the other one in cyan as the line in use, while the LINE button stays where you set it.
+- **Dashed stretches** are where the tracker found no pitch and the line only bridges the gap.
+- **The target line** (orange) is the pitch the sound is flattened to, tagged with its note where the tag covers neither the line in use nor a label.
+- **The play head** (lime) shows where the flattened sound is while it plays, as a moment of the original, with a trail of lime ticks along the target behind it.
+- **The level strip** along the bottom is the learned sound's level.
+- **RENDERING** appears at the top while the flat version is rendered again after a change to the controls.
+- **FLAT**, beside the tabs, is lit while the flattened sound is playing.
 
-While sound plays, the plugin measures the pitch of its own flattened output against the target. If the output stays well off the target (more than about 35 cents, for more than a second), a red warning appears across the graph with how far off it is.
+<img src="docs/scope-other-line.png" alt="The SCOPE display with the HARMONIC line chosen instead: it is drawn in cyan, the RIDGE line is grey, and the target line sits at F#4 +29 at the line's low point" width="964">
 
-It then replays the last few seconds through every Source Type in the background, keeping your target settings, and measures each one's output the same way:
+Here the harmonic line is chosen and the target is the low point, so the target line runs along the bottom of the sweep.
 
-- If one comes out clearly flatter, the warning names it, with a **TRY** button that switches to it, just as picking it from the Source menu would.
-- If none does clearly better, it says so and suggests narrowing Min / Max Freq around the sound or lowering Speed.
+Click **SCOPE** or **FLIGHT** at the top right to switch views. The choice is saved with the session. Until you choose, the window shows FLIGHT while nothing is learned and SCOPE once something is.
 
-The warning goes once the output has been flat for about two seconds; **X** hides it until then, or until a setting changes. It only judges what it can measure: a sound too short or too noisy for the meter to read, such as a ricochet's crack, never raises it. With Amount or Mix turned below 95 % the result isn't meant to be flat, so it stays quiet.
+### FLIGHT
 
-What it looks like on other sources:
+<img src="docs/flight.png" alt="The FLIGHT display: a pixelated 3D course; on the left a checkered track with cyan edges climbing towards numbered gates 13 and 14, on the right a level lime lane with a small dart riding it; the key PITCH AS HEARD and FLATTENED at the bottom left and T 12.36 / 17.22 S at the bottom right" width="964">
 
-**Voice with vibrato and a slow drift** (Vocal / Speech, Latch). The track wobbles with vibrato, drifts down and back, and is bridged across the breath gaps; the output stays on the latched pitch:
+FLIGHT flies the learned sound as a course. The camera travels along the sound from start to end.
 
-![The display with a voice: the teal track wobbles with vibrato and drifts from A3 down to about G3 and back, while the output stays flat at G#3](docs/display-voice.png)
+| On screen | What it stands for |
+|---|---|
+| **The track** (cyan edges, left) | The pitch as heard: it rises and dips exactly as the pitch line in use does. |
+| **The flat lane** (lime edges, right) | The flattened sound: level at the target. With AMOUNT below 100% it moves part of the way back towards the track. |
+| **The gates** | One across the track at every whole second of the sound, numbered. |
+| **The dart** | Rides the lane at the play head while the flattened sound plays. |
+| **T** at the bottom right | Where the flight is in the sound, and the sound's length. |
 
-**Engine pass-by** (Engine / Doppler, Latch). The Doppler drop of a passing engine is about 2.5 semitones. The target latches the approach pitch and the output holds it through the pass:
+While nothing plays, the flight cruises along the sound at half speed and loops. While nothing is learned, it flies a demo course and says DEMO RUN.
 
-![The display with an engine pass-by: the teal track drops at the moment of passing while the target and output stay at the approach pitch](docs/display-engine.png)
+### The guidance bar
 
-### 4. Readouts
+<img src="docs/guide.png" alt="The guidance bar under the display, saying LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED" width="964">
 
-<img src="docs/readouts.png" alt="The readouts column: Detected 781 Hz G5 -6 ct, Target 691 Hz F5 latched at 691 Hz, Correction -212 ct, Confidence 100%, Input -15.1 dB, Latency 2.57 s" width="222" align="right">
+The bar under the display says what to do or what is happening:
 
-The column to the right of the display gives numbers for the newest analysed moment:
+| The bar says | When |
+|---|---|
+| PRESS LEARN, THEN PLAY THE SOUND ONCE | Nothing is learned. |
+| LEARN IS ARMED: PLAY THE SOUND ONCE | Learn is waiting for the sound. |
+| LISTENING: LET THE SOUND PLAY TO ITS END | The sound is being recorded. |
+| ANALYSING THE SOUND | The pitch is being read and the flat version rendered. |
+| LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED | Ready. |
+| PLAYING THE FLATTENED SOUND | The sound was recognised and its flat version is playing. |
+| NO STEADY PITCH FOUND: THE SOUND IS LEFT AS IT IS | Neither pitch reading found a steady pitch in the sound. |
+| LEARNED AT 48000 HZ: THE SESSION IS AT 96000 HZ | The session runs at another sample rate than the sound was learned at (the rates shown are the real ones). |
 
-- **DETECTED**: the tracked pitch in Hz, its nearest note and how many cents it is off that note. "NO PITCH" when nothing pitched is heard.
-- **TARGET**: the pitch it is being flattened to, and the target mode's state:
-  - "LATCHED AT *x* HZ", or "LISTENING TO LATCH" while waiting for a pitch to latch on to
-  - "FIXED TARGET"
-  - "AUTO: FOLLOWS CONTOUR"
-  - "MANUAL OVERRIDE" when Override is on
-- **CORRECTION**: the shift being applied, in cents. The bar fills left or right from its centre tick; each half spans the Max Shift setting.
-- **CONFIDENCE**: how sure the detector is that the sound is pitched.
-- **INPUT**: the live input level. The white tick on the bar marks the Gate.
-- **LATENCY**: the delay reported to the host. If the shifter ever runs short of audio, an **UNDERRUNS** count appears beside it.
+### Banners
 
-<br clear="right">
+A banner across the display announces each change, and the next steps while you learn.
 
-### 5. Target
+<img src="docs/banner-learn-first.png" alt="The orange LEARN FIRST banner across the display, with chevrons above it pointing up towards the LEARN button" width="920">
 
-<img src="docs/section-target.png" alt="The Target section: Target mode menu, Target Hz, Auto Win and Amount knobs, Re-latch button, Override switch and Override Hz knob" width="295" align="right">
+<img src="docs/banner-listening.png" alt="The magenta LISTENING 1.6 S banner, with a recording square before the words" width="920">
 
-The amber section sets the pitch the sound is flattened to and how much is removed.
+<img src="docs/banner-no-steady-pitch.png" alt="The magenta NO STEADY PITCH banner" width="920">
 
-- **Target mode** (the menu in the section's title bar):
-  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. The latch is decided before the sound plays, so it is flattened from its first sample, soft or breathy attacks included. It re-latches when a new sound starts after more than a second without pitch.
-  - **Fixed** flattens everything to **Target Hz**.
-  - **Auto** removes movement faster than **Auto Win** and keeps the slower overall contour. Use it to take out vibrato or warble without changing the melody.
-- **TARGET HZ** (Fixed): the pitch everything is flattened to. You can type a note name such as `A4` into its value.
-- **AUTO WIN** (Auto): movement faster than this is removed, slower movement is kept. Longer is flatter.
-- **AMOUNT** (0–100 %): how much of the pitch deviation is removed. 100 % is completely flat; 50 % halves a Doppler sweep.
-- **RE-LATCH** (Latch): forgets the latched pitch so the next stable pitch is latched again.
-- **OVERRIDE** and **OVERRIDE HZ**: flatten to Override Hz instead of the target mode's target. Detection still runs, so the sound is followed as usual; only the pitch it is flattened to changes.
-
-<br clear="right">
-
-<img src="docs/menu-target-mode.png" alt="The Target mode menu: Latch (ticked), Fixed, Auto" width="307">
-
-Only the controls the current mode uses are lit. The others are dimmed but keep their values:
-
-![The Target section in each mode: Latch lights Re-latch; Fixed lights Target Hz; Auto lights Auto Win; Override on lights Override Hz and dims Target Hz, Auto Win and Re-latch](docs/target-modes.png)
-
-### 6. Tracking
-
-<img src="docs/section-tracking.png" alt="The Tracking section: Sensitivity, Speed, Smoothing, Gap Fill, Min Freq and Max Freq knobs" width="295" align="right">
-
-The teal sections control how the pitch is found and followed.
-
-- **SENSITIVITY**: how readily a sound counts as pitched. Raise it for quiet or breathy sources; lower it for noisy recordings.
-- **SPEED** (oct/s): the fastest pitch movement the tracker will believe. Lower it to reject glitches on slow sources such as engines and drones. Raise it for yelps.
-- **SMOOTHING** (ms): smooths the pitch track before correcting it. It is centred, using the lookahead, so it adds no lag.
-- **GAP FILL** (ms): the longest unpitched gap that is bridged before the correction relaxes, so it doesn't drop out mid-sound.
-- **MIN FREQ / MAX FREQ**: the pitch search range. Bracket your source; a tighter range is more reliable.
-
-<br clear="right">
-
-### 7. Input
-
-<img src="docs/section-input.png" alt="The Input section: Gate knob, Level meter, Highpass and Lowpass knobs" width="204" align="right">
-
-- **GATE** (dB): input quieter than this counts as unpitched.
-- **LEVEL**: the live input level. It turns green when the input is above the gate (the teal line), so the detector is listening.
-- **HIGHPASS / LOWPASS**: filters that apply to the detector's input only, to keep rumble or hiss out of detection. They do not change the sound.
-
-<br clear="right">
-
-### 8. Output
-
-<img src="docs/section-output.png" alt="The Output section: Max Shift and Mix knobs, Quality menu and Formant switch" width="202" align="right">
-
-The violet section controls the shifter.
-
-- **MAX SHIFT** (semitones): the largest correction allowed. Larger deviations are only corrected this far. Siren sets it to 24, because sirens often switch between patterns far apart in pitch (a yelp, then a two-tone horn an octave lower); the other Source Types set 12.
-- **MIX**: blends in the time-aligned dry signal. Keep it at 100 % for flattening; partial mixes can sound phasey.
-- **QUALITY**:
-  - **Smooth** uses the shifter's standard window and gives the best sound on sustained tones.
-  - **Tight** uses a short window and follows very fast sweeps and transients more closely.
-- **FORMANT**: keeps a voice's character natural when it is shifted. Leave it off for machines and sirens.
-
-<br clear="right">
-
-<img src="docs/menu-quality.png" alt="The Quality menu: Smooth, Tight (ticked)" width="214">
-
-### 9. Help bar, tooltips and shortcuts
-
-The bar along the bottom explains whatever is under the mouse, including each part of the display. The version number is on its right.
-
-![The help bar while the mouse is over Amount: Amount: how much of the pitch deviation is removed. 100% = completely flat, 50% = half the movement.](docs/help-bar.png)
-
-The header buttons also show tooltips:
-
-![A tooltip under the preset name: Choose a preset, or save, delete, reset and find your presets](docs/tooltip.png)
-
-Shortcuts:
-
-- **Double-click a knob** to reset it to its default.
-- **Alt-click a menu** to reset it to its default. Alt-clicking Source resets the Source Type and loads its settings.
-- **Drag a knob** up or down to change it, or click its value to type one in.
-
-### About window
-
-<img src="docs/about.png" alt="The About window: Pitch Flattener title, version and build date; Created by Samuel Justice with website and email links; Updates panel with Check for Updates; Credits and License text" width="350" align="right">
-
-**?** in the header opens the About window:
-
-- the version and build date
-- **CREATED BY**, with links to the website and email
-- **UPDATES**: **CHECK FOR UPDATES** looks up the latest Pitch Flattener release on GitHub and tells you whether a newer version is available
-- **CREDITS & LICENSE**: the libraries, typeface and research papers it is built on, and the licence
-
-<br clear="right">
-
-## Source Types and detectors
-
-Each Source Type chooses a pitch detector and tuned defaults. Every setting can still be changed afterwards.
-
-| Source Type | Detector | Use it for |
+| Banner | Colour | What it means |
 |---|---|---|
-| **Vocal / Speech** | pYIN (probabilistic YIN) | Voices, singing, vocal-like animal calls. Ignores breaths and consonants and follows the voice smoothly. Formant preservation is on by default. |
-| **Instrument** | MPM (McLeod Pitch Method) | Solo melodic instruments: vibrato, warble, tape wow. |
-| **Siren** | Spectral + MPM | Wail, yelp, hi-lo and electronic sweeps, even in traffic noise. Uses the Tight window to follow fast sweeps, and a 24-semitone Max Shift so a siren that switches pattern stays flat. |
-| **Whistle / Tone** | Spectral Peak, long windows | Whistles, feedback, test tones, theremin. Very stable on near-pure tones. |
-| **Engine / Doppler** | Harmonic Sum (subharmonic summation) | Engines, pass-bys, props, motors and trains. Follows the whole harmonic series, so it does not jump octaves and copes with a weak or missing fundamental. |
-| **Drone / Hum** | Harmonic Sum, slow tracking | Hums, generators and drones down to 25 Hz. |
-| **Noisy Field** | Harmonic Sum, strict voicing | Rough field recordings with lots of broadband noise. |
-| **Custom** | Any | Your own settings. Choosing Custom doesn't change anything. |
+| **LEARN FIRST** | orange | Nothing is learned. It blinks for a second in every four, with chevrons pointing up at LEARN. |
+| **PLAY THE SOUND** | lime | Learn is armed: play the sound. |
+| **LISTENING** | magenta | The sound is being recorded, with the seconds so far and a blinking recording square. |
+| **ANALYSING** | cyan | The pitch is being read, with a bar sweeping along the banner. |
+| **LEARNED** | lime | The sound is learned and flattened. Shown once, followed by **PLAY IT AGAIN**. |
+| **FLATTENED** | lime | The flattened sound has started playing. After it, the FLAT tag stays lit while it plays. |
+| **NO STEADY PITCH** | magenta | The sound was learned, but neither pitch reading found a steady pitch in it: it is left as it is. |
+| **WRONG SAMPLE RATE** | magenta | The session runs at another sample rate than the sound was learned at. It stays until the rates match. |
+| **CLEARED** | white | The sound was forgotten. |
 
-### How the detectors work
+### The controls
 
-- **pYIN** (Mauch & Dixon 2014) runs YIN's cumulative-mean-normalised difference function, computed with FFTs. It weighs every dip in that function against a Beta-distributed prior over YIN thresholds, so each frame produces several pitch candidates with probabilities instead of one guess.
-- **MPM** (McLeod & Wyvill 2005) uses the normalised squared difference function. It picks the first "key maximum" within a fraction of the highest one, which avoids octave errors on bright instruments.
-- **Spectral Peak** uses Gaussian-windowed FFTs at several lengths: short windows for fast sweeps, long ones for steady tones. Each peak is refined with quadratic interpolation and time-frequency reassignment, which gives the instantaneous frequency even mid-sweep. Its salience is measured against the local noise floor. A harmonic-support check makes the fundamental win over its overtones.
-- **Spectral + MPM** runs both on every frame and gives the tracker both sets of candidates, each weighted by its own detector's confidence. MPM is the sharper of the two on very fast yelps but loses the pitch in heavy noise; Spectral Peak survives the noise but smears the fastest sweeps. Where both are confident, MPM's pitch is favoured; in noise MPM's confidence drops and Spectral Peak carries the track. Spectral Peak needs its strongest peak to stand 6 dB further above the noise floor than it does on its own, so noise with no pitch in it, such as the traffic left after a siren passes, is left alone rather than shifted.
-- **Harmonic Sum** (subharmonic summation, Hermes 1988) works on a whitened, log-frequency spectrum and adds up the energy at every candidate's harmonics. An odd/even-harmonic test settles octave ambiguities, for example when the fundamental is missing.
+<img src="docs/controls.png" alt="The controls row: TARGET with HIGH POINT lit and CENTRE, LOW POINT, START and NOTE; the NOTE knob at A4, 0 cents, dimmed; the AMOUNT knob at 100%; and LINE with AUTO lit and HARMONIC and RIDGE, captioned THE PITCH READING IT IS FLATTENED BY" width="964">
 
-### Tracking, using lookahead
+**TARGET**: the pitch the sound is flattened to. Where the sound is above the target it is slowed down, and where it is below it is sped up, so the target decides whether the result comes out shorter or longer.
 
-Every detector feeds the same tracker, which can see well into the future of the signal:
-
-1. **Fixed-lag Viterbi** over the candidates, plus an "unpitched" state. Jumps faster than the Tracking Speed and octave jumps are expensive, so the best continuous path wins. This removes octave errors and glitches.
-2. **Octave repair and median filter** against the local median pitch.
-3. **Gap fill:** short dropouts are bridged. Before a sound starts, the correction is set up in advance, so the first syllable or rev is already flattened.
-4. **Centred Gaussian smoothing** in cents. It is zero-phase, so the curve doesn't lag.
-5. **Target and correction:** the shift needed to move the track to the target, limited by Max Shift.
-
-The shifter is **Rubber Band Library R3** (the "finer" engine) in high-consistency mode. Each ~3 ms chunk is shifted by the correction measured at the same moment in the audio.
-
-## Measured performance
-
-`tests/FlattenTests.cpp` renders synthetic sources through the exact plugin DSP, at random host block sizes, and measures how flat the output is with an independent pitch meter:
-
-| Test signal | Input pitch range | Output error (median / 90th pct) |
+| Target | What it does | Use it for |
 |---|---|---|
-| Siren wail, 550–1350 Hz sweep | 1520 cents | 2 / 4 cents |
-| Siren yelp, 1 octave triangle at 3 Hz (6 oct/s) | 1060 cents | 17 / 39 cents |
-| Siren cycle: fast yelp, then a two-tone horn an octave lower, then a wail | 1910 cents | 2 / 42 cents |
-| Siren yelp in heavy noise (about 0 dB SNR) | 1060 cents | 17 / 40 cents |
-| Voice, 50-cent vibrato + 3-semitone drift, formants, gaps | 350 cents | 7 / 11 cents |
-| Engine pass-by, 25 m/s Doppler | 250 cents | 1 / 5 cents |
-| Engine with missing fundamental, Doppler | 200 cents | 5 / 11 cents |
-| Engine pass-by in heavy noise (Noisy Field) | 300 cents | 2 / 5 cents |
-| Instrument, 35-cent vibrato at 6 Hz | 70 cents | 8 / 11 cents |
-| Whistle, ±100-cent drift | 200 cents | 0.7 / 1.3 cents |
+| **HIGH POINT** | Flattens the sound to the top of its pitch. The flattened sound is never longer than the original. The default. | A pass-by's approach, a siren's peak; any time the result should not get longer. |
+| **CENTRE** | Flattens the sound to the pitch it spends most of its time at, so it changes least overall, and its length changes least. | Vibrato and wobble, where the sound should stay close to how it was. |
+| **LOW POINT** | Flattens the sound to the bottom of its pitch. The flattened sound is longer than the original. | A deeper, slower result. |
+| **START** | Flattens the sound to the pitch it opens on. | Sounds that should hold the note they begin with. |
+| **NOTE** | Flattens the sound to the pitch set with the NOTE control. | Putting the sound on a particular note. |
 
-The suite runs in CI on every release build. To run it locally:
+The high point, centre and low point are counted by level, so a loud part of the sound outweighs a long quiet one, and a stray moment at the very top or bottom does not move them.
 
-```bash
-cmake -B build-tests -S . -DPITCHFLATTENER_BUILD_TESTS=ON -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF
-cmake --build build-tests --target PitchFlattenerTests
-./build-tests/PitchFlattenerTests_artefacts/Release/PitchFlattenerTests --block 0 --wav /tmp/pf
-```
+| Control | What it does |
+|---|---|
+| **NOTE** | The pitch the sound is flattened to when the target is NOTE (C1 to C8, A4 by default). Type a note name such as A3, or C#4 +20 for cents. It is dimmed for the other targets. |
+| **AMOUNT** | How much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in; 0% leaves it as it was. |
 
-`--wav` writes each test's input and output so you can listen to them.
+Double-click NOTE or AMOUNT to return it to its default.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out.
+**LINE**: which reading of the sound's pitch it is flattened by.
 
-## Tips
+| Line | What it does |
+|---|---|
+| **AUTO** | Takes the reading that flattens the sound better: it flattens the sound by each, reads both results back, and keeps the flatter one. The default. |
+| **HARMONIC** | Reads the pitch from the sound's whole series of harmonics. Suits voices, engines and whines, up to about 1 kHz. |
+| **RIDGE** | Follows the strongest partial from start to end. Suits sirens, whistles and anything pitched higher, and a whine in a burst of noise. |
 
-- **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is quieter than the pass, use **Re-latch** or Fixed with the engine's idle pitch.
-- **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality sounds cleaner; for a yelp, keep Tight.
-- **Ricochets and whizzes:** choose Siren. Raise Max Freq to about 6 kHz for bright ones that start above 3 kHz; don't lower Min Freq, or the low thump of the impact competes with the whine. If you can hear two tones at once and the result moves the wrong way, set Detector to Spectral Peak.
-- **Vibrato only:** use Auto mode with an Auto Window of 300–600 ms.
-- **Half-flattened, more natural result:** set Amount to 50–70 %.
-- **The output jumps or warbles:** narrow Min/Max Freq around the source, lower Speed, or try another Source Type. Turn on RAW in the display to see what the detector is hearing.
+Auto's pick is a measurement, and the ear sometimes disagrees with it. If the result sounds wrong (it wobbles, or jumps where the sound does not), choose the other line here or click it in SCOPE. If the line you choose finds too little pitch in the sound to flatten by, the sound is flattened by the other line instead, so it is never left untouched while one of the two can read it.
 
-## What changed in 2.0
+TARGET, NOTE, AMOUNT and LINE are host parameters, saved with the session and open to automation. A change renders the flat version again in the background.
 
-- **New detectors:** pYIN, MPM, Spectral Peak and Harmonic Sum, chosen by Source Type. The O(N²) YIN and WORLD DIO are gone. DIO re-analysed a 0.5 s buffer on every audio block and read its answer from the least reliable end of it.
-- **Lookahead tracking:** a Viterbi tracker with octave repair, gap fill and zero-phase smoothing, replacing the block-rate exponential smoothing and the 5 %-change threshold.
-- **Sample-accurate correction:** the shifter is fed audio whose pitch has already been decided, and each chunk gets the correction measured at that point. In 1.x the correction was applied to audio from a different moment.
-- **Fixed in the shifter:** the 1.x RubberBand feeder pushed overlapping, duplicated audio into the stretcher whenever Lookahead was above 1x, which is where most of the old artefacts came from. It also padded underruns by repeating samples. Both are fixed. The engine is now R3 with proper start padding and delay compensation.
-- **Reported latency and tail:** the dry/wet mix is time-aligned, and bypass stays time-aligned too.
-- **New UI** in the SammyJs design language, with a scrolling pitch display showing raw detection, the final track, the target and the corrected output.
-- **Removed parameters:** Detection Rate, Threshold, Hold Time, Jump Limit, Confidence, the DIO settings, Lookahead, Hard Flatten, and RubberBand's R2-only Transients, Phase and Window options. Their jobs are now done by the tracker. 1.x sessions still load: matching settings are kept and the algorithm choice is mapped to a Custom detector.
+## About and updates
+
+Click **?** at the top right for the About window, with the version, the credits and the licence. CHECK FOR UPDATES asks GitHub whether a newer version is out.
+
+<img src="docs/about.png" alt="The About window: PITCH FLATTENER, SAMMYJS / PITCH FLATTENING FOR SOUND DESIGN, the version and build date; CREATED BY Samuel Justice with sweetjusticesound.com and sam@sweetjusticesound.com; UPDATES with the CHECK FOR UPDATES button; and CREDITS & LICENSE" width="500">
+
+When the window opens, Pitch Flattener asks GitHub, at most once a day, whether a newer version is out. If there is one, it offers it once per host session: DOWNLOAD opens the Sammy J's Plugins installer's page, LATER closes the offer, and SKIP THIS VERSION does not offer that version again. Offline, nothing happens.
+
+<img src="docs/update.png" alt="The update offer: PITCH FLATTENER 3.1.0 IS AVAILABLE, You have 3.0.0, with DOWNLOAD, LATER and SKIP THIS VERSION" width="624">
+
+## Good to know
+
+- **The length changes.** The pitch is taken out by playing the sound faster where it is below the target and slower where it is above, the way speeding and slowing a tape changes its pitch. That is what keeps the result flat however fast the pitch bends, and it is also why the result is shorter or longer than the original. LENGTH shows both. HIGH POINT never makes the sound longer, LOW POINT makes it longer, and CENTRE changes the length least. When the result is longer, the plug-in tells the host how much longer, so a render keeps the end.
+- **The speed changes by up to three octaves either way.** Pitch movement beyond that is not fully taken out.
+- **A delay of 0.4 s.** The output is always the input 0.4 s later, whether the flat version or the input itself is playing, and bypass is delayed the same, so switching never shifts the audio in time. The plug-in reports the delay, so hosts that compensate delay line the result up with the original. That time is what lets it recognise where the sound is before the audio reaches the output.
+- **A sound with no steady pitch is left as it is**, such as noise or a crash: when neither pitch reading can follow it, the window says NO STEADY PITCH, and the sound passes through unchanged.
+- **The same sound, played the same way.** The plug-in recognises the learned recording itself. The same sound played at another speed or pitch, or another take of it, is not recognised, and passes through.
+- **The flattened sound follows the playback level.** Play the sound louder or quieter than it was learned, and the flattened sound comes out louder or quieter by the same amount. The level is measured when the plug-in finds the sound in the input; within about a tenth of a decibel of the learned level counts as the same.
+- **Stopping the player in the middle of the sound** returns the output to the input. Jumping to another place in the sound finds that place. Played to its end, the rest of the flattened sound plays out, then the input.
+- **Rendering offline** works: when the host renders faster than real time, the plug-in waits for its search instead of running ahead of it.
+- **The learned sound is kept in memory only.** It is not saved with the session: after reopening the session, learn it again. The controls and the chosen view are saved.
+- **One sound per instance.** Learning another sound replaces the first. For several sounds, use several instances: each is independent.
+- **The sample rate must match.** The flattened sound plays only at the sample rate it was learned at. At another rate the window says WRONG SAMPLE RATE, and the audio passes through.
+- **Up to 120 seconds per sound.** Learn stops by itself at two minutes.
+- **Mono and stereo.** A stereo sound on a mono track plays as the two channels mixed; a mono sound on a stereo track plays on both.
+- **Loud sounds stay under full scale.** If the flattened version would peak over -0.1 dBFS, it is turned down as a whole to fit.
+
+<img src="docs/other-rate.png" alt="The display with the magenta WRONG SAMPLE RATE banner, and the guidance bar saying LEARNED AT 48000 HZ: THE SESSION IS AT 96000 HZ" width="964">
+
+## Measured
+
+`PitchFlattenerCoreTests` makes sounds whose pitch moves in a known way, flattens each, and measures the result with a pitch meter that shares nothing with the plug-in's trackers. "Travels" is how far the measured pitch moves over the whole sound, with the outer 5% of readings left out. These are the figures it prints:
+
+| Sound | Line Auto picked | Pitch travels before | After |
+|---|---|---|---|
+| A pass-by: a rich tone falling 7 semitones through the middle (4.00 s, flattened to its high point: 3.32 s) | Ridge | 6.99 st | 0.00 st |
+| A siren: a tone wailing between 700 and 1700 Hz | Ridge | 15.17 st | 0.00 st |
+| An engine run-up: a harmonic series climbing from 60 to 200 Hz | Harmonic | 19.60 st | 0.07 st |
+| Vibrato: a voice-like tone wobbling a semitone at 6 Hz (flattened to its centre) | not printed | 0.91 st | 0.10 st |
+
+The same tests check that flattening to the high point never makes the sound longer, that the low point makes it longer, that the centre keeps a vibrato's length within 2%, that half the amount leaves half the movement, that a chosen note is hit, that a whine falling an octave and a half in 0.15 s in noise is followed, and that noise and silence are left alone.
+
+## System requirements
+
+- macOS 11 or later (Apple Silicon and Intel): VST3, AU and AAX
+- Windows 10 or later (64-bit): VST3 and AAX
 
 ## Building
 
-Prerequisites: CMake 3.15+, a C++17 compiler (Xcode on macOS, Visual Studio 2022 on Windows), and the SDK folder next to this one containing JUCE 8.0.8 and Rubber Band 4.0.0 built as a static library (see `.github/workflows/build-release_pitchflattener.yml`).
+### Prerequisites
+
+- CMake 3.15 or higher
+- Xcode Command Line Tools (macOS) or Visual Studio 2022 (Windows), with C++20
+- JUCE 8.0.8 at `../SDK/JUCE`, relative to this folder
+- The UI fonts in `Resources/Fonts`, and the update check from `../common`
+
+### Build instructions
+
+From the repository root:
 
 ```bash
-./build.sh
+cmake -S pitchflattener -B pitchflattener/build -DCMAKE_BUILD_TYPE=Release -DPITCHFLATTENER_BUILD_TESTS=ON
+cmake --build pitchflattener/build --config Release
+pitchflattener/build/PitchFlattenerCoreTests
+pitchflattener/build/PitchFlattenerTests_artefacts/Release/PitchFlattenerTests
 ```
 
-This builds and installs:
-- VST3: `/Library/Audio/Plug-Ins/VST3/`
-- AU: `/Library/Audio/Plug-Ins/Components/`
+The bundles land in `pitchflattener/build/PitchFlattener_artefacts/Release/{AU,VST3}`, and are also copied to your plug-in folders after the build; add `-DPITCHFLATTENER_COPY_AFTER_BUILD=OFF` to skip that. Add `-DSAMMYJ_AAX=ON` to build AAX as well, with the AAX SDK bundled with JUCE or the one at `-DAAX_SDK_PATH=<folder>`. An unsigned AAX loads only in a developer build of Pro Tools. On macOS, `./build.sh` in this folder builds, signs and installs the VST3 and AU in one go.
 
-## Credits and licences
+`PitchFlattenerCoreTests` checks the pitch reading and the flattening on made-up sounds whose pitch is known (the figures above). `Tests/build_core_tests.sh` builds and runs it without CMake. `PitchFlattenerTests` checks the rest: finding the learned sound in the input, the engine driven through real audio blocks, the processor as a host sees it, and the window. `--png <folder>` writes pictures of the window in every state (the pictures on this page come from it), and `--sound <file>` learns that audio file for them.
 
-Created by Samuel Justice, [www.sweetjusticesound.com](https://www.sweetjusticesound.com).
+## Credits
 
-- [JUCE](https://juce.com) framework.
-- [Rubber Band Library](https://breakfastquay.com/rubberband/) for pitch shifting (GPL / commercial).
-- UI font: [Azeret Mono](https://github.com/displaay/Azeret), SIL Open Font License 1.1.
-- Algorithms:
-  - YIN, de Cheveigné & Kawahara (2002)
-  - pYIN, Mauch & Dixon (2014)
-  - MPM, McLeod & Wyvill (2005)
-  - Subharmonic summation, Hermes (1988)
-  - Time-frequency reassignment, Auger & Flandrin (1995)
+Created by Samuel Justice, Creative Sound Supervisor at [Sweet Justice](https://www.sweetjusticesound.com).
 
-## Version history
+- Built with [JUCE](https://juce.com), Raw Material Software Limited.
+- UI font: [Azeret Mono](https://github.com/displaay/Azeret), The Azeret Project Authors, SIL Open Font License 1.1.
+- Pitch tracking with thanks to Ben
 
-- **v2.2.0**: Latch decides before a sound plays, so soft or breathy starts are flattened from the first sample instead of wobbling until it latches. A red warning appears over the display when the output is wobbling, and suggests a Source Type that comes out clearly flatter, with a button to switch to it.
-- v2.1.0: Siren uses a new detector, Spectral + MPM: fast yelps track far more closely, and the traffic noise left after a siren is no longer shifted. Siren also sets Max Shift to 24 semitones, so a siren that switches pattern (yelp, two-tone, wail) stays flat; choosing any Source Type now sets Max Shift. Saved sessions and presets keep their settings, but Detector automation recorded in a VST3 host with 2.0.x needs recording again.
-- v2.0.3: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
-- v2.0.2: Manual Override flattens to Override Hz again, in every target mode; About window copyright runs to the build year; README tour of the interface.
-- v2.0.1: consistent styling for every menu, submenu, dialog, tooltip and text field; preset bar and menu reworked; user presets tracked by file; CI stapling retries.
-- v2.0.0: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
-- v1.2.5: help text and About button scaling fixes, FFT visualiser.
-- v1.1.0: added FFT pitch tracking.
-- v1.0.0: initial release.
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

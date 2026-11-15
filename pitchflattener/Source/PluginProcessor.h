@@ -1,22 +1,33 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include "ParamIDs.h"
-#include "dsp/FlattenerCore.h"
-#include "dsp/SourceAdvisor.h"
-#include "dsp/SourcePresets.h"
 
-class PitchFlattenerAudioProcessor : public juce::AudioProcessor,
-                                     private juce::AsyncUpdater,
-                                     private juce::Timer
+#include "Engine.h"
+
+#include <atomic>
+
+/**
+ * Pitch Flattener's processor: the host's side of one Engine (Engine.h does the work).
+ *
+ * Parameters (state version 1): target (High Point, Centre, Low Point, Start, Note), note (the
+ * pitch for Note, a MIDI note with cents), amount (0..100 %) and line (Auto, Harmonic, Ridge).
+ * Learn and Clear are actions, not parameters: they are not automated or saved.
+ *
+ * The saved state holds the parameters and the editor's choice of view. The learned sound lives in
+ * memory for as long as the plug-in instance does; a session reopened later has to learn it again.
+ *
+ * The plug-in reports a fixed latency of Engine::kLatencySeconds (set once, in prepareToPlay).
+ */
+class PitchFlattenerAudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     PitchFlattenerAudioProcessor();
     ~PitchFlattenerAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
+    void releaseResources() override {}
     void reset() override;
+    void setNonRealtime (bool isNonRealtime) noexcept override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -27,7 +38,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override  { return false; }
+    bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override;
@@ -42,76 +53,42 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     //==========================================================================
-    // Editor-facing API (message thread)
+    static constexpr int stateVersion = 1;
+
+    // Parameter IDs.
+    static constexpr const char* targetId = "target";
+    static constexpr const char* noteId = "note";
+    static constexpr const char* amountId = "amount";
+    static constexpr const char* lineId = "line";
 
     juce::AudioProcessorValueTreeState parameters;
 
-    /** Writes the defaults of a Source Type into the user-facing parameters (as a host gesture). */
-    void applySourceTypeDefaults (pf::SourceType type);
+    pitchflattener::Engine& getEngine() noexcept { return m_engine; }
+    const pitchflattener::Engine& getEngine() const noexcept { return m_engine; }
 
-    /** Forget the latched pitch so the next stable pitch is latched again. */
-    void relatch() { core.requestRelatch(); }
+    /** The options the parameters set now. */
+    pitchflattener::core::Options optionsFromParameters() const;
+    /** Hands the parameters to the engine (the timer does this 20 times a second; tests call it directly). */
+    void syncOptions();
 
-    /** Pops per-frame analysis telemetry (single consumer: the editor). */
-    bool popTelemetry (pf::TelemetryFrame& f) { return core.popTelemetry (f); }
+    /** Sets a parameter as one host gesture (the editor's buttons, clicks on the display). */
+    void setParameterFromEditor (const char* id, float plainValue);
 
-    /** Reads mono analysis-rate audio for the spectrogram (single consumer). */
-    int readAnalysisAudio (float* dest, int maxSamples) { return core.readAnalysisAudio (dest, maxSamples); }
-    double getAnalysisRate() const { return core.getAnalysisRate(); }
+    static juce::String noteText (double midi);
 
-    float getLatchedHz() const          { return core.getLatchedHz(); }
-    float getInputLevelDb() const       { return core.getInputLevelDb(); }
-    int   getReportedLatency() const    { return getLatencySamples(); }
-    int   getUnderrunCount() const      { return core.getUnderrunCount(); }
-    pf::DetectorType getActiveDetector() const { return core.getActiveDetector(); }
-
-    // For the wobble check and the Source Type advisor (message thread)
-    /** The settings the parameters set now, as the advisor replays them. */
-    pf::ProcessingSettings getProcessingSettings() const;
-    /** The Source Type parameter (a pf::SourceType). */
-    int getSourceType() const;
-    double getFrameInputSamples() const          { return core.getFrameInputSamples(); }
-    int64_t getMonitorWritten (bool output) const { return core.getMonitorWritten (output); }
-    int getResetCount() const                    { return core.getResetCount(); }
-    bool copyMonitor (bool output, int64_t from, int numSamples, float* dest) { return core.copyMonitor (output, from, numSamples, dest); }
-
-    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    /** The editor's display view as the user last chose it: kViewUnset (none yet: SCOPE once something
+        is learned, FLIGHT while nothing is), kViewScope or kViewFlight. Saved with the state; not a
+        parameter, so hosts neither automate it nor show it. Message thread. */
+    static constexpr int kViewUnset = -1, kViewScope = 0, kViewFlight = 1;
+    int getDisplayView() const;
+    void setDisplayView (int view);
 
 private:
-    void handleAsyncUpdate() override;
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void timerCallback() override;
 
-    pf::LiveSettings readLiveSettings() const;
-    pf::DetectorConfig wantedDetectorConfig() const;
-    void migrateLegacyState (juce::ValueTree& state);
-
-    pf::FlattenerCore core;
-    double currentSampleRate = 0.0;
-
-    struct Raw
-    {
-        std::atomic<float>* sourceType = nullptr;
-        std::atomic<float>* detector = nullptr;
-        std::atomic<float>* minFreq = nullptr;
-        std::atomic<float>* maxFreq = nullptr;
-        std::atomic<float>* sensitivity = nullptr;
-        std::atomic<float>* trackingSpeed = nullptr;
-        std::atomic<float>* trackSmoothing = nullptr;
-        std::atomic<float>* gapFill = nullptr;
-        std::atomic<float>* volumeThreshold = nullptr;
-        std::atomic<float>* detectionHighpass = nullptr;
-        std::atomic<float>* detectionLowpass = nullptr;
-        std::atomic<float>* targetMode = nullptr;
-        std::atomic<float>* targetPitch = nullptr;
-        std::atomic<float>* autoWindow = nullptr;
-        std::atomic<float>* flattenAmount = nullptr;
-        std::atomic<float>* maxShift = nullptr;
-        std::atomic<float>* manualOverride = nullptr;
-        std::atomic<float>* overrideFreq = nullptr;
-        std::atomic<float>* rbFormantPreserve = nullptr;
-        std::atomic<float>* quality = nullptr;
-        std::atomic<float>* mix = nullptr;
-    } raw;
+    pitchflattener::Engine m_engine;
+    std::atomic<double> m_tailSeconds { 0.0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchFlattenerAudioProcessor)
 };

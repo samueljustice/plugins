@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "../common/DelayLine.h"
 #include "../common/Module.h"
 #include "../common/SlidingExtreme.h"
@@ -24,10 +26,10 @@ namespace roar
      *         --> dB --> slow env (charge 95 ms, release 500 ms Natural / 80 ms Snappy)
      *         --> level = max (fast, slow)
      *
-     *   Low (upward)    G_low  = L / (1 + exp ((level - (c + 3.01)) / w)),  L = 48 uLow^1.68,
+     *   Low (upward)    G_low  = L / (1 + exp ((level - (c + 3.01)) / w)),  L = 34 uLow^1.2,
      *                   c = -34 + 0.52 L, w = 8.5 + 0.08 L
      *   High (push)     xp = level + G_low, y = softmin (xp + M, C) with a 9 dB knee,
-     *                   M = 48 uHigh^1.68, C = max (0, 6 - 0.28 M); G_high = y - xp, whose
+     *                   M = 34 uHigh^1.2, C = max (0, 6 - 0.28 M); G_high = y - xp, whose
      *                   reduction releases through its own slow stage (60 ms charge, 150 ms release)
      *   Trim            T = the static G_low + G_high at a -12 dBFS peak, so syllables at the
      *                   reference level pass at unity and only the quiet material rises
@@ -37,6 +39,15 @@ namespace roar
      *                   no net boost, the boost comes in fully 8 dB above F, and below F the expander
      *                   cuts 1:2 (at most 6 dB). Until anything louder than -40 dBFS has been heard,
      *                   quiet material from the start counts as floor at once.
+     *                   A second, quiet tracker covers takes whose pauses are too short to qualify
+     *                   (and a gate that rarely closes): the quietest 10 ms level of the last 2 s
+     *                   (minima of 8 segments of 0.25 s, from moments CLEAN's gate is not reducing)
+     *                   + 5 dB, at most -45 dBFS. The guard uses the higher of the two floors.
+     *                   The boost is also capped at 1 dB per dB above F + 2 dB, so material
+     *                   near the floor (gaps, tails) rises only in proportion to its contrast.
+     *   Gate guard      when CLEAN runs before DETAIL, its gate gain (per sample) is followed too:
+     *                   while the gate closes (from -1 dB, fully at -5 dB) there is no net boost, so
+     *                   DETAIL never lifts the room tone CLEAN is taking out.
      *   Gain smoother   instant when falling (the look-ahead covers it), 1.5 ms when rising.
      *
      * Latency round (1.333 ms fs): 64 samples at 48 kHz. Stereo-linked (one gain from the max of
@@ -61,6 +72,9 @@ namespace roar
          */
         void setTestOptions (bool trim, bool floorGuard);
 
+        /** CLEAN's gate gain per sample for the next process() call (nullptr: no gate before DETAIL). */
+        void setGateTrace (const float* gateGainDb) { m_gateTrace = gateGainDb; }
+
         // Readouts (end of the last chunk, scaled by the On fade).
         float getBoostDb() const { return m_s.boostDb * m_fade.getValue(); }   // >= 0
         float getCutDb() const { return m_s.cutDb * m_fade.getValue(); }       // <= 0
@@ -68,7 +82,7 @@ namespace roar
         float getFloorDb() const { return static_cast<float> (m_s.floorDb); }
         double getTrimDb() const { return m_curve.trim; }
 
-        /** The low and high section depths in dB for knob positions u (the 48 u^1.68 taper). */
+        /** The low and high section depths in dB for knob positions u (laws::detailDepthDb, 34 u^1.2). */
         static double depthForKnob (double u);
 
         /** The static gain (no dynamics, no floor guard) for a steady peak level in dBFS. */
@@ -93,10 +107,13 @@ namespace roar
         double m_paramCoeff = 0.0;                               // per control block
         double m_levReleaseCoeff = 0.0, m_floorFallCoeff = 0.0, m_floorRiseDb = 0.0;
         int m_holdBlocks = 1, m_qualifyBlocks = 1;
+        int m_minSegmentBlocks = 1;
 
         static constexpr int c_controlBlock = 32;
+        static constexpr int c_minSegments = 8;   // the quiet tracker: 8 segments of 0.25 s
 
         OnFade m_fade;
+        const float* m_gateTrace = nullptr;   // transient: set by the chain before each process()
         DelayLine m_delayL, m_delayR;
         SlidingExtreme m_peak { SlidingExtreme::Kind::max };
 
@@ -133,7 +150,15 @@ namespace roar
             int runBlocks = 0;
             double floorDb = -70.0;            // c_unknownFloorDb until a floor has been heard
             bool floorKnown = false, activitySeen = false;
+            // Quiet tracker: the quietest guard level of the last 2 s (minima of c_minSegments
+            // segments), from blocks where CLEAN's gate is not reducing.
+            std::array<double, c_minSegments> minSegments {};
+            int minSegmentsFilled = 0, minSegmentBlocks = 0;
+            double minSegmentCur = 150.0;
+            double gateBlockMinDb = 0.0;       // the deepest gate gain of the current control block
+            double quietFloorDb = -150.0;      // -150 until two segments have been seen
             double floorWeight = 0.0;          // share of the net boost the guard removes, 0..1
+            double boostCapDb = 1.0e9;         // the most boost material this far above the floor may get
             double floorCutDb = 0.0;           // 1:2 expansion below the floor, dB >= 0
 
             float boostDb = 0.0f, cutDb = 0.0f, gainReadDb = 0.0f;

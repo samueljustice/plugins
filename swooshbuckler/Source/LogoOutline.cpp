@@ -146,7 +146,7 @@ namespace
     };
 
     //==============================================================================
-    // 4x4 column-major matrices, the layout glLoadMatrixf expects.
+    // 4x4 column-major matrices.
     using Mat4 = std::array<float, 16>;
 
     Mat4 identityMatrix()
@@ -199,7 +199,7 @@ namespace
         return m;
     }
 
-    // Same as glFrustum(-right, right, -top, top, nearZ, farZ).
+    // A perspective frustum from -right..right and -top..top at nearZ, out to farZ.
     Mat4 frustum(float right, float top, float nearZ, float farZ)
     {
         Mat4 m {};
@@ -211,7 +211,7 @@ namespace
         return m;
     }
 
-    // What GL does to glVertex2f(x, y): (x, y, 0, 1) through the matrix, then the perspective divide.
+    // A point (x, y, 0, 1) through the matrix, then the perspective divide: -1..1 across the view.
     juce::Point<float> projectToNdc(const Mat4& m, float x, float y)
     {
         const float clipX = m[0] * x + m[4] * y + m[12];
@@ -221,20 +221,7 @@ namespace
     }
 
     //==============================================================================
-    // Sinks receive the strips emitFrame() produces. All three see identical vertices.
-    struct GLSink
-    {
-        void beginPass(const PassStyle& pass) const { juce::gl::glLineWidth(pass.width); }
-        void beginStrip() const { juce::gl::glBegin(juce::gl::GL_LINE_STRIP); }
-        void endStrip() const { juce::gl::glEnd(); }
-
-        void vertex(const Vertex& v) const
-        {
-            juce::gl::glColor4f(v.r, v.g, v.b, v.a);
-            juce::gl::glVertex2f(v.x, v.y);
-        }
-    };
-
+    // Sinks receive the strips emitFrame() produces. Both see identical vertices.
     struct PreviewSink
     {
         PreviewSink(juce::Graphics& graphics, juce::Rectangle<float> bounds, const Mat4& matrix)
@@ -248,12 +235,12 @@ namespace
 
         void vertex(const Vertex& v)
         {
-            // GL's viewport mapping: NDC -1..1 across the area, y up.
+            // -1..1 across the area, y up.
             const auto ndc = projectToNdc(m_mvp, v.x, v.y);
             const juce::Point<float> point { m_area.getX() + (0.5f + 0.5f * ndc.x) * m_area.getWidth(),
                                              m_area.getY() + (0.5f - 0.5f * ndc.y) * m_area.getHeight() };
 
-            // GL interpolates colour along each segment; a segment drawn at its mean colour is close enough.
+            // Each segment is drawn at the mean colour of its two ends.
             if (m_hasPrevious)
             {
                 const float alpha = 0.5f * (m_previous.a + v.a);
@@ -568,7 +555,7 @@ LogoOutline::LogoOutline(const void* svgData, size_t svgSize)
     if (raw.empty())
         return;
 
-    // Normalise into a centred box whose longer side is 1, y up for GL.
+    // Normalise into a centred box whose longer side is 1, y up.
     float minX = std::numeric_limits<float>::max(), minY = minX;
     float maxX = std::numeric_limits<float>::lowest(), maxY = maxX;
 
@@ -799,7 +786,7 @@ void LogoOutline::emitContour(const Contour& contour, const ContourState& state,
     const int lastIndex = closed ? count : std::min(count - 1, static_cast<int>(headSamples));
     const float headOffset = closed ? 0.0f : headSamples - static_cast<float>(lastIndex);
 
-    // The one style function render() and renderPreview() share.
+    // The one style function renderPreview() and measureFrame() share.
     const auto makeVertex = [&](float px, float py, size_t pointIndex, float glow)
     {
         // sin(a + b), from the frame's temporal phase a and the point's precomputed spatial phase b.
@@ -882,34 +869,6 @@ void LogoOutline::emitContour(const Contour& contour, const ContourState& state,
 }
 
 //==============================================================================
-void LogoOutline::render(float timeSeconds, float opacity, float viewportAspect) const
-{
-    if (!m_loaded)
-        return;
-
-    const auto frame = makeFrameState(timeSeconds, opacity, viewportAspect);
-
-    if (frame.opacity <= 0.0f)
-        return;
-
-    using namespace juce::gl;
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadMatrixf(frame.projection.data());
-    glMatrixMode(GL_MODELVIEW);
-    glLoadMatrixf(frame.view.data());
-
-    GLSink sink;
-    emitFrame(frame, sink);
-
-    // Hand the context back as the caller expects to find it.
-    glLineWidth(1.0f);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-}
-
 void LogoOutline::renderPreview(juce::Graphics& g, juce::Rectangle<float> area, float timeSeconds, float opacity) const
 {
     if (!m_loaded || area.isEmpty())

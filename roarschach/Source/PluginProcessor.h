@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "CreatureEvolution.h"
+#include "Dice.h"
 #include "Params.h"
 #include "PresetManager.h"
 #include "dsp/CreatureChain.h"
@@ -10,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <optional>
 #include <vector>
 
 class RoarschachAudioProcessor : public juce::AudioProcessor
@@ -66,6 +68,8 @@ public:
     void setViewValue(const juce::Identifier& option, const juce::var& value);
 
     PresetManager& getPresetManager() { return m_presetManager; }
+    /** The preset, ROLL ALL and module dice, with their undo history (message thread). */
+    DiceRoller& getDice() { return m_dice; }
     /** Hold a Scope on this while writing several module positions (see PositionWrites). */
     roar::PositionWrites& getPositionWrites() { return m_positionWrites; }
     juce::AudioProcessorValueTreeState& getValueTreeState() { return m_parameters; }
@@ -80,6 +84,10 @@ public:
     void setCreatureFrozen(bool frozen);
     /** Eases the creature home over a few seconds and grows a new one (message thread). */
     void resetCreature();
+    /** The colour a Frozen creature holds (its colour mood's four axes), saved with the session so it
+        survives the editor closing and the project reloading; nullopt when none is kept (message thread). */
+    std::optional<std::array<float, 4>> getCreatureColour() const;
+    void setCreatureColour(std::optional<std::array<float, 4>> colour);
 
     /** Tests: one evolution step with the features as they are now (what the timer does). */
     void stepCreatureForTests(float dt) { stepCreature(dt); }
@@ -124,6 +132,7 @@ private:
     Params::Order m_heldPositions {};             // audio thread: the last complete order read
     bool m_haveHeldPositions = false;
     PresetManager m_presetManager;                // after m_parameters: it listens to them
+    DiceRoller m_dice;                            // after m_presetManager: it loads and restores presets
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -199,6 +208,7 @@ private:
     roar::CreatureEvolution m_creature;
     roar::CreatureShared m_creatureShared;
     int m_creatureGeneration = -1;
+    std::atomic<bool> m_creaturePresetSnap { true };   // the next step takes the preset's blot at once (a new instance, a load)
     float m_creatureStaleSeconds = 0.0f;
 
     struct CreatureClock final : private juce::Timer

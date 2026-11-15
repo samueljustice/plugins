@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Notarises a signed file and staples the ticket to it (an app is zipped to submit, then stapled itself).
-#   bundle/notarise.sh <.pkg | .dmg | .app>     needs APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID
+# Notarises a signed file and staples the ticket to it (a bundle is zipped to submit, then stapled itself).
+#   bundle/notarise.sh <.pkg | .dmg | .app | .aaxplugin>     needs APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID
 set -euo pipefail
 f="$1"
 auth=(--apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID")
 
 submit="$f"
-if [[ "$f" == *.app ]]; then
-  submit="$(mktemp -d)/$(basename "$f" .app).zip"
+if [[ "$f" == *.app || "$f" == *.aaxplugin ]]; then
+  submit="$(mktemp -d)/$(basename "$f").zip"
   ditto -c -k --keepParent "$f" "$submit"
 fi
 

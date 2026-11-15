@@ -1,5 +1,7 @@
 #include "SwirlModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -103,8 +105,12 @@ namespace roar
     {
         if (! (k0 > 0.0))
             return 0.0;
-        const double k = k0 * (0.6 + 0.4 * std::max (0.0, amount) / c_defaultAmount);
-        return std::min ({ k, 1.3 * k0, c_maxK });
+        // The resonance rises with the mix over the whole travel (1.74 k0 at full wet; it used to stop
+        // at 1.3 k0 from a = 0.61), so the top of the travel deepens the swirl, not only the blend.
+        // Below a = 0.3 it holds 0.94 k0, so a small mix is already a resonant swirl (it used to
+        // fall to 0.6 k0, and the first steps were lost under the rest of a chain).
+        const double k = k0 * std::max (0.94, 0.6 + 0.4 * std::max (0.0, amount) / c_defaultAmount);
+        return std::min (k, c_maxK);
     }
 
     double SwirlModule::makeupFor (double k)
@@ -183,7 +189,7 @@ namespace roar
 
     void SwirlModule::snapToTargets()
     {
-        m_state.amount = std::clamp (m_settings.amount, 0.0f, 1.0f);
+        m_state.amount = static_cast<float> (laws::swirlMix (static_cast<double> (m_settings.amount)));
         m_state.logRate = std::log (static_cast<double> (m_settings.rateHz));
         m_state.lampRate = static_cast<double> (m_settings.rateHz);
         m_lamp.setRate (m_state.lampRate);
@@ -310,7 +316,7 @@ namespace roar
             resetMotion();   // the oversampled input path kept running while Off
 
         auto& st = m_state;
-        const float amountTarget = m_settings.amount;
+        const auto amountTarget = static_cast<float> (laws::swirlMix (static_cast<double> (m_settings.amount)));   // u -> a
         const double logRateTarget = std::log (static_cast<double> (m_settings.rateHz));
         const int motionSetting = std::clamp (static_cast<int> (m_settings.motion), 0, c_numMotions - 1);
         const int circuitSetting = requestedCircuitId();

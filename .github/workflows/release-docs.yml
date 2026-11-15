@@ -1,0 +1,40 @@
+name: Release docs
+
+# Every plug-in update must update its docs: the plug-in's own README / CHANGELOG / RELEASE_NOTES, and its
+# section on the landing page (README.md, which the Pages workflow publishes as the website). This runs
+# bundle/check-release-docs.sh on every release tag and fails (so GitHub emails) when something was missed.
+# It doesn't stop the release; fix the docs on main and the site follows. Run the script before tagging.
+on:
+  push:
+    tags: ['*-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: ${{ !startsWith(github.ref_name, 'bundle-v') }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Check the docs mention this release
+      run: |
+        tag="$GITHUB_REF_NAME"
+        id="${tag%-v*}"
+        version="${tag##*-v}"
+        if ! grep -q "^$id|" bundle/plugins.txt; then
+          echo "$id isn't in bundle/plugins.txt; nothing to check."
+          exit 0
+        fi
+        if out=$(bundle/check-release-docs.sh "$id" "$version"); then
+          echo "$out"
+          echo "- $out" >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "## Docs to update for \`$tag\`"
+            echo
+            while IFS= read -r line; do echo "- $line"; done <<< "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do echo "::error::$line"; done <<< "$out"
+          exit 1
+        fi

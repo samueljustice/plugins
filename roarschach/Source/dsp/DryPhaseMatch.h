@@ -31,6 +31,15 @@ namespace roar
      * blended by its own 20 ms smoothstep weight, so turning CLEAN or OVERTONE on or off, or a
      * tone change, glides from one dry variant to the other.
      *
+     * Not matched: CHAMBER's Boom, the RBJ low shelf at 110 Hz (Q 0.7, +3/+6/+9 dB) on the wet
+     * after the last module. A minimum-phase shelf's phase is a lag bump that returns to 0 deg
+     * above the shelf (-13.8/-27.3/-40.3 deg at 110 Hz, about -22 deg at 250 Hz on Heavy), and
+     * no allpass can follow it: an allpass's phase only ever falls (to -180 or -360 deg at the
+     * top), so a fit near 110 Hz would leave the dry 90-180 deg off through the rest of the
+     * voice band, a far worse comb. Left alone the cost is small, because the shelf also lifts
+     * the wet where it lags: at 50 % Mix the worst loss against an in-phase blend is about
+     * 0.5 dB on Heavy, and the [mix] test bounds it.
+     *
      * One instance per chain (it depends on settings, never on the order). No allocation, NaN-safe.
      */
     class DryPhaseMatch

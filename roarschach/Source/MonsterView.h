@@ -2,7 +2,12 @@
 
 #include <JuceHeader.h>
 #include "CreatureEvolution.h"
+#include "CreatureMood.h"
+
+#include <optional>
+#include "CreatureMotion.h"
 #include "LogoSdf.h"
+#include "MonsterRenderer.h"
 #include "Theme.h"
 #include "dsp/MonsterFeatures.h"
 
@@ -13,24 +18,31 @@
 #include <memory>
 
 /**
- * The creature view: one fragment shader on a full-screen quad draws a mirror-symmetric ink-blot
- * creature head that is animated by what the audio is doing: the voice opens the jaw, growl shakes
- * the teeth, shimmer ripples the skin and drips ink, swirl sweeps a sheen up and down the face,
- * ensemble spreads filaments to the sides, roar heats the eyes, sub sends out rings, the vocoder
- * lights a frill of 32 ridges under the jaw, overtone lights one rib per harmonic under the chin
- * (hollow in Replace), ring puts flickering metal plates over the mouth, de-ess glints on the
- * teeth, tame dims the crown, a shut gate closes the lips, the limiter swells veins at the
- * temples and the clipper throws sparks off the edges. After 1.5 s of silence it falls asleep.
+ * The creature view: a swirling ink creature in the clouds, animated by what the audio is doing.
+ * Asleep it is lit cloud carrying a little pigment; a voice turns the cloud and draws that pigment
+ * in along mirrored eddies until it gathers into one folded, wet ink blot; quiet lets it go back to
+ * the flow as ribbons and smoke. The voice works a heavy, damped jaw (JawMotion) that tears a
+ * ragged rift on the fold; a roar swells and darkens the mass and breathes lit vapour out of the
+ * rift; each of the fifteen modules leaves its own trace on the shape, the flow or the pigment.
+ * After 1.5 s of silence it falls asleep.
  *
- * The creature is a condensation of a drifting cloud field (painterly, with a slight liquid-ink
- * feel): a roar pulls it together, quiet lets it thin out, and sleep disperses it back into cloud
- * (eyes and maw form first and go last). A low front fog drifts over it. Its form evolves slowly
- * with the session (CreatureEvolution, stepped by the processor); the view only reads the evaluated
- * parameters and smooths them. A right-click on the view offers Live / Frozen evolution and a reset.
+ * What the blot is grows from a seed and with the session (CreatureEvolution, stepped by the
+ * processor: the stage switches structure in, the characters bend it; CreatureAnatomy turns both
+ * into the shape); the view only reads the evaluated parameters and smooths them. The renderer
+ * (MonsterRenderer) steps an ink buffer on capable GPUs and draws one stateless pass on weak or
+ * software ones. A right-click on the view offers Live / Frozen evolution, a reset, and how much
+ * the view draws (Visualiser: Full, Low or Off).
+ *
+ * It draws nothing while it cannot be seen: no frames at all while it is not showing (hidden, or
+ * its window minimised where the window can say so), and on macOS two a second while its window
+ * reports itself covered or on another desktop. That report is believed only from a window that has
+ * reported itself visible since the view was put in it: a window that never has (a host that shows
+ * the view from another process, through a window of its own) is taken as seen, at full rate.
  *
  * Threads: the audio thread writes MonsterFeatures (atomics); the message thread writes the knob
  * values with setParams() (atomics); the GL thread reads both in renderOpenGL() and keeps its own
- * smoothing state. A small Graphics overlay draws the readouts and the shader-failure fallback.
+ * smoothing state. A small Graphics overlay draws the readouts, and a still cloud with a line of
+ * text where OpenGL can't run.
  */
 class MonsterView : public juce::Component, public juce::OpenGLRenderer, private juce::Timer
 {
@@ -47,35 +59,115 @@ public:
         float gravel = 0.0f;
         float detailLow = 0.30f;
         float detailHigh = 0.20f;
-        float swirl = 0.0f;        // SWIRL amount (the sheen band's strength)
-        float ensemble = 0.0f;     // ENSEMBLE amount (the tendrils' strength)
-        float overtone = 0.0f;     // OVERTONE amount (the ribs' strength)
-        float ring = 0.0f;         // RING amount (the plates over the mouth)
+        float swirl = 0.0f;        // SWIRL amount (the bound eddy pair's strength)
+        float ensemble = 0.0f;     // ENSEMBLE amount (the pale echoes' spread)
+        float overtone = 0.0f;     // OVERTONE amount, as its effect (the wisps' length)
+        float overtoneTravel = 0.0f;   // ... and as the knob stands, 0..1 (no wisps at a few per cent)
+        float ring = 0.0f;         // RING amount (the ripples from the rift)
         float cleanOn = 1.0f;      // CLEAN is On: its gate may close the lips
+        float clean = 0.0f;        // CLEAN's containment above its usual setting (0..1): how tidy the edge is
+        roar::CreatureMood::Axes mood {};   // the colour mood of the settings (CreatureMood::evaluate)
+        bool moodFrozen = false;   // the creature's evolution is Frozen: the colour holds too
+        std::optional<roar::CreatureMood::Axes> moodKept;   // Frozen: the colour saved with the session (if any)
     };
 
     /** creature: the evolved form published by the processor (nullptr: a fixed, fully formed one). */
     explicit MonsterView (const roar::MonsterFeatures& features, const roar::CreatureShared* creature = nullptr);
     ~MonsterView() override;
 
+    /** How much the view draws. full: the quality the graphics card can carry; low: the lightest
+        quality that still keeps the ink's own motion, at most 15 frames a second; off: a still
+        cloud, with no OpenGL at all. */
+    enum class Visualiser { full = 0, low, off };
+    /** Every view in this process follows this on its next timer tick. Message thread. */
+    static void setVisualiserForAll (Visualiser);
+    static Visualiser visualiserForAll();
+    Visualiser getVisualiser() const noexcept { return m_visualiser; }
+    /** This view at once (the timer also follows visualiserForAll()). Message thread. */
+    void setVisualiser (Visualiser);
+    /** Called with the menu's choice (the editor remembers it on this computer). */
+    std::function<void (Visualiser)> onVisualiserChosen;
+
     /** The right-click menu's actions (set by the editor; the menu shows only when they are set). */
     std::function<bool()> isCreatureFrozen;
     std::function<void (bool)> setCreatureFrozen;
     std::function<void()> resetCreature;
+    /** Keeps the colour a Frozen creature holds with the session (nullopt: none, it is Live). */
+    std::function<void (std::optional<roar::CreatureMood::Axes>)> keepCreatureColour;
 
     void mouseDown (const juce::MouseEvent&) override;
+    void visibilityChanged() override;
+    /** The menu a right-click opens (empty until the editor has set the actions above). */
+    juce::PopupMenu buildCreatureMenu() const;
 
-    /** Tests and snapshots: hold the formation and the front fog (each < 0 = live). */
-    void setFormationForTests (float formation, float fog)
+    /** One quiet line of help at the bottom of the view, shown while no audio has arrived yet and
+        the creature has slept through 1.5 s of silence. The first sound takes it away for good and
+        calls onAudioHeard (once). An empty text shows nothing. Message thread. */
+    void setHint (const juce::String& text);
+    std::function<void()> onAudioHeard;
+    bool isHintShowing() const noexcept { return m_hintShown; }
+    /** Refreshes the overlay (the readouts and the hint) after this much time; the view's timer
+        calls it on every tick. */
+    void refreshOverlay (float seconds);
+
+    /** Tests and snapshots: draw what the view shows where OpenGL can't run. */
+    void showFallbackForTests() { m_shaderFailed.store (true, std::memory_order_relaxed); refreshOverlay (0.0f); }
+
+    /** Tests: what the view does when no OpenGL context could be made (it lets go of the context,
+        so the component paints its fallback itself). */
+    void giveUpOnGLForTests() { giveUpOnGL(); refreshOverlay (0.0f); }
+    bool isGLAttachedForTests() const { return m_context.isAttached(); }
+    /** Tests: the context is set to this view (made natively once it is on screen). */
+    bool hasGLContextForTests() const { return m_context.getTargetComponent() != nullptr; }
+    /** Tests: one tick of the view's frame timer; the GL frames it has asked for so far; whether
+        drawing is paused (the view cannot be seen) or slowed (its window reports it covered); and
+        the view taken as seen (0), not shown (1) or covered (2) whatever the window says (-1). */
+    void tickForTests() { timerCallback(); }
+    int framesRequestedForTests() const noexcept { return m_framesRequested; }
+    bool isPausedForTests() const noexcept { return m_seen == Seen::no; }
+    bool isSlowedForTests() const noexcept { return m_seen == Seen::covered; }
+    int frameRateForTests() const noexcept { return m_timerHz; }
+    void setSeenForTests (int seen) { m_testSeen = seen; }
+    /** Tests: the creature menu's Evolution: Frozen chosen, as a click on it does. */
+    void chooseFrozenForTests() { menuItemChosen (menuFrozen); }
+
+    /** Tests and snapshots: a fixed 1/30 s step, so frames repeat. */
+    void setFixedStepForTests (bool fixed) { m_testFixedStep.store (fixed, std::memory_order_relaxed); }
+
+    /** The renderer's quality tier in use (0..3, -1 before the first frame). */
+    int getQualityTier() const { return m_tier.load (std::memory_order_relaxed); }
+
+    /** Tests and snapshots: hold the creature's formation (< 0 = live). */
+    void setFormationForTests (float formation) { m_testFormation.store (formation, std::memory_order_relaxed); }
+
+    /** Tests: hold the drawn jaw (0..1; < 0 = live). */
+    void setJawForTests (float jaw) { m_testJaw.store (jaw, std::memory_order_relaxed); }
+    /** Tests and snapshots: the ink creature's pass at full size (1), half size (0) or by the GPU (-1). */
+    void setInkFullSizeForTests (int full) { m_renderer.setInkFullSize (full); }
+    /** Tests: the cloud in front of the ink creature at this share of its opacity (0: the ink bare). */
+    void setInkFrontCloudForTests (float share) { m_renderer.setInkFrontCloud (share); }
+    /** Tests: the light in the ink creature's rift held at this share of the blot's own (< 0 = live). */
+    void setInkMomentForTests (float moment) { m_renderer.setInkMoment (moment); }
+    /** Tests: the light in the ink creature's rift itself, whatever the blot's own is (< 0 = the blot's). */
+    void setInkLightForTests (float light) { m_renderer.setInkLight (light); }
+    void setInkTracesOffForTests (bool off) { m_renderer.setInkTracesOff (off); }
+    /** Tests and snapshots: hold the colour mood at these axes whatever the settings are (any < 0 = live). */
+    void setMoodForTests (const roar::CreatureMood::Axes& axes)
     {
-        m_testFormation.store (formation, std::memory_order_relaxed);
-        m_testFog.store (fog, std::memory_order_relaxed);
+        for (size_t i = 0; i < axes.size(); ++i)
+            m_testMood[i].store (axes[i], std::memory_order_relaxed);
     }
 
     /** Message thread. Stores into atomics read by the GL thread. */
     void setParams (const Params& params);
 
-    /** Message thread. Radius (component px) of the rounded corners and the colour drawn outside them. */
+    /** Message thread: the cloud's colour as it is on screen now (OkLCh hue in degrees, chroma), for the
+        controls to take their tint from. While no frames are drawn, the tone of the settings' mood (or
+        of the colour kept while Frozen). */
+    roar::CreatureMood::Tone shownTone() const;
+
+    /** Message thread. Radius (component px) of the box's rounded corners and the colour drawn outside
+        them: the sheet's paper. */
     void setCorner (float radius, juce::Colour outside);
 
     void paint (juce::Graphics&) override;
@@ -86,16 +178,54 @@ public:
     void requestCapture() { m_captureRequested.store (true, std::memory_order_relaxed); }
     juce::Image takeCapture();
 
+    /** Tests and snapshots: one frame of this view (the same animation, frame and renderer) into the
+        framebuffer bound in a GL context the caller has made current; the view's own context is not
+        used. dt: seconds since the frame before. Follow with requestCapture() / takeCapture(), and
+        call releaseOffline() with that context current before the view goes. */
+    void renderOffline (float dt, int width, int height, bool coreProfile = true);
+    void releaseOffline();
+    const roar::MonsterRenderer& getRendererForTests() const { return m_renderer; }
+    /** Tests: the features read as silence (not published lately, or the host is bypassing), the
+        creature asleep, and asleep with frames coming slowly, as the last frame stepped them. */
+    bool readsSilenceForTests() const { return m_stale.load (std::memory_order_relaxed); }
+    bool isAsleepForTests() const { return m_asleep.load (std::memory_order_relaxed); }
+    bool isIdleForTests() const { return m_idle.load (std::memory_order_relaxed); }
+    /** A readout over the picture ("CAPTION value", or a caption alone) on its soft label, at the
+        left or the right end of `row`; returns the label's bounds. Also used by the tests, which
+        measure it over the darkest and the palest picture. */
+    static juce::Rectangle<float> drawReadout (juce::Graphics&, const Theme::Fonts&, const juce::String& text,
+                                               juce::Rectangle<float> row, bool left, bool dim);
+    /** The first-run hint, centred on `row`; returns its label's bounds. */
+    static juce::Rectangle<float> drawHint (juce::Graphics&, const Theme::Fonts&, const juce::String& text, juce::Rectangle<float> row);
+
+    /** Tests: the readouts as the last refreshOverlay() wrote them ("F0 ... | DETAIL ..."). Message thread. */
+    juce::String getReadoutsForTests() const { return m_f0Text + " | " + m_detailText; }
+    /** Tests: the ripples from hits as the last frame stepped them. */
+    const roar::SurfaceRipples& getRipplesForTests() const { return m_ripples; }
+    /** Tests and snapshots: the ripples and the tremble left out of the picture (they are still stepped). */
+    void setRipplesOffForTests (bool off) { m_testRipplesOff.store (off, std::memory_order_relaxed); m_testTrembleOff.store (off, std::memory_order_relaxed); }
+    /** Tests: the tremble alone left out of the picture. */
+    void setTrembleOffForTests (bool off) { m_testTrembleOff.store (off, std::memory_order_relaxed); }
+    /** Tests and the screenshot tool (their own thread is the GL thread): hold a tier, read the ink buffer. */
+    roar::MonsterRenderer& rendererForTests() { return m_renderer; }
+
     void newOpenGLContextCreated() override;
     void renderOpenGL() override;
     void openGLContextClosing() override;
 
 private:
     void timerCallback() override;
-    bool buildShader();
     void releaseGL();
+    void giveUpOnGL();
+    void createRenderer (bool coreProfile);
+    void drawFrame (float dt, float scale, int width, int height);
     void updateAnimation (float dt);
     void showCreatureMenu();
+    enum MenuItem { menuLive = 1, menuFrozen, menuReset, menuDrawFull, menuDrawLow, menuDrawOff };
+    void menuItemChosen (int item);
+    bool drawsFrames() const { return m_visualiser != Visualiser::off && ! m_glGivenUp; }
+    enum class Seen { yes, covered, no };
+    Seen whetherSeen();
 
     static constexpr int c_numBands = roar::MonsterFeatures::numBands;
 
@@ -103,7 +233,9 @@ private:
     std::unique_ptr<roar::CreatureShared> m_ownCreature;   // when no processor publishes one
     const roar::CreatureShared& m_creature;
     const LogoSdf& m_logo { LogoSdf::shared() };            // built once per process (on the first editor)
-    std::atomic<float> m_testFormation { -1.0f }, m_testFog { -1.0f };
+    std::atomic<float> m_testFormation { -1.0f }, m_testJaw { -1.0f };
+    std::atomic<bool> m_testFixedStep { false };
+    std::atomic<bool> m_testRipplesOff { false }, m_testTrembleOff { false };
     juce::OpenGLContext m_context;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 
@@ -111,18 +243,35 @@ private:
     std::atomic<float> m_pitchSt { -2.0f }, m_size { 0.35f }, m_growl { 0.30f }, m_liquid { 0.30f },
                        m_roar { 0.35f }, m_sub { 0.25f }, m_gravel { 0.0f },
                        m_detailLow { 0.30f }, m_detailHigh { 0.20f },
-                       m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_ringKnob { 0.0f },
-                       m_cleanOn { 1.0f };
+                       m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_overtoneTravel { 0.0f }, m_ringKnob { 0.0f },
+                       m_cleanOn { 1.0f }, m_clean { 0.0f };
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodTarget {};
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_testMood { { { -1.0f }, { -1.0f }, { -1.0f }, { -1.0f } } };
+    std::atomic<bool> m_moodFrozen { false };
+    std::atomic<int> m_moodResets { 0 };     // bumped by the menu's reset (message thread)
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodKept {};   // the saved frozen colour
+    std::atomic<bool> m_moodHasKept { false };
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodShown {};  // written on the GL thread (only while it draws)
+    std::array<std::atomic<float>, 2> m_toneShown {};   // hue, chroma on screen (GL thread writes, only while it draws)
+    std::atomic<bool> m_toneSeen { false };
     std::atomic<int> m_width { 0 }, m_height { 0 };
     std::atomic<float> m_cornerRadius { 8.0f };
-    std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::background.getARGB() };
+    std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::paper.getARGB() };
+
+    // The sheet's paper and grain outside the box's rounded corners (message thread).
+    void drawCorners (juce::Graphics&, juce::Rectangle<float> bounds, float radius);
 
     // Written on the GL thread, read by the overlay.
     std::atomic<bool> m_shaderFailed { false };
     std::atomic<bool> m_glReady { false };   // a context was created and the shader built
+    // (these two by the overlay instead, on the message thread, while no GL frames are drawn: Off,
+    // or no OpenGL)
     std::atomic<bool> m_asleep { false };
-    std::atomic<bool> m_stale { false };     // the audio thread stopped publishing (host not processing)
+    std::atomic<bool> m_stale { false };     // the features read as silence: not published lately, or the host is bypassing
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
+    std::atomic<int> m_tier { -1 };          // the renderer's tier (the idle frame rate depends on it)
+    std::atomic<int> m_awakeHz { 30 };       // frames a second awake (fewer where the GPU is given relief)
+    std::atomic<bool> m_lowQuality { false };  // Visualiser: Low (written on the message thread)
 
     // Frame read-back for snapshots (never used while a host runs the plug-in).
     std::atomic<bool> m_captureRequested { false };
@@ -130,55 +279,61 @@ private:
     juce::Image m_capture;
 
     // GL thread only.
-    std::unique_ptr<juce::OpenGLShaderProgram> m_program;
-    GLuint m_vbo = 0, m_vao = 0, m_logoTexture = 0;
-    GLint m_positionAttrib = -1;
-
-    enum Uniform
-    {
-        uRes, uPxScale, uRadius, uTime, uJaw, uGrowl, uGrowlMod, uLiquid, uLiquidPhase, uRoar,
-        uRoarDrive, uSub, uSubLevel, uSubPhase, uPitch, uSize, uGravelOn, uDetailLow, uDetailHigh,
-        uBoost, uCut, uSleep, uBlink, uLevel, uBands,
-        uSwirlNotch, uSwirlAmt, uEnsWidth, uDeess, uTame, uGateClosed, uOvLevel, uOvHarm, uOvReplace,
-        uRing, uRingFlicker, uRingBody, uStrain, uStrainPulse, uClip,
-        uColScope, uColGrid, uColOuter, uColPitch, uColGrowl, uColLiquid, uColRoar, uColSub,
-        uColDetail, uColVocoder, uColOutput, uColText, uColSwirl, uColOvertone, uColRing, uColDeess, uColEnsemble,
-        uEvoHead, uEvoWing, uEvoHorn, uEvoEyes, uEvoMaw, uEvoInk, uEvoFlow, uEvoPal, uEvoMisc, uForm, uCloud, uSeed, uSeedB,
-        uDrift, uFlow, uFlow2, uColCloud, uColCloudLit, uColUnderglow, uColRedInk, uColWashA, uColWashB, uEgg, uLogoBox, uLogoSdf,
-        numUniforms
-    };
-    std::array<GLint, numUniforms> m_uniforms {};
+    roar::MonsterRenderer m_renderer;
+    roar::MonsterFrame m_frame;
+    roar::JawMotion m_jawMotion;
+    roar::HeadMotion m_head;
+    roar::AudioForces m_audioForces;
+    roar::SurfaceRipples m_ripples;
+    float m_jawFast = 0.0f;
+    float m_lastInterval = 1.0f / 30.0f;
+    bool m_lastClamped = false;
+    float m_inputLoud = 0.0f;        // the input's loudness, 0 (-30 dB) .. 1 (-8 dB), smoothed
 
     using Clock = std::chrono::steady_clock;
-    Clock::time_point m_startTime { Clock::now() };
     Clock::time_point m_lastFrame {};
     bool m_firstFrame = true;
 
     // Smoothed animation state (GL thread only).
     float m_jaw = 0.0f, m_growlMod = 0.0f, m_roarDrive = 0.0f, m_subLevel = 0.0f, m_level = 0.0f;
-    float m_boost = 0.0f, m_cut = 0.0f, m_gravelOn = 0.0f, m_sleep = 0.0f, m_subPhase = 0.0f;
+    float m_gravelOn = 0.0f, m_sleep = 0.0f, m_subPhase = 0.0f;
     float m_swirlNotch = 0.0f, m_ensWidth = 0.0f, m_deess = 0.0f, m_tame = 0.0f, m_gate = 1.0f;
+    // CHAMBER: how much the room rings (with Resonance), the Boom pulse's depth and its slow phase.
+    float m_chamberEcho = 0.0f, m_chamberBoom = 0.0f, m_chamberPhase = 0.0f;
     float m_ovLevel = 0.0f, m_ovReplace = 0.0f, m_ring = 0.0f, m_ringPhase = 0.0f, m_ringBody = 0.0f;
-    float m_strain = 0.0f, m_strainPhase = 0.0f, m_clip = 0.0f;
+    float m_strain = 0.0f, m_clip = 0.0f;
     std::array<float, roar::MonsterFeatures::numOvertoneHarmonics> m_ovHarm {};
     float m_quietSeconds = 0.0f, m_staleSeconds = 0.0f;
     int m_lastGeneration = -1;
-    float m_blinkClock = 0.0f, m_nextBlink = 3.0f;
     Params m_knobs;  // the knob values, smoothed so turning one animates instead of jumping
+    roar::MoodSpring m_mood;                    // the clouds' colour mood, drifting to the settings'
+    roar::ToneFollower m_tone;                  // its colour on screen (a bounded turn)
+    int m_moodResetsSeen = 0;
+    bool m_moodSnap = true;                     // the first frame takes the colour as it is
     std::array<float, c_numBands> m_bands {};
     roar::CreatureEvolution::Params m_evo {};   // the evolved form, smoothed per frame
     roar::CreatureFormation m_formation;
     bool m_evoSnap = true;                      // the first frame takes the form as it is
-    double m_driftBack[2] {}, m_driftFront[2] {}, m_bloomPhase = 0.0;
-    static constexpr int c_numFlows = 4;
-    double m_flowPhase[c_numFlows] {};          // the slow noise scrolls, as angles round their circles
-    juce::Random m_random { 0x5ea1 };
 
     // Message thread only (overlay readouts).
     juce::String m_f0Text, m_detailText;
     bool m_gravelShown = false, m_sleepShown = false, m_failShown = false;
-    int m_frameTick = 0;       // counts timer ticks for the slow idle frame rate
+    juce::String m_hintText;         // "" once audio has been heard (or when the editor set none)
+    float m_hintQuietSeconds = 0.0f; // silence since the view opened
+    bool m_hintShown = false;
+    int m_timerHz = 30;        // the frame timer's current rate (30 awake, slower once asleep and settled)
     int m_ticksWithoutGL = 0;  // timer ticks spent on screen without a working GL context
+    bool m_glGivenUp = false;  // no context could be made: detached, so paint() draws the fallback
+    Visualiser m_visualiser = Visualiser::full;
+    bool m_offShown = false;   // Visualiser: Off, painted as a still cloud
+    Seen m_seen = Seen::yes;   // whether the view can be seen (frames stop or slow while it cannot)
+    int m_testSeen = -1;
+    void* m_coverWindow = nullptr;   // the window whose covered report is believed (it has reported itself visible)
+    // The readouts' own silence and sleep, while no GL frames step them (see refreshOverlay).
+    bool m_overlayTracks = false;
+    int m_overlayGeneration = -1;
+    float m_overlayStaleSeconds = 0.0f, m_overlayQuietSeconds = 0.0f;
+    int m_framesRequested = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonsterView)
 };

@@ -41,6 +41,15 @@ public:
     /** Draws a button's label in capitals, like the editor's buttons. Its text (and accessible name) is kept. */
     static void setLabelDrawnInCapitals(juce::Button&);
 
+    /** Draws a button like an alert's buttons (pill, font, capitals) in a dialog that is not an AlertWindow, such as
+        the update popup; a primary one is tinted with the dialog's accent like an alert's Return-key button. */
+    static void setDrawnAsDialogButton(juce::Button&, bool primary, juce::Colour accent);
+
+    /** The card of a dialog drawn inside the editor (the update popup), as drawAlertBox() draws an alert:
+        panel, outline, header row with the accent dot and the title in capitals, divider. Returns the area below. */
+    juce::Rectangle<float> drawDialogCard(juce::Graphics&, juce::Rectangle<float> bounds, const juce::String& title,
+                                          juce::Colour accent) const;
+
     /** The accent of a dialog of this kind: its header dot and its Return-key button. */
     static juce::Colour accentFor(juce::MessageBoxIconType);
 

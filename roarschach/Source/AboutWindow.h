@@ -5,9 +5,12 @@
 #include "Theme.h"
 
 #include <functional>
+#include <memory>
+#include <vector>
 
 /**
- * The About window. Its owner (the editor) creates at most one, and deletes it when the
+ * The About window: who made it, a five-line quick start with the plug-in's latency, the update
+ * check and the licence. Its owner (the editor) creates at most one, and deletes it when the
  * user closes it (onClose) or when the editor itself goes, so it never outlives the plugin.
  * It is drawn with the owner's LookAndFeel, which outlives it.
  */
@@ -17,11 +20,28 @@ class AboutWindow : public juce::DocumentWindow
 
 public:
     /** onClose is called when the user closes the window; it should delete the window.
-        editorLookAndFeel (the editor's) must outlive the window. */
-    AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose);
+        editorLookAndFeel (the editor's) must outlive the window. latencyNote is the latency the
+        processor reports, in words ("45.7 ms (...)"; empty if it is not known yet). */
+    AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose, const juce::String& latencyNote = {});
     ~AboutWindow() override;
 
+    static constexpr int c_width = 500, c_height = 760;
+    static constexpr int c_minHeight = 650, c_titleBarReserve = 60;
+    /** The content's height on a display with this work area: c_height where it fits under a title
+        bar, less on a short display (never under c_minHeight). */
+    static int heightForDisplay(int workAreaHeight) noexcept;
+
+    /** The quick start: five short lines, first step first. */
+    static juce::StringArray quickStartLines();
+    /** The line under them about the plug-in's latency (latencyNote as for the constructor). */
+    static juce::String latencyLine(const juce::String& latencyNote);
+    /** The window's content on its own (the tests and pictures; the window makes its own). */
+    static std::unique_ptr<juce::Component> createContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote);
+
     void closeButtonPressed() override;
+
+    /** Takes a changed palette (the editor's mood) into the window's colours and repaints it. */
+    void refreshColours();
 
     /**
      * Looks up the latest Roarschach release on a worker thread.
@@ -33,11 +53,18 @@ public:
     class UpdateCheck final : private juce::Thread, private juce::AsyncUpdater
     {
     public:
+        /** What a result means, for its colour (resolved on the message thread, from the palette as it
+            is when the result is shown: the worker thread never reads the palette). */
+        enum class Tone { neutral, result, warning };
+
         struct Result
         {
             juce::String text;
-            juce::Colour colour;
+            Tone tone = Tone::neutral;
         };
+
+        /** The colour of a result's tone in the current palette. Message thread only. */
+        static juce::Colour colourOf(Tone tone);
 
         UpdateCheck(juce::URL releasesUrl, juce::String currentVersion, std::function<void(const Result&)> onResult);
         ~UpdateCheck() override;
@@ -72,24 +99,31 @@ private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutContent)
 
     public:
-        explicit AboutContent(RoarschachLookAndFeel& editorLookAndFeel);
+        AboutContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote);
         ~AboutContent() override;
 
         void paint(juce::Graphics& g) override;
         void resized() override;
 
         void stopUpdateCheck() { m_updateCheck.cancel(); }
+        /** Takes the palette as it is now (colours some children keep) and repaints. */
+        void refreshColours();
 
     private:
         void checkForUpdates();
+        /** Lays out the quick start for this width; returns the height it takes. */
+        int layoutQuickStart(int width);
 
         RoarschachLookAndFeel& m_lookAndFeel;
-        juce::Rectangle<int> m_creditsPanel, m_updatesPanel, m_licencePanel; // panels like the editor's sections
+        juce::Rectangle<int> m_creditsPanel, m_quickStartPanel, m_updatesPanel, m_licencePanel; // the sections, each under a ruled heading
+        const juce::String m_latencyLine;
+        std::vector<juce::TextLayout> m_quickStart;   // one per line, then the latency line
 
         juce::TextButton m_websiteButton;
         juce::TextButton m_emailButton;
         juce::TextButton m_checkUpdatesButton;
         juce::Label m_updateStatusLabel;
+        UpdateCheck::Tone m_statusTone = UpdateCheck::Tone::neutral;
         juce::TextEditor m_licenseText;
         juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 

@@ -31,6 +31,15 @@
  * Attacks stay sharp: a jump in spectral flux marks an onset; while that onset is inside
  * the frame (4 hops) the rotations are reset to the analysis phases, aligned so that all
  * the moved regions are in phase at the onset sample. A click comes out as a click.
+ * Nothing of a hit is written before it happens: the frames that hold the onset are faded
+ * to nothing ahead of it (a fade within the last ms), and the overlap-add is divided by the window sum
+ * that is really there, so the frames before the hit carry the sound up to it (the last
+ * few ms, where only their tails are left, are allowed to dip: the make-up stops at 12 dB).
+ *
+ * Level: every synthesised frame is scaled to the energy of the input bins that stay in
+ * band, and a slow trim (~300 ms, -3..+4 dB) makes up what the overlap-add of noise loses
+ * (frames of noise do not line up after a shift), so noise comes out at the level it went
+ * in, less only what the shift pushes past Nyquist.
  *
  * Ratio 1 (within 1e-4) is a bypass: the output is the input through a plain delay of
  * exactly N samples, so an unshifted track is untouched. The vocoder keeps running quietly
@@ -73,7 +82,7 @@ private:
     int m_fftOrder = 11, m_fftSize = 2048, m_hop = 512, m_bins = 1025;
     std::unique_ptr<juce::dsp::FFT> m_fft;
 
-    std::vector<float> m_window, m_in, m_outAcc, m_outFifo, m_work, m_delay;
+    std::vector<float> m_window, m_in, m_outAcc, m_normAcc, m_outFifo, m_work, m_delay;
     int m_pos = 0, m_delayPos = 0;
 
     std::vector<Cpx> m_spec, m_prevSpec, m_out;
@@ -84,7 +93,14 @@ private:
     float m_ratio = 1.0f;         // smoothed, per frame
     float m_ratioCoeff = 0.3f;    // one-pole per frame, in log ratio
     int m_settle = 0;             // frames spent at exactly ratio 1 (for the bypass hand-over)
-    int m_transientPos = -1;      // onset position inside the current frame, -1 when none
+    int m_transientPos = -1;      // onset position (its loudest sample) inside the current frame, -1 when none
+    int m_gatePos = 0;            // where that onset starts inside the current frame (only read while m_transientPos >= 0)
+    int m_gateFade = 48;          // length of the fade up to the onset, samples
+
+    // Slow level trim: compares the emitted output with the in-band input level one latency (4 frames) earlier.
+    float m_targetHistory[4] {};
+    int m_historyPos = 0;
+    float m_powTarget = 0.0f, m_powOut = 0.0f, m_trim = 1.0f, m_trimCoeff = 0.05f;
     float m_mix = 0.0f;           // 0 = delay (bypass), 1 = vocoder
     float m_mixTarget = 0.0f;
     float m_mixStep = 1.0f / 512.0f;

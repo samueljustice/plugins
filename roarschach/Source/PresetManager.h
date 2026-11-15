@@ -5,6 +5,7 @@
 #include "PositionWrites.h"
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -158,8 +159,14 @@ public:
     /** Store the current preset alongside the parameters (into a copy of the state). */
     void writeToState(juce::ValueTree& state) const;
     static StateInfo readStateInfo(const juce::XmlElement& state);
-    /** Restores parameters (replaceParameters, e.g. APVTS::replaceState) and then the preset. */
-    void restoreState(const StateInfo& info, const std::function<void()>& replaceParameters);
+    /** Restores parameters (replaceParameters, e.g. APVTS::replaceState) and then the preset.
+        isLoad false: not a load (the dice putting back their own state), so getLoadGeneration()
+        stays as it is. */
+    void restoreState(const StateInfo& info, const std::function<void()>& replaceParameters, bool isLoad = true);
+
+    /** Counts loads: every preset loaded (from the plug-in or by the host) and every state restored.
+        Lets the dice tell a load from their own edits, even when the same preset comes back. */
+    std::uint32_t getLoadGeneration() const noexcept { return m_loadGeneration.load(); }
 
 private:
     enum class Kind { factory, user, unsaved };
@@ -225,6 +232,7 @@ private:
     std::atomic<int> m_currentFactory { 0 }; // factory index of the current preset, -1 for any other
     std::atomic<bool> m_modified { false };
     std::atomic<int> m_applyDepth { 0 };
+    std::atomic<std::uint32_t> m_loadGeneration { 0 };
 
     // Last value seen per parameter, so notifications that do not change a value are ignored.
     int m_numParameters = 0;

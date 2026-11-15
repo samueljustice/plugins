@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "LookAndFeel.h"
 #include "Modulators.h"
+#include "Motion.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
 
@@ -26,7 +27,7 @@ public:
     /** Centre of a modulator's jack, in this panel's coordinates. */
     juce::Point<float> getJackCentre(int source) const;
     static juce::Colour sourceColour(int source);
-    static juce::String sourceName(int source) { return "MOD " + juce::String(source + 1); }
+    static juce::String sourceName(int source) { return "Mod " + juce::String(source + 1); }
 
 private:
     class Card;
@@ -48,8 +49,11 @@ private:
  *   double-click a plug   : depth back to +50%
  *   right-click a plug    : invert, depths, remove
  * The cables are drawn once into an image and only redrawn when the wiring or the layout changes.
+ *
+ * A wire that lands clicks in: the plug drops from 1.4 to its size on the Helm spring and the knob's ring
+ * flashes in the modulator's colour for a moment. That runs on the window's one frame clock (Motion.h).
  */
-class ModWires : public juce::Component, public juce::TooltipClient, private juce::AsyncUpdater
+class ModWires : public juce::Component, public juce::TooltipClient, public Motion::ClockClient, private juce::AsyncUpdater
 {
 public:
     ModWires(ModMatrix& matrix, const Theme::Fonts& fonts);
@@ -70,8 +74,16 @@ public:
     void rebuild();
     /** The same, once, a moment later: for bursts like scrolling the track list. */
     void rebuildSoon() { triggerAsyncUpdate(); }
+    /** The modulator whose card the mouse is over (-1: none). Its cables are drawn at full strength and the others
+        fade; with the mouse on none (and on no plug) every cable is drawn alike. */
+    void setHoverCard(int source) { setHover(source, m_hoverPlug); }
+    /** How strongly a modulator's cables are drawn now. */
+    float cableAlpha(int source) const;
+    static constexpr float c_cableAlpha = 0.62f, c_cableAlphaHovered = 0.97f, c_cableAlphaFaded = 0.2f;
     /** At the UI rate: the knobs' live modulated values. */
     void updateKnobs();
+    /** One frame of the plug that has just landed. */
+    void frame(float dt) override;
 
     void paint(juce::Graphics&) override;
     void resized() override { rebuild(); }
@@ -80,6 +92,8 @@ public:
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
     juce::String getTooltip() override;
 
     std::function<void(const juce::String&)> onStatus;
@@ -92,6 +106,8 @@ private:
         ModMatrix::Route route;
         juce::Point<float> pos;
         ModTarget* knob = nullptr;
+        juce::Point<float> gate; // where its cable turns in to it (ModTarget::getCableGate)
+        bool hasGate = false;
     };
 
     juce::Rectangle<float> knobArea(ModTarget* knob) const;
@@ -99,7 +115,7 @@ private:
     static bool isTargetInView(const ModTarget* t);
     ModTarget* knobAt(juce::Point<float> p, juce::String* id = nullptr) const;
     const Plug* plugAt(juce::Point<float> p) const;
-    juce::Path cablePath(juce::Point<float> from, juce::Point<float> to) const;
+    juce::Path cablePath(juce::Point<float> from, juce::Point<float> to, const juce::Point<float>* gate = nullptr) const;
     static void drawCable(juce::Graphics&, const juce::Path&, juce::Colour, float alpha);
     void showPlugMenu(const Plug& plug);
     juce::String describe(const ModMatrix::Route& r) const;
@@ -117,6 +133,17 @@ private:
     void depthChanged(int slot, float depth);
     void updateArcs(ModTarget* knob);
     bool m_showCables = true;
+    void drawCables();
+    // A wire that has just landed: which plug, how big it is drawn now, and how long its knob's ring still flashes.
+    int m_landSlot = -1;
+    Motion::Spring m_landScale;
+    ModTarget* m_landKnob = nullptr;
+    float m_landFlash = 0.0f;
+    void clearLandFlash();
+
+    int m_hoverCard = -1, m_hoverPlug = -1; // the modulator under the mouse, by its card or by one of its plugs
+    void setHover(int card, int plug);
+    int hoverSource() const;
 
     // Live drag of a new wire
     int m_dragSource = -1;

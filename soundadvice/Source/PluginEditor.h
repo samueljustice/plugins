@@ -5,6 +5,8 @@
 #include "PluginProcessor.h"
 #include "QuoteView.h"
 #include "Theme.h"
+#include "UpdatePopup.h"
+#include "SammyJUpdateCheck.h"
 
 #include <functional>
 
@@ -102,6 +104,9 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
 
+    /** Puts the "new version available" card over the page (the update check calls this). */
+    void showUpdatePopup (const sammyj::UpdateInfo&);
+
 private:
     void applyTheme();
     void chooseCategory (int index);
@@ -123,6 +128,11 @@ private:
     juce::TooltipWindow tooltips { this, 900 };
 
     juce::Image grain;
+
+    std::unique_ptr<UpdatePopup> updatePopup;
+    // Declared after the popup so it is destroyed first: its destructor stops the check before
+    // anything its callback touches goes away.
+    std::unique_ptr<sammyj::UpdateCheck> updateCheck;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SoundAdviceEditor)
 };

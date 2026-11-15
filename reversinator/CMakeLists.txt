@@ -9,7 +9,7 @@ if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
-project(Reversinator VERSION 2.0.3)
+project(Reversinator VERSION 2.1.0)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -62,9 +62,22 @@ target_sources(Reversinator
         Source/PluginEditor.cpp
         Source/Controls.cpp
         Source/SnippetDisplay.cpp
+        Source/TimeHighway.cpp
         Source/AboutPanel.cpp
+        Source/UpdatePopup.cpp
         Source/ReverseEngine.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The engine keeps the original's float32 arithmetic step for step. Without this, Apple silicon
+# builds merge a multiply and an add into one instruction (rounded once, not twice), and their
+# output drifts from Intel and Windows builds by a fraction of a sample of delay.
+if(NOT MSVC)
+    set_source_files_properties(Source/ReverseEngine.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
+
+# The update check shared by every Sammy J plug-in.
+target_include_directories(Reversinator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 juce_add_binary_data(ReversinatorBinaryData
     SOURCES
@@ -90,6 +103,7 @@ target_link_libraries(Reversinator
     PRIVATE
         ReversinatorBinaryData
         juce::juce_audio_utils
+        juce::juce_opengl
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

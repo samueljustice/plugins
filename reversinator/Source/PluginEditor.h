@@ -6,12 +6,14 @@
 #include "Controls.h"
 #include "SnippetDisplay.h"
 #include "AboutPanel.h"
+#include "UpdatePopup.h"
+#include "SammyJUpdateCheck.h"
 
 /**
  * Laid out at a fixed base size and scaled uniformly, so the window can be
  * resized (keeping its aspect ratio) without re-flowing anything.
  */
-class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor
+class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::OpenGLRenderer, private juce::Timer
 {
 public:
     explicit ReversinatorAudioProcessorEditor(ReversinatorAudioProcessor&);
@@ -20,8 +22,11 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    /** Shows the "new version available" card over the editor (called by the update check). */
+    void showUpdatePopup(const sammyj::UpdateInfo&);
+
     static constexpr int baseWidth = 820;
-    static constexpr int baseHeight = 560;
+    static constexpr int baseHeight = 612;
 
 private:
     class Content : public juce::Component, private juce::Value::Listener
@@ -32,6 +37,9 @@ private:
 
         void paint(juce::Graphics&) override;
         void resized() override;
+
+        void showUpdatePopup(const sammyj::UpdateInfo& info) { m_updatePopup.show(info); }
+        SnippetDisplay& getDisplay() { return m_display; }
 
     private:
         void valueChanged(juce::Value&) override;
@@ -68,12 +76,24 @@ private:
         juce::AudioProcessorValueTreeState::SliderAttachment m_wetAttachment;
         juce::AudioProcessorValueTreeState::SliderAttachment m_dryAttachment;
 
-        AboutPanel m_about;   // overlay, added last so it sits on top
+        AboutPanel m_about;           // overlays, added last so they sit on top
+        UpdatePopup m_updatePopup;
 
         std::array<Section, 3> m_sections;
         std::array<Caption, 4> m_captions;
         juce::Rectangle<int> m_reverserLabelBounds;
     };
+
+    // The snippet display's OpenGL scene is drawn here, behind the components: the whole editor is
+    // rendered through one context, so the panels, About and tooltips all sit on top of it.
+    void newOpenGLContextCreated() override;
+    void renderOpenGL() override;
+    void openGLContextClosing() override;
+    void setSceneLive(bool live);
+
+    // The display shows the scene's labels only while frames are actually being drawn, and its flat
+    // view otherwise. This follows the frames themselves, so it recovers after a context restart.
+    void timerCallback() override;
 
     ReversinatorAudioProcessor& m_processor;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
@@ -81,6 +101,15 @@ private:
     Content m_content;
     juce::TooltipWindow m_tooltipWindow;
     bool m_constructed = false;   // don't record the window size until construction has finished
+
+    juce::OpenGLContext m_openGL;
+    TimeHighway::Renderer m_scene;                       // GL thread only
+    std::atomic<juce::uint32> m_lastSceneFrame { 0 };    // when the GL thread last drew the scene (0: never)
+    juce::Rectangle<int> m_sceneArea;                    // the display, in this component's coordinates
+    juce::SpinLock m_sceneAreaLock;
+
+    // Last, so it is destroyed first: its destructor stops the check before the popup it calls goes away.
+    std::unique_ptr<sammyj::UpdateCheck> m_updateCheck;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReversinatorAudioProcessorEditor)
 };

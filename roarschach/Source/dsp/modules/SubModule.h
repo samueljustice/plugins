@@ -26,28 +26,33 @@ namespace roar
      *
      *   x --> band 1: 2 x TPT SVF band-pass (Q 2, 0 dB at fIn) --> b1 --> divider: u1 = q1 b1
      *     \-> band 2 (Thick only): the same at 1.5 fIn ----------> b2 --> divider: u2 = q2 b2
-     *   s = u1 (+ 0.5 u2) --> / level normaliser --> ADAA-1 biased tanh (Drive) --> x normaliser --+
+     *   s = u1 (+ 0.5 u2) -----------------------------------------------------------------------+
      *   u1 --> SVF at fsub: rotated (lp^2 - bp^2, 2 lp bp) / normaliser (2 fsub) x even gain ---------+
-     *     --> HP 2nd order at 0.6 fsub --> LP 4th-order Butterworth at 1.5 fsub
+     *     (the divided layer s, plus the even harmonic, before the drive)
+     *     --> HP 2nd order at 0.6 fsub --> LP 4th-order Butterworth at 1.5 fsub (the clean sub)
+     *     --> / level normaliser --> ADAA-1 biased tanh (Drive) --> x normaliser
+     *     --> LP 2nd-order Butterworth at 4 fsub (keeps the drive's 2nd and 3rd harmonics)
      *     --> x level law (re band 1's amplitude, i.e. H1) x floor expander --> added to l (and r)
      *
      * Band centre fIn: the VoiceStream f0 when its confidence is >= 0.4, otherwise held (the
      * dividers keep running on whatever is in the band); 140 Hz before any pitch. An octave jump
      * in f0 must persist for 40 ms. The Register chip picks the harmonic that is divided:
      *   Follow  f0 (sub = f0 / 2); 2 f0 when f0 / 2 < 42 Hz (sub = f0)
-     *   Tight   f0 or 2 f0, whichever puts the sub nearer 55..95 Hz (the switch sits at 102 Hz)
-     *   Deep    f0 always (sub = f0 / 2, down to 30 Hz)
+     *   Tight   the lowest of f0 / 2, f0, 2 f0 that is 55 Hz or above (divides f0, 2 f0 or 4 f0)
+     *   Deep    f0 (sub = f0 / 2) down to a 32 Hz sub; below that 2 f0 (sub = f0)
      * Register switches have 3 % hysteresis. fIn and fsub glide in log2 over 30 ms. When the
      * stream is not confident, fsub (the output filters) follows the dividers' own toggle rate.
      *
      * Divider: envelope e = |b| (1 ms attack, 30 ms release); armed when b < -0.15 e; an armed
      * upward zero crossing toggles q. u = q b has f / 2 at 0.849 |b| and nothing at f.
      *
-     * Drive: -6 + 24 uDrive dB into f(v) = (tanh (v + beta) - tanh beta) / sech^2 beta, beta 0.1
-     * (Clean) or 0.25 (Resonant, Thick), ADAA-1 at the base rate. The normaliser is the level of
-     * s with an instant attack and a 300 ms release, read as the RMS of a sine (peak / sqrt 2),
-     * floored at -60 dBFS: Drive means the same at any level, and an onset is never squashed by
-     * a slow level estimate.
+     * Drive: -12 + 24 uDrive dB into f(v) = (tanh (v + beta) - tanh beta) / sech^2 beta, beta 0.1
+     * (Clean) or 0.25 (Resonant, Thick), ADAA-1 at the base rate, on the band-passed sub (a near
+     * sine), so its 2nd and 3rd harmonics are what Drive adds and the 4 fsub low-pass keeps them.
+     * The normaliser is the level of the band-passed sub with an instant attack and a 300 ms
+     * release, read as the RMS of a sine (peak / sqrt 2), floored at -60 dBFS: Drive means the same
+     * at any level, and an onset is never squashed by a slow level estimate. Up to about 20 % the
+     * products stay more than 30 dB under the sub (inaudible).
      *
      * Even harmonic: u = q b, so u^2 = b^2 and no curve of u can make the sub's 2nd harmonic (it
      * sits at f, and only odd multiples of f / 2, DC and multiples of f come out). It is added
@@ -59,7 +64,7 @@ namespace roar
      * default), capped at -12 dB.
      *
      * Level law: the sub's f / 2 component = H1 (the band 1 amplitude) x
-     * 10^((-14 + 26 uLevel^0.55) / 20) in the steady state (50 % -> +3.8 dB), faded linearly to
+     * 10^((-14 + 24 uLevel^0.5) / 20) in the steady state (laws::subLevelDb; 50 % -> +3.0 dB), faded linearly to
      * nothing below u = 0.02 (0 is an exact null). A static table (built in prepare()) removes
      * the drive's fundamental gain and the output filters' gain at fsub, so the law holds at every
      * Drive and character. Floor expander: -60 dBFS on band 1's envelope, 1:2, 1 ms / 50 ms.
@@ -130,15 +135,17 @@ namespace roar
 
         // Filters.
         TptSvf m_band1a, m_band1b, m_band2a, m_band2b;
-        TptSvf m_hp, m_lp1, m_lp2;
+        TptSvf m_hp, m_lp1, m_lp2, m_lpPost;
         Divider m_div1, m_div2;
 
         // Drive.
-        double m_norm = 0.0;           // instant-attack, 300 ms release level of s
+        double m_norm = 0.0;           // instant-attack, 300 ms release level of the band-passed sub (the drive's normaliser)
+        double m_evenNorm = 0.0;       // the same for s (scales the even harmonic)
         double m_normRelease = 0.0;
         double m_adaaX1 = 0.0, m_adaaF1 = 0.0;
         double m_beta = 0.1, m_tanhBeta = 0.0, m_coshBeta2 = 1.0;
-        std::array<std::array<float, c_driveTableSize>, 2> m_driveMakeup {};   // per beta
+        std::array<std::array<float, c_driveTableSize>, 2> m_driveMakeup {};   // per beta: 1 / the drive's fundamental gain on a sine
+        float m_dividedFundamental = 0.849f;   // the divided waveform's f / 2 component per unit band amplitude
         std::array<float, 3> m_filterMakeup {};                                // per character
         TptSvf m_even;                 // at fsub: lp and bp of u1 for the 2nd harmonic
         std::array<float, 3> m_evenScale {};   // per character: output-filter tilt / unit H2 of the doubler
@@ -162,7 +169,7 @@ namespace roar
         int m_candidateSamples = 0;
         int m_octaveConfirmSamples = 1920;
         bool m_tracked = false;
-        int m_multiplier = 1;          // which harmonic band 1 sits on (1 = f0, 2 = 2 f0)
+        int m_multiplier = 1;          // which harmonic band 1 sits on (1 = f0, 2 = 2 f0, 4 = 4 f0)
         double m_inLog = 0.0;          // glided log2 fIn
         double m_subLog = 0.0;         // glided log2 fsub (output filters)
         double m_estimateLog = 0.0;    // log2 of the band-1 frequency from the divider toggles

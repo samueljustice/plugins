@@ -11,6 +11,17 @@
 //                   [--order "PI CL ..."]
 //                                          render a file at its own sample rate (no resampling),
 //                                          latency-trimmed, 24-bit, through factory presets
+//                   [--set id=value]...    after the preset: a real value, a choice name, On/Off,
+//                                          or @0.75 for a knob position (0..1)
+//                   [--metrics out.json]   measurements per render (Tests/RenderMetrics.h, and
+//                                          grP95Db: OUTPUT's gain reduction, 95th percentile)
+//                   [--sweep id from to steps [--norm]] [--no-wav] [--raw-out]
+//                                          the same input at each value of one parameter (real
+//                                          values, or knob positions with --norm); metrics go to
+//                                          --metrics or <outdir>/sweep-<id>.json; --raw-out turns
+//                                          OUTPUT's filters, auto gain and Ride off
+//                   [--roll from to]       one render per seed from..to: the preset (and sets),
+//                                          then ROLL ALL with that seed (the dice's batch check)
 
 #if defined(__APPLE__)
  #include <CoreFoundation/CoreFoundation.h>   // the snapshot harness runs the run loop (before JUCE: it declares Point)
@@ -18,21 +29,41 @@
 
 #include <JuceHeader.h>
 
+#if defined(__APPLE__)
+ #define GL_SILENCE_DEPRECATION 1
+ #include <OpenGL/OpenGL.h>   // an offscreen context for the renderer test (after JUCE: it declares the GL types)
+#endif
+
+#include "CreatureAnatomy.h"
+#include "../../common/SammyJUpdateCheck.h"
 #include "CreatureEvolution.h"
+#include "CreatureFlow.h"
+#include "CreatureMood.h"
+#include "CreatureMotion.h"
+#include "MonsterRenderer.h"
+#include "NoiseTexture.h"
 #include "LogoSdf.h"
 #include "Params.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "PresetManager.h"
+#include "dsp/HitDetector.h"
+#include "dsp/common/ChaCha20Poly1305.h"
+#include "dsp/common/IrPack.h"
+#include "dsp/common/ZeroLatencyConvolver.h"
+#include "dsp/modules/ChamberModule.h"
 #include "dsp/modules/CleanModule.h"
 #include "dsp/modules/InModule.h"
 #include "dsp/modules/TameModule.h"
+#include "dsp/KnobLaws.h"
+#include "RenderMetrics.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
@@ -40,6 +71,7 @@
 #include <numeric>
 #include <optional>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -50,6 +82,18 @@ struct RoarschachEditorInspector
     static MonsterView& monster(RoarschachAudioProcessorEditor& e) { return e.m_monsterView; }
     static juce::Component& content(RoarschachAudioProcessorEditor& e) { return e.m_content; }
     static juce::LookAndFeel& lookAndFeel(RoarschachAudioProcessorEditor& e) { return e.m_lookAndFeel; }
+    static DiceButton& presetDice(RoarschachAudioProcessorEditor& e) { return e.m_presetDice; }
+    static void updateMonster(RoarschachAudioProcessorEditor& e) { e.updateMonsterParams(); }
+    static void followMood(RoarschachAudioProcessorEditor& e) { e.followMood(); }
+    static void showPresetMenu(RoarschachAudioProcessorEditor& e) { e.showPresetMenu(); }
+    static void showUpdatePopup(RoarschachAudioProcessorEditor& e, const sammyj::UpdateInfo& i) { e.showUpdatePopup(i); }
+    static void closeUpdatePopup(RoarschachAudioProcessorEditor& e) { e.closeUpdatePopup(); }
+    static void promptSavePreset(RoarschachAudioProcessorEditor& e, const juce::String& name) { e.promptSavePreset(name); }
+    static juce::AlertWindow* alert(RoarschachAudioProcessorEditor& e) { return e.m_alert.get(); }
+    static void closeAlert(RoarschachAudioProcessorEditor& e) { if (e.m_alert != nullptr) e.m_alert->exitModalState(0); e.m_alert.reset(); }
+    static juce::Button& presetName(RoarschachAudioProcessorEditor& e) { return e.m_presetNameButton; }
+    static void tick(RoarschachAudioProcessorEditor& e) { e.timerCallback(); }
+    static int paletteSeen(RoarschachAudioProcessorEditor& e) { return e.m_paletteSerialSeen; }
 };
 
 namespace
@@ -317,8 +361,30 @@ namespace
 
     void setOrder(RoarschachAudioProcessor& p, const Params::Order& order)
     {
-        for (int slot = 0; slot < Params::numModules; ++slot)
-            setParam(p, Params::modules[static_cast<size_t>(order[static_cast<size_t>(slot)])].posId, static_cast<float>(slot));
+        // 1.0's modules: their place among those 14; CHAMBER: its insertion slot.
+        const auto positions = Params::positionsFor(order);
+        for (int m = 0; m < Params::numModules; ++m)
+            setParam(p, Params::modules[static_cast<size_t>(m)].posId, static_cast<float>(positions[static_cast<size_t>(m)]));
+    }
+
+    int slotOf(const Params::Order& order, Params::ModuleId id)
+    {
+        return static_cast<int>(std::find(order.begin(), order.end(), static_cast<int>(id)) - order.begin());
+    }
+
+    /** 1.0's 14 positions are a permutation of 0..13 and CHAMBER's insertion slot is in 0..14. */
+    bool positionsAreValid(const Params::Order& positions)
+    {
+        std::array<bool, Params::numLegacyModules> seen {};
+        for (int m = 0; m < Params::numLegacyModules; ++m)
+        {
+            const int pos = positions[static_cast<size_t>(m)];
+            if (!juce::isPositiveAndBelow(pos, Params::numLegacyModules) || seen[static_cast<size_t>(pos)])
+                return false;
+            seen[static_cast<size_t>(pos)] = true;
+        }
+        const int slot = positions[static_cast<size_t>(Params::ModuleId::chamber)];
+        return slot >= 0 && slot <= Params::numLegacyModules;
     }
 
     Params::Order orderFromCodes(const juce::String& codes)
@@ -334,6 +400,16 @@ namespace
                 used[static_cast<size_t>(m)] = true;
                 order[static_cast<size_t>(slot++)] = m;
             }
+        }
+        // CHAMBER not named: its default slot, right after the first module (as the presets do).
+        constexpr int chamber = static_cast<int>(Params::ModuleId::chamber);
+        if (!used[static_cast<size_t>(chamber)] && slot >= Params::numLegacyModules)
+        {
+            const int at = static_cast<int>(Params::defaultOf(Params::chamberPos));
+            std::copy_backward(order.begin() + at, order.begin() + slot, order.begin() + slot + 1);
+            order[static_cast<size_t>(at)] = chamber;
+            used[static_cast<size_t>(chamber)] = true;
+            ++slot;
         }
         // Modules not named keep their reference order after the named ones.
         for (int m = 0; m < Params::numModules; ++m)
@@ -681,7 +757,10 @@ namespace
                 const float back = ranged->convertFrom0to1(ranged->getValueForText(text));
                 const bool wholePercent = spec.kind == Params::Kind::percent || spec.kind == Params::Kind::bipolar
                                           || spec.kind == Params::Kind::position;   // displayed as whole numbers
-                const float tolerance = std::max({ wholePercent ? 0.51f : 0.051f, std::abs(plain) * 0.01f, spec.step });
+                // Milliseconds from 10 ms up display whole milliseconds (the log taper's mid point,
+                // 31.6 ms, reads "32 ms").
+                const bool wholeMs = spec.kind == Params::Kind::milliseconds && plain >= 10.0f && plain < 1000.0f;
+                const float tolerance = std::max({ wholePercent || wholeMs ? 0.51f : 0.051f, std::abs(plain) * 0.01f, spec.step });
                 if (std::abs(back - plain) > tolerance)
                 {
                     ++textFailures;
@@ -691,14 +770,16 @@ namespace
         }
         check(textFailures == 0, juce::String(textFailures) + " text round trips off");
 
-        // Only the log kinds (hertz, ratio, milliseconds) have a skewed taper: the rest are linear,
-        // so Pitch's -24..-12 st octave gets a third of the travel.
+        // Only the log kinds (hertz, ratio, milliseconds) and the decibel knobs with a centre (Push,
+        // Clip) have a non-linear taper: the rest are linear, so Pitch's -24..-12 st octave gets a
+        // third of the travel. (Push and Clip were linear in the first release; their skew puts
+        // the useful range, 10 dB and 5 dB, at mid travel.)
         for (const auto& spec : Params::all)
         {
             if (spec.kind == Params::Kind::choice || spec.kind == Params::Kind::toggle || spec.kind == Params::Kind::position)
                 continue;
             const bool logTaper = spec.kind == Params::Kind::hertz || spec.kind == Params::Kind::ratio || spec.kind == Params::Kind::milliseconds;
-            if (logTaper)
+            if (logTaper || (spec.kind == Params::Kind::decibels && spec.centre != 0.0f))
                 continue;
             auto* param = p->getValueTreeState().getParameter(spec.id);
             const float mid = 0.5f * (spec.minValue + spec.maxValue);
@@ -722,7 +803,8 @@ namespace
         check(text(Params::outClip, 0.0f) == "Off", "Clip text at 0");
         check(text(Params::outClipShape, 0.0f) == "Soft" && text(Params::outClipShape, 100.0f) == "Hard", "Clip Shape ends");
         check(text(Params::outRelease, 60.0f) == "60 ms" && text(Params::outRelease, 1000.0f) == "1.00 s", "Release text");
-        check(text(Params::outAttack, 2.0f) == "2.0 ms" && text(Params::outAttack, 0.05f) == "0.05 ms", "Attack text");
+        // (Attack now starts at 0.2 ms: below that it was dead.)
+        check(text(Params::outAttack, 2.0f) == "2.0 ms" && text(Params::outAttack, 0.2f) == "0.20 ms", "Attack text");
         check(text(Params::ringFreq, 1200.0f) == "1.20 kHz" && text(Params::ringFreq, 150.0f) == "150.0 Hz", "Ring Freq text");
         check(text(Params::ringRatio, 1.5f) == "x1.50", "Ring Ratio text");
         check(text(Params::overtoneFreq, 0.25f) == "+0.25 oct", "Overtone Frequency text");
@@ -806,6 +888,37 @@ namespace
                 check(nullDb(out.l, voice, p->getLatencySamples(), 0) < -200.0, juce::String(sr) + " Hz bypass is not a pure delay");
             }
 
+            // The views are told: the flag is set by every bypassed block and cleared by every
+            // processed one, at any block size (an empty block included), while the chain runs on.
+            for (const int block : { 0, 1, 16, 333, 512, 4096 })
+            {
+                auto p = makeProcessor(sr, std::max(block, 1));
+                const auto& f = p->getMonsterFeatures();
+                juce::AudioBuffer<float> buffer(2, block);
+                juce::MidiBuffer midi;
+                bool ok = ! f.hostBypassed.load();
+                for (int k = 0; k < 6; ++k)
+                {
+                    const bool bypass = k % 3 != 2;
+                    buffer.clear();
+                    if (block > 0)
+                        buffer.setSample(0, 0, 0.5f);
+                    if (bypass)
+                        p->processBlockBypassed(buffer, midi);
+                    else
+                        p->processBlock(buffer, midi);
+                    ok = ok && f.hostBypassed.load() == bypass;
+                }
+                check(ok, juce::String(sr) + " Hz, blocks of " + juce::String(block) + ": the host-bypass flag follows processBlockBypassed / processBlock");
+            }
+            {
+                auto p = makeProcessor(sr, 512);
+                const int before = p->getMonsterFeatures().generation.load();
+                render(*p, in, 512, true);
+                check(p->getMonsterFeatures().generation.load() != before && p->getMonsterFeatures().hostBypassed.load(),
+                      juce::String(sr) + " Hz: in bypass the chain runs on underneath and says it is bypassed");
+            }
+
             // Reference: every module Off (OUTPUT linear: no auto gain, no Ride, no filters, Push 0).
             const auto prepareLinear = [](RoarschachAudioProcessor& p)
             {
@@ -875,7 +988,23 @@ namespace
     {
         std::printf("[mix] a partial Mix does not comb (dry follows the wet's fixed filters)\n");
         const double sr = 48000.0;
-        for (const char* tone : { "Off", "Voice", "Radio" })
+        const auto configure = [](RoarschachAudioProcessor& p, const char* tone)
+        {
+            if (juce::String(tone) == "Boom")
+            {
+                // CHAMBER at Chamber 0 % (the direct path only) with Boom Heavy: the shelf's phase is
+                // not matched on the dry (DryPhaseMatch says why); its worst blend loss is bounded.
+                setValues(p, { { Params::chamberOn, 1.0f }, { Params::chamber, 0.0f }, { Params::chamberBoom, 3.0f },
+                               { Params::chamberDrive, 0.0f } });
+            }
+            else if (juce::String(tone) != "Off")
+            {
+                // CLEAN at no dynamics, only its tone; the dry gets the tone's high-pass phase.
+                setValues(p, { { Params::cleanOn, 1.0f }, { Params::cleanContain, 0.0f }, { Params::cleanGate, 0.0f },
+                               { Params::cleanTone, juce::String(tone) == "Voice" ? 1.0f : 3.0f } });
+            }
+        };
+        for (const char* tone : { "Off", "Voice", "Radio", "Boom" })
         {
             double worst = 0.0;
             for (double hz : { 50.0, 100.0, 300.0, 1000.0, 3000.0, 6000.0, 12000.0 })
@@ -888,12 +1017,7 @@ namespace
                     setAllModules(*p, false);
                     setParam(*p, Params::outPush, 0.0f);
                     setParam(*p, Params::inAuto, 0.0f);
-                    if (juce::String(tone) != "Off")
-                    {
-                        // CLEAN at no dynamics, only its tone; the dry gets the tone's high-pass phase.
-                        setValues(*p, { { Params::cleanOn, 1.0f }, { Params::cleanContain, 0.0f }, { Params::cleanGate, 0.0f },
-                                        { Params::cleanTone, juce::String(tone) == "Voice" ? 1.0f : 3.0f } });
-                    }
+                    configure(*p, tone);
                     setParam(*p, Params::mix, k == 0 ? 100.0f : 0.0f);
                     restart(*p, sr, 512);
                     const auto sine = makeSine(sr, 0.6, hz, 0.1);
@@ -906,9 +1030,7 @@ namespace
                 setAllModules(*p, false);
                 setParam(*p, Params::outPush, 0.0f);
                 setParam(*p, Params::inAuto, 0.0f);
-                if (juce::String(tone) != "Off")
-                    setValues(*p, { { Params::cleanOn, 1.0f }, { Params::cleanContain, 0.0f }, { Params::cleanGate, 0.0f },
-                                    { Params::cleanTone, juce::String(tone) == "Voice" ? 1.0f : 3.0f } });
+                configure(*p, tone);
                 setParam(*p, Params::mix, 50.0f);
                 restart(*p, sr, 512);
                 const auto sine = makeSine(sr, 0.6, hz, 0.1);
@@ -918,9 +1040,9 @@ namespace
                 const double lossDb = toDb(half) - toDb(ideal);
                 worst = std::min(worst, lossDb);
             }
-            std::printf("  CLEAN %-5s: worst 50 %% mix loss %.2f dB (phase mismatch)\n", tone, worst);
+            std::printf("  %-11s: worst 50 %% mix loss %.2f dB (phase mismatch)\n", (juce::String(juce::String(tone) == "Boom" ? "Boom Heavy" : "CLEAN ") + (juce::String(tone) == "Boom" ? "" : tone)).toRawUTF8(), worst);
             // Radio's band-pass EQ is far from flat, its phase is matched only at the corners.
-            check(worst > (juce::String(tone) == "Radio" ? -3.0 : -0.5), juce::String("Mix combs with CLEAN ") + tone);
+            check(worst > (juce::String(tone) == "Radio" ? -3.0 : juce::String(tone) == "Boom" ? -0.65 : -0.5), juce::String("Mix combs with ") + tone);
         }
     }
 
@@ -952,7 +1074,8 @@ namespace
         {
             auto p = makeProcessor(sr, 512);
             auto order = Params::resolveOrder(Params::defaultPositions());
-            std::rotate(order.begin(), order.begin() + static_cast<int>(Params::ModuleId::ensemble), order.begin() + static_cast<int>(Params::ModuleId::ensemble) + 1);
+            const int at = slotOf(order, Params::ModuleId::ensemble);
+            std::rotate(order.begin(), order.begin() + at, order.begin() + at + 1);
             setOrder(*p, order);
             setParam(*p, Params::ensembleWidth, 100.0f);
             restart(*p, sr, 512);
@@ -968,7 +1091,7 @@ namespace
             setParam(*p, Params::shimmerMode, 3.0f);
             restart(*p, sr, 512);
             const auto out = render(*p, in, 512);
-            check(p->getChain().getTopology().split == static_cast<int>(Params::ModuleId::shimmer), "SHIMMER Stereo: split at its slot");
+            check(p->getChain().getTopology().split == slotOf(Params::referenceOrder(), Params::ModuleId::shimmer), "SHIMMER Stereo: split at its slot");
             std::printf("  SHIMMER Stereo: side/mid %.1f dB\n", side(out));
             check(side(out) > -40.0, "SHIMMER Stereo makes stereo");
         }
@@ -1123,7 +1246,7 @@ namespace
         // or dip is the mechanism's own. With those modules a moved module legitimately changes the
         // phase of a pure tone, and the 5 ms frames of these runs compare against fresh renders
         // that are not phase-locked to the render: those runs are reported, not gated. The fade's
-        // level on them is gated below, against the exact continuation of the old order.
+        // level on them is gated below, against the exact continuation of the previous order.
         const Values steady { { Params::growlOn, 0.0f }, { Params::shimmerOn, 0.0f }, { Params::swirlOn, 0.0f },
                               { Params::pitchOn, 0.0f }, { Params::ensembleOn, 0.0f }, { Params::subOn, 0.0f },
                               { Params::overtoneOn, 0.0f } };
@@ -1196,14 +1319,17 @@ namespace
             check(result.peak <= ceilingGain(-1.0f), "over the ceiling during reorders");
         }
 
-        // Single reorders against the exact continuation of the old order (the same processor's
+        // Single reorders against the exact continuation of the previous order (the same processor's
         // history, never reordered) and a fresh render of the new order: the level during the fade
         // must not drop under the quieter of the two. On Init, PITCH's grains, SUB's divider and
         // ENSEMBLE's delays leave the two renders out of phase, so this is where a plain linear
-        // crossfade would cancel.
+        // crossfade would cancel. On the voice the worst of these few orders moves by a few dB with
+        // where PITCH's grains fall at the moment of the reorder (60 orders each at 0.9, 1.0 and
+        // 1.1 s: worst dips of -4 to -10 dB, medians of -1.1 to -2.2 dB), so the voice has a wider
+        // limit on its worst order, and both runs have one on the median.
         {
             struct Case { const char* name; bool sine; double limitDb; };
-            for (const Case c : { Case { "voice, Init", false, -3.0 }, Case { "sine, Init", true, -3.0 } })
+            for (const Case c : { Case { "voice, Init", false, -4.0 }, Case { "sine, Init", true, -3.0 } })
             {
                 const auto in = dual(c.sine ? makeSine(sr, 1.4, 220.0, 0.25) : makeVoice(sr, 1.4));
                 std::mt19937 rng(99);
@@ -1238,9 +1364,10 @@ namespace
                     dips.push_back(worst);
                 }
                 std::sort(dips.begin(), dips.end());
-                std::printf("  %-27s %d single reorders against the old order's continuation: worst 20 ms dip %.2f dB, median %.2f dB\n",
+                std::printf("  %-27s %d single reorders against the previous order's continuation: worst 20 ms dip %.2f dB, median %.2f dB\n",
                             c.name, trials, dips.front(), dips[dips.size() / 2]);
                 check(dips.front() >= c.limitDb, juce::String(c.name) + ": reorder fade dip " + juce::String(dips.front(), 2) + " dB");
+                check(dips[dips.size() / 2] >= -1.5, juce::String(c.name) + ": median reorder fade dip " + juce::String(dips[dips.size() / 2], 2) + " dB");
             }
         }
 
@@ -1279,9 +1406,13 @@ namespace
                     // the octave, the overtones) beats inside 5 ms frames; those are reported, the rest gated.
                     const bool changesTone = code == "PI" || code == "EN" || code == "RM" || code == "VO" || code == "SU" || code == "OV";
                     const juce::String what = juce::String(spec.uiName) + (getParam(*p, spec.onId) > 0.5f ? " on" : " off");
+                    // ROAR's 2x stage starts from rest, and the first samples of its fade carry a ripple
+                    // near Nyquist about 80 dB under the tone. ROAR keeps its top octave at 44.1 and 48 kHz,
+                    // so that ripple counts in full here (2.00x at 48 kHz, 2.02x at 44.1 kHz).
+                    const double clickLimit = code == "RO" ? 2.1 : 2.0;
                     if (!changesTone)
                     {
-                        check(r.worstSecondDiffRatio <= 2.0, what + " click (2nd difference " + juce::String(r.worstSecondDiffRatio, 2) + "x)");
+                        check(r.worstSecondDiffRatio <= clickLimit, what + " click (2nd difference " + juce::String(r.worstSecondDiffRatio, 2) + "x)");
                         check(r.worstDipDb >= -3.0, what + " level dip " + juce::String(r.worstDipDb, 2) + " dB");
                         if (r.worstSecondDiffRatio > worstRatio)
                         {
@@ -1537,11 +1668,15 @@ namespace
             };
             auto target = Params::resolveOrder(Params::defaultPositions());
             std::reverse(target.begin(), target.end());
+            const auto targetPositions = Params::positionsFor(target);
             const auto writeHalf = [&](RoarschachAudioProcessor& q, bool first)
             {
                 for (int slot = 0; slot < Params::numModules; ++slot)
                     if ((slot < Params::numModules / 2) == first)
-                        setParam(q, Params::modules[static_cast<size_t>(target[static_cast<size_t>(slot)])].posId, static_cast<float>(slot));
+                    {
+                        const int m = target[static_cast<size_t>(slot)];
+                        setParam(q, Params::modules[static_cast<size_t>(m)].posId, static_cast<float>(targetPositions[static_cast<size_t>(m)]));
+                    }
             };
 
             for (int scoped = 0; scoped < 2; ++scoped)
@@ -1570,14 +1705,17 @@ namespace
             Params::Order positions {};
             positions.fill(3);
             const auto order = Params::resolveOrder(positions);
-            bool reference = true;
-            for (int k = 0; k < Params::numModules; ++k)
-                reference = reference && order[static_cast<size_t>(k)] == k;
+            // 1.0's 14 in their reference order, CHAMBER inserted at its slot (3).
+            bool reference = order[3] == static_cast<int>(Params::ModuleId::chamber);
+            for (int k = 0, m = 0; k < Params::numModules; ++k)
+                if (k != 3)
+                    reference = reference && order[static_cast<size_t>(k)] == m++;
             check(reference, "all-equal positions resolve to the reference order");
             positions = Params::defaultPositions();
             positions[static_cast<size_t>(Params::ModuleId::sub)] = 0;   // SUB and PITCH both ask for 0
             const auto o2 = Params::resolveOrder(positions);
-            check(o2[0] == static_cast<int>(Params::ModuleId::pitch) && o2[1] == static_cast<int>(Params::ModuleId::sub), "tie-break by the reference index");
+            check(o2[0] == static_cast<int>(Params::ModuleId::pitch) && o2[1] == static_cast<int>(Params::ModuleId::chamber)
+                      && o2[2] == static_cast<int>(Params::ModuleId::sub), "tie-break by the reference index");
         }
 
         // Loading a reordered preset during playback: exactly one reorder fade.
@@ -1608,19 +1746,12 @@ namespace
             check(static_cast<int>(preset.values.size()) == Params::numParameters, juce::String(preset.name) + " spells out "
                                                                                    + juce::String(static_cast<int>(preset.values.size())) + " values");
             Params::Order positions {};
-            std::array<bool, Params::numModules> slots {};
-            bool permutation = true;
             for (int m = 0; m < Params::numModules; ++m)
             {
                 const auto it = preset.values.find(Params::modules[static_cast<size_t>(m)].posId);
-                const int pos = it != preset.values.end() ? juce::roundToInt(it->second) : -1;
-                if (pos < 0 || pos >= Params::numModules || slots[static_cast<size_t>(pos)])
-                    permutation = false;
-                else
-                    slots[static_cast<size_t>(pos)] = true;
-                positions[static_cast<size_t>(m)] = pos;
+                positions[static_cast<size_t>(m)] = it != preset.values.end() ? juce::roundToInt(it->second) : -1;
             }
-            check(permutation, juce::String(preset.name) + " positions are a permutation");
+            check(positionsAreValid(positions), juce::String(preset.name) + " positions are a permutation");
             for (const auto& [id, value] : preset.values)
             {
                 const int i = Params::indexOf(id.toStdString());
@@ -1633,8 +1764,42 @@ namespace
             }
         }
         check(presetIndex("Init") == 0, "Init is the first preset");
-        for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyborg Commander", "Respirator Rasp", "Rasp Machine" })
+        for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyber Commander", "Respirator Rasp", "Rasp Machine",
+                                      "Simple Size", "Iron Tyrant", "Tin Can Drone", "Upside Down", "Spore Throat", "Hoarse Hoarder",
+                                      "Angry Pepper Pot", "Ball Bearing", "Use Your Words", "Thing Next Door", "Stairwell Stalker" })
             check(presetIndex(required) >= 0, juce::String("missing preset ") + required);
+        // The presets that use CHAMBER, and its slot in each (an insertion slot among the 14).
+        {
+            int chamberPresets = 0;
+            for (const auto& preset : presets)
+                chamberPresets += preset.values.at(Params::chamberOn) > 0.5f ? 1 : 0;
+            check(chamberPresets == 13, juce::String(chamberPresets) + " presets use CHAMBER (expected 13)");
+            const auto slot = [&](const char* name)
+            {
+                const int i = presetIndex(name);
+                return i < 0 ? -1 : juce::roundToInt(presets[static_cast<size_t>(i)].values.at(Params::chamberPos));
+            };
+            check(slot("Simple Size") == 1 && slot("Tin Can Drone") == 1, "Simple Size and Tin Can Drone: CHAMBER right after PITCH");
+            check(slot("Iron Tyrant") == 5, "Iron Tyrant: CHAMBER right after ROAR");
+            check(slot("Cave Troll") == 14 && slot("Gargoyle") == 14 && slot("Demon Whisper") == 14, "the creature in the room: CHAMBER last");
+            check(slot("Upside Down") == 14 && slot("Hoarse Hoarder") == 14, "Upside Down and Hoarse Hoarder: the octave and rumble in the room, CHAMBER last");
+            check(slot("Thing Next Door") == 14 && slot("Stairwell Stalker") == 14, "Thing Next Door and Stairwell Stalker: the whole creature in the room, CHAMBER last");
+            // The two presets that show off the recorded rooms use them.
+            const auto roomOf = [&](const char* name)
+            {
+                const int i = presetIndex(name);
+                return i < 0 ? -1 : static_cast<int>(presets[static_cast<size_t>(i)].values.at(Params::chamberRoom));
+            };
+            check(roomOf("Thing Next Door") == static_cast<int>(Params::ChamberRoom::partyWall)
+                      && roomOf("Stairwell Stalker") == static_cast<int>(Params::ChamberRoom::towerBlock),
+                  "Thing Next Door plays in Party Wall, Stairwell Stalker in Tower Block");
+            check(slot("Use Your Words") == 1, "Use Your Words: the pitched voice played into the room, CHAMBER right after PITCH");
+            check(slot("Ball Bearing") == 8, "Ball Bearing: CHAMBER after TAME, the tiny speaker at the end of the sounding chain");
+            // Spore Throat and Angry Pepper Pot are dry: CHAMBER off in its default slot.
+            check(presetIndex("Spore Throat") >= 0 && presets[static_cast<size_t>(presetIndex("Spore Throat"))].values.at(Params::chamberOn) < 0.5f
+                  && presetIndex("Angry Pepper Pot") >= 0 && presets[static_cast<size_t>(presetIndex("Angry Pepper Pot"))].values.at(Params::chamberOn) < 0.5f,
+                  "Spore Throat and Angry Pepper Pot: no CHAMBER");
+        }
 
         // Every preset loaded through the host program interface sets exactly its values.
         {
@@ -1804,6 +1969,161 @@ namespace
             std::printf("  IN + CLEAN (Init) at 192 kHz: 1-5 kHz %+.2f dB, worst 20-90 kHz band %+.2f dB re input\n", mid, worst);
             check(worst > -1.0, "ultrasonic content is cut before PITCH");
         }
+
+        // The shifter itself (PitchModule alone, mono, Drive 0): how periodic a steady vowel stays
+        // through the grains and through the resampling path, and the level of Keep and Size.
+        {
+            const double fs = 48000.0;
+            const int latency = roar::PitchModule::latencyFor(fs);
+
+            // A steady vowel, exactly periodic: 40 harmonics of f0 with a 1 / k source through three
+            // formant resonances (amplitude and phase of the resonances at each harmonic, or with
+            // `scatter` a random phase per harmonic).
+            const auto makeVowel = [&](double f0, double seconds, double peak, bool scatter = false)
+            {
+                std::mt19937 rng(11);
+                std::uniform_real_distribution<double> anyPhase(0.0, 2.0 * c_pi);
+                const int n = static_cast<int>(fs * seconds);
+                Signal s(static_cast<size_t>(n), 0.0f);
+                const double formants[3][3] { { 700.0, 110.0, 1.0 }, { 1220.0, 120.0, 0.5 }, { 2600.0, 160.0, 0.25 } };
+                for (int k = 1; k <= 40 && k * f0 < 0.4 * fs; ++k)
+                {
+                    const std::complex<double> z = std::polar(1.0, -2.0 * c_pi * k * f0 / fs);
+                    std::complex<double> h = 0.0;
+                    for (const auto& f : formants)
+                    {
+                        const double rad = std::exp(-c_pi * f[1] / fs);
+                        h += f[2] * (1.0 - rad) / (1.0 - 2.0 * rad * std::cos(2.0 * c_pi * f[0] / fs) * z + rad * rad * z * z);
+                    }
+                    const double amplitude = std::abs(h) / k, phase = scatter ? anyPhase(rng) : std::arg(h);
+                    for (int i = 0; i < n; ++i)
+                        s[static_cast<size_t>(i)] += static_cast<float>(amplitude * std::cos(2.0 * c_pi * k * f0 * i / fs + phase));
+                }
+                normalisePeak(s, static_cast<float>(peak));
+                return s;
+            };
+
+            // The module's output for `in`, its latency removed.
+            const auto shift = [&](const Signal& in, float semitones, float size, Params::PitchFormant formant, std::uint64_t* voicedGrains = nullptr)
+            {
+                roar::PitchModule m;
+                roar::PitchSettings ps;
+                ps.pitchSemitones = semitones;
+                ps.size = size;
+                ps.drive = 0.0f;
+                ps.formant = formant;
+                m.setParams(ps);
+                m.prepare(fs, 512);
+                m.setParams(ps);
+                m.reset();
+                Signal x = in;
+                x.resize(in.size() + static_cast<size_t>(latency), 0.0f);
+                Signal r(x.size(), 0.0f);
+                for (int start = 0; start < static_cast<int>(x.size()); start += 512)
+                    m.process(x.data() + start, r.data() + start, std::min(512, static_cast<int>(x.size()) - start), false, roar::VoiceFrameView {});
+                if (voicedGrains != nullptr)
+                    *voicedGrains = m.getVoicedGrainCount();
+                return Signal(x.begin() + latency, x.end());
+            };
+
+            // Harmonics-to-noise ratio from the correlation of the signal with itself one period on.
+            const auto harmonicsToNoise = [](const Signal& y, int from, int to, int period)
+            {
+                double xy = 0.0, xx = 0.0, yy = 0.0;
+                for (int i = from; i + period < to; ++i)
+                {
+                    const double a = y[static_cast<size_t>(i)], b = y[static_cast<size_t>(i + period)];
+                    xy += a * b;
+                    xx += a * a;
+                    yy += b * b;
+                }
+                const double r = xy / std::sqrt(std::max(xx * yy, 1.0e-300));
+                return 10.0 * std::log10(std::max(r, 1.0e-9) / std::max(1.0 - r, 1.0e-12));
+            };
+
+            const auto levelDb = [](const Signal& y, const Signal& x, int from, int to)
+            {
+                double py = 0.0, px = 0.0;
+                for (int i = from; i < to; ++i)
+                {
+                    py += static_cast<double>(y[static_cast<size_t>(i)]) * y[static_cast<size_t>(i)];
+                    px += static_cast<double>(x[static_cast<size_t>(i)]) * x[static_cast<size_t>(i)];
+                }
+                return 10.0 * std::log10(std::max(py, 1.0e-300) / std::max(px, 1.0e-300));
+            };
+
+            // -5 st of a vowel whose shifted period is exactly 584 samples (f0 109.71 Hz, a period of 437.5 samples).
+            constexpr int downPeriod = 584;
+            const double downF0 = fs / (downPeriod * std::exp2(-5.0 / 12.0));
+            const int from = static_cast<int>(1.0 * fs), to = static_cast<int>(2.5 * fs);
+            const auto vowel = makeVowel(downF0, 2.6, 0.25);
+
+            // Voiced grains: the pitch marks sit on the waveform to a fraction of a sample, so the
+            // shifted vowel is as periodic as the vowel (marks on the nearest peak sample: 38 dB).
+            for (const auto formant : { Params::PitchFormant::keep, Params::PitchFormant::follow })
+            {
+                std::uint64_t grains = 0;
+                const auto out = shift(vowel, -5.0f, 0.0f, formant, &grains);
+                const double hnr = harmonicsToNoise(out, from, to, downPeriod);
+                std::printf("  steady vowel, -5 st %s: harmonics-to-noise %.1f dB (%d voiced grains)\n",
+                            formant == Params::PitchFormant::keep ? "Keep" : "Follow", hnr, static_cast<int>(grains));
+                check(grains > 100, "the steady vowel is carried by voiced grains");
+                check(hnr >= 55.0, "shifted steady vowel harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= 55)");
+            }
+
+            // The resampling path alone: the same vowel far below the level at which marks are made,
+            // so every grain is unvoiced. Its two read heads are joined where the waveform matches,
+            // so periodic sound does not comb (heads at unrelated places: 8 dB at -5 st, 14 dB at +3).
+            {
+                constexpr int upPeriod = 367;
+                const double upF0 = fs / (upPeriod * std::exp2(3.0 / 12.0));
+                const struct { float semitones; double f0; int period; } cases[] { { -5.0f, downF0, downPeriod }, { 3.0f, upF0, upPeriod } };
+                for (const auto& c : cases)
+                {
+                    const auto quiet = makeVowel(c.f0, 2.6, 2.0e-6);
+                    std::uint64_t grains = 1;
+                    const auto out = shift(quiet, c.semitones, 0.0f, Params::PitchFormant::follow, &grains);
+                    const double hnr = harmonicsToNoise(out, from, to, c.period);
+                    std::printf("  resampling path alone, %+.0f st Follow: harmonics-to-noise %.1f dB\n", static_cast<double>(c.semitones), hnr);
+                    check(grains == 0, "the quiet vowel makes no voiced grains");
+                    check(hnr >= 30.0, "resampling path on a steady vowel, harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= 30)");
+                }
+            }
+
+            // Level: Keep and Size hold the loudness (against the same sound through Follow at
+            // Size 0, where the grains are the input resampled). How much overlapped grains lose
+            // depends on how the harmonics of the voice line up: a vowel whose harmonics have
+            // unrelated phases loses most (0.9 dB at Keep -5 st with the plain sqrt law), the
+            // reference voice least, and real voices lie between. Downwards in Keep both stay
+            // within 0.5 dB; upwards and with Size (whose body colours the sound) within 0.9 dB.
+            {
+                const struct { const char* name; Signal signal; int from, to; } sounds[] {
+                    { "reference voice", makeVoice(fs, 4.0), static_cast<int>(0.5 * fs), static_cast<int>(3.9 * fs) },
+                    { "scattered-phase vowel", makeVowel(downF0, 2.6, 0.25, true), from, to },
+                };
+                const struct { const char* name; float semitones; float size; Params::PitchFormant formant; double within; } cases[] {
+                    { "Keep -2 st", -2.0f, 0.0f, Params::PitchFormant::keep, 0.5 },
+                    { "Keep -5 st", -5.0f, 0.0f, Params::PitchFormant::keep, 0.5 },
+                    { "Keep -12 st", -12.0f, 0.0f, Params::PitchFormant::keep, 0.5 },
+                    { "Keep +3 st", 3.0f, 0.0f, Params::PitchFormant::keep, 0.9 },
+                    { "Size 30 %", -5.0f, 0.3f, Params::PitchFormant::follow, 0.9 },
+                    { "Size 100 %", -5.0f, 1.0f, Params::PitchFormant::follow, 0.9 },
+                };
+                for (const auto& sound : sounds)
+                {
+                    const double neutral = levelDb(shift(sound.signal, -5.0f, 0.0f, Params::PitchFormant::follow), sound.signal, sound.from, sound.to);
+                    std::printf("  level, %s: Follow -5 st %+.2f dB re input; re that:", sound.name, neutral);
+                    for (const auto& c : cases)
+                    {
+                        const double db = levelDb(shift(sound.signal, c.semitones, c.size, c.formant), sound.signal, sound.from, sound.to) - neutral;
+                        std::printf(" %s %+.2f dB;", c.name, db);
+                        check(std::abs(db) <= c.within, juce::String(c.name) + " changes the level of the " + sound.name + " by " + juce::String(db, 2)
+                                                            + " dB (within " + juce::String(c.within, 1) + ")");
+                    }
+                    std::printf("\n");
+                }
+            }
+        }
     }
 
     void testRingAndOvertone()
@@ -1846,6 +2166,376 @@ namespace
             }
             std::printf("  OVERTONE Broad 100 %%: H2+H3 %.1f dB re fundamental (Off: %.1f dB)\n", toDb(harm[1] / fund[1]), toDb(harm[0] / fund[0]));
             check(toDb(harm[1] / fund[1]) > -30.0 && toDb(harm[0] / fund[0]) < -80.0, "OVERTONE generates harmonics");
+        }
+    }
+
+    //==========================================================================
+    // VOCODER, RING Follow, GROWL Throat, ROAR and OUTPUT on their own (each module driven
+    // directly, with a hand-made voice stream where the check needs one).
+
+    /** Runs one module over a mono signal in blocks; frameAt(sample) is the voice frame there. */
+    template <typename ModuleType, typename FrameAt, typename AfterBlock>
+    Signal runModuleMono(ModuleType& module, const Signal& in, int block, FrameAt&& frameAt, AfterBlock&& afterBlock)
+    {
+        roar::VoiceStream stream;
+        stream.prepare(block);
+        stream.reset();
+        Signal out = in, right(static_cast<size_t>(block), 0.0f);
+        for (int pos = 0; pos < static_cast<int>(in.size()); pos += block)
+        {
+            const int n = std::min(block, static_cast<int>(in.size()) - pos);
+            stream.beginChunk(n);
+            for (int k = 0; k < n; ++k)
+                stream.frameForSample(k) = frameAt(pos + k);
+            module.process(out.data() + pos, right.data(), n, false, stream.view());
+            afterBlock(pos + n);
+        }
+        return out;
+    }
+
+    /** Harmonics 1..30 of f0 at 1 / k, peak about 0.25 (a buzzy vowel stand-in with a steady pitch). */
+    Signal makeBuzz(double sr, double seconds, double f0)
+    {
+        Signal s(static_cast<size_t>(seconds * sr), 0.0f);
+        for (size_t i = 0; i < s.size(); ++i)
+        {
+            double v = 0.0;
+            for (int k = 1; k <= 30; ++k)
+                v += std::sin(2.0 * c_pi * f0 * k * static_cast<double>(i) / sr + 0.7 * k * k) / k;
+            s[i] = static_cast<float>(0.12 * v);
+        }
+        return s;
+    }
+
+    /** |band-pass (lo..hi)| of s, smoothed (two 8 ms poles): the envelope of that band. */
+    Signal bandEnvelope(const Signal& s, double sr, double lo, double hi)
+    {
+        roar::Biquad hp1, hp2, lp1, lp2;
+        hp1.setCoeffs(roar::Biquad::highpass(sr, lo, roar::Biquad::c_bw4Q1));
+        hp2.setCoeffs(roar::Biquad::highpass(sr, lo, roar::Biquad::c_bw4Q2));
+        lp1.setCoeffs(roar::Biquad::lowpass(sr, hi, roar::Biquad::c_bw4Q1));
+        lp2.setCoeffs(roar::Biquad::lowpass(sr, hi, roar::Biquad::c_bw4Q2));
+        const double a = 1.0 - std::exp(-1.0 / (0.008 * sr));
+        double e1 = 0.0, e2 = 0.0;
+        Signal env(s.size());
+        for (size_t i = 0; i < s.size(); ++i)
+        {
+            const double v = std::abs(lp2.process(lp1.process(hp2.process(hp1.process(static_cast<double>(s[i]))))));
+            e1 += a * (v - e1);
+            e2 += a * (e1 - e2);
+            env[i] = static_cast<float>(e2);
+        }
+        return env;
+    }
+
+    void testVoiceModules()
+    {
+        std::printf("[voicedsp] VOCODER low bands and carrier pitch, RING Follow, GROWL Throat hold, ROAR top octave, OUTPUT low-end distortion\n");
+        const double sr = 48000.0;
+        const int block = 256;
+        const auto at = [sr](double seconds) { return static_cast<int>(seconds * sr); };
+        const auto noFrames = [](int) { return roar::VoiceFrame {}; };
+        const auto nothing = [](int) {};
+
+        // ---- OUTPUT: a sustained low tone under heavy reduction stays clean. The reduction is
+        // DC-blocked; a corner near the tone turns the reduction's phase and the sum distorts.
+        {
+            roar::OutputModule output;
+            output.prepare(sr, block);
+            roar::OutputSettings settings;
+            settings.pushDb = 12.0f;
+            output.setParams(settings);
+            output.setTestOptions(true, false, false);
+            output.reset();
+            output.setParams(settings);
+            const auto out = runModuleMono(output, makeSine(sr, 4.0, 50.0, 0.5), block, noFrames, nothing);
+            const int from = at(2.0), to = at(3.0);
+            const double fundamental = toneAmplitude(out, sr, 50.0, from, to);
+            double harmonics = 0.0;
+            for (int k = 2; k <= 20; ++k)
+            {
+                const double h = toneAmplitude(out, sr, 50.0 * k, from, to);
+                harmonics += h * h;
+            }
+            const double thdDb = toDb(std::sqrt(harmonics) / fundamental);
+            std::printf("  OUTPUT Push 12 on a 50 Hz tone at -6 dBFS: harmonics %.1f dB re the tone\n", thdDb);
+            check(thdDb < -50.0, "OUTPUT distorts a 50 Hz tone under Push 12: " + juce::String(thdDb, 1) + " dB (< -50)");
+        }
+
+        // ---- VOCODER: the low bands arrive with the word. A buzz at 100 Hz switched on and off;
+        // the 80-200 Hz envelope of the wet alone must reach half its level within 20 ms of the dry's.
+        {
+            roar::VocoderModule vocoder;
+            roar::VocoderSettings settings;
+            settings.on = true;
+            settings.gravel = 1.0f;
+            vocoder.setParams(settings);
+            vocoder.prepare(sr, block);
+            vocoder.setParams(settings);
+            vocoder.reset();
+
+            auto in = makeBuzz(sr, 2.6, 100.0);
+            const int period = at(0.5), onLength = at(0.3), edge = at(0.003);
+            for (int i = 0; i < static_cast<int>(in.size()); ++i)
+            {
+                const int ph = i % period;
+                double g = ph < onLength ? 1.0 : 0.0;
+                if (ph < edge)
+                    g = 0.5 - 0.5 * std::cos(c_pi * ph / edge);
+                else if (ph >= onLength - edge && ph < onLength)
+                    g = 0.5 + 0.5 * std::cos(c_pi * (ph - (onLength - edge)) / edge);
+                in[static_cast<size_t>(i)] *= static_cast<float>(g);
+            }
+            const auto frame = [](int) { return roar::VoiceFrame { 100.0f, 0.9f, true }; };
+            const auto out = runModuleMono(vocoder, in, block, frame, nothing);
+
+            // Gravel 100 %: wet share 0.85, power-normalised with the dry.
+            const double wetShare = 0.85, norm = 1.0 / std::sqrt((1.0 - wetShare) * (1.0 - wetShare) + wetShare * wetShare);
+            Signal wet(in.size());
+            for (size_t i = 0; i < in.size(); ++i)
+                wet[i] = static_cast<float>((out[i] - (1.0 - wetShare) * norm * in[i]) / (wetShare * norm));
+            const auto dryEnv = bandEnvelope(in, sr, 80.0, 200.0), wetEnv = bandEnvelope(wet, sr, 80.0, 200.0);
+
+            const auto halfRise = [&](const Signal& env, int onset)
+            {
+                double plateau = 0.0;
+                for (int i = onset + at(0.15); i < onset + at(0.25); ++i)
+                    plateau += env[static_cast<size_t>(i)];
+                plateau /= at(0.25) - at(0.15);
+                for (int i = onset; i < onset + at(0.25); ++i)
+                    if (env[static_cast<size_t>(i)] >= 0.5 * plateau)
+                        return i - onset;
+                return at(0.25);
+            };
+            double lagMs = 0.0;
+            for (int word = 1; word <= 4; ++word)   // the first word also carries the wet's 20 ms start
+                lagMs += 1000.0 * (halfRise(wetEnv, word * period) - halfRise(dryEnv, word * period)) / sr / 4.0;
+            std::printf("  VOCODER Gravel 100: the wet's 80-200 Hz band reaches half level %.1f ms after the dry's\n", lagMs);
+            check(lagMs < 20.0, "VOCODER low bands lag the word by " + juce::String(lagMs, 1) + " ms (< 20)");
+            check(vocoder.getLatencySamples() == 0, "VOCODER latency is not 0");
+        }
+
+        // ---- Carrier pitch (VOCODER and RING Follow): a phrase at 110 Hz that falls to 70 Hz at
+        // its end, then a pause in which the stream reports a "voiced" 52 Hz on the noise floor,
+        // then a quiet tail-like stretch 36 dB down reporting 220 Hz, then a new phrase at 147 Hz
+        // whose pitch arrives 40 ms in. The carrier waits at the usual pitch (110 Hz), not at the
+        // phrase's last one, and takes the new pitch at once.
+        {
+            auto in = makeBuzz(sr, 2.4, 110.0);
+            const int pauseFrom = at(0.6), tailFrom = at(0.9), phraseFrom = at(1.0), pitchFrom = at(1.04);
+            const auto next = makeBuzz(sr, 2.4, 147.0);
+            const auto floorNoise = makeWhite(sr, 2.4, 0.001f, 11);
+            for (int i = pauseFrom; i < static_cast<int>(in.size()); ++i)
+            {
+                const auto k = static_cast<size_t>(i);
+                in[k] = i < tailFrom ? floorNoise[k] : (i < phraseFrom ? 0.016f * in[k] : next[k]);
+            }
+            const auto frame = [=](int i)
+            {
+                if (i < pauseFrom)
+                    return roar::VoiceFrame { i < pauseFrom - 3840 ? 110.0f : 70.0f, 0.9f, true };
+                if (i < pauseFrom + 2400)
+                    return roar::VoiceFrame { 70.0f, 0.3f, false };     // the phrase has just ended
+                if (i < tailFrom)
+                    return roar::VoiceFrame { 52.0f, 0.8f, true };      // periodicity "found" in the noise floor
+                if (i < phraseFrom)
+                    return roar::VoiceFrame { 220.0f, 0.85f, true };    // an octave error on a tail 36 dB down
+                if (i < pitchFrom)
+                    return roar::VoiceFrame { 220.0f, 0.2f, false };    // the new phrase, before its pitch is known
+                return roar::VoiceFrame { 147.0f, 0.8f, true };
+            };
+
+            roar::VocoderModule vocoder;
+            roar::VocoderSettings vs;
+            vs.on = true;
+            vs.gravel = 0.5f;
+            vocoder.setParams(vs);
+            vocoder.prepare(sr, block);
+            vocoder.setParams(vs);
+            vocoder.reset();
+            float carrierEnd = 0.0f, carrierPause = 0.0f, carrierTail = 0.0f, carrierStart = 0.0f, carrierPitch = 0.0f;
+            runModuleMono(vocoder, in, block, frame, [&](int end)
+            {
+                if (end <= pauseFrom) carrierEnd = vocoder.getCarrierHz();
+                if (end <= tailFrom) carrierPause = vocoder.getCarrierHz();
+                if (end <= phraseFrom) carrierTail = vocoder.getCarrierHz();
+                if (end <= pitchFrom) carrierStart = vocoder.getCarrierHz();
+                if (end <= pitchFrom + at(0.012)) carrierPitch = vocoder.getCarrierHz();
+            });
+            std::printf("  VOCODER carrier: %.1f Hz at the end of the phrase, %.1f Hz after the pause, %.1f Hz after the quiet tail, %.1f Hz as the next phrase starts, %.1f Hz 12 ms after its pitch arrives\n",
+                        carrierEnd, carrierPause, carrierTail, carrierStart, carrierPitch);
+            check(std::abs(carrierEnd - 35.0f) < 2.0f, "VOCODER does not follow the pitch inside the phrase");
+            check(std::abs(carrierPause - 55.0f) < 1.0f, "VOCODER does not wait at the usual pitch in a pause (or follows the noise floor)");
+            check(std::abs(carrierTail - 55.0f) < 1.0f, "VOCODER follows a pitch reported 36 dB below the phrase");
+            check(std::abs(carrierStart - 55.0f) < 1.0f, "VOCODER does not start the next phrase from the usual pitch");
+            check(std::abs(carrierPitch - 73.5f) < 1.5f, "VOCODER glides into the first pitch of a new phrase: " + juce::String(carrierPitch, 1) + " Hz (73.5)");
+
+            roar::RingModule ring;
+            roar::RingSettings rs;
+            rs.on = true;
+            rs.track = roar::RingTrack::follow;
+            ring.setParams(rs);
+            ring.prepare(sr, block);
+            ring.setParams(rs);
+            ring.reset();
+            float followPause = 0.0f, followTail = 0.0f, followPitch = 0.0f;
+            runModuleMono(ring, in, block, frame, [&](int end)
+            {
+                if (end <= tailFrom) followPause = ring.getFollowedF0Hz();
+                if (end <= phraseFrom) followTail = ring.getFollowedF0Hz();
+                if (end <= pitchFrom + at(0.012)) followPitch = ring.getFollowedF0Hz();
+            });
+            std::printf("  RING Follow: %.1f Hz after the pause, %.1f Hz after the quiet tail, %.1f Hz 12 ms into the next phrase's pitch\n",
+                        followPause, followTail, followPitch);
+            check(std::abs(followPause - 110.0f) < 1.0f, "RING Follow does not wait at the usual pitch in a pause (or takes the noise floor)");
+            check(std::abs(followTail - 110.0f) < 1.0f, "RING Follow takes a pitch reported 36 dB below the phrase");
+            check(std::abs(followPitch - 147.0f) < 2.0f, "RING Follow is late on the first pitch of a new phrase");
+        }
+
+        // ---- Carrier pitch, a murmur after a roar: a loud phrase at 110 Hz, 0.4 s of silence, then
+        // a phrase 33 dB quieter at 147 Hz with a steady, confident pitch. The level gate lets go
+        // of the loud phrase in time: both carriers are on the quiet phrase's pitch 0.3 s into it.
+        {
+            auto in = makeBuzz(sr, 2.0, 110.0);
+            const int silenceFrom = at(0.6), quietFrom = at(1.0);
+            const auto quiet = makeBuzz(sr, 2.0, 147.0);
+            for (int i = silenceFrom; i < static_cast<int>(in.size()); ++i)
+                in[static_cast<size_t>(i)] = i < quietFrom ? 0.0f : 0.0224f * quiet[static_cast<size_t>(i)];
+            const auto frame = [=](int i)
+            {
+                if (i < silenceFrom)
+                    return roar::VoiceFrame { 110.0f, 0.9f, true };
+                if (i < quietFrom + 1920)
+                    return roar::VoiceFrame { 110.0f, 0.2f, false };
+                return roar::VoiceFrame { 147.0f, 0.9f, true };
+            };
+
+            roar::VocoderModule vocoder;
+            roar::VocoderSettings vs;
+            vs.on = true;
+            vs.gravel = 0.5f;
+            vocoder.setParams(vs);
+            vocoder.prepare(sr, block);
+            vocoder.setParams(vs);
+            vocoder.reset();
+            float carrierQuiet = 0.0f;
+            runModuleMono(vocoder, in, block, frame, [&](int end)
+            {
+                if (end <= quietFrom + at(0.3)) carrierQuiet = vocoder.getCarrierHz();
+            });
+
+            roar::RingModule ring;
+            roar::RingSettings rs;
+            rs.on = true;
+            rs.track = roar::RingTrack::follow;
+            ring.setParams(rs);
+            ring.prepare(sr, block);
+            ring.setParams(rs);
+            ring.reset();
+            float followQuiet = 0.0f;
+            runModuleMono(ring, in, block, frame, [&](int end)
+            {
+                if (end <= quietFrom + at(0.3)) followQuiet = ring.getFollowedF0Hz();
+            });
+            std::printf("  A phrase 33 dB under the last one, 0.3 s in: VOCODER carrier %.1f Hz (73.5), RING Follow %.1f Hz (147)\n", carrierQuiet, followQuiet);
+            check(std::abs(carrierQuiet - 73.5f) < 1.5f, "VOCODER does not follow a quiet phrase after a loud one: " + juce::String(carrierQuiet, 1) + " Hz (73.5)");
+            check(std::abs(followQuiet - 147.0f) < 2.0f, "RING Follow does not follow a quiet phrase after a loud one: " + juce::String(followQuiet, 1) + " Hz (147)");
+        }
+
+        // ---- GROWL Throat: the rasp holds through a short loss of pitch inside a word, lets go
+        // of a longer one, and lets go at once on hiss.
+        {
+            const auto depthAt = [&](const Signal& in, const std::function<roar::VoiceFrame(int)>& frame, std::initializer_list<double> times)
+            {
+                roar::GrowlModule growl;
+                roar::GrowlSettings gs;
+                gs.on = true;
+                gs.depth = 1.0f;
+                gs.shape = Params::GrowlShape::throat;
+                gs.character = Params::GrowlCharacter::clean;
+                growl.setParams(gs);
+                roar::GrowlModule::Diagnostics diagnostics;
+                diagnostics.humanize = false;
+                diagnostics.envelope = false;
+                growl.setDiagnostics(diagnostics);
+                growl.prepare(sr, 64);
+                growl.setParams(gs);
+                growl.reset();
+                std::vector<float> depths;
+                std::vector<double> pending(times);
+                size_t next = 0;
+                runModuleMono(growl, in, 64, frame, [&](int end)
+                {
+                    if (next < pending.size() && end >= at(pending[next]))
+                    {
+                        depths.push_back(growl.getEffectiveDepth());
+                        ++next;
+                    }
+                });
+                return depths;
+            };
+
+            const auto buzz = makeBuzz(sr, 1.2, 110.0);
+            const int lossFrom = at(0.5);
+            // (a) 60 ms without a pitch, some periodicity left (confidence 0.5), then the pitch returns
+            const auto shortLoss = depthAt(buzz, [=](int i)
+            {
+                return (i >= lossFrom && i < lossFrom + static_cast<int>(0.060 * 48000.0)) ? roar::VoiceFrame { 110.0f, 0.5f, false }
+                                                                                           : roar::VoiceFrame { 110.0f, 0.9f, true };
+            }, { 0.49, 0.53, 0.558, 0.62 });
+            // (b) the pitch does not return: the hold ends (110 ms, then the 15 ms fade)
+            const auto longLoss = depthAt(buzz, [=](int i)
+            {
+                return i >= lossFrom ? roar::VoiceFrame { 110.0f, 0.5f, false } : roar::VoiceFrame { 110.0f, 0.9f, true };
+            }, { 0.49, 0.58, 0.72 });
+            // (c) the voice turns into hiss (white noise above 4 kHz) with no periodicity
+            auto hissy = buzz;
+            {
+                roar::Biquad hp1, hp2;
+                hp1.setCoeffs(roar::Biquad::highpass(sr, 4000.0, roar::Biquad::c_bw4Q1));
+                hp2.setCoeffs(roar::Biquad::highpass(sr, 4000.0, roar::Biquad::c_bw4Q2));
+                const auto noise = makeWhite(sr, 1.2, 0.2f, 21);
+                for (int i = lossFrom; i < static_cast<int>(hissy.size()); ++i)
+                    hissy[static_cast<size_t>(i)] = static_cast<float>(hp2.process(hp1.process(static_cast<double>(noise[static_cast<size_t>(i)]))));
+            }
+            const auto hiss = depthAt(hissy, [=](int i)
+            {
+                return i >= lossFrom ? roar::VoiceFrame { 110.0f, i < lossFrom + 480 ? 0.4f : 0.05f, false } : roar::VoiceFrame { 110.0f, 0.9f, true };
+            }, { 0.49, 0.58 });
+
+            std::printf("  GROWL Throat depth: 60 ms without a pitch %.2f -> %.2f / %.2f -> %.2f; pitch gone %.2f -> %.2f -> %.2f; into hiss %.2f -> %.2f\n",
+                        shortLoss[0], shortLoss[1], shortLoss[2], shortLoss[3], longLoss[0], longLoss[1], longLoss[2], hiss[0], hiss[1]);
+            check(shortLoss[0] > 0.5f, "Throat is not at depth on a voiced tone");
+            check(shortLoss[1] > 0.9f * shortLoss[0] && shortLoss[2] > 0.9f * shortLoss[0], "Throat's rasp drops out when the pitch is lost for 60 ms inside a word");
+            check(shortLoss[3] > 0.9f * shortLoss[0], "Throat does not come back after a short loss of pitch");
+            check(longLoss[1] > 0.9f * longLoss[0], "Throat's hold is shorter than 80 ms");
+            check(longLoss[2] < 0.1f * longLoss[0], "Throat holds on for more than 220 ms after the pitch is gone");
+            check(hiss[1] < 0.1f * hiss[0], "Throat modulates hiss 80 ms after the voice ended");
+        }
+
+        // ---- ROAR: the top octave at 44.1 and 48 kHz matches 96 kHz (small signal, default Drive).
+        {
+            const auto response = [](double rate, double hz)
+            {
+                roar::RoarModule roarModule;
+                roarModule.prepare(rate, 256);
+                roarModule.setParams(roar::RoarSettings {});
+                roarModule.reset();
+                const auto out = runModuleMono(roarModule, makeSine(rate, 0.5, hz, 0.003), 256, [](int) { return roar::VoiceFrame {}; }, [](int) {});
+                return toDb(toneAmplitude(out, rate, hz, static_cast<int>(0.25 * rate), static_cast<int>(0.5 * rate)) / 0.003);
+            };
+            const double ref1k = response(96000.0, 1000.0);
+            const double ref15k = response(96000.0, 15000.0) - ref1k, ref18k = response(96000.0, 18000.0) - ref1k;
+            for (const double rate : { 44100.0, 48000.0 })
+            {
+                const double at1k = response(rate, 1000.0);
+                const double d15 = response(rate, 15000.0) - at1k - ref15k, d18 = response(rate, 18000.0) - at1k - ref18k;
+                std::printf("  ROAR at %.1f kHz re 96 kHz (each re its 1 kHz): 15 kHz %+.2f dB, 18 kHz %+.2f dB\n", rate / 1000.0, d15, d18);
+                check(std::abs(d15) < 0.4, "ROAR at " + juce::String(rate / 1000.0, 1) + " kHz: 15 kHz is " + juce::String(d15, 2) + " dB off the 96 kHz response");
+                check(std::abs(d18) < (rate < 46000.0 ? 1.0 : 0.6), "ROAR at " + juce::String(rate / 1000.0, 1) + " kHz: 18 kHz is " + juce::String(d18, 2) + " dB off the 96 kHz response");
+            }
+            roar::RoarModule roarModule;
+            check(roarModule.getLatencySamples() == roar::Oversampler2x::c_latency, "ROAR latency changed");
         }
     }
 
@@ -1893,15 +2583,10 @@ namespace
 
     bool isPermutationOfPositions(RoarschachAudioProcessor& p)
     {
-        std::array<bool, Params::numModules> seen {};
-        for (const auto& m : Params::modules)
-        {
-            const int pos = juce::roundToInt(getParam(p, m.posId));
-            if (!juce::isPositiveAndBelow(pos, Params::numModules) || seen[static_cast<size_t>(pos)])
-                return false;
-            seen[static_cast<size_t>(pos)] = true;
-        }
-        return true;
+        Params::Order positions {};
+        for (int m = 0; m < Params::numModules; ++m)
+            positions[static_cast<size_t>(m)] = juce::roundToInt(getParam(p, Params::modules[static_cast<size_t>(m)].posId));
+        return positionsAreValid(positions);
     }
 
     juce::MouseEvent mouseEventFor(juce::Component& c, juce::Point<float> pos, juce::Point<float> downPos, bool dragged)
@@ -1957,9 +2642,785 @@ namespace
         }
     }
 
+    //==========================================================================
+    // The dice: the preset die's bag, ROLL ALL's ranges and loudness, a module's die, undo, gestures,
+    // and a roll mid-stream.
+
+    struct GestureCounter : juce::AudioProcessorListener
+    {
+        std::map<int, int> begins, ends;
+        void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+        void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails&) override {}
+        void audioProcessorParameterChangeGestureBegin(juce::AudioProcessor*, int i) override { ++begins[i]; }
+        void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int i) override { ++ends[i]; }
+    };
+
+    std::vector<float> normalisedState(RoarschachAudioProcessor& p)
+    {
+        std::vector<float> v;
+        for (auto* param : p.getParameters())
+            v.push_back(param->getValue());
+        return v;
+    }
+
+    bool isModuleControl(int module, std::string_view id)
+    {
+        const auto& m = Params::modules[static_cast<size_t>(module)];
+        for (const char* k : m.knobIds)
+            if (k != nullptr && id == k)
+                return true;
+        for (const char* c : m.chipIds)
+            if (c != nullptr && id == c)
+                return true;
+        return false;
+    }
+
+    double integratedLufs(const Stereo& s, double sr, int from)
+    {
+        const RenderMetrics::Sig l(s.l.begin() + from, s.l.end()), r(s.r.begin() + from, s.r.end());
+        return RenderMetrics::loudness(l, r, sr).integrated;
+    }
+
+    void testDice()
+    {
+        std::printf("[dice] preset bag, ROLL ALL ranges and loudness, module dice, undo, gestures, a roll mid-stream\n");
+        const int numFactory = PresetManager::getNumFactory();
+
+        // 1. The preset die: never the preset showing, never the same twice in a row, every factory
+        //    preset once per round.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            auto& pm = p->getPresetManager();
+            dice.setSeed(11);
+            std::vector<int> seen(static_cast<size_t>(numFactory), 0);
+            int repeats = 0, wrong = 0, modified = 0, firstRoundMissing = 0;
+            int previous = pm.getCurrentFactoryIndex();
+            const int rounds = 3;
+            for (int k = 0; k < rounds * numFactory; ++k)
+            {
+                const int pick = dice.rollPreset();
+                repeats += pick == previous ? 1 : 0;
+                wrong += pick < 0 || pm.getCurrentFactoryIndex() != pick || pm.getCurrentName() != PresetManager::getFactoryPresetName(pick) ? 1 : 0;
+                modified += pm.isModified() ? 1 : 0;
+                if (pick >= 0)
+                    ++seen[static_cast<size_t>(pick)];
+                previous = pick;
+                if (k == numFactory - 1)
+                    for (int c : seen)
+                        firstRoundMissing += c == 0 ? 1 : 0;
+            }
+            const auto [lo, hi] = std::minmax_element(seen.begin(), seen.end());
+            std::printf("  preset die: %d rolls over %d presets, each came up %d-%d times, %d back-to-back repeats\n",
+                        rounds * numFactory, numFactory, *lo, *hi, repeats);
+            check(repeats == 0, "the preset die repeated a preset back to back");
+            check(wrong == 0, "the preset die loads the preset it picked");
+            check(modified == 0, "a rolled preset shows as the preset, not edited");
+            check(firstRoundMissing == 0, juce::String(firstRoundMissing) + " presets missing from the first round of the preset die");
+            check(*lo == rounds && *hi == rounds, "every factory preset comes up once per round");
+
+            // The preset showing is never picked, even when it was chosen by hand mid-round.
+            int hits = 0;
+            for (int k = 0; k < 4 * numFactory; ++k)
+            {
+                const int current = (k * 7) % numFactory;
+                p->setCurrentProgram(current);
+                hits += dice.rollPreset() == current ? 1 : 0;
+            }
+            check(hits == 0, "the preset die picked the preset showing");
+
+            // One undo step puts the previous preset back, unedited.
+            p->setCurrentProgram(presetIndex("Kaiju"));
+            const auto before = normalisedState(*p);
+            dice.rollPreset();
+            check(dice.undo(), "a preset roll can be undone");
+            check(normalisedState(*p) == before && pm.getCurrentName() == "Kaiju" && !pm.isModified(), "undoing a preset roll restores Kaiju exactly");
+        }
+
+        // 2. ROLL ALL: every control inside its range, 3-7 modules on, the order, IN and OUTPUT kept,
+        //    the preset edited, one undo step restoring everything exactly, the same seed rolling the same.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            auto& pm = p->getPresetManager();
+            const int seeds = g_quick ? 60 : 200;
+            int outOfRange = 0, badCount = 0, fewCharacter = 0, orderMoved = 0, keptChanged = 0, notModified = 0, undoWrong = 0, redoWrong = 0, narrowed = 0;
+            std::array<int, Params::numModules> onCount {};
+            std::array<int, Params::Random::maxModulesOn + 1> countHist {};
+            for (int seed = 1; seed <= seeds; ++seed)
+            {
+                p->setCurrentProgram(seed % numFactory);   // from many starting points
+                const auto before = normalisedState(*p);
+                const auto plainBefore = snapshot(*p);
+                const auto orderBefore = Params::resolveOrder(p->readSettings().positions);
+                const auto nameBefore = pm.getCurrentName();
+                dice.setSeed(static_cast<std::uint32_t>(seed));
+                dice.rollAll();
+                const auto plain = snapshot(*p);
+
+                int on = 0, character = 0;
+                for (int m = 0; m < Params::numModules; ++m)
+                {
+                    const auto& mod = Params::modules[static_cast<size_t>(m)];
+                    if (getParam(*p, mod.onId) > 0.5f)
+                    {
+                        ++on;
+                        ++onCount[static_cast<size_t>(m)];
+                        character += Params::Random::isUtility(m) ? 0 : 1;
+                    }
+                }
+                badCount += on < Params::Random::minModulesOn || on > Params::Random::maxModulesOn ? 1 : 0;
+                fewCharacter += character < Params::Random::minCharacterModules ? 1 : 0;
+                ++countHist[static_cast<size_t>(std::clamp(on, 0, Params::Random::maxModulesOn))];
+
+                for (size_t i = 0; i < Params::all.size(); ++i)
+                {
+                    const auto& s = Params::all[i];
+                    if (const auto* r = Params::Random::find(s.id))
+                    {
+                        const float tol = std::max(s.step * 0.5f, 1.0e-4f * (s.maxValue - s.minValue));
+                        if (!Params::Random::allows(s.id, plain[i], tol))
+                        {
+                            ++outOfRange;
+                            if (outOfRange <= 5)
+                                std::printf("    out of range: %s = %.4f (%.4f..%.4f)\n", s.id, plain[i], r->lo, r->hi);
+                        }
+                    }
+                    else
+                    {
+                        // Not a module control: only the On switches may change.
+                        bool isOn = false;
+                        for (const auto& mod : Params::modules)
+                            isOn = isOn || std::string_view(mod.onId) == s.id;
+                        if (!isOn && !juce::exactlyEqual(plain[i], plainBefore[i]))
+                        {
+                            ++keptChanged;
+                            std::printf("    changed: %s\n", s.id);
+                        }
+                    }
+                }
+                orderMoved += Params::resolveOrder(p->readSettings().positions) != orderBefore ? 1 : 0;
+                notModified += pm.isModified() ? 0 : 1;
+
+                // Where a mode changes what a knob does: SWIRL Deep 6 to 30 %, RING Follow from x1,
+                // PITCH Mono on a whole note.
+                const auto at = [&](const char* id) { return plain[static_cast<size_t>(Params::indexOf(id))]; };
+                narrowed += static_cast<int>(at(Params::swirlCircuit) + 0.5f) == Params::Random::swirlDeep6 && at(Params::swirl) > Params::Random::swirlDeep6Max + 0.01f ? 1 : 0;
+                narrowed += static_cast<int>(at(Params::ringTrack) + 0.5f) == Params::Random::ringFollow && at(Params::ringRatio) < Params::Random::ringFollowMinRatio - 0.01f ? 1 : 0;
+                narrowed += static_cast<int>(at(Params::pitchMode) + 0.5f) == Params::Random::pitchMono && std::abs(at(Params::pitch) - std::round(at(Params::pitch))) > 0.006f ? 1 : 0;
+
+                const auto after = normalisedState(*p);
+                dice.undo();
+                undoWrong += normalisedState(*p) != before || pm.getCurrentName() != nameBefore || pm.isModified() ? 1 : 0;
+                dice.redo();
+                redoWrong += normalisedState(*p) != after || !pm.isModified() ? 1 : 0;
+                dice.undo();
+            }
+            juce::String hist, perModule;
+            for (int c = Params::Random::minModulesOn; c <= Params::Random::maxModulesOn; ++c)
+                hist << c << ":" << countHist[static_cast<size_t>(c)] << " ";
+            for (int m = 0; m < Params::numModules; ++m)
+                perModule << Params::modules[static_cast<size_t>(m)].code << " " << onCount[static_cast<size_t>(m)] << "  ";
+            std::printf("  ROLL ALL x%d: modules on %s\n    on per module: %s\n", seeds, hist.toRawUTF8(), perModule.toRawUTF8());
+            check(outOfRange == 0, juce::String(outOfRange) + " rolled controls outside their random range");
+            check(badCount == 0, "ROLL ALL turns 3 to 7 modules on");
+            check(fewCharacter == 0, "ROLL ALL turns on at least two modules that change the voice");
+            check(keptChanged == 0, "ROLL ALL leaves IN, OUTPUT and the positions alone");
+            check(orderMoved == 0, "ROLL ALL keeps the module order");
+            check(narrowed == 0, juce::String(narrowed) + " rolls outside the narrowed ranges (SWIRL Deep 6, RING Follow, PITCH Mono)");
+            check(notModified == 0, "a roll shows the preset as edited");
+            check(undoWrong == 0, juce::String(undoWrong) + " ROLL ALL undos did not restore the exact state and preset");
+            check(redoWrong == 0, juce::String(redoWrong) + " ROLL ALL redos did not restore the roll");
+
+            // The same seed rolls the same values (the batch renders rely on it).
+            p->setCurrentProgram(0);
+            dice.setSeed(1234);
+            dice.rollAll();
+            const auto a = normalisedState(*p);
+            p->setCurrentProgram(0);
+            dice.setSeed(1234);
+            dice.rollAll();
+            check(normalisedState(*p) == a, "a seed rolls the same values");
+
+            // One undo step per roll, however many rolls.
+            p->setCurrentProgram(0);
+            const auto init = normalisedState(*p);
+            dice.rollAll();
+            const auto first = normalisedState(*p);
+            dice.rollModule(static_cast<int>(Params::ModuleId::growl));
+            dice.rollAll();
+            dice.undo();
+            dice.undo();
+            check(normalisedState(*p) == first, "two undos take back exactly two rolls");
+            dice.undo();
+            check(normalisedState(*p) == init && !pm.isModified() && pm.getCurrentName() == "Init", "three undos are back at Init");
+
+            // An edit by hand after a roll stays through the roll's undo, and keeps the preset edited.
+            dice.rollModule(static_cast<int>(Params::ModuleId::growl));
+            setParam(*p, Params::outPush, 12.0f);
+            dice.undo();
+            check(std::abs(getParam(*p, Params::outPush) - 12.0f) < 0.05f && juce::exactlyEqual(getParam(*p, Params::growl), Params::defaultOf(Params::growl))
+                      && pm.isModified(), "undo keeps a later edit by hand and the edited mark");
+
+            // Loading another preset ends the history: undo must not mix the roll into it.
+            p->setCurrentProgram(0);
+            dice.rollAll();
+            p->setCurrentProgram(presetIndex("Kaiju"));
+            const auto kaiju = normalisedState(*p);
+            check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == kaiju, "a preset loaded after a roll is not undone into");
+
+            // An edit by hand to a knob the roll changed also stays through undo and redo; the
+            // roll's other knobs go back.
+            {
+                p->setCurrentProgram(0);
+                dice.setSeed(5);
+                dice.rollModule(static_cast<int>(Params::ModuleId::growl));
+                const float rolledRate = getParam(*p, Params::growlRate);
+                setParam(*p, Params::growl, 33.0f);
+                dice.undo();
+                const bool undoKept = std::abs(getParam(*p, Params::growl) - 33.0f) < 0.05f
+                                   && juce::exactlyEqual(getParam(*p, Params::growlRate), Params::defaultOf(Params::growlRate)) && pm.isModified();
+                dice.redo();
+                const bool redoKept = std::abs(getParam(*p, Params::growl) - 33.0f) < 0.05f && std::abs(getParam(*p, Params::growlRate) - rolledRate) < 1.0e-3f;
+                check(undoKept && redoKept, "undo and redo keep a hand edit to a knob the roll changed");
+            }
+
+            // Loading the same preset again, or a session with the same preset, also ends the history.
+            {
+                p->setCurrentProgram(0);
+                dice.rollAll();
+                dice.rollAll();
+                p->setCurrentProgram(0);
+                const auto reloaded = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == reloaded, "the same preset loaded again ends the roll history");
+
+                dice.rollAll();
+                pm.loadPreset(0);
+                const auto menuLoaded = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == menuLoaded, "the same preset picked from the menu ends the roll history");
+
+                p->setCurrentProgram(presetIndex("Kaiju"));
+                dice.rollAll();
+                p->setCurrentProgram(presetIndex("Init"));
+                p->setCurrentProgram(presetIndex("Kaiju"));
+                const auto backAgain = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == backAgain, "A, roll, B, A ends the roll history");
+
+                juce::MemoryBlock session;
+                p->getStateInformation(session);
+                dice.rollModule(static_cast<int>(Params::ModuleId::ring));
+                p->setStateInformation(session.getData(), static_cast<int>(session.getSize()));
+                const auto recalled = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == recalled, "a session with the same preset name ends the roll history");
+
+                // A roll after a load starts a new history that works.
+                dice.rollAll();
+                dice.undo();
+                check(normalisedState(*p) == recalled, "a roll after a load undoes");
+            }
+
+            // The host hears of a program change only when the program changed.
+            {
+                std::vector<juce::AudioProcessorListener::ChangeDetails> sent;
+                DiceRoller roller(p->getValueTreeState(), pm, [&sent](const juce::AudioProcessorListener::ChangeDetails& d) { sent.push_back(d); });
+                roller.setSeed(9);
+                p->setCurrentProgram(presetIndex("Kaiju"));
+                roller.rollAll();
+                roller.undo();
+                roller.redo();
+                const bool allQuiet = sent.size() == 2 && !sent[0].programChanged && !sent[1].programChanged && sent[0].nonParameterStateChanged;
+                p->setCurrentProgram(0);
+                sent.clear();
+                roller.rollPreset();
+                roller.undo();
+                check(allQuiet && sent.size() == 1 && sent[0].programChanged, "a dice undo reports a program change only when the program changed");
+            }
+        }
+
+        // 3. A module's die: that module's knobs and choices only, inside their ranges.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            int stray = 0, outOfRange = 0, untouched = 0, undoWrong = 0;
+            for (int m = 0; m < Params::numModules; ++m)
+                for (int seed = 1; seed <= (g_quick ? 4 : 12); ++seed)
+                {
+                    p->setCurrentProgram((m * 5 + seed) % numFactory);
+                    const auto before = normalisedState(*p);
+                    const auto plainBefore = snapshot(*p);
+                    dice.setSeed(static_cast<std::uint32_t>(1000 * m + seed));
+                    dice.rollModule(m);
+                    const auto plain = snapshot(*p);
+                    bool changed = false;
+                    for (size_t i = 0; i < Params::all.size(); ++i)
+                    {
+                        const auto* id = Params::all[i].id;
+                        if (isModuleControl(m, id))
+                        {
+                            changed = changed || !juce::exactlyEqual(plain[i], plainBefore[i]);
+                            const float tol = std::max(Params::all[i].step * 0.5f, 1.0e-4f * (Params::all[i].maxValue - Params::all[i].minValue));
+                            outOfRange += Params::Random::allows(id, plain[i], tol) ? 0 : 1;
+                        }
+                        else if (!juce::exactlyEqual(plain[i], plainBefore[i]))
+                        {
+                            ++stray;
+                            std::printf("    %s's die changed %s\n", Params::modules[static_cast<size_t>(m)].uiName, id);
+                        }
+                    }
+                    untouched += changed ? 0 : 1;
+                    dice.undo();
+                    undoWrong += normalisedState(*p) != before ? 1 : 0;
+                }
+            check(stray == 0, juce::String(stray) + " parameters outside the module changed by its die");
+            check(outOfRange == 0, juce::String(outOfRange) + " module-die values outside their range");
+            check(untouched == 0, "a module's die changes something");
+            check(undoWrong == 0, "a module roll undoes exactly");
+        }
+
+        // 4. Gestures: every parameter a roll changes gets one begin and one end, and no other does.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            GestureCounter counter;
+            p->addListener(&counter);
+            const auto before = normalisedState(*p);
+            p->getDice().setSeed(77);
+            p->getDice().rollAll();
+            const auto after = normalisedState(*p);
+            int bad = 0, changedCount = 0;
+            for (size_t i = 0; i < before.size(); ++i)
+            {
+                const bool changed = !juce::exactlyEqual(before[i], after[i]);
+                changedCount += changed ? 1 : 0;
+                const int b = counter.begins[static_cast<int>(i)], e = counter.ends[static_cast<int>(i)];
+                bad += changed ? (b != 1 || e != 1) : (b != 0 || e != 0);
+            }
+            counter.begins.clear();
+            counter.ends.clear();
+            p->getDice().undo();
+            for (size_t i = 0; i < before.size(); ++i)
+            {
+                const bool changed = !juce::exactlyEqual(before[i], after[i]);
+                const int b = counter.begins[static_cast<int>(i)], e = counter.ends[static_cast<int>(i)];
+                bad += changed ? (b != 1 || e != 1) : (b != 0 || e != 0);
+            }
+            p->removeListener(&counter);
+            std::printf("  gestures: a roll changed %d parameters, one begin/end each (and the same for its undo)\n", changedCount);
+            check(bad == 0, juce::String(bad) + " parameters with the wrong gestures for a roll or its undo");
+        }
+
+        // 5. Loudness after a roll, against Init (the reference voice; the real takes are in the batch
+        //    renders, see docs/parameter-audit.md), and no runaway: finite, under the ceiling, no clamps.
+        {
+            const double sr = 48000.0;
+            const int block = 512;
+            const auto in = dual(makeVoice(sr, g_quick ? 3.0 : 5.0));
+            const int skip = static_cast<int>(1.0 * sr);
+            auto ref = makeProcessor(sr, block);
+            const double initLufs = integratedLufs(render(*ref, in, block), sr, skip);
+            const int rolls = g_quick ? 8 : 40;
+            std::vector<double> deltas;
+            int broken = 0;
+            for (int seed = 1; seed <= rolls; ++seed)
+            {
+                auto p = makeProcessor(sr, block);
+                p->getDice().setSeed(static_cast<std::uint32_t>(seed));
+                p->getDice().rollAll();
+                restart(*p, sr, block);
+                const auto out = render(*p, in, block);
+                const auto st = stats(out);
+                broken += !st.finite || st.peak > ceilingGain(-1.0f) || p->getChain().getClampCount() > 0 ? 1 : 0;
+                deltas.push_back(integratedLufs(out, sr, skip) - initLufs);
+            }
+            std::sort(deltas.begin(), deltas.end());
+            std::printf("  ROLL ALL x%d on the reference voice: loudness against Init %.2f / %.2f / %.2f LU (min / median / max), %d broken\n",
+                        rolls, deltas.front(), deltas[deltas.size() / 2], deltas.back(), broken);
+            check(broken == 0, "a roll ran away (non-finite, over the ceiling or clamped)");
+            check(deltas.front() >= -3.0 && deltas.back() <= 3.0, "ROLL ALL stays within 3 LU of Init");
+        }
+
+        // 6. A roll mid-stream: the settings glide (no clicks or zips), at most one chain crossfade, and
+        //    none when the stereo split stays where it is. The click measure is gated. The 5 ms level
+        //    dips against the two settled renders are only reported: a roll changes PITCH, GROWL,
+        //    SHIMMER and ENSEMBLE, whose grains and LFOs are not in phase with fresh renders, so those
+        //    frames differ by several dB without any zip (turning PITCH off by hand reads -8 dB too).
+        {
+            const double sr = 48000.0;
+            const int block = 480;
+            const auto in = dual(makeVoice(sr, 2.0));
+            const int at = static_cast<int>(1.0 * sr) / block * block;
+            double worstRatio = 0.0, worstPercentile = 0.0, worstDip = 0.0;
+            int extraFades = 0, fadesWithoutSplitChange = 0;
+            const int rolls = g_quick ? 3 : 10;
+            for (int seed = 1; seed <= rolls; ++seed)
+            {
+                auto p = makeProcessor(sr, block);
+                p->getDice().setSeed(static_cast<std::uint32_t>(500 + seed));
+                const auto topologyBefore = roar::CreatureChain::topologyFor(p->readSettings());
+                roar::Topology topologyAfter;
+                const int latency = p->getLatencySamples();
+                const auto r = transitionTest(*p, in, sr, block,
+                    [&](int start)
+                    {
+                        if (start != at)
+                            return false;
+                        p->getDice().rollAll();
+                        topologyAfter = roar::CreatureChain::topologyFor(p->readSettings());
+                        return true;
+                    },
+                    [&](int start) { return std::pair<int, int> { start, start + latency + static_cast<int>(0.12 * sr) }; }, true);
+                const int fades = p->getChain().getReorderCount();
+                extraFades += fades > 1 ? 1 : 0;
+                fadesWithoutSplitChange += topologyAfter == topologyBefore && fades > 0 ? 1 : 0;
+                worstRatio = std::max(worstRatio, r.worstSecondDiffRatio);
+                worstPercentile = std::max(worstPercentile, r.percentileRatio);
+                std::printf("    roll %d: 2nd difference %.2fx, dip %.2f dB, %s, %d crossfade(s)\n", 500 + seed, r.worstSecondDiffRatio, r.worstDipDb,
+                            topologyAfter == topologyBefore ? "same split" : "split moved", fades);
+                worstDip = std::min(worstDip, r.worstDipDb);
+                check(r.peak <= ceilingGain(-1.0f), "a roll mid-stream went over the ceiling");
+            }
+            std::printf("  %d rolls mid-stream: worst 2nd difference %.2fx the steady renders', %.2fx the 99.9th percentile outside; worst 5 ms dip %.2f dB\n",
+                        rolls, worstRatio, worstPercentile, worstDip);
+            check(extraFades == 0, "a roll started more than one chain crossfade");
+            check(fadesWithoutSplitChange == 0, "a roll that keeps the stereo split started a chain crossfade");
+            check(worstRatio <= 2.0, "a roll mid-stream clicks (2nd difference " + juce::String(worstRatio, 2) + "x the steady renders')");
+        }
+
+        // 7. The editor: every die is there, fits its tile or slot, rolls through the processor, and
+        //    Cmd+Z / Ctrl+Z takes the roll back.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+            editor.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& strip = RoarschachEditorInspector::strip(editor);
+            strip.refresh();
+            int overlaps = 0, outside = 0, tooSmall = 0, tooClose = 0;
+            for (int m = 0; m < Params::numModules; ++m)
+            {
+                auto* die = strip.getModuleDice(m);
+                auto* tile = strip.getModuleTile(m);
+                if (die == nullptr || tile == nullptr)
+                {
+                    ++outside;
+                    continue;
+                }
+                const auto d = die->getBounds();
+                outside += tile->getLocalBounds().contains(d) ? 0 : 1;
+                tooSmall += d.getWidth() < 22 || d.getHeight() < 22 || die->getPillSize() < 18 ? 1 : 0;
+                for (auto* child : tile->getChildren())
+                    if (child != die && child->isVisible() && child->getBounds().intersects(d))
+                        ++overlaps;
+                // The mode chip: at least 6 px from the die's pill, and not touching its clickable area.
+                if (auto* chip = strip.getModeChip(m))
+                {
+                    const float pillLeft = static_cast<float>(d.getX()) + die->getPillBounds().getX() - 0.5f;
+                    tooClose += pillLeft - static_cast<float>(chip->getRight()) < 6.0f || chip->getRight() >= d.getX() ? 1 : 0;
+                }
+            }
+            auto* all = strip.getRollAllDice();
+            const auto slot = strip.getSlotBounds(Params::numModules);
+            outside += all != nullptr && slot.contains(all->getBounds()) ? 0 : 1;
+            for (int m = 0; m < Params::numModules; ++m)
+                overlaps += strip.getModuleTile(m)->getBounds().intersects(all->getBounds()) ? 1 : 0;
+            check(outside == 0, "every die sits inside its tile, and ROLL ALL in the empty slot");
+            check(overlaps == 0, juce::String(overlaps) + " dice overlap another control");
+            check(tooSmall == 0, "the module dice click over at least 22 px, with an 18 px pill");
+            check(tooClose == 0, juce::String(tooClose) + " module dice too close to their mode chip");
+
+            // The drawn die at the editor's opening scale on a 1x display: large enough to read, and a
+            // small die shows at most four pips.
+            {
+                const float defaultScale = 0.8f;
+                const float moduleDie = DiceButton::dieSideFor(18.0f) * defaultScale;
+                const float minScaleDie = DiceButton::dieSideFor(18.0f) * 0.5f;
+                check(moduleDie >= 10.0f, "a module die is drawn " + juce::String(moduleDie, 1) + " px at the default scale on a 1x display (10 px or more)");
+                bool fewPips = true;
+                for (int face = 1; face <= 6; ++face)
+                    fewPips = fewPips && DiceButton::drawnFace(face, minScaleDie) <= 4 && DiceButton::drawnFace(face, moduleDie) <= 4
+                                      && DiceButton::drawnFace(face, moduleDie * 2.0f) == face;
+                check(fewPips, "small dice show at most four pips, a 2x die every face");
+            }
+
+            // RANDOMISE ALL's caption is part of its button: a click under the die still rolls.
+            {
+                const auto b = all->getLocalBounds();
+                check(all->getHeight() > all->getPillSize() + 10 && all->getWidth() >= 60
+                          && all->hitTest(b.getCentreX(), b.getBottom() - 4), "RANDOMISE ALL's caption is part of its button");
+            }
+
+            // Every die has a "show menu" action for screen readers, and Shift+F10 opens the menu.
+            {
+                int menus = 0;
+                std::vector<DiceButton*> dice { all, &RoarschachEditorInspector::presetDice(editor) };
+                for (int m = 0; m < Params::numModules; ++m)
+                    dice.push_back(strip.getModuleDice(m));
+                for (auto* die : dice)
+                {
+                    // (getAccessibilityHandler needs a window on screen: the handler the die makes for it.)
+                    const auto handler = die->createAccessibilityHandler();
+                    const bool hasMenu = handler != nullptr && handler->getActions().contains(juce::AccessibilityActionType::showMenu);
+                    int opened = 0;
+                    auto keep = die->onSecondaryClick;
+                    die->onSecondaryClick = [&opened] { ++opened; };
+                    die->keyPressed(juce::KeyPress(juce::KeyPress::F10Key, juce::ModifierKeys::shiftModifier, 0));
+                    if (hasMenu)
+                        handler->getActions().invoke(juce::AccessibilityActionType::showMenu);
+                    die->onSecondaryClick = keep;
+                    menus += hasMenu && opened == 2 ? 1 : 0;
+                }
+                check(menus == static_cast<int>(dice.size()), "every die opens its undo menu from the keyboard and for screen readers");
+            }
+
+            // Off modules mute their die with the rest of the tile (drawn in the faint ink, not faded:
+            // the state shows in ink rank and shape, and the die stays fully opaque and clickable).
+            {
+                const auto ring = static_cast<int>(Params::ModuleId::ring);
+                setParam(*p, Params::modules[static_cast<size_t>(ring)].onId, 0.0f);
+                strip.refresh();
+                const bool offMuted = strip.getModuleDice(ring)->isMuted();
+                setParam(*p, Params::modules[static_cast<size_t>(ring)].onId, 1.0f);
+                strip.refresh();
+                check(offMuted && !strip.getModuleDice(ring)->isMuted() && strip.getModuleDice(ring)->getAlpha() > 0.99f,
+                      "an Off module's die is muted");
+            }
+
+            // Cmd+Z / Shift+Cmd+Z on the die that has the focus; anywhere else they are the host's.
+            const auto undoKey = juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0);
+            const auto redoKey = juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0);
+            p->setCurrentProgram(0);
+            const auto init = normalisedState(*p);
+            all->onClick();
+            check(normalisedState(*p) != init && p->getPresetManager().isModified(), "ROLL ALL in the editor rolls");
+            check(!editor.keyPressed(undoKey) && !strip.keyPressed(undoKey) && normalisedState(*p) != init,
+                  "Cmd+Z away from a die is left to the host");
+            all->keyPressed(undoKey);
+            check(normalisedState(*p) == init && !p->getPresetManager().isModified(), "Cmd+Z on the die undoes ROLL ALL");
+            all->keyPressed(redoKey);
+            check(normalisedState(*p) != init, "Shift+Cmd+Z redoes it");
+            auto* growlDie = strip.getModuleDice(static_cast<int>(Params::ModuleId::growl));
+            growlDie->onClick();
+            growlDie->keyPressed(undoKey);
+            growlDie->keyPressed(undoKey);
+            check(normalisedState(*p) == init, "Cmd+Z twice undoes a module roll and ROLL ALL");
+            check(!growlDie->keyPressed(undoKey), "Cmd+Z with nothing to undo is left to the host");
+        }
+    }
+
+    bool savePng(const juce::Image& image, const juce::File& file);
+
     void testEditor()
     {
         std::printf("[editor] tooltips, menus, moves, drag, chips, value boxes, host moves\n");
+        {
+            // Host bypass: the chain runs on underneath, but the strip's activity readouts rest.
+            auto q = makeProcessor(48000.0, 512);
+            setValues(*q, { { Params::cleanOn, 1.0f }, { Params::deessOn, 1.0f }, { Params::detailOn, 1.0f }, { Params::roarOn, 1.0f } });
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            auto& strip = RoarschachEditorInspector::strip(ed);
+            const auto voice = dual(makeVoice(48000.0, 1.5, 110.0));
+            const auto activity = [&strip]
+            {
+                float a = 0.0f;
+                for (const auto id : { Params::ModuleId::clean, Params::ModuleId::deess, Params::ModuleId::detail, Params::ModuleId::roar })
+                {
+                    const auto v = strip.getReadoutForTests(static_cast<int>(id));
+                    a += std::abs(v[0]) + std::abs(v[1]);
+                }
+                return a;
+            };
+            render(*q, voice, 512, false);
+            strip.refresh();
+            const float playing = activity();
+            render(*q, voice, 512, true);
+            strip.refresh();
+            const float bypassed = activity();
+            render(*q, voice, 512, false);
+            strip.refresh();
+            const float back = activity();
+            check(playing > 0.0f && bypassed <= 0.0f && back > 0.0f, "strip: in host bypass the module readouts rest, and read again after (" + juce::String(playing, 2) + ", "
+                                                                      + juce::String(bypassed, 2) + ", " + juce::String(back, 2) + ")");
+        }
+        {
+            // Without OpenGL the creature view shows a still cloud in its own tones and says why,
+            // not an empty dark box.
+            auto q = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            ed.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& view = RoarschachEditorInspector::monster(ed);
+            view.showFallbackForTests();
+            const auto image = view.createComponentSnapshot(view.getLocalBounds(), true, 1.0f);
+            {
+                // With no native context at all the view lets go of OpenGL: attached, the component is
+                // drawn through the context's cached image and its own paint() is never reached.
+                auto q2 = makeProcessor(48000.0, 512);
+                std::unique_ptr<juce::AudioProcessorEditor> base2(q2->createEditor());
+                auto& ed2 = *dynamic_cast<RoarschachAudioProcessorEditor*>(base2.get());
+                ed2.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+                auto& view2 = RoarschachEditorInspector::monster(ed2);
+                view2.giveUpOnGLForTests();
+                const auto fallback = view2.createComponentSnapshot(view2.getLocalBounds(), true, 1.0f);
+                double sum = 0.0;
+                int n = 0;
+                for (int y = 0; y < fallback.getHeight(); y += 4)
+                    for (int x = 0; x < fallback.getWidth(); x += 4, ++n)
+                        sum += static_cast<double>(fallback.getPixelAt(x, y).getBrightness());
+                check(! view2.isGLAttachedForTests(), "creature view: with no OpenGL context to be had it lets go of the context");
+                check(n > 0 && sum / n > 0.5, "creature view: and then paints its still cloud itself (mean brightness " + juce::String(n > 0 ? sum / n : 0.0, 2) + ")");
+            }
+            const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {});
+            if (keepDir.isNotEmpty())
+                savePng(image, juce::File(keepDir).getChildFile("no-opengl-view.png"));
+            std::vector<float> lum;
+            int dark = 0;
+            for (int y = 0; y < image.getHeight(); y += 2)
+                for (int x = 0; x < image.getWidth(); x += 2)
+                {
+                    const auto c = image.getPixelAt(x, y);
+                    const float l = 0.3f * c.getFloatRed() + 0.59f * c.getFloatGreen() + 0.11f * c.getFloatBlue();
+                    lum.push_back(l);
+                    dark += l < 0.3f ? 1 : 0;
+                }
+            std::sort(lum.begin(), lum.end());
+            const float median = lum.empty() ? 0.0f : lum[lum.size() / 2];
+            std::printf("  without OpenGL: the view's median luma %.2f, %d dark pixels (the message and the readouts' backing)\n", median, dark);
+            check(image.isValid() && median > 0.55f && median < 0.92f && dark > 50,
+                  "editor: without OpenGL the creature view is a still pale cloud with a message (median luma " + juce::String(median, 2) + ")");
+        }
+        {
+            // The visualiser: Full asks for frames, Off keeps no context and asks for none (a still
+            // cloud, no message), Low asks for at most 15 a second; a view that cannot be seen asks
+            // for none, and one its window reports covered two a second. The choice reaches every
+            // open view on its next tick.
+            using V = MonsterView::Visualiser;
+            auto q = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor()), base2(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            auto& ed2 = *dynamic_cast<RoarschachAudioProcessorEditor*>(base2.get());
+            ed.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            ed2.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& view = RoarschachEditorInspector::monster(ed);
+            auto& other = RoarschachEditorInspector::monster(ed2);
+            view.setSeenForTests(0);
+            other.setSeenForTests(0);
+            const auto ticks = [](MonsterView& v, int n) { const int before = v.framesRequestedForTests(); for (int i = 0; i < n; ++i) v.tickForTests(); return v.framesRequestedForTests() - before; };
+            const int full = ticks(view, 10);
+            const bool fullAttached = view.hasGLContextForTests();
+            const int fullHz = view.frameRateForTests();
+            MonsterView::setVisualiserForAll(V::low);
+            const int low = ticks(view, 10);
+            const int lowHz = view.frameRateForTests();
+            MonsterView::setVisualiserForAll(V::off);
+            const int off = ticks(view, 10);
+            ticks(other, 1);
+            const bool offDetached = ! view.hasGLContextForTests() && ! other.hasGLContextForTests() && other.getVisualiser() == V::off;
+            const auto still = view.createComponentSnapshot(view.getLocalBounds(), true, 1.0f);
+            double sum = 0.0;
+            int n = 0, dark = 0;
+            for (int y = 0; y < still.getHeight(); y += 2)
+                for (int x = 0; x < still.getWidth(); x += 2, ++n)
+                {
+                    const auto c = still.getPixelAt(x, y);
+                    sum += static_cast<double>(c.getBrightness());
+                    // (in the middle, where the no-OpenGL message would stand; the readouts' backing is at the edges)
+                    const bool middle = std::abs(x - still.getWidth() / 2) < 150 && std::abs(y - still.getHeight() / 2) < 30;
+                    dark += middle && 0.3f * c.getFloatRed() + 0.59f * c.getFloatGreen() + 0.11f * c.getFloatBlue() < 0.3f ? 1 : 0;
+                }
+            std::unique_ptr<juce::AudioProcessorEditor> base3(q->createEditor());
+            auto& opened = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(base3.get()));
+            const bool openedOff = opened.getVisualiser() == V::off && ! opened.hasGLContextForTests();
+            base3.reset();
+            MonsterView::setVisualiserForAll(V::full);
+            const int back = ticks(view, 10);
+            const bool backAttached = view.hasGLContextForTests();
+            view.setSeenForTests(1);
+            const int unseen = ticks(view, 10);
+            const int unseenHz = view.frameRateForTests();
+            view.setSeenForTests(2);
+            const int covered = ticks(view, 10);
+            const int coveredHz = view.frameRateForTests();
+            view.setSeenForTests(0);
+            const int seenAgain = ticks(view, 10);
+            std::printf("  creature view, frames asked for in 10 ticks: full %d (%d Hz), low %d (%d Hz), off %d, full again %d; not seen %d (%d Hz), covered %d (%d Hz), seen again %d;"
+                        " off: mean brightness %.2f, %d dark pixels of %d\n", full, fullHz, low, lowHz, off, back, unseen, unseenHz, covered, coveredHz, seenAgain, n > 0 ? sum / n : 0.0, dark, n);
+            check(full == 10 && fullAttached && fullHz >= 15, "creature view: Full draws a frame on every tick");
+            check(low == 10 && lowHz <= 15, "creature view: Low draws at most 15 frames a second (" + juce::String(lowHz) + ")");
+            check(off == 0 && offDetached && openedOff, "creature view: Off keeps no OpenGL context and draws no frames, in every open view and the next one opened");
+            check(n > 0 && sum / n > 0.5 && dark == 0, "creature view: Off shows the still cloud without the no-OpenGL message (mean brightness " + juce::String(n > 0 ? sum / n : 0.0, 2) + ", "
+                                                                + juce::String(dark) + " dark pixels in the middle)");
+            check(back == 10 && backAttached, "creature view: back from Off it attaches its context and draws again");
+            check(unseen == 0 && covered == 10 && coveredHz <= 2 && seenAgain == 10, "creature view: no frames while it cannot be seen, two a second while its window reports it covered, all again once seen");
+        }
+        {
+            // Off, from the moment the editor opens (no GL frame ever drawn): the readouts and the
+            // ASLEEP tag still follow the sound, host bypass and silence on the timer's ticks alone;
+            // and Evolution: Frozen keeps the settings' colour, not a colour never drawn.
+            using V = MonsterView::Visualiser;
+            MonsterView::setVisualiserForAll(V::off);
+            auto r = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(r->createEditor());
+            auto& view = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(base.get()));
+            view.setSeenForTests(0);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            double phase = 0.0;
+            // (each tick a tenth of a second of audio: a 140 Hz sawtooth, or silence; bypassed or not)
+            const auto feed = [&](bool bypassed, bool sound, int ticks)
+            {
+                for (int t = 0; t < ticks; ++t)
+                {
+                    view.tickForTests();
+                    for (int done = 0; done < 4800; done += 512)
+                    {
+                        for (int i = 0; i < 512; ++i)
+                        {
+                            const float s = sound ? 0.3f * static_cast<float>(2.0 * phase - 1.0) : 0.0f;
+                            phase = std::fmod(phase + 140.0 / 48000.0, 1.0);
+                            buffer.setSample(0, i, s);
+                            buffer.setSample(1, i, s);
+                        }
+                        if (bypassed)
+                            r->processBlockBypassed(buffer, midi);
+                        else
+                            r->processBlock(buffer, midi);
+                    }
+                }
+                view.tickForTests();
+            };
+            const juce::String rest = "F0 -- | DETAIL 0.0 / 0.0 dB";
+            feed(false, true, 20);
+            const auto voiced = view.getReadoutsForTests();
+            const bool awake = !view.isAsleepForTests() && !view.readsSilenceForTests();
+            feed(true, true, 20);
+            const auto bypassed = view.getReadoutsForTests();
+            const bool bypassedAsleep = view.isAsleepForTests() && view.readsSilenceForTests();
+            feed(false, false, 40);   // (the input meter falls to -60 dB in about 1.7 s, then 1.5 s of quiet)
+            const bool quietAsleep = view.isAsleepForTests();
+            feed(false, true, 5);
+            const auto again = view.getReadoutsForTests();
+            const bool awakeAgain = !view.isAsleepForTests() && !view.readsSilenceForTests();
+            std::printf("  Off from the start: readouts \"%s\" over a voice, \"%s\" in host bypass, \"%s\" with the voice back; asleep after silence %d, awake again %d\n",
+                        voiced.toRawUTF8(), bypassed.toRawUTF8(), again.toRawUTF8(), quietAsleep ? 1 : 0, awakeAgain ? 1 : 0);
+            check(awake && voiced.startsWith("F0 ") && !voiced.startsWith("F0 --"), "creature view, Off: the readouts follow the voice without GL frames (" + voiced + ")");
+            check(bypassedAsleep && bypassed == rest, "creature view, Off: in host bypass the readouts rest and the view reads asleep (" + bypassed + ")");
+            check(quietAsleep && awakeAgain && again.startsWith("F0 ") && !again.startsWith("F0 --"),
+                  "creature view, Off: asleep after silence, awake and live again with the voice (" + again + ")");
+
+            r->setCreatureFrozen(false);
+            r->setCreatureColour(std::nullopt);
+            MonsterView::Params settings;
+            settings.mood = { 0.7f, 0.2f, 0.4f, 0.9f };
+            view.setParams(settings);
+            view.chooseFrozenForTests();
+            const auto kept = r->getCreatureColour();
+            bool same = kept.has_value() && r->isCreatureFrozen();
+            for (size_t i = 0; same && i < settings.mood.size(); ++i)
+                same = std::abs((*kept)[i] - settings.mood[i]) < 1.0e-4f;
+            check(same, "creature view, Off: Evolution: Frozen keeps the settings' colour with the session");
+            base.reset();
+            MonsterView::setVisualiserForAll(V::full);
+        }
         auto p = makeProcessor(48000.0, 512);
         std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
         auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
@@ -2307,8 +3768,9 @@ namespace
                 ticks(menu);
 
                 // Every combination of choices: the chip text names them and fits the chip.
-                const float room = static_cast<float>(chip->getWidth() - 16);
-                const auto font = Theme::Fonts().label(9.0f);
+                // (the chip's label is set untracked at the chip size; its caret takes 11 px, the ends 3 px each)
+                const float room = RoarschachLookAndFeel::menuChipTextWidth(chip->getWidth());
+                const auto font = Theme::Fonts().value(Theme::Type::chip);
                 std::vector<const char*> ids;
                 for (const char* id : spec.chipIds)
                     if (id != nullptr)
@@ -2319,7 +3781,7 @@ namespace
                     {
                         const auto t = strip.modeChipText(m, room);
                         const float w = juce::GlyphArrangement::getStringWidth(font, t);
-                        if (w > static_cast<float>(chip->getWidth()) - 10.0f)
+                        if (w > room)
                         {
                             ++failures;
                             std::printf("    chip %s: \"%s\" is %.0f px in a %d px chip\n", spec.code, t.toRawUTF8(), w, chip->getWidth());
@@ -2347,6 +3809,9 @@ namespace
                 tiles.push_back(strip.getModuleTile(m));
             for (auto* tile : tiles)
             {
+                // CHAMBER's tile holds four knobs side by side in the same width as the others'
+                // two or three, so its knobs are smaller (still at least 28 px).
+                const float minimumKnob = strip.getKnobs(tile).size() >= 4 ? 28.0f : 36.0f;
                 for (const auto& [slider, id] : strip.getKnobs(tile))
                 {
                     juce::Label* box = nullptr;
@@ -2371,12 +3836,24 @@ namespace
                         }
                     }
                     const float knob = static_cast<float>(std::min(slider->getWidth(), slider->getHeight() - 20)) - 8.0f;
-                    if (knob < 36.0f)
+                    if (knob < minimumKnob)
                     {
                         ++failures;
                         std::printf("    knob %s is only %.0f px\n", id, knob);
                     }
                 }
+                // The captions above the knobs show their whole word (no "AMO...").
+                for (auto* c : tile->getChildren())
+                    if (auto* caption = dynamic_cast<juce::Label*>(c); caption != nullptr && caption->isVisible() && caption->getText().isNotEmpty())
+                    {
+                        const auto area = caption->getBorderSize().subtractedFrom(caption->getLocalBounds());
+                        const float w = juce::GlyphArrangement::getStringWidth(caption->getFont(), caption->getText());
+                        if (w > static_cast<float>(area.getWidth()))
+                        {
+                            ++failures;
+                            std::printf("    caption \"%s\" is %.0f px in %d px\n", caption->getText().toRawUTF8(), w, area.getWidth());
+                        }
+                    }
             }
             check(failures == 0, juce::String(failures) + " value boxes or knobs too small");
         }
@@ -2397,11 +3874,1087 @@ namespace
             setParam(*p, Params::pitchOn, 0.0f);
             strip.refresh();
             const auto pitch = strip.getKnobs(strip.getModuleTile(static_cast<int>(Params::ModuleId::pitch)));
-            check(std::abs(pitch[0].first->getAlpha() - 0.45f) < 0.01f && pitch[0].first->isEnabled(), "an Off tile is dimmed and its knobs still work");
+            // An Off tile's knobs are drawn as outlines (their state by shape; nothing is faded).
+            check(RoarschachLookAndFeel::getKnobStyle(*pitch[0].first) == RoarschachLookAndFeel::KnobStyle::off
+                      && pitch[0].first->getAlpha() > 0.99f && pitch[0].first->isEnabled(),
+                  "an Off tile's knobs are drawn as outlines and still work");
             setParam(*p, Params::pitchOn, 1.0f);
         }
 
         editorBase.reset();
+    }
+
+    //==========================================================================
+    // The editor's usability: type size and contrast, the window size, undo for preset loads, the
+    // first-run hint, the quick start, knobs the current settings do not use, the latency note.
+
+    /** WCAG contrast ratio of two opaque colours. */
+    double contrastRatio(juce::Colour a, juce::Colour b);
+
+    /** The roles' contrast at every mood extreme (Theme::makeRoles), each pair at its worst. */
+    void testThemeContrast()
+    {
+        struct Pair { const char* what; juce::Colour Theme::Roles::* a; juce::Colour Theme::Roles::* b; double need; };
+        using R = Theme::Roles;
+        const Pair pairs[] {
+            { "ink on paper", &R::ink, &R::paper, 4.5 },              { "ink on a tile", &R::ink, &R::wash, 4.5 },
+            { "dim ink on paper", &R::inkDim, &R::paper, 4.5 },       { "dim ink on a tile", &R::inkDim, &R::wash, 4.5 },
+            { "dim ink on raised paper", &R::inkDim, &R::sheet, 4.5 },
+            { "faint ink on paper", &R::inkFaint, &R::paper, 4.5 },   { "faint ink on a tile", &R::inkFaint, &R::wash, 4.5 },
+            { "faint ink on raised paper", &R::inkFaint, &R::sheet, 4.5 },
+            { "dyed ink on paper", &R::accentInk, &R::paper, 4.5 },   { "dyed ink on a tile", &R::accentInk, &R::wash, 4.5 },
+            { "dyed ink on raised paper", &R::accentInk, &R::sheet, 4.5 },
+            { "paper letters on a dyed-ink button", &R::sheet, &R::accentInk, 4.5 },
+            { "paper letters on an ink button", &R::sheet, &R::ink, 4.5 },
+            { "warning ink on a tile", &R::warn, &R::wash, 4.5 },     { "paper letters on a warning button", &R::sheet, &R::warn, 4.5 },
+            { "a value arc on a tile", &R::accent, &R::wash, 3.0 },   { "a meter fill in its groove", &R::meterFill, &R::groove, 3.0 },
+            { "a meter fill on a tile", &R::meterFill, &R::wash, 3.0 }, { "the focus ring on a tile", &R::focus, &R::wash, 3.0 },
+            { "the focus ring on raised paper", &R::focus, &R::sheet, 3.0 },
+        };
+
+        for (const auto variant : { Theme::Variant::paper, Theme::Variant::dark })
+        {
+            const char* name = variant == Theme::Variant::paper ? "paper" : "dark";
+            for (const auto& pair : pairs)
+            {
+                double worst = 1.0e9;
+                float worstHue = 0.0f, worstChroma = 0.0f;
+                for (int h = 0; h < 360; h += 5)
+                    for (const float c : { 0.0f, 0.02f, 0.0394f, 0.06f, 0.085f, 0.12f, 0.2f })
+                    {
+                        const auto roles = Theme::makeRoles(variant, static_cast<float>(h), c);
+                        const double cr = contrastRatio(roles.*(pair.a), roles.*(pair.b));
+                        if (cr < worst)
+                        {
+                            worst = cr;
+                            worstHue = static_cast<float>(h);
+                            worstChroma = c;
+                        }
+                    }
+                if (variant == Theme::Variant::paper)
+                    std::printf("  %-36s %5.2f to 1 at its worst (hue %3.0f, chroma %.3f)\n", pair.what, worst, worstHue, worstChroma);
+                check(worst >= pair.need, juce::String(name) + " roles: " + pair.what + " holds " + juce::String(pair.need, 1)
+                                              + " to 1 in every mood (worst " + juce::String(worst, 2) + ")");
+            }
+
+            // The readouts over the picture: the value on its soft label, over the darkest and the
+            // palest the picture can be behind it.
+            double readoutWorst = 1.0e9;
+            for (int h = 0; h < 360; h += 15)
+                for (const float c : { 0.0f, 0.085f, 0.2f })
+                {
+                    const auto roles = Theme::makeRoles(variant, static_cast<float>(h), c);
+                    // (the still cloud of that mood too: shown when the visualiser is Off)
+                    const auto [lit, shade] = Theme::stillCloud(static_cast<float>(h), c);
+                    for (const auto behind : { juce::Colours::black, juce::Colours::white, juce::Colour(0xff94b0c1), lit, shade })
+                        readoutWorst = std::min(readoutWorst, contrastRatio(roles.readoutText, behind.overlaidWith(roles.readout)));
+                }
+            if (variant == Theme::Variant::paper)
+                std::printf("  %-36s %5.2f to 1 at its worst\n", "a readout over the picture", readoutWorst);
+            check(readoutWorst >= 4.5, juce::String(name) + " roles: a readout over the picture holds 4.5 to 1");
+        }
+
+        // The three ranks of ink stay apart (on the paper at the reference tone).
+        const auto ref = Theme::makeRoles(Theme::Variant::paper, Theme::c_referenceHue, Theme::c_referenceChroma);
+        check(contrastRatio(ref.ink, ref.wash) > contrastRatio(ref.inkDim, ref.wash) + 2.0
+                  && contrastRatio(ref.inkDim, ref.wash) > contrastRatio(ref.inkFaint, ref.wash) + 0.6,
+              "the three ranks of ink stay apart");
+
+        // Lightness is locked: the paper is as bright in a warm mood as in a cold one (so the window's
+        // light output and every contrast hold), only its tone moves.
+        float lo = 1.0f, hi = 0.0f;
+        for (int h = 0; h < 360; h += 5)
+        {
+            const float y = Theme::luminance(Theme::makeRoles(Theme::Variant::paper, static_cast<float>(h), 0.12f).paper);
+            lo = std::min(lo, y);
+            hi = std::max(hi, y);
+        }
+        std::printf("  paper luminance %.3f to %.3f across every hue\n", lo, hi);
+        check(hi - lo < 0.03f, "the paper's brightness does not move with the mood");
+    }
+
+    /** The colour mood reaches the controls: the accent the LookAndFeel draws with differs between
+        moods (a warm mood against a cold one), and follows the creature view's tone. */
+    void testMoodTintsControls()
+    {
+        const auto ember = Theme::makeRoles(Theme::Variant::paper, 28.0f, 0.085f);
+        const auto blue = Theme::makeRoles(Theme::Variant::paper, 262.0f, 0.082f);
+        const auto distance = [](juce::Colour a, juce::Colour b)
+        {
+            return std::abs(a.getFloatRed() - b.getFloatRed()) + std::abs(a.getFloatGreen() - b.getFloatGreen())
+                 + std::abs(a.getFloatBlue() - b.getFloatBlue());
+        };
+        check(distance(ember.accent, blue.accent) > 0.3f, "the accent differs between a warm and a cold mood");
+        check(distance(ember.paper, blue.paper) > 0.03f, "the paper takes a tint of the mood");
+        check(ember.paper.getFloatRed() > ember.paper.getFloatBlue() && blue.paper.getFloatBlue() > blue.paper.getFloatRed(),
+              "a warm mood warms the paper and a cold one cools it");
+
+        // Through the editor: the creature view's mood drives the palette, and the LookAndFeel's colours.
+        auto p = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+        auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+        auto& view = RoarschachEditorInspector::monster(editor);
+        auto& laf = RoarschachEditorInspector::lookAndFeel(editor);
+        const auto settle = [&](const roar::CreatureMood::Axes& axes)
+        {
+            view.setMoodForTests(axes);
+            for (int i = 0; i < 40; ++i)
+                RoarschachEditorInspector::followMood(editor);
+            return laf.findColour(juce::ToggleButton::tickColourId);
+        };
+        const int servedBefore = Theme::paletteSerial();
+        const auto warm = settle({ 1.0f, 0.0f, 0.0f, 0.0f });
+        const auto cold = settle({ 0.0f, 1.0f, 0.0f, 0.0f });
+        std::printf("  the controls' accent: %s in a warm mood, %s in a cold one\n", warm.toDisplayString(false).toRawUTF8(),
+                    cold.toDisplayString(false).toRawUTF8());
+        check(distance(warm, cold) > 0.3f && warm.getFloatRed() > cold.getFloatRed() && cold.getFloatBlue() > warm.getFloatBlue(),
+              "the editor's controls take the mood's accent");
+        check(Theme::paletteSerial() > servedBefore, "the palette changed with the mood");
+        const int servedSettled = Theme::paletteSerial();
+        settle({ 0.0f, 1.0f, 0.0f, 0.0f });
+        check(Theme::paletteSerial() == servedSettled, "a settled mood changes nothing (nothing repaints)");
+        view.setMoodForTests({ -1.0f, -1.0f, -1.0f, -1.0f });
+        editorBase.reset();
+        Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+    }
+
+    /** The palette is one for every open instance: when one editor moves it, every other open editor
+        takes the whole of it on its next tick (its LookAndFeel's colours, not only what repaints). */
+    void testPaletteInEveryWindow()
+    {
+        auto p1 = makeProcessor(48000.0, 512);
+        auto p2 = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> first(p1->createEditor());
+        std::unique_ptr<juce::AudioProcessorEditor> second(p2->createEditor());   // opened last: it drives the palette
+        auto& a = *dynamic_cast<RoarschachAudioProcessorEditor*>(first.get());
+        auto& b = *dynamic_cast<RoarschachAudioProcessorEditor*>(second.get());
+        auto& view = RoarschachEditorInspector::monster(b);
+        view.setMoodForTests({ 1.0f, 0.0f, 0.0f, 0.0f });
+        for (int i = 0; i < 40; ++i)
+            RoarschachEditorInspector::followMood(b);
+        const bool moved = RoarschachEditorInspector::paletteSeen(a) != Theme::paletteSerial();
+        RoarschachEditorInspector::tick(a);
+        const auto tick = RoarschachEditorInspector::lookAndFeel(a).findColour(juce::ToggleButton::tickColourId);
+        check(moved && RoarschachEditorInspector::paletteSeen(a) == Theme::paletteSerial() && tick == Theme::Colours::accent,
+              "a second open editor takes the whole palette another editor moved, on its next tick");
+        view.setMoodForTests({ -1.0f, -1.0f, -1.0f, -1.0f });
+        second.reset();
+        first.reset();
+        Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+    }
+
+    /** No module footer's words come within 4 px of its value, in any factory preset, with wide readouts
+        (RING's ratio and a kHz carrier, two OVERTONE bands, a long CHAMBER decay). */
+    void testFooterClearance()
+    {
+        auto p = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+        auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+        editor.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+        auto& strip = RoarschachEditorInspector::strip(editor);
+        auto& f = const_cast<roar::MonsterFeatures&>(p->getMonsterFeatures());
+        f.ringHz.store(1234.0f);
+        f.subHz.store(110.0f);
+        f.overtoneBandHz[0].store(1234.0f);
+        f.overtoneBandHz[1].store(2345.0f);
+        f.chamberDecay.store(2.55f);
+        f.detailBoostDb.store(12.3f);
+        f.detailCutDb.store(-12.3f);
+        f.pitchSt.store(-12.34f);
+        int bad = 0, seen = 0;
+        for (int i = 0; i < PresetManager::getNumFactory(); ++i)
+        {
+            p->getPresetManager().loadPreset(i);
+            strip.refresh();
+            for (int m = 0; m < Params::numModules; ++m)
+            {
+                auto* tile = strip.getModuleTile(m);
+                juce::ignoreUnused(tile->createComponentSnapshot(tile->getLocalBounds(), true, 1.0f));   // (paints the footer)
+                const auto [label, value] = strip.getFooterTextForTests(m);
+                if (label.isEmpty() || value.isEmpty())
+                    continue;
+                ++seen;
+                if (value.getX() - label.getRight() < 4.0f - 0.01f)
+                {
+                    ++bad;
+                    std::printf("    preset %d, %s: the footer's words end %.1f px from its value\n", i,
+                                Params::modules[static_cast<size_t>(m)].uiName, value.getX() - label.getRight());
+                }
+            }
+        }
+        std::printf("  module names at %.2f pt, the longest %.1f px %s its room\n", strip.getTitlePointForTests(),
+                    std::abs(strip.nameOverrunForTests()), strip.nameOverrunForTests() > 0.0f ? "over" : "inside");
+        check(strip.nameOverrunForTests() <= 0.0f, "every module's name fits its header, clear of the move chip");
+        check(seen > 100, "the footers' words and values were found");
+        check(bad == 0, juce::String(bad) + " footers whose words come within 4 px of their value");
+    }
+
+    /** The picture is a clean box at any window scale: at 65 % and 80 % (fractional device pixels) its foot
+        is one step from the picture to the paper (rows averaged across the width, so the paper's grain does
+        not count), with the visualiser Off (the still cloud): no gradient leading up to it or away from it
+        (rows on each side within 2 % of their side), the step itself at most 2 device rows deep, and no row
+        of it paler or darker than both sides (no fringe). */
+    void testPictureEdge()
+    {
+        auto p = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+        auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+        auto& view = RoarschachEditorInspector::monster(editor);
+        view.setVisualiser(MonsterView::Visualiser::off);
+        view.refreshOverlay(0.1f);
+        int worstRows = 0;
+        for (const float scale : { 0.65f, 0.8f })
+            for (const float pixels : { 1.0f, 2.0f })
+            {
+                editor.setSize(juce::roundToInt(RoarschachAudioProcessorEditor::c_baseWidth * scale),
+                               juce::roundToInt(RoarschachAudioProcessorEditor::c_baseHeight * scale));
+                const auto img = editor.createComponentSnapshot(editor.getLocalBounds(), true, pixels);
+                const auto picture = editor.getLocalArea(&view, view.getLocalBounds().toFloat()) * pixels;
+                const int x0 = juce::roundToInt(picture.getX() + picture.getWidth() * 0.2f);
+                const int x1 = juce::roundToInt(picture.getX() + picture.getWidth() * 0.8f);
+                const auto rowLuminance = [&](int y)
+                {
+                    double sum = 0.0;
+                    for (int x = x0; x < x1; ++x)
+                        sum += Theme::luminance(img.getPixelAt(x, y));
+                    return sum / static_cast<double>(x1 - x0);
+                };
+                const int foot = juce::roundToInt(picture.getBottom());
+                const double inside = rowLuminance(foot - 3), outside = rowLuminance(foot + 2);
+                const double lo = std::min(inside, outside), hi = std::max(inside, outside);
+                const auto near = [](double a, double b) { return std::abs(a - b) / std::max(1.0e-6, std::max(a, b)) <= 0.02; };
+                bool clean = !near(inside, outside);   // (there is a step to see: the picture is not the paper)
+                int between = 0;
+                for (int y = foot - 8; y <= foot + 7; ++y)
+                {
+                    const double a = rowLuminance(y);
+                    if (std::getenv("ROARSCHACH_DEBUG_FOOT") != nullptr)
+                        std::printf("    row %d (foot %d): %.4f\n", y, foot, a);
+                    if (y <= foot - 3)
+                        clean = clean && near(a, inside);
+                    else if (y >= foot + 2)
+                        clean = clean && near(a, outside);
+                    else
+                    {
+                        clean = clean && a >= lo * 0.99 && a <= hi * 1.01;
+                        between += near(a, inside) || near(a, outside) ? 0 : 1;
+                    }
+                }
+                clean = clean && between <= 2;
+                std::printf("  the picture's foot at %.0f %% (%.0fx): %.3f inside, %.3f outside, %d rows between: %s\n", scale * 100.0f, pixels, inside, outside,
+                            between, clean ? "one clean step" : "not clean");
+                worstRows += clean ? 0 : 1;
+            }
+        check(worstRows == 0, "the picture's foot is one clean step to the paper at 65 % and 80 %");
+        view.setVisualiser(MonsterView::Visualiser::full);
+    }
+
+    double contrastRatio(juce::Colour a, juce::Colour b)
+    {
+        const auto luminance = [](juce::Colour c)
+        {
+            const auto channel = [](float v) { return v <= 0.03928f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+            return 0.2126 * channel(c.getFloatRed()) + 0.7152 * channel(c.getFloatGreen()) + 0.0722 * channel(c.getFloatBlue());
+        };
+        const double la = luminance(a), lb = luminance(b);
+        return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+    }
+
+    void writePng(const juce::Image& image, const juce::File& file)
+    {
+        file.deleteFile();
+        juce::FileOutputStream stream(file);
+        juce::PNGImageFormat png;
+        if (stream.openedOk() && png.writeImageToStream(image, stream))
+            std::printf("  wrote %s\n", file.getFullPathName().toRawUTF8());
+    }
+
+    /** Pictures of the editor at several window scales, the creature view's hint and the About
+        window's content into the folder ROARSCHACH_UI_SHOTS names (for looking at the layout;
+        nothing is written without it). */
+    void writeUiShots()
+    {
+        const auto dirName = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_UI_SHOTS", {});
+        if (dirName.isEmpty())
+            return;
+        const juce::File dir(dirName);
+        dir.createDirectory();
+        for (const float scale : { 0.65f, 0.8f, 1.0f })
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+            editor.setSize(juce::roundToInt(RoarschachAudioProcessorEditor::c_baseWidth * scale),
+                           juce::roundToInt(RoarschachAudioProcessorEditor::c_baseHeight * scale));
+            // The second module on with its room blended in, so its four narrow knobs show lit.
+            setParam(*p, Params::chamberOn, 1.0f);
+            RoarschachEditorInspector::strip(editor).refresh();
+            RoarschachEditorInspector::monster(editor).refreshOverlay(2.0f);
+            const auto name = "editor-" + juce::String(juce::roundToInt(scale * 100.0f));
+            writePng(editor.createComponentSnapshot(editor.getLocalBounds(), true, 1.0f), dir.getChildFile(name + ".png"));
+            writePng(editor.createComponentSnapshot(editor.getLocalBounds(), true, 2.0f), dir.getChildFile(name + "@2x.png"));
+
+            if (scale == 1.0f)
+            {
+                auto& look = dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(editor));
+                const auto note = RoarschachAudioProcessorEditor::latencyNote(p->getLatencySamples(), p->getSampleRate());
+                auto about = AboutWindow::createContent(look, note);
+                writePng(about->createComponentSnapshot(about->getLocalBounds(), true, 2.0f), dir.getChildFile("about@2x.png"));
+            }
+        }
+    }
+
+    void testUi()
+    {
+        std::printf("[ui] window size, type and contrast, preset undo, hint, quick start, unused knobs, latency note\n");
+        using Editor = RoarschachAudioProcessorEditor;
+        const int baseW = Editor::c_baseWidth, baseH = Editor::c_baseHeight;
+        const auto near = [](float a, float b) { return std::abs(a - b) < 0.011f; };
+
+        // 1. The size a first window opens at: the largest of 80-100 % that leaves room on the display.
+        {
+            struct Case { int w, h; float want; };
+            int wrong = 0;
+            for (const auto& c : { Case { 1280, 720, 0.8f }, Case { 1440, 847, 0.8f }, Case { 1728, 1079, 0.9f }, Case { 1920, 1040, 1.0f },
+                                   Case { 2560, 1400, 1.0f }, Case { 5120, 2800, 1.0f }, Case { 0, 0, 0.8f }, Case { 3000, 100, 0.8f } })
+            {
+                const float got = Editor::defaultScaleForDisplay(c.w, c.h);
+                if (!near(got, c.want))
+                {
+                    ++wrong;
+                    std::printf("    a %d x %d display opens at %.2f, expected %.2f\n", c.w, c.h, got, c.want);
+                }
+                // The window it gives fits the display, unless the display is smaller than the smallest default.
+                if (got > Editor::c_smallestDefaultScale + 0.001f && (static_cast<float>(baseW) * got > static_cast<float>(c.w) || static_cast<float>(baseH) * got > static_cast<float>(c.h)))
+                    ++wrong;
+            }
+            float previous = 0.0f;
+            bool monotone = true, inRange = true;
+            for (int w = 800; w <= 4000; w += 40)
+            {
+                const float s = Editor::defaultScaleForDisplay(w, w * 10 / 16);
+                monotone = monotone && s >= previous;
+                inRange = inRange && s >= Editor::c_smallestDefaultScale && s <= Editor::c_largestDefaultScale;
+                previous = s;
+            }
+            check(wrong == 0, "the default window scale is the largest of 80-100 % that fits the display");
+            check(monotone && inRange, "the default window scale grows with the display and stays within 80-100 %");
+            check(near(Editor::c_minScale, 0.65f), "the smallest window scale is 65 %");
+        }
+
+        // 2. The size last chosen is kept in a settings file and read back (clamped; a damaged or
+        //    missing file gives none).
+        {
+            const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                  .getChildFile("roarschach-ui-test-" + juce::String::toHexString(juce::Random::getSystemRandom().nextInt()) + ".settings");
+            file.deleteFile();
+            check(Editor::readRememberedScale(file) == 0.0f, "no remembered size without a settings file");
+            check(Editor::readRememberedVisualiser(file) == MonsterView::Visualiser::full && !file.exists(), "no settings file: the visualiser is Full");
+            check(Editor::rememberScale(file, 0.9f) && near(Editor::readRememberedScale(file), 0.9f), "the chosen size is remembered");
+            check(Editor::rememberScale(file, 3.0f) && near(Editor::readRememberedScale(file), Editor::c_maxScale), "a remembered size above the largest is clamped");
+            check(Editor::rememberScale(file, 0.1f) && near(Editor::readRememberedScale(file), Editor::c_minScale), "a remembered size below the smallest is clamped");
+            check(!Editor::rememberScale(file, std::numeric_limits<float>::quiet_NaN()) && near(Editor::readRememberedScale(file), Editor::c_minScale),
+                  "a non-finite size is not remembered");
+            {
+                using V = MonsterView::Visualiser;
+                check(Editor::readRememberedVisualiser(file) == V::full, "a settings file without the choice gives the visualiser Full");
+                bool all = true;
+                for (const auto v : { V::low, V::off, V::full, V::off })
+                    all = all && Editor::rememberVisualiser(file, v) && Editor::readRememberedVisualiser(file) == v;
+                check(all, "the visualiser chosen is remembered (Full, Low and Off)");
+                check(near(Editor::readRememberedScale(file), Editor::c_minScale), "remembering the visualiser keeps the remembered size");
+                Editor::rememberScale(file, 0.9f);
+                check(Editor::readRememberedVisualiser(file) == V::off, "remembering the size keeps the visualiser");
+            }
+            file.replaceWithText("not a settings file");
+            check(Editor::readRememberedScale(file) == 0.0f, "a damaged settings file gives no remembered size");
+            check(Editor::readRememberedVisualiser(file) == MonsterView::Visualiser::full, "a damaged settings file gives the visualiser Full");
+            file.deleteFile();
+            check(Editor::getSettingsFile().getFileName() == "Roarschach.settings"
+                      && Editor::getSettingsFile().getParentDirectory().getFileName() == "Sammy J",
+                  "the settings file is Roarschach's own, beside the update check's");
+        }
+
+        // 3. A new editor opens within the default range (or as large as the display allows); a size
+        //    saved with the instance wins; the window cannot go under 65 %.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            {
+                std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
+                const float scale = static_cast<float>(editor->getWidth()) / static_cast<float>(baseW);
+                std::printf("  a new editor opens at %.0f %% here (%d x %d)\n", scale * 100.0f, editor->getWidth(), editor->getHeight());
+                check(scale >= Editor::c_minScale - 0.001f && scale <= Editor::c_largestDefaultScale + 0.001f, "a new editor opens at 100 % or less");
+                check(std::abs(static_cast<float>(editor->getHeight()) / static_cast<float>(baseH) - scale) < 0.002f, "the editor keeps its shape");
+                auto* limits = editor->getConstrainer();
+                check(limits != nullptr && limits->getMinimumWidth() == juce::roundToInt(baseW * Editor::c_minScale)
+                          && limits->getMinimumHeight() == juce::roundToInt(baseH * Editor::c_minScale),
+                      "the window's smallest size is 65 %");
+                editor->setSize(juce::roundToInt(baseW * 0.7f), juce::roundToInt(baseH * 0.7f));
+            }
+            std::unique_ptr<juce::AudioProcessorEditor> again(p->createEditor());
+            check(again->getWidth() == juce::roundToInt(baseW * 0.7f), "the size saved with the instance is the size its editor opens at");
+        }
+
+        // 4. Contrast in every colour mood: the palette's roles at every hue (5 degree steps) and at
+        //    chromas from none to beyond the most vivid mood, in both role sets (WCAG: 4.5 to 1 for
+        //    text, 3 to 1 for marks that are not text).
+        testThemeContrast();
+        testMoodTintsControls();
+        testPaletteInEveryWindow();
+        testFooterClearance();
+        testPictureEdge();
+
+        // 5. Captions: every one at the caption size (Theme::Type::caption, point height: 5.5 px capitals
+        //    at 65 %), CHAMBER's four included, each whole word shown, clear of the captions beside it and
+        //    of the sides of its tile.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+            editor.setSize(baseW, baseH);
+            auto& strip = RoarschachEditorInspector::strip(editor);
+            strip.refresh();
+            int captions = 0, small = 0, cut = 0, outside = 0, touching = 0;
+            float smallest = 100.0f;
+            std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
+            for (int m = 0; m < Params::numModules; ++m)
+                tiles.push_back(strip.getModuleTile(m));
+            for (auto* tile : tiles)
+            {
+                std::vector<juce::Label*> labels;
+                for (auto* c : tile->getChildren())
+                    if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->isVisible() && label->getText().isNotEmpty())
+                        labels.push_back(label);
+                for (auto* label : labels)
+                {
+                    ++captions;
+                    const float height = label->getFont().getHeightInPoints();
+                    smallest = std::min(smallest, height);
+                    small += std::abs(height - Theme::Type::caption) > 0.01f ? 1 : 0;
+                    cut += juce::GlyphArrangement::getStringWidth(label->getFont(), label->getText()) > static_cast<float>(label->getWidth()) ? 1 : 0;
+                    // (the capitals and their room: ascent above the baseline, no descenders in capitals)
+                    cut += label->getFont().getAscent() > static_cast<float>(label->getHeight()) ? 1 : 0;
+                    const bool out = !tile->getLocalBounds().contains(label->getBounds());
+                    outside += out ? 1 : 0;
+                    for (auto* other : labels)
+                    {
+                        const bool touch = other != label && other->getBounds().intersects(label->getBounds());
+                        touching += touch ? 1 : 0;
+                        if (touch)
+                            std::printf("    caption \"%s\" %s touches \"%s\" %s\n", label->getText().toRawUTF8(), label->getBounds().toString().toRawUTF8(),
+                                        other->getText().toRawUTF8(), other->getBounds().toString().toRawUTF8());
+                    }
+                    if (out)
+                        std::printf("    caption \"%s\" %s leaves its tile %s\n", label->getText().toRawUTF8(), label->getBounds().toString().toRawUTF8(),
+                                    tile->getLocalBounds().toString().toRawUTF8());
+                }
+            }
+            std::printf("  %d knob captions, the smallest %.2f pt (capitals %.1f px at 65 %%)\n", captions, smallest, smallest * 0.66f * 0.65f);
+            check(captions >= 30, "the knob captions were found");
+            check(small == 0, juce::String(small) + " captions not at the caption size (CHAMBER's included)");
+            check(cut == 0, juce::String(cut) + " captions cut short");
+            check(outside == 0 && touching == 0, "captions overlap each other or leave their tile");
+        }
+
+        // 6. A preset load from the preset bar is one step in the dice's history: undo brings back the
+        //    sound that was showing (edits and all), redo loads the preset again; a hand edit made
+        //    after the load survives the undo; a load by the host ends the history.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            auto& pm = p->getPresetManager();
+            dice.setSeed(5);
+            const int face = dice.getFace();
+            check(!dice.canUndo() && !dice.undo(), "nothing to undo before anything is loaded");
+
+            setParam(*p, Params::pitch, -7.0f);
+            setParam(*p, Params::roar, 83.0f);
+            const auto edited = normalisedState(*p);
+            const auto editedName = pm.getCurrentName();
+            check(pm.isModified(), "an edit marks the preset as edited");
+
+            check(dice.loadNext(), "the next preset loads");
+            const auto loaded = normalisedState(*p);
+            const auto loadedName = pm.getCurrentName();
+            check(loadedName != editedName && !pm.isModified() && loaded != edited, "the load changed the sound and the name");
+            check(dice.canUndo() && dice.getUndoManager().getUndoDescription() == "Load", "the load is a step called Load");
+            check(dice.getFace() == face, "a load leaves the dice's faces alone");
+
+            check(dice.undo(), "the load is undone");
+            check(normalisedState(*p) == edited && pm.getCurrentName() == editedName && pm.isModified(), "undo brings back the edited sound, its name and its edited mark");
+            check(dice.canRedo() && dice.getUndoManager().getRedoDescription() == "Load" && dice.redo(), "the load is redone");
+            check(normalisedState(*p) == loaded && pm.getCurrentName() == loadedName && !pm.isModified(), "redo loads the preset again, unedited");
+
+            // Menu loads, the arrows and the preset die share one history, newest first.
+            const int third = std::min(7, PresetManager::getNumFactory() - 1);
+            check(dice.loadPreset(third), "a preset loads by its place in the list");
+            const auto thirdState = normalisedState(*p);
+            check(dice.loadPrevious(), "the previous preset loads");
+            check(dice.rollPreset() >= 0, "the preset die rolls");
+            check(dice.undo() && dice.undo() && normalisedState(*p) == thirdState && pm.getCurrentIndex() == third, "two undos go back past the die and the arrow");
+            check(dice.undo() && normalisedState(*p) == loaded && dice.undo() && normalisedState(*p) == edited && !dice.canUndo(), "and on back to the first sound");
+            check(dice.redo() && dice.redo() && normalisedState(*p) == thirdState, "redo goes forward again");
+
+            // A knob turned after the load keeps its value through the undo; the rest goes back.
+            const float handPitch = getParam(*p, Params::pitch) > -15.0f ? -20.0f : -3.0f;
+            setParam(*p, Params::pitch, handPitch);
+            check(dice.undo(), "undo after a hand edit");
+            auto expected = loaded;
+            const auto afterHand = normalisedState(*p);
+            int differing = 0;
+            for (size_t i = 0; i < expected.size() && i < afterHand.size(); ++i)
+                differing += juce::exactlyEqual(expected[i], afterHand[i]) ? 0 : 1;
+            check(std::abs(getParam(*p, Params::pitch) - handPitch) < 0.01f && differing <= 1 && pm.isModified(),
+                  "the hand edit survives the undo and the preset shows as edited");
+
+            // A load that does not come from the preset bar (the host's program list) ends the history.
+            check(dice.loadNext() && dice.canUndo(), "a load to undo");
+            check(pm.loadPreset(0), "the host loads a preset");
+            const auto hostState = normalisedState(*p);
+            check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == hostState, "a load from outside the preset bar ends the history");
+            check(dice.loadNext() && dice.undo() && normalisedState(*p) == hostState && !dice.canUndo(), "the next load starts a new history on that sound");
+            check(!dice.loadPreset(100000) && !dice.canUndo(), "a load that fails adds no step");
+        }
+
+        // 7. The editor: Cmd+Z / Ctrl+Z takes a load back and Shift redoes it; other keys, and Cmd+Z
+        //    with nothing to take back, are left for the host.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+            const juce::KeyPress undoKey('z', juce::ModifierKeys::commandModifier, 0);
+            const juce::KeyPress redoKey('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0);
+            check(!editor.undoKeyPressed(undoKey) && !editor.undoKeyPressed(redoKey), "with nothing to undo the key is not taken");
+            setParam(*p, Params::growl, 61.0f);
+            const auto before = normalisedState(*p);
+            check(p->getDice().loadNext(), "a preset loads");
+            const auto after = normalisedState(*p);
+            check(!editor.undoKeyPressed(juce::KeyPress('z')) && !editor.undoKeyPressed(juce::KeyPress('y', juce::ModifierKeys::commandModifier, 0))
+                      && normalisedState(*p) == after, "other keys are not taken");
+            check(editor.undoKeyPressed(undoKey) && normalisedState(*p) == before, "Cmd+Z takes the load back");
+            check(editor.undoKeyPressed(redoKey) && normalisedState(*p) == after, "Shift+Cmd+Z loads it again");
+            // Without the keyboard focus on the preset bar (nothing has it here) the editor leaves the key alone.
+            check(!editor.keyPressed(undoKey) && normalisedState(*p) == after, "the key is only taken while the preset bar has the focus");
+        }
+
+        // 8. The hint: up after 1.5 s of silence in a new instance, gone for good with the first sound.
+        {
+            const double sr = 48000.0;
+            auto p = makeProcessor(sr, 512);
+            {
+                std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+                auto& view = RoarschachEditorInspector::monster(*dynamic_cast<Editor*>(editorBase.get()));
+                view.refreshOverlay(0.5f);
+                check(!view.isHintShowing(), "no hint in the first moments");
+                view.refreshOverlay(1.2f);
+                check(view.isHintShowing(), "the hint shows once the creature has slept through 1.5 s of silence");
+
+                Stereo silence;
+                silence.l.assign(4096, 0.0f);
+                silence.r = silence.l;
+                render(*p, silence, 512);
+                view.refreshOverlay(0.1f);
+                check(view.isHintShowing(), "silence through the plug-in keeps the hint");
+
+                Stereo voice;
+                voice.l = makeVoice(sr, 0.5);
+                voice.r = voice.l;
+                render(*p, voice, 512);
+                view.refreshOverlay(0.1f);
+                check(!view.isHintShowing(), "the first sound takes the hint away");
+                render(*p, silence, 512);
+                render(*p, silence, 512);
+                view.refreshOverlay(30.0f);
+                check(!view.isHintShowing(), "it stays away when the sound stops");
+            }
+            std::unique_ptr<juce::AudioProcessorEditor> again(p->createEditor());
+            auto& view = RoarschachEditorInspector::monster(*dynamic_cast<Editor*>(again.get()));
+            view.refreshOverlay(30.0f);
+            check(!view.isHintShowing(), "and when the editor is opened again");
+
+            // The same through a saved session.
+            juce::MemoryBlock state;
+            p->getStateInformation(state);
+            auto q = makeProcessor(sr, 512);
+            q->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+            std::unique_ptr<juce::AudioProcessorEditor> recalled(q->createEditor());
+            auto& recalledView = RoarschachEditorInspector::monster(*dynamic_cast<Editor*>(recalled.get()));
+            recalledView.refreshOverlay(30.0f);
+            check(!recalledView.isHintShowing(), "and in the session when it is opened again");
+        }
+
+        // 9. The quick start (five short lines) and the latency note, which states what the processor reports.
+        {
+            const auto forbidden = forbiddenWords();
+            const auto lines = AboutWindow::quickStartLines();
+            int bad = 0, longLines = 0;
+            for (const auto& line : lines)
+            {
+                longLines += line.length() > 110 ? 1 : 0;
+                for (const auto& w : forbidden)
+                    bad += line.contains(w) ? 1 : 0;
+            }
+            check(lines.size() == 5 && longLines == 0, "the quick start is five short lines");
+            check(bad == 0, "the quick start names nothing it must not");
+
+            int wrong = 0;
+            for (const double sr : c_rates)
+            {
+                auto p = makeProcessor(sr, 512);
+                const int latency = p->getLatencySamples();
+                const auto note = Editor::latencyNote(latency, p->getSampleRate());
+                const auto ms = juce::String(1000.0 * latency / sr, 1) + " ms";
+                const bool ok = latency > 0 && note.startsWith(ms) && note.contains(juce::String(latency) + " samples")
+                             && AboutWindow::latencyLine(note).contains(note);
+                wrong += ok ? 0 : 1;
+                std::printf("  latency note at %.0f Hz: %s\n", sr, note.toRawUTF8());
+            }
+            check(wrong == 0, "the latency note states the latency the processor reports, in ms and samples");
+            check(Editor::latencyNote(0, 48000.0).isEmpty() && Editor::latencyNote(2192, 0.0).isEmpty(), "no figure before the host has prepared the plug-in");
+            check(AboutWindow::latencyLine({}).isNotEmpty() && !AboutWindow::latencyLine({}).containsAnyOf("0123456789"), "and then the line gives no number");
+
+            // The About window's content lays out inside its window.
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& look = dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(*dynamic_cast<Editor*>(editorBase.get())));
+            auto about = AboutWindow::createContent(look, Editor::latencyNote(p->getLatencySamples(), p->getSampleRate()));
+            int outside = 0, children = 0, smallLicence = 0;
+            for (auto* c : about->getChildren())
+            {
+                ++children;
+                outside += about->getLocalBounds().contains(c->getBounds()) ? 0 : 1;
+                if (dynamic_cast<juce::TextEditor*>(c) != nullptr)
+                    smallLicence += c->getHeight() < 120 ? 1 : 0;
+            }
+            check(children >= 5 && outside == 0 && smallLicence == 0, "the About window's parts fit inside it with the quick start added");
+
+            // On a short display the window is shorter (it must fit under a title bar) and the licence gives up the height.
+            check(AboutWindow::heightForDisplay(1040) == AboutWindow::c_height && AboutWindow::heightForDisplay(0) == AboutWindow::c_height
+                      && AboutWindow::heightForDisplay(728) == 668 && AboutWindow::heightForDisplay(500) == AboutWindow::c_minHeight,
+                  "the About window is as tall as a short display allows");
+            about->setSize(AboutWindow::c_width, AboutWindow::c_minHeight);
+            int outsideShort = 0, licenceShort = 0;
+            for (auto* c : about->getChildren())
+            {
+                outsideShort += about->getLocalBounds().contains(c->getBounds()) ? 0 : 1;
+                if (dynamic_cast<juce::TextEditor*>(c) != nullptr)
+                    licenceShort = c->getHeight();
+            }
+            check(outsideShort == 0 && licenceShort >= 70, "at its shortest the About window still shows every part, with " + juce::String(licenceShort) + " px of licence");
+            about.reset();
+        }
+
+        // 10. Knobs the current settings do not use are dimmed and still turn; each "not used" case is
+        //     an exact null in the audio, and the knob is lit again when it is.
+        {
+            const double sr = 48000.0;
+            auto p = makeProcessor(sr, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+            auto& strip = RoarschachEditorInspector::strip(editor);
+
+            const auto knobFor = [&](const char* id) -> juce::Slider*
+            {
+                std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
+                for (int m = 0; m < Params::numModules; ++m)
+                    tiles.push_back(strip.getModuleTile(m));
+                for (auto* tile : tiles)
+                    for (const auto& [slider, knobId] : strip.getKnobs(tile))
+                        if (std::string_view(knobId) == id)
+                            return slider;
+                return nullptr;
+            };
+            // A knob's state is drawn by its shape, never by fading it (section 11 checks the shapes from
+            // pixels): a solid disc with a brushed arc in use, a fine arc when it does little, an outline
+            // when unused, an outline with no arc when its module is Off. These checks read the state the
+            // strip gives each knob; the knob must stay enabled and opaque (it still turns).
+            using Style = RoarschachLookAndFeel::KnobStyle;
+            const auto styleOf = [&](const char* id) -> int
+            {
+                strip.refresh();
+                auto* knob = knobFor(id);
+                if (knob == nullptr || !knob->isEnabled() || knob->getAlpha() < 0.99f)
+                    return -1;
+                return static_cast<int>(RoarschachLookAndFeel::getKnobStyle(*knob));
+            };
+            const auto is = [](int style, Style want) { return style == static_cast<int>(want); };
+            const auto lit = Style::full, weak = Style::weak, unused = Style::unused;
+
+            // Every module On, so only the knob's own state dims it.
+            const auto allOn = [](RoarschachAudioProcessor& processor)
+            {
+                for (const auto& m : Params::modules)
+                    setParam(processor, m.onId, 1.0f);
+            };
+            allOn(*p);
+
+            struct Case { const char* knob; const char* condition; float deadValue, liveValue; const char* what; };
+            const Case cases[] {
+                { Params::outClipShape, Params::outClip, 0.0f, 6.0f, "OUTPUT Shape at Clip 0" },
+                { Params::growlRate, Params::growl, 0.0f, 25.0f, "GROWL Rate at Depth 0" },
+                { Params::growlRate, Params::growlShape, static_cast<float>(Params::GrowlShape::throat), 0.0f, "GROWL Rate with Throat" },
+                { Params::shimmerRate, Params::shimmer, 0.0f, 18.0f, "SHIMMER Rate at Amount 0" },
+                { Params::swirlRate, Params::swirl, 0.0f, 21.0f, "SWIRL Rate at Amount 0" },
+                { Params::ensembleWidth, Params::ensemble, 0.0f, 10.0f, "ENSEMBLE Width at Amount 0" },
+                { Params::ringFreq, Params::ring, 0.0f, 40.0f, "RING Freq at Amount 0" },
+                { Params::subDrive, Params::sub, 0.0f, 49.0f, "SUB Drive at Level 0" },
+                { Params::overtoneFreq, Params::overtone, 0.0f, 4.0f, "OVERTONE Freq at Amount 0" },
+                { Params::chamberResonance, Params::chamber, 0.0f, 50.0f, "CHAMBER Reson at Amount 0" },
+                { Params::chamberDrive, Params::chamber, 0.0f, 80.0f, "CHAMBER Edge at Amount 0" },
+            };
+
+            Stereo voice;
+            voice.l = makeVoice(sr, g_quick ? 0.8 : 1.5);
+            voice.r = voice.l;
+            // (a new processor per render: nothing is left fading from the settings before)
+            const auto renderAt = [&](const char* condition, float conditionValue, const char* id, float normalised)
+            {
+                auto q = makeProcessor(sr, 512);
+                allOn(*q);
+                setParam(*q, condition, conditionValue);
+                q->getValueTreeState().getParameter(id)->setValueNotifyingHost(normalised);
+                restart(*q, sr, 512);
+                return render(*q, voice, 512);
+            };
+            const auto differ = [](const Stereo& a, const Stereo& b)
+            {
+                double worst = 0.0;
+                for (size_t i = 0; i < a.l.size(); ++i)
+                    worst = std::max({ worst, static_cast<double>(std::abs(a.l[i] - b.l[i])), static_cast<double>(std::abs(a.r[i] - b.r[i])) });
+                return worst;
+            };
+
+            int wrongDim = 0, notNull = 0, notLive = 0;
+            for (const auto& c : cases)
+            {
+                setParam(*p, c.condition, c.deadValue);
+                const bool dimmed = is(styleOf(c.knob), unused);
+                const double deadDiff = differ(renderAt(c.condition, c.deadValue, c.knob, 0.0f), renderAt(c.condition, c.deadValue, c.knob, 1.0f));
+                setParam(*p, c.condition, c.liveValue);
+                const bool relit = is(styleOf(c.knob), lit);
+                const double liveDiff = differ(renderAt(c.condition, c.liveValue, c.knob, 0.0f), renderAt(c.condition, c.liveValue, c.knob, 1.0f));
+                wrongDim += dimmed && relit ? 0 : 1;
+                notNull += deadDiff == 0.0 ? 0 : 1;
+                notLive += liveDiff > 1.0e-4 ? 0 : 1;
+                if (!(dimmed && relit) || deadDiff != 0.0 || liveDiff <= 1.0e-4)
+                    std::printf("    %s: dimmed %d, lit again %d, difference %.2e dimmed and %.2e lit\n", c.what, dimmed, relit, deadDiff, liveDiff);
+            }
+            check(wrongDim == 0, juce::String(wrongDim) + " unused knobs not dimmed, or not lit again when used");
+            check(notNull == 0, juce::String(notNull) + " dimmed knobs still change the sound");
+            check(notLive == 0, juce::String(notLive) + " lit knobs do not change the sound");
+
+            // The two half-dimmed knobs do a little, not nothing: CHAMBER Edge under 60 % Amount, and
+            // OUTPUT Attack while Auto is on.
+            setParam(*p, Params::chamber, 50.0f);
+            check(is(styleOf(Params::chamberDrive), weak), "CHAMBER Edge is half-dimmed at Amount 50");
+            setParam(*p, Params::chamber, 60.0f);
+            check(is(styleOf(Params::chamberDrive), lit), "CHAMBER Edge is lit from Amount 60");
+            setParam(*p, Params::outAuto, 1.0f);
+            check(is(styleOf(Params::outAttack), weak), "OUTPUT Attack is half-dimmed with Auto on");
+            setParam(*p, Params::outAuto, 0.0f);
+            check(is(styleOf(Params::outAttack), lit), "OUTPUT Attack is lit with Auto off");
+            setParam(*p, Params::outAuto, 1.0f);
+
+            // OVERTONE Freq at Amount 0: an exact null in Add (above); in Lean and Replace the low end
+            // still passes through the split it moves, so the samples change (the level barely does)
+            // and the knob is half-dimmed, not dimmed.
+            setParam(*p, Params::overtone, 0.0f);
+            for (const float mode : { 1.0f, 2.0f })
+            {
+                setParam(*p, Params::overtoneMode, mode);
+                check(is(styleOf(Params::overtoneFreq), weak), "OVERTONE Freq is half-dimmed at Amount 0 outside Add");
+                const auto renderMode = [&](float freq)
+                {
+                    auto q = makeProcessor(sr, 512);
+                    allOn(*q);
+                    setParam(*q, Params::overtone, 0.0f);
+                    setParam(*q, Params::overtoneMode, mode);
+                    q->getValueTreeState().getParameter(Params::overtoneFreq)->setValueNotifyingHost(freq);
+                    restart(*q, sr, 512);
+                    return render(*q, voice, 512);
+                };
+                const auto low = renderMode(0.0f), high = renderMode(1.0f);
+                const double levelChange = std::abs(toDb(stats(high).rms) - toDb(stats(low).rms));
+                check(differ(low, high) > 1.0e-4 && levelChange < 1.5, "there Freq turns the phase of the low end and little else");
+            }
+            setParam(*p, Params::overtoneMode, 0.0f);
+            check(is(styleOf(Params::overtoneFreq), unused), "OVERTONE Freq is dimmed at Amount 0 in Add");
+            setParam(*p, Params::overtone, 4.0f);
+
+            // CHAMBER Width stays lit at Amount 0: it still decides where the chain turns stereo.
+            setParam(*p, Params::chamber, 0.0f);
+            check(is(styleOf(Params::chamberWidth), lit), "CHAMBER Width stays lit at Amount 0");
+            setParam(*p, Params::chamber, 50.0f);
+
+            // A dimmed knob on an Off tile is no dimmer than the tile, and every knob still takes a value.
+            setParam(*p, Params::growl, 0.0f);
+            setParam(*p, Params::growlOn, 0.0f);
+            check(is(styleOf(Params::growlRate), Style::off) && is(styleOf(Params::growl), Style::off), "an Off tile draws all its knobs alike, as outlines with no arc");
+            setParam(*p, Params::growlOn, 1.0f);
+            auto* rate = knobFor(Params::growlRate);
+            rate->setValue(40.0, juce::sendNotificationSync);
+            check(std::abs(getParam(*p, Params::growlRate) - 40.0f) < 0.5f, "a dimmed knob still turns");
+
+            // A knob and its caption change together: an unused knob's caption takes the faint ink.
+            int captionsApart = 0;
+            for (auto* c : strip.getOutputTile()->getChildren())
+                if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->getText() == "SHAPE")
+                    captionsApart += RoarschachLookAndFeel::isCaptionLive(*label) == (styleOf(Params::outClipShape) == static_cast<int>(Style::full)) ? 0 : 1;
+            check(captionsApart == 0, "an unused knob's caption changes with it");
+        }
+
+        // 11. Ink on paper: state by shape, contrast from pixels in the palest, a warm and a cold mood,
+        //     targets and type that hold at 65 %, and every colour and font from the theme's roles.
+        {
+            const auto lumAt = [](const juce::Image& image, int x, int y) { return Theme::luminance(image.getPixelAt(x, y).withAlpha(1.0f)); };
+            // In a box of an image: the darkest pixel (the text or mark) against the lightest (its ground).
+            const auto boxContrast = [&](const juce::Image& image, juce::Rectangle<int> box)
+            {
+                box = box.getIntersection(image.getBounds());
+                float lo = 2.0f, hi = -1.0f;
+                for (int y = box.getY(); y < box.getBottom(); ++y)
+                    for (int x = box.getX(); x < box.getRight(); ++x)
+                    {
+                        const float l = lumAt(image, x, y);
+                        lo = std::min(lo, l);
+                        hi = std::max(hi, l);
+                    }
+                return hi < 0.0f ? 0.0f : (hi + 0.05f) / (lo + 0.05f);
+            };
+            // (a component drawn at 2x on the paper it sits on)
+            const auto onPaper = [](juce::Component& c)
+            {
+                juce::Image image(juce::Image::ARGB, c.getWidth() * 2, c.getHeight() * 2, true);
+                juce::Graphics g(image);
+                g.fillAll(Theme::Colours::paper);
+                g.drawImageAt(c.createComponentSnapshot(c.getLocalBounds(), true, 2.0f), 0, 0);
+                return image;
+            };
+            struct Mood { const char* name; float hue, chroma; };
+            const Mood moods[] { { "palest", Theme::c_referenceHue, 0.0f }, { "warm", 28.0f, 0.095f }, { "cold", 240.0f, 0.09f }, { "green", 150.0f, 0.085f } };
+
+            Theme::Fonts fonts;
+            RoarschachLookAndFeel look(fonts);
+
+            // a) Knob states by shape, from pixels: the disc's middle is ink when the knob is in use and
+            //    paper when it is not; the marks thin out from full to weak to unused to off.
+            {
+                int wrong = 0;
+                for (const auto& mood : moods)
+                {
+                    Theme::applyMood(mood.hue, mood.chroma);
+                    look.refreshColours();
+                    std::array<int, 4> marks {};
+                    std::array<float, 4> middle {};
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        juce::Slider knob(juce::Slider::RotaryVerticalDrag, juce::Slider::NoTextBox);
+                        knob.setLookAndFeel(&look);
+                        knob.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
+                        knob.setRange(0.0, 1.0);
+                        knob.setValue(0.75, juce::dontSendNotification);
+                        knob.setSize(52, 52);
+                        RoarschachLookAndFeel::setKnobStyle(knob, static_cast<RoarschachLookAndFeel::KnobStyle>(k));
+                        juce::Image image(juce::Image::ARGB, 104, 104, true);
+                        {
+                            juce::Graphics g(image);
+                            g.fillAll(Theme::Colours::wash);
+                            g.drawImageAt(knob.createComponentSnapshot(knob.getLocalBounds(), true, 2.0f), 0, 0);
+                        }
+                        const float ground = Theme::luminance(Theme::Colours::wash);
+                        for (int y = 0; y < 104; ++y)
+                            for (int x = 0; x < 104; ++x)
+                                marks[static_cast<size_t>(k)] += (ground + 0.05f) / (lumAt(image, x, y) + 0.05f) > 2.0f ? 1 : 0;
+                        // (the middle, off the pointer: a little below and left of the centre)
+                        middle[static_cast<size_t>(k)] = (ground + 0.05f) / (lumAt(image, 46, 58) + 0.05f);
+                        knob.setLookAndFeel(nullptr);
+                    }
+                    const bool ok = middle[0] > 4.5f && middle[1] > 4.5f && middle[2] < 1.3f && middle[3] < 1.3f
+                                 && marks[0] > marks[1] && marks[1] > marks[2] && marks[2] > marks[3];
+                    wrong += ok ? 0 : 1;
+                    if (!ok)
+                        std::printf("    %s: knob marks %d / %d / %d / %d px, middle %.1f / %.1f / %.1f / %.1f\n", mood.name, marks[0], marks[1], marks[2], marks[3],
+                                    static_cast<double>(middle[0]), static_cast<double>(middle[1]), static_cast<double>(middle[2]), static_cast<double>(middle[3]));
+                }
+                check(wrong == 0, "a knob's state is its shape: solid in use, a fine arc when it does little, an outline when unused, no arc when Off");
+            }
+
+            // b) An Off tile, from pixels, in each mood: its values and name 4.5 to 1, its captions and the
+            //    OFF footer 3 to 1 or more (they are the faint ink: 4.5 here too); an On tile's values 7 to 1.
+            {
+                auto p = makeProcessor(48000.0, 512);
+                std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+                auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+                editor.setSize(baseW, baseH);
+                auto& strip = RoarschachEditorInspector::strip(editor);
+                setParam(*p, Params::growlOn, 0.0f);
+                setParam(*p, Params::roarOn, 1.0f);
+                float worstValue = 100.0f, worstCaption = 100.0f, worstName = 100.0f, worstFooter = 100.0f, worstOn = 100.0f;
+                for (const auto& mood : moods)
+                {
+                    Theme::applyMood(mood.hue, mood.chroma);
+                    dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(editor)).refreshColours();
+                    strip.refresh();
+                    for (const bool on : { false, true })
+                    {
+                        auto* tile = strip.getModuleTile(static_cast<int>(on ? Params::ModuleId::roar : Params::ModuleId::growl));
+                        const auto image = onPaper(*tile);
+                        for (const auto& [knob, id] : strip.getKnobs(tile))
+                            for (auto* c : knob->getChildren())
+                                if (auto* box = dynamic_cast<juce::Label*>(c))
+                                {
+                                    const auto r = tile->getLocalArea(box, box->getLocalBounds().withSizeKeepingCentre(std::min(box->getWidth(), 50), 12)) * 2;
+                                    (on ? worstOn : worstValue) = std::min(on ? worstOn : worstValue, boxContrast(image, r));
+                                }
+                        if (on)
+                            continue;
+                        for (auto* c : tile->getChildren())
+                            if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->isVisible())
+                                worstCaption = std::min(worstCaption, boxContrast(image, label->getBounds().withSizeKeepingCentre(label->getWidth(), 10) * 2));
+                        worstName = std::min(worstName, boxContrast(image, juce::Rectangle<int>(50, 7, 40, 12) * 2));
+                        worstFooter = std::min(worstFooter, boxContrast(image, juce::Rectangle<int>(tile->getWidth() / 2 - 12, tile->getHeight() - 19, 24, 9) * 2));
+                    }
+                }
+                std::printf("  an Off tile from pixels, at its worst over four moods: values %.2f, captions %.2f, name %.2f, OFF %.2f (an On tile's values %.2f)\n",
+                            static_cast<double>(worstValue), static_cast<double>(worstCaption), static_cast<double>(worstName),
+                            static_cast<double>(worstFooter), static_cast<double>(worstOn));
+                check(worstValue >= 4.5f && worstName >= 4.5f, "an Off tile's values and name read at 4.5 to 1 in every mood");
+                check(worstCaption >= 3.0f && worstFooter >= 3.0f, "an Off tile's captions and OFF read at 3 to 1 in every mood");
+                check(worstOn >= 7.0f, "an On tile's values read at 7 to 1 in every mood");
+            }
+
+            // c) The readouts, ASLEEP and the hint over the picture: over black (the ink creature), white,
+            //    the cloud's tone and an ember cloud, in each mood, 4.5 to 1 or more (from pixels).
+            {
+                const juce::uint32 grounds[] { 0xff000000, 0xffffffff, Theme::Picture::cloudTone, Theme::Picture::cloudLit, 0xffe9927a, 0xff3a2a2a };
+                float worst = 100.0f;
+                for (const auto& mood : moods)
+                {
+                    Theme::applyMood(mood.hue, mood.chroma);
+                    for (const auto ground : grounds)
+                    {
+                        juce::Image image(juce::Image::ARGB, 1800, 140, true);
+                        juce::Rectangle<float> plates[4];
+                        {
+                            juce::Graphics g(image);
+                            g.fillAll(juce::Colour(ground));
+                            g.addTransform(juce::AffineTransform::scale(2.0f));
+                            plates[0] = MonsterView::drawReadout(g, fonts, "DETAIL +3.5 / -6.0 dB", { 20.0f, 10.0f, 860.0f, 18.0f }, true, false);
+                            plates[1] = MonsterView::drawReadout(g, fonts, "ASLEEP", { 20.0f, 10.0f, 860.0f, 18.0f }, false, true);
+                            plates[2] = MonsterView::drawHint(g, fonts, "Play a voice through it to wake the creature.", { 20.0f, 40.0f, 860.0f, 18.0f });
+                            plates[3] = MonsterView::drawReadout(g, fonts, "F0 --", { 20.0f, 40.0f, 860.0f, 18.0f }, true, true);
+                        }
+                        for (const auto& plate : plates)
+                            worst = std::min(worst, boxContrast(image, (plate.reduced(10.0f, 8.0f) * 2.0f).toNearestInt()));
+                    }
+                }
+                std::printf("  the readouts, ASLEEP and the hint over the picture: %.2f to 1 at their worst\n", static_cast<double>(worst));
+                check(worst >= 4.5f, "the readouts, ASLEEP and the hint read at 4.5 to 1 over any picture, in every mood");
+            }
+            Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+
+            // d) Targets at 65 %: the On lamps, dice, move chips, mode chips, the AUTO switches and the
+            //    header's buttons click in 16 px or more at the smallest window.
+            {
+                auto p = makeProcessor(48000.0, 512);
+                std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+                auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+                editor.setSize(baseW, baseH);
+                auto& strip = RoarschachEditorInspector::strip(editor);
+                const float least = 16.0f / Editor::c_minScale;
+                int small = 0, seen = 0;
+                const auto target = [&](juce::Component* c, const char* what)
+                {
+                    if (c == nullptr || !c->isVisible())
+                        return;
+                    ++seen;
+                    if (static_cast<float>(std::min(c->getWidth(), c->getHeight())) < least - 0.01f)
+                    {
+                        ++small;
+                        std::printf("    %s is %d x %d (%.1f px at 65 %%)\n", what, c->getWidth(), c->getHeight(), std::min(c->getWidth(), c->getHeight()) * Editor::c_minScale);
+                    }
+                };
+                for (int m = 0; m < Params::numModules; ++m)
+                {
+                    target(strip.getOnButton(m), "an On lamp");
+                    target(strip.getModuleDice(m), "a die");
+                    target(strip.getMoveChip(m), "a move chip");
+                    target(strip.getModeChip(m), "a mode chip");
+                }
+                for (auto* tile : { strip.getInTile(), strip.getOutputTile() })
+                    for (auto* c : tile->getChildren())
+                        if (dynamic_cast<juce::TextButton*>(c) != nullptr)
+                            target(c, "an AUTO switch");
+                for (auto* c : RoarschachEditorInspector::content(editor).getChildren())
+                    if (dynamic_cast<juce::Button*>(c) != nullptr && dynamic_cast<juce::HyperlinkButton*>(c) == nullptr)
+                        target(c, "a header button");
+                std::printf("  %d small controls, the least %.1f design px (16 px at 65 %%)\n", seen, static_cast<double>(least));
+                check(seen >= 60 && small == 0, juce::String(small) + " small controls under 16 px at 65 %");
+            }
+
+            // e) Type at 65 %: the capitals of every text a reader needs are 5.5 px or more (measured
+            //    from the glyphs' outlines).
+            {
+                const auto capitals = [](const juce::Font& f)
+                {
+                    juce::GlyphArrangement glyphs;
+                    glyphs.addLineOfText(f, "H", 0.0f, 0.0f);
+                    juce::Path outline;
+                    glyphs.createPath(outline);
+                    return outline.getBounds().getHeight();
+                };
+                struct Role { const char* what; juce::Font font; };
+                const Role roles[] {
+                    { "captions", fonts.caption(Theme::Type::caption) }, { "values", fonts.value(Theme::Type::value) },
+                    { "mode chips", fonts.value(Theme::Type::chip) }, { "buttons", fonts.label(Theme::Type::button) },
+                    { "module names at their least", fonts.title(Theme::Type::tileTitleMin) }, { "prose", fonts.body(Theme::Type::body) },
+                };
+                int small = 0;
+                juce::String line = "  capitals at 65 %:";
+                for (const auto& r : roles)
+                {
+                    const float px = capitals(r.font) * Editor::c_minScale;
+                    line << "  " << r.what << " " << juce::String(px, 2);
+                    small += px < 5.5f ? 1 : 0;
+                }
+                std::printf("%s px\n", line.toRawUTF8());
+                check(small == 0, juce::String(small) + " text roles under 5.5 px capitals at 65 %");
+            }
+
+            // f) Every colour and font in the editor's sources comes from the theme's roles: no literal
+            //    colour, no font made outside Theme::Fonts (the picture's own renderer and shaders aside).
+            {
+                const auto source = juce::File(__FILE__).getParentDirectory().getParentDirectory().getChildFile("Source");
+                const char* patterns[] { "Colour(0x", "Colour (0x", "fromRGB", "fromFloatRGBA", "fromHSV", "fromHSL", "FontOptions", "juce::Font(",
+                                         "juce::Font (", "Font::plain", "Font::bold", "createSystemTypefaceFor", "Colours::" };
+                int files = 0, found = 0;
+                for (const auto& f : source.findChildFiles(juce::File::findFiles, false, "*.cpp;*.h"))
+                {
+                    const auto name = f.getFileName();
+                    if (name == "Theme.h" || name.startsWith("MonsterRenderer") || name.startsWith("MonsterShaders") || name.startsWith("Creature")
+                        || name.startsWith("LogoSdf") || name.startsWith("NoiseTexture"))
+                        continue;
+                    ++files;
+                    juce::StringArray lines;
+                    lines.addLines(f.loadFileAsString());
+                    for (int i = 0; i < lines.size(); ++i)
+                    {
+                        const auto code = lines[i].upToFirstOccurrenceOf("//", false, false);
+                        for (const char* pattern : patterns)
+                            if (code.contains(pattern) && !(juce::String(pattern) == "Colours::" && (code.contains("Colours::transparentBlack") || code.contains("Theme::Colours::")
+                                                                                                   || code.contains("namespace Theme::Colours"))))
+                            {
+                                ++found;
+                                std::printf("    %s:%d: %s\n", name.toRawUTF8(), i + 1, code.trim().toRawUTF8());
+                            }
+                    }
+                }
+                std::printf("  %d editor sources read for colours and fonts outside the theme\n", files);
+                check(files >= 10 && found == 0, juce::String(found) + " colours or fonts set outside the theme's roles");
+            }
+        }
+
+        writeUiShots();
     }
 
     //==========================================================================
@@ -2453,10 +5006,26 @@ namespace
         p->setViewValue("viewEditorScale", 1.0);
         // The pictures show the horned form (the middle of the stage spine), whatever the seed's growth.
         p->withCreatureForTests([](roar::CreatureEvolution& e) { e.setPinnedStageForTests(0.4f); });
-        const auto voice = dual(makeVoice(sr, 4.0, 98.0));
+        // The voice: a made one, or a recording (ROARSCHACH_SNAP_WAV, any rate is played as it is).
+        auto voice = dual(makeVoice(sr, 4.0, 98.0));
+        if (const auto wav = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_SNAP_WAV", {}); wav.isNotEmpty())
+        {
+            juce::AudioFormatManager formats;
+            formats.registerBasicFormats();
+            if (std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(juce::File(wav))); reader != nullptr && reader->lengthInSamples > block)
+            {
+                const int length = static_cast<int>(reader->lengthInSamples);
+                juce::AudioBuffer<float> file(static_cast<int>(reader->numChannels), length);
+                reader->read(&file, 0, length, 0, true, true);
+                voice.l.assign(file.getReadPointer(0), file.getReadPointer(0) + length);
+                voice.r = file.getNumChannels() > 1 ? Signal(file.getReadPointer(1), file.getReadPointer(1) + length) : voice.l;
+                std::printf("  (the voice: %s, %d samples)\n", wav.toRawUTF8(), length);
+            }
+        }
         int position = 0;
         juce::AudioBuffer<float> buffer(2, block);
         juce::MidiBuffer midi;
+        bool silent = false;   // (true: the plug-in is fed silence, for the sleeping creature and the hint)
 
         // Plays the voice in real time while the editor's timers and the GL thread run.
         const auto play = [&](double seconds)
@@ -2468,6 +5037,8 @@ namespace
                     position = 0;
                 buffer.copyFrom(0, 0, voice.l.data() + position, block);
                 buffer.copyFrom(1, 0, voice.r.data() + position, block);
+                if (silent)
+                    buffer.clear();
                 position += block;
                 p->processBlock(buffer, midi);
                 runLoop(static_cast<int>(1000.0 * block / sr));
@@ -2482,9 +5053,10 @@ namespace
         // A stage window holds the editor (and the menus and tooltips, so they are in the pictures).
         juce::Component stage;
         stage.setOpaque(true);
-        stage.setSize(1600, 1000);
+        const int baseW = RoarschachAudioProcessorEditor::c_baseWidth, baseH = RoarschachAudioProcessorEditor::c_baseHeight;
+        stage.setSize(baseW, baseH + 100);
         stage.addAndMakeVisible(editor);
-        editor.setBounds(0, 0, 1600, 900);
+        editor.setBounds(0, 0, baseW, baseH);
         stage.addToDesktop(juce::ComponentPeer::windowHasDropShadow);
         stage.setTopLeftPosition(40, 40);
         stage.setVisible(true);
@@ -2505,6 +5077,18 @@ namespace
             auto image = stage.createComponentSnapshot(editor.getBounds(), true, scale);
             if (frame.isValid())
             {
+                std::printf("  (the creature's frame: %d x %d pixels for a view of %d x %d, drawn on tier %d)\n", frame.getWidth(), frame.getHeight(), monster.getWidth(), monster.getHeight(),
+                            monster.getRendererForTests().getTier());
+                {
+                    const auto& r = monster.getRendererForTests();
+                    const auto& st = r.getInkState();
+                    const auto& g = r.getInkGenome();
+                    std::printf("  (the ink: formation %.2f, heat %.2f, opening %.3f, drift %.2f, pigment %.2f of rest, the cloud's share %.2f; the blot's middle at %.2f, %d lobes, %d limbs, seed %u)\n",
+                                static_cast<double>(st.formation), static_cast<double>(st.heat), static_cast<double>(st.opening), static_cast<double>(st.drift), static_cast<double>(r.getInkBudget()),
+                                static_cast<double>(r.getInkBudgetGain()), static_cast<double>(r.getInkPose().centreY), g.numLobes, g.numLimbs, g.seed);
+                }
+                if (const auto raw = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_KEEP_FRAME", {}); raw.isNotEmpty())
+                    savePng(frame.rescaled(frame.getWidth() / 2, frame.getHeight() / 2), juce::File(raw));
                 juce::Graphics g(image);
                 const auto area = stage.getLocalArea(&monster, monster.getLocalBounds()).toFloat() * scale;
                 g.drawImage(frame, area);
@@ -2522,8 +5106,84 @@ namespace
         int failures = 0;
         const auto save = [&](const juce::Image& image, const juce::String& name) { failures += savePng(image, dir.getChildFile(name)) ? 0 : 1; };
 
+        // A picture is of the formed blot: after a preset change the blot glides to the preset's own
+        // and is half let go on the way, and a frame taken then is shreds that have not gathered.
+        const auto waitFormed = [&]
+        {
+            for (int k = 0; k < 150 && monster.getRendererForTests().getInkState().formation < 0.95f; ++k)
+                play(0.2);
+            play(1.0);
+        };
+
+        // Contrast measured from the pixels of a 2x picture of the editor: in each box, the darkest
+        // pixel (the text) against the lightest (the surface it is set on).
+        const auto boxContrast = [&](const juce::Image& image, juce::Rectangle<int> box)
+        {
+            box = (box * 2).getIntersection(image.getBounds());
+            float lo = 2.0f, hi = -1.0f;
+            const juce::Image::BitmapData px(image, juce::Image::BitmapData::readOnly);
+            for (int y = box.getY(); y < box.getBottom(); ++y)
+                for (int x = box.getX(); x < box.getRight(); ++x)
+                {
+                    const float l = Theme::luminance(px.getPixelColour(x, y).withAlpha(1.0f));
+                    lo = std::min(lo, l);
+                    hi = std::max(hi, l);
+                }
+            return hi < 0.0f ? 0.0f : (hi + 0.05f) / (lo + 0.05f);
+        };
+        const auto inStage = [&](juce::Component& c, juce::Rectangle<int> r) { return stage.getLocalArea(&c, r); };
+        const auto valueBox = [](juce::Slider& s) -> juce::Component*
+        {
+            for (auto* c : s.getChildren())
+                if (dynamic_cast<juce::Label*>(c) != nullptr)
+                    return c;
+            return nullptr;
+        };
+        const auto measureContrast = [&](const juce::Image& picture, const juce::String& mood)
+        {
+            juce::String line = "  contrast from pixels, " + mood + ":";
+            const auto add = [&](const juce::String& what, float ratio) { line << "  " << what << " " << juce::String(ratio, 2); };
+            for (const bool on : { true, false })
+                for (int m = 0; m < Params::numModules; ++m)
+                {
+                    auto* tile = strip.getModuleTile(m);
+                    if (strip.getOnButton(m)->getToggleState() != on)
+                        continue;
+                    const auto knobs = strip.getKnobs(tile);
+                    auto* slider = knobs.front().first;
+                    if (auto* box = valueBox(*slider))
+                    {
+                        // (the text's own box: the value label, its height trimmed to the capitals)
+                        const auto r = inStage(*box, box->getLocalBounds().withSizeKeepingCentre(std::min(box->getWidth(), 50), 12));
+                        add(on ? "value" : "value(off)", boxContrast(picture, r));
+                    }
+                    for (auto* c : tile->getChildren())
+                        if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->isVisible() && label->getText().isNotEmpty())
+                        {
+                            add(on ? "caption" : "caption(off)", boxContrast(picture, inStage(*label, label->getLocalBounds().withSizeKeepingCentre(label->getWidth(), 10))));
+                            break;
+                        }
+                    add(on ? "slot number" : "slot number(off)", boxContrast(picture, inStage(*tile, { 28, 7, 15, 12 })));
+                    add(on ? "name" : "name(off)", boxContrast(picture, inStage(*tile, { 50, 7, 40, 12 })));
+                    if (auto* chip = strip.getModeChip(m))
+                        add(on ? "mode" : "mode(off)", boxContrast(picture, inStage(*chip, chip->getLocalBounds().withSizeKeepingCentre(40, 9))));
+                    if (!on)
+                        add("OFF footer", boxContrast(picture, inStage(*tile, { tile->getWidth() / 2 - 12, tile->getHeight() - 20, 24, 10 })));
+                    break;
+                }
+            {
+                auto& in = *strip.getInTile();
+                add("IN caption", boxContrast(picture, inStage(in, { 30, 34, 52, 10 })));
+                add("IN scale", boxContrast(picture, inStage(in, { 26, 170, 24, 9 })));
+            }
+            // The readouts over the creature: the top-left one's caption and value (on their soft label).
+            add("readout", boxContrast(picture, inStage(monster, { 20, 20, 28, 12 })));
+            std::printf("%s\n", line.toRawUTF8());
+        };
+
         // 1. Init, playing.
         play(2.5);
+        waitFormed();
         save(editorPicture(1.0f), "01-editor.png");
         {
             const auto picture = editorPicture(2.0f);
@@ -2537,14 +5197,20 @@ namespace
             save(stage.createComponentSnapshot(a.withTrimmedLeft(a.getWidth() / 2 - 40), true, 2.0f), "02b-strip-right@2x.png");
         }
 
-        // 2. Presets that light the other parts of the creature.
-        for (const char* name : { "Cyborg Commander", "Ribcage", "Smashed", "Pulse Choir", "Kaiju" })
+        // 2. Presets that light the other parts of the creature (or those named in ROARSCHACH_SNAP_PRESETS,
+        //    comma-separated; the last one named is the one the close-ups below are of).
+        juce::StringArray snapPresets { "Cyber Commander", "Ribcage", "Smashed", "Pulse Choir", "Kaiju" };
+        if (const auto list = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_SNAP_PRESETS", {}); list.isNotEmpty())
+            snapPresets = juce::StringArray::fromTokens(list, ",", "");
+        for (const auto& presetName : snapPresets)
         {
+            const char* name = presetName.toRawUTF8();
             const int index = presetIndex(name);
             if (index < 0)
                 continue;
             p->setCurrentProgram(index);
             play(2.0);
+            waitFormed();
             strip.finishAnimations();
             const auto picture = editorPicture(2.0f);
             {
@@ -2553,13 +5219,93 @@ namespace
                             f.overtoneLevel.load(), f.ringAmount.load());
             }
             const auto slug = juce::String(name).replace(" ", "-").toLowerCase();
+            measureContrast(picture, name);
             save(picture.rescaled(picture.getWidth() / 2, picture.getHeight() / 2, juce::Graphics::highResamplingQuality), "03-preset-" + slug + ".png");
             // The face, close up.
             const auto face = stage.getLocalArea(&monster, monster.getLocalBounds()).withSizeKeepingCentre(560, 400) * 2;
             save(picture.getClippedImage(face), "03-face-" + slug + "@2x.png");
         }
         save(stage.createComponentSnapshot(stripArea(), true, 2.0f), "04-strip-last-preset@2x.png");
-        p->setCurrentProgram(presetIndex("Cyborg Commander"));
+        {
+            // The creature's right-click menu over the view (the last preset's colour), opened where
+            // the pointer is drawn: the view's GL frame first, then the menu painted over it.
+            const auto picture = editorPicture(2.0f);
+            const auto view = stage.getLocalArea(&monster, monster.getLocalBounds());
+            juce::Component at;   // (in the view, so the menu takes the editor's look)
+            monster.addAndMakeVisible(at);
+            at.setBounds(monster.getWidth() / 2 - 330, 40, 1, 1);
+            const auto click = stage.getLocalArea(&at, at.getLocalBounds());
+            auto menu = monster.buildCreatureMenu();
+            menu.setLookAndFeel(&RoarschachEditorInspector::lookAndFeel(editor));
+            menu.showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(at).withParentComponent(&stage));
+            runLoop(30);
+            juce::Component* shown = nullptr;
+            for (auto* c : stage.getChildren())
+                if (c != &editor && c->isVisible())
+                    shown = c;
+            if (shown == nullptr)
+                std::printf("  (the creature menu did not open in time: run the tool again with nothing in front of it)\n");
+            if (shown != nullptr)
+            {
+                auto image = picture;
+                const auto menuArea = shown->getBounds();
+                {
+                    juce::Graphics g(image);
+                    g.drawImage(shown->createComponentSnapshot(shown->getLocalBounds(), true, 2.0f), (menuArea * 2).toFloat());
+                    g.addTransform(juce::AffineTransform::scale(2.0f));
+                    drawPointer(g, click.getPosition().toFloat());
+                }
+                const auto area = menuArea.getUnion(click).expanded(40, 28).getIntersection(view);
+                save(image.getClippedImage(area * 2), "creature-menu@2x.png");
+                std::printf("  the creature menu: %d x %d at %d, %d in the view's %d x %d\n", menuArea.getWidth(), menuArea.getHeight(), menuArea.getX() - view.getX(),
+                            menuArea.getY() - view.getY(), view.getWidth(), view.getHeight());
+            }
+            juce::PopupMenu::dismissAllActiveMenus();
+            runLoop(200);
+        }
+        // The preset bar with its die (Kaiju showing), and ROLL ALL in the slot after the last module.
+        save(stage.createComponentSnapshot({ baseW - 500, 0, 500, 56 }, true, 2.0f), "header@2x.png");
+        save(stage.createComponentSnapshot(stage.getLocalArea(&strip, strip.getSlotBounds(Params::numModules)), true, 2.0f), "panel-roll-all@2x.png");
+
+        // The README's close-ups, one per tile: Kaiju (the last preset above) for most, RING and
+        // OUTPUT from Cyber Commander, CHAMBER from Iron Tyrant. The values shown are printed.
+        {
+            const auto tilePicture = [&](juce::Component* tile, const juce::String& name)
+            {
+                if (tile == nullptr)
+                    return;
+                save(stage.createComponentSnapshot(stage.getLocalArea(tile, tile->getLocalBounds()), true, 2.0f), name);
+                juce::String values;
+                for (const auto& [knob, id] : strip.getKnobs(tile))
+                    if (knob->isVisible())
+                        values << "  " << id << "=" << p->getValueTreeState().getParameter(id)->getCurrentValueAsText();
+                std::printf("  %s:%s\n", name.toRawUTF8(), values.toRawUTF8());
+            };
+            const auto choices = [&](std::initializer_list<const char*> ids)
+            {
+                juce::String values;
+                for (const char* id : ids)
+                    values << "  " << id << "=" << p->getValueTreeState().getParameter(id)->getCurrentValueAsText();
+                std::printf("   %s\n", values.toRawUTF8());
+            };
+            tilePicture(strip.getInTile(), "panel-in@2x.png");
+            for (int m = 0; m < Params::numModules; ++m)
+                if (m != static_cast<int>(Params::ModuleId::ring) && m != static_cast<int>(Params::ModuleId::chamber))
+                    tilePicture(strip.getModuleTile(m), juce::String("panel-") + juce::String(Params::modules[static_cast<size_t>(m)].uiName).toLowerCase().removeCharacters("- ") + "@2x.png");
+            p->setCurrentProgram(presetIndex("Cyber Commander"));
+            play(1.5);
+            strip.finishAnimations();
+            tilePicture(strip.getModuleTile(static_cast<int>(Params::ModuleId::ring)), "panel-ring@2x.png");
+            choices({ Params::ringCarrier, Params::ringTrack, Params::ringMode, Params::ringBody });
+            tilePicture(strip.getOutputTile(), "panel-out@2x.png");
+            choices({ Params::outAuto });
+            p->setCurrentProgram(presetIndex("Iron Tyrant"));
+            play(1.5);
+            strip.finishAnimations();
+            tilePicture(strip.getModuleTile(static_cast<int>(Params::ModuleId::chamber)), "panel-chamber@2x.png");
+            choices({ Params::chamberRoom, Params::chamberSpeaker, Params::chamberBoom });
+        }
+        p->setCurrentProgram(presetIndex("Cyber Commander"));
         play(0.5);
         strip.finishAnimations();
 
@@ -2652,6 +5398,142 @@ namespace
             save(stage.createComponentSnapshot(stripArea(), true, 2.0f), "11-after-drop@2x.png");
         }
 
+        // 5b. The open preset list, and the update card over the editor.
+        {
+            editor.setMenuParentForSnapshots(&stage);
+            RoarschachEditorInspector::showPresetMenu(editor);
+            runLoop(30);
+            juce::Component* menuWindow = nullptr;
+            for (auto* c : stage.getChildren())
+                if (c != &editor && c->isVisible())
+                    menuWindow = c;
+            if (menuWindow != nullptr)
+            {
+                const auto area = menuWindow->getBounds().getUnion({ baseW - 520, 0, 520, 56 }).expanded(16).getIntersection(stage.getLocalBounds());
+                save(stage.createComponentSnapshot(area, true, 2.0f), "13-preset-list@2x.png");
+            }
+            else
+                std::printf("  (the preset list did not open in time)\n");
+            editor.setMenuParentForSnapshots(nullptr);
+            juce::PopupMenu::dismissAllActiveMenus();
+            runLoop(200);
+
+            sammyj::UpdateInfo info;
+            info.pluginId = "roarschach";
+            info.currentVersion = JucePlugin_VersionString;
+            info.latestVersion = "9.9.9";
+            RoarschachEditorInspector::showUpdatePopup(editor, info);
+            runLoop(100);
+            save(stage.createComponentSnapshot(editor.getBounds(), true, 2.0f).getClippedImage(juce::Rectangle<int>(baseW - 560, baseH - 260, 1120, 520)),
+                 "14-update-popup@2x.png");
+            RoarschachEditorInspector::closeUpdatePopup(editor);
+            runLoop(100);
+        }
+
+        // 5c. Init at the smallest and the largest window (65 % and 125 %), the creature formed.
+        {
+            p->setCurrentProgram(presetIndex("Init"));
+            play(1.0);
+            for (const float scale : { 0.65f, 1.25f })
+            {
+                const int w = juce::roundToInt(baseW * scale), h = juce::roundToInt(baseH * scale);
+                stage.setSize(w, h + 100);
+                editor.setBounds(0, 0, w, h);
+                play(1.0);
+                waitFormed();
+                strip.finishAnimations();
+                const auto slug = juce::String(juce::roundToInt(scale * 100.0f));
+                save(editorPicture(1.0f), "15-init-" + slug + ".png");
+                if (scale < 1.0f)
+                    save(editorPicture(2.0f), "15-init-" + slug + "@2x.png");
+            }
+            stage.setSize(baseW, baseH + 100);
+            editor.setBounds(0, 0, baseW, baseH);
+            play(0.5);
+        }
+
+        // 5d. Stage pictures of the parts the README does not show: the whole header, a value being
+        //     typed, the save dialog, the About window, the hint line and ASLEEP over the creature.
+        {
+            save(stage.createComponentSnapshot({ 0, 0, baseW, 56 }, true, 2.0f), "header-full@2x.png");
+
+            // A value being typed: RING's Amount, its box open with a new value in it.
+            {
+                const int ring = static_cast<int>(Params::ModuleId::ring);
+                auto* tile = strip.getModuleTile(ring);
+                auto* knob = strip.getKnobs(tile).front().first;
+                knob->showTextBox();
+                runLoop(50);
+                if (auto* box = dynamic_cast<juce::Label*>(valueBox(*knob)))
+                    if (auto* field = box->getCurrentTextEditor())
+                    {
+                        field->setText("35", false);
+                        field->setHighlightedRegion({ 0, 2 });
+                    }
+                runLoop(50);
+                save(stage.createComponentSnapshot(inStage(*tile, tile->getLocalBounds()).expanded(6), true, 2.0f), "value-typed@2x.png");
+                knob->hideTextBox(false);
+                runLoop(50);
+            }
+
+            // The save dialog, drawn over the editor where it opens (it is a window of its own).
+            {
+                RoarschachEditorInspector::promptSavePreset(editor, "Night Feeder");
+                runLoop(100);
+                if (auto* alert = RoarschachEditorInspector::alert(editor))
+                {
+                    auto image = editorPicture(2.0f);
+                    const auto shot = alert->createComponentSnapshot(alert->getLocalBounds(), true, 2.0f);
+                    const auto at = juce::Rectangle<int>(alert->getWidth(), alert->getHeight()).withCentre(editor.getLocalBounds().getCentre());
+                    {
+                        juce::Graphics g(image);
+                        g.drawImage(shot, (at * 2).toFloat());
+                    }
+                    save(image.getClippedImage((at.expanded(60, 40) * 2).getIntersection(image.getBounds())), "save-dialog@2x.png");
+                    std::printf("  the save dialog: %d x %d\n", alert->getWidth(), alert->getHeight());
+                }
+                else
+                    std::printf("  (the save dialog did not open)\n");
+                RoarschachEditorInspector::closeAlert(editor);
+                runLoop(100);
+            }
+
+            // The About window's content, at the size it opens at.
+            {
+                auto& look = dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(editor));
+                auto about = AboutWindow::createContent(look, RoarschachAudioProcessorEditor::latencyNote(p->getLatencySamples(), p->getSampleRate()));
+                about->setSize(AboutWindow::c_width, AboutWindow::c_height);
+                save(about->createComponentSnapshot(about->getLocalBounds(), true, 2.0f), "about@2x.png");
+            }
+
+            // Silence: the creature falls asleep, and a new instance's hint comes up between the readouts.
+            {
+                silent = true;
+                play(1.0);   // (the input level falls silent first: a sound would take the hint away)
+                play(1.5);
+                monster.setHint("Play a voice through it to wake the creature. Pick a preset or roll a die to change it.");
+                monster.refreshOverlay(2.0f);   // (the 1.5 s of silence it waits for, at once)
+                play(0.5);
+                if (!monster.isHintShowing())
+                    std::printf("  (the hint is not up: input level %.4f)\n", static_cast<double>(p->getMonsterFeatures().inputLevel.load()));
+                const auto picture = editorPicture(2.0f);
+                const auto view = stage.getLocalArea(&monster, monster.getLocalBounds());
+                save(picture.getClippedImage((view.withTop(view.getBottom() - 70) * 2).getIntersection(picture.getBounds())), "hint-asleep@2x.png");
+                measureContrast(picture, "asleep");
+                {
+                    // ASLEEP's own box: at the right of the bottom row.
+                    const auto r = juce::Rectangle<int>(view.getRight() - 90, view.getBottom() - 48, 60, 14);
+                    std::printf("  ASLEEP from pixels: %.2f; the hint (%s): %.2f\n", static_cast<double>(boxContrast(picture, r)),
+                                monster.isHintShowing() ? "showing" : "not showing",
+                                static_cast<double>(boxContrast(picture, juce::Rectangle<int>(view.getCentreX() - 60, view.getBottom() - 46, 120, 10))));
+                }
+                save(picture.getClippedImage(stage.getLocalArea(&monster, monster.getLocalBounds()).withSizeKeepingCentre(560, 400) * 2), "face-asleep@2x.png");
+                silent = false;
+                monster.setHint({});
+                play(1.0);
+            }
+        }
+
         // 6. A small editor (the minimum scale) for legibility.
         {
             editor.setSize(800, 450);
@@ -2665,6 +5547,1024 @@ namespace
         stage.removeChildComponent(&editor);
         editorBase.reset();
         return failures == 0 ? 0 : 1;
+    }
+
+    //==========================================================================
+    // CHAMBER: the crypto that protects its room data, the convolver, the rooms and the module.
+
+    std::vector<std::uint8_t> hexBytes(const char* hex)
+    {
+        std::vector<std::uint8_t> out;
+        int nibble = -1;
+        for (const char* c = hex; *c != 0; ++c)
+        {
+            int v = -1;
+            if (*c >= '0' && *c <= '9') v = *c - '0';
+            else if (*c >= 'a' && *c <= 'f') v = *c - 'a' + 10;
+            else if (*c >= 'A' && *c <= 'F') v = *c - 'A' + 10;
+            if (v < 0)
+                continue;
+            if (nibble < 0)
+                nibble = v;
+            else
+            {
+                out.push_back(static_cast<std::uint8_t>(nibble * 16 + v));
+                nibble = -1;
+            }
+        }
+        return out;
+    }
+
+    template <typename A>
+    bool sameBytes(const A& a, const std::vector<std::uint8_t>& b)
+    {
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+    /** Runs a ChamberModule over a stereo signal in host blocks of `block` (or a block pattern). */
+    Stereo runChamber(roar::ChamberModule& m, const Stereo& in, const std::vector<int>& blocks, bool stereo,
+                      const std::function<void(int)>& onBlock = {})
+    {
+        Stereo out = in;
+        size_t b = 0;
+        for (int start = 0; start < in.size();)
+        {
+            if (onBlock)
+                onBlock(start);
+            const int n = std::min(blocks[b++ % blocks.size()], in.size() - start);
+            m.process(out.l.data() + start, out.r.data() + start, n, stereo, roar::VoiceFrameView {});
+            start += n;
+        }
+        return out;
+    }
+
+    double rmsOf(const Signal& s, size_t from = 0, size_t to = std::numeric_limits<size_t>::max())
+    {
+        to = std::min(to, s.size());
+        double acc = 0.0;
+        for (size_t i = from; i < to; ++i)
+            acc += static_cast<double>(s[i]) * s[i];
+        return to > from ? std::sqrt(acc / static_cast<double>(to - from)) : 0.0;
+    }
+
+    void testChamber()
+    {
+        std::printf("[chamber] crypto test vectors, sealed rooms, convolver, modelled rooms, module, chain\n");
+        using namespace roar;
+
+        // --- RFC 8439 test vectors (ChaCha20 block 2.3.2, encryption 2.4.2, Poly1305 2.5.2, AEAD 2.8.2).
+        {
+            crypto::Key key {};
+            for (size_t i = 0; i < key.size(); ++i)
+                key[i] = static_cast<std::uint8_t>(i);
+            crypto::Nonce nonce {};
+            const auto n = hexBytes("000000090000004a00000000");
+            std::copy(n.begin(), n.end(), nonce.begin());
+            std::array<std::uint8_t, 64> block {};
+            crypto::chacha20Block(key, 1, nonce, block.data());
+            check(sameBytes(block, hexBytes("10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4e"
+                                            "d2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e")),
+                  "ChaCha20 block function (RFC 8439 2.3.2)");
+
+            const char* sunscreen = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+            std::vector<std::uint8_t> text(sunscreen, sunscreen + std::strlen(sunscreen));
+            const auto n2 = hexBytes("000000000000004a00000000");
+            std::copy(n2.begin(), n2.end(), nonce.begin());
+            auto enc = text;
+            crypto::chacha20Xor(key, 1, nonce, enc.data(), enc.size());
+            check(sameBytes(std::vector<std::uint8_t>(enc.begin(), enc.begin() + 16), hexBytes("6e2e359a2568f98041ba0728dd0d6981"))
+                      && sameBytes(std::vector<std::uint8_t>(enc.end() - 2, enc.end()), hexBytes("874d")),
+                  "ChaCha20 encryption (RFC 8439 2.4.2)");
+            crypto::chacha20Xor(key, 1, nonce, enc.data(), enc.size());
+            check(enc == text, "ChaCha20 decrypts what it encrypted");
+
+            const auto polyKey = hexBytes("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b");
+            const char* msg = "Cryptographic Forum Research Group";
+            const auto tag = crypto::poly1305(polyKey.data(), reinterpret_cast<const std::uint8_t*>(msg), std::strlen(msg));
+            check(sameBytes(tag, hexBytes("a8061dc1305136c6c22b8baf0c0127a9")), "Poly1305 (RFC 8439 2.5.2)");
+            // The same, fed in uneven pieces.
+            crypto::Poly1305 pieces(polyKey.data());
+            for (size_t at = 0, step = 1; at < std::strlen(msg); at += step, step = step % 7 + 3)
+                pieces.update(reinterpret_cast<const std::uint8_t*>(msg) + at, std::min(step, std::strlen(msg) - at));
+            check(sameBytes(pieces.finish(), hexBytes("a8061dc1305136c6c22b8baf0c0127a9")), "Poly1305 streamed in pieces");
+
+            crypto::Key aeadKey {};
+            for (size_t i = 0; i < aeadKey.size(); ++i)
+                aeadKey[i] = static_cast<std::uint8_t>(0x80 + i);
+            const auto n3 = hexBytes("070000004041424344454647");
+            std::copy(n3.begin(), n3.end(), nonce.begin());
+            const auto aad = hexBytes("50515253c0c1c2c3c4c5c6c7");
+            auto sealed = text;
+            const auto aeadTag = crypto::aeadEncrypt(aeadKey, nonce, aad.data(), aad.size(), sealed.data(), sealed.size());
+            check(sameBytes(sealed, hexBytes("d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"
+                                             "3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36"
+                                             "92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc"
+                                             "3ff4def08e4b7a9de576d26586cec64b6116")),
+                  "AEAD ciphertext (RFC 8439 2.8.2)");
+            check(sameBytes(aeadTag, hexBytes("1ae10b594f09e26a7e902ecbd0600691")), "AEAD tag (RFC 8439 2.8.2)");
+            auto opened = sealed;
+            check(crypto::aeadDecrypt(aeadKey, nonce, aad.data(), aad.size(), opened.data(), opened.size(), aeadTag) && opened == text,
+                  "AEAD opens its own message");
+            opened = sealed;
+            opened[40] ^= 1;
+            const auto before = opened;
+            check(!crypto::aeadDecrypt(aeadKey, nonce, aad.data(), aad.size(), opened.data(), opened.size(), aeadTag) && opened == before,
+                  "AEAD rejects a changed message and leaves it untouched");
+        }
+
+        // --- The sealed room container: round trip with a test key; any change or another key is rejected.
+        {
+            const auto rooms = ChamberBank::modelledRooms();
+            crypto::Key key {};
+            for (size_t i = 0; i < key.size(); ++i)
+                key[i] = static_cast<std::uint8_t>(0xa5 ^ (i * 29));
+            crypto::Nonce nonce {};
+            for (size_t i = 0; i < nonce.size(); ++i)
+                nonce[i] = static_cast<std::uint8_t>(i * 7 + 1);
+            const auto plain = irpack::serialise(rooms);
+            const auto blob = irpack::seal(plain, key, nonce);
+            size_t same = 0;
+            for (size_t i = 0; i < plain.size(); ++i)
+                same += blob[irpack::c_headerSize + i] == plain[i] ? 1 : 0;
+            check(blob.size() == plain.size() + irpack::c_headerSize + 16 && same < plain.size() / 100, "the sealed rooms are not stored in the clear");
+
+            std::vector<std::uint8_t> payload;
+            check(irpack::open(blob.data(), blob.size(), key, payload) && payload == plain, "sealed rooms open with their key");
+            std::vector<irpack::Ir> back;
+            const bool parsed = irpack::parse(payload.data(), payload.size(), back);
+            check(parsed && back.size() == rooms.size(), "the opened rooms parse");
+            double worst = 0.0;
+            for (size_t r = 0; parsed && r < std::min(back.size(), rooms.size()); ++r)
+            {
+                float peak = 0.0f;
+                for (float x : rooms[r].left) peak = std::max(peak, std::abs(x));
+                for (float x : rooms[r].right) peak = std::max(peak, std::abs(x));
+                for (size_t i = 0; i < rooms[r].left.size(); ++i)
+                    worst = std::max(worst, std::max(std::abs(static_cast<double>(back[r].left[i]) - rooms[r].left[i]),
+                                                     std::abs(static_cast<double>(back[r].right[i]) - rooms[r].right[i])) / peak);
+            }
+            check(worst <= 0.6 / 32767.0, "rooms survive the 16-bit container (worst error " + juce::String(worst * 32767.0, 2) + " LSB)");
+
+            auto other = key;
+            other[5] ^= 0x10;
+            check(!irpack::open(blob.data(), blob.size(), other, payload) && payload.empty(), "another key is rejected");
+            for (const size_t at : { size_t { 2 }, size_t { 10 }, size_t { 21 }, irpack::c_headerSize + 100, blob.size() - 3 })
+            {
+                auto damaged = blob;
+                damaged[at] ^= 0x01;
+                check(!irpack::open(damaged.data(), damaged.size(), key, payload), "a changed byte at " + juce::String(static_cast<int>(at)) + " is rejected");
+            }
+            check(!irpack::open(blob.data(), blob.size() - 1, key, payload), "a truncated blob is rejected");
+            crypto::Key parsedKey {};
+            check(irpack::parseHexKey("000102030405060708090a0b0c0d0e0f101112131415161718191A1B1C1D1E1F", parsedKey) && parsedKey[31] == 0x1f
+                      && !irpack::parseHexKey("0011", parsedKey) && !irpack::parseHexKey(std::string(64, 'g'), parsedKey),
+                  "hex keys");
+        }
+
+        // --- The convolver: exact against direct convolution, at every partition boundary, at any block size.
+        {
+            std::mt19937 rng(11);
+            std::uniform_real_distribution<float> u(-1.0f, 1.0f);
+            std::uniform_int_distribution<int> blockDist(1, 300);
+            const std::vector<double> rates = g_quick ? std::vector<double> { 48000.0 } : std::vector<double> { 48000.0, 96000.0, 192000.0 };
+            for (double fs : rates)
+                for (int len : { 1, 63, 64, 65, 511, 512, 513, 1023, 8192, 36000 })
+                {
+                    std::vector<float> h0(static_cast<size_t>(len)), h1(static_cast<size_t>(len));
+                    for (int i = 0; i < len; ++i)
+                    {
+                        const float env = std::exp(-3.0f * static_cast<float>(i) / static_cast<float>(len));
+                        h0[static_cast<size_t>(i)] = u(rng) * env;
+                        h1[static_cast<size_t>(i)] = u(rng) * env;
+                    }
+                    const auto layout = ConvolverLayout::forRate(fs, len);
+                    ConvolverIr ir;
+                    ir.build(layout, { h0.data(), h1.data() }, len);
+                    const int n = std::min(len, 9000) + 3000;
+                    std::vector<float> x(static_cast<size_t>(n));
+                    for (auto& v : x)
+                        v = u(rng);
+
+                    ZeroLatencyConvolver c;
+                    c.prepare(layout);
+                    c.bind(0, &ir, 2);
+                    std::vector<float> y0(static_cast<size_t>(n)), y1(static_cast<size_t>(n));
+                    for (int at = 0; at < n;)
+                    {
+                        int want = std::min(blockDist(rng), n - at);
+                        while (want > 0)
+                        {
+                            const int m = std::min(want, c.samplesToGrid());
+                            float* const outs[2][2] { { y0.data() + at, y1.data() + at }, { nullptr, nullptr } };
+                            c.process(x.data() + at, m, outs);
+                            at += m;
+                            want -= m;
+                        }
+                    }
+
+                    double err = 0.0, ref = 0.0;
+                    for (int o = 0; o < 2; ++o)
+                    {
+                        const auto& h = o == 0 ? h0 : h1;
+                        const auto& y = o == 0 ? y0 : y1;
+                        for (int t = 0; t < n; ++t)
+                        {
+                            double acc = 0.0;
+                            for (int k = 0; k < len && k <= t; ++k)
+                                acc += static_cast<double>(h[static_cast<size_t>(k)]) * x[static_cast<size_t>(t - k)];
+                            const double e = y[static_cast<size_t>(t)] - acc;
+                            err += e * e;
+                            ref += acc * acc;
+                        }
+                    }
+                    const double db = 10.0 * std::log10(std::max(err, 1.0e-300) / std::max(ref, 1.0e-300));
+                    check(db < -100.0, "convolver at " + juce::String(fs / 1000.0, 1) + " kHz, " + juce::String(len) + " taps: error "
+                                           + juce::String(db, 1) + " dB re direct convolution (<= -100)");
+                }
+        }
+
+        const double sr = 48000.0;
+        const int seconds = g_quick ? 1 : 2;
+        const auto voice = makeVoice(sr, seconds);
+        const Stereo voiceStereo = dual(voice);
+        const auto prepared = [sr](const ChamberSettings& s)
+        {
+            auto m = std::make_unique<ChamberModule>();
+            m->setParams(s);
+            m->prepare(sr, 512);
+            return m;
+        };
+        ChamberSettings on;
+        on.on = true;
+
+        // --- The modelled rooms (what a build without the bundled rooms uses): ten rooms close to
+        //     the measured decay of the captures they stand in for, and all at the same level.
+        {
+            ChamberBank::setForceModelled(false);
+            std::printf("  this build %s\n", ChamberBank::hasBundledRooms() ? "carries the bundled rooms (encrypted)" : "has no bundled rooms: modelled rooms");
+           #if ROARSCHACH_EXPECT_BUNDLED_ROOMS
+            check(ChamberBank::hasBundledRooms(), "the embedded rooms decrypt and parse (a build with the captures must not fall back to the modelled rooms)");
+           #endif
+            const auto modelled = ChamberBank::build(sr, ChamberBank::Source::modelled);
+            check(modelled->getSource() == ChamberBank::Source::modelled, "the modelled bank");
+            // The captures' RT60 (Party Wall and Tower Block: after the packer steepens their 2-3 s ring to fit 0.75 s).
+            const std::array<double, ChamberBank::numRooms> measured { 0.42, 0.71, 0.61, 0.55, 0.37, 0.58, 0.54, 0.20, 0.78, 0.79 };
+            const auto bundled = ChamberBank::hasBundledRooms() ? ChamberBank::build(sr, ChamberBank::Source::bundled) : nullptr;
+            for (int r = 0; r < ChamberBank::numRooms; ++r)
+            {
+                const double rt = modelled->room(r).rt60;
+                std::printf("  %-17s modelled RT60 %.2f s%s", Params::chamberRoomNames[static_cast<size_t>(r)], rt, bundled != nullptr ? "" : "\n");
+                check(rt > 0.55 * measured[static_cast<size_t>(r)] && rt < 1.6 * measured[static_cast<size_t>(r)],
+                      juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + " modelled RT60 near the capture's");
+                if (bundled != nullptr)
+                {
+                    const double brt = bundled->room(r).rt60;
+                    std::printf(", bundled %.2f s (capture %.2f s), %.1f ms\n", brt, measured[static_cast<size_t>(r)],
+                                1000.0 * bundled->room(r).ir.getLength() / sr);
+                    check(bundled->room(r).ir.getLength() <= static_cast<int>(irpack::c_maxSeconds * sr) + 1, "bundled rooms end by 0.75 s");
+                }
+            }
+
+            // The recorded rooms start from (near) silence and keep their high-pass: a room that
+            // starts mid-waveform (an onset trim that cut a slow arrival) is a step at sample 0,
+            // which lets back the low end the packer's high-pass removed.
+            if (bundled != nullptr)
+            {
+                const auto rooms = ChamberBank::bundledRooms();
+                for (size_t r = 0; r < rooms.size(); ++r)
+                {
+                    const auto& ir = rooms[r];
+                    double peak = 0.0, dc = 0.0, re1k = 0.0, im1k = 0.0;
+                    for (size_t i = 0; i < ir.left.size(); ++i)
+                    {
+                        const double m = 0.5 * (ir.left[i] + ir.right[i]);
+                        peak = std::max(peak, std::abs(m));
+                        dc += m;
+                        const double ph = 2.0 * juce::MathConstants<double>::pi * 1000.0 * static_cast<double>(i) / ir.rate;
+                        re1k += m * std::cos(ph);
+                        im1k -= m * std::sin(ph);
+                    }
+                    const double m0 = ir.left.empty() ? 0.0 : 0.5 * (ir.left[0] + ir.right[0]);
+                    const double startDb = toDb(std::abs(m0) / std::max(peak, 1e-12));
+                    const double dcDb = toDb(std::abs(dc) / std::max(std::hypot(re1k, im1k), 1e-12));
+                    std::printf("  %-17s bundled: first sample %6.1f dB re peak, DC %6.1f dB re 1 kHz\n",
+                                Params::chamberRoomNames[r], startDb, dcDb);
+                    // (The first eight are designed responses whose first sample and low end are
+                    // part of their sound; only the recordings, high-passed, are held to this.)
+                    if (irpack::c_captures[r].keepArrival)
+                    {
+                        check(startDb < -30.0, juce::String(Params::chamberRoomNames[r]) + " starts from near silence (no step at sample 0)");
+                        check(dcDb < -40.0, juce::String(Params::chamberRoomNames[r]) + " keeps its high-pass (no DC let back by the trim)");
+                    }
+                }
+            }
+
+            // Every room at the same level: loudness-matched on a voice-band pink spectrum (what the
+            // packer and the modelled rooms match on), so switching rooms keeps the level. A single
+            // sung pitch lands on or between a room's modes, so it varies more (printed).
+            auto pinkVoiceBand = makePink(sr, seconds, 0.3f);
+            for (const auto& c : { Biquad::highpass(sr, 150.0, Biquad::c_bw4Q1), Biquad::highpass(sr, 150.0, Biquad::c_bw4Q2),
+                                   Biquad::lowpass(sr, 5000.0, Biquad::c_bw4Q1), Biquad::lowpass(sr, 5000.0, Biquad::c_bw4Q2) })
+            {
+                Biquad f;
+                f.setCoeffs(c);
+                f.process(pinkVoiceBand.data(), static_cast<int>(pinkVoiceBand.size()));
+            }
+            const auto pink = dual(pinkVoiceBand);
+            for (int signal = 0; signal < 2; ++signal)
+            {
+                std::vector<double> levels;
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                {
+                    auto s = on;
+                    s.amount = 1.0f;
+                    s.edge = 0.0f;
+                    s.width = 0.0f;
+                    s.room = r;
+                    auto m = prepared(s);
+                    const auto& x = signal == 0 ? pink : voiceStereo;
+                    auto out = runChamber(*m, x, { 512 }, false);
+                    // The wet alone (the dry is the input times its gain, exactly).
+                    double gd = 1.0, gw = 0.0;
+                    ChamberModule::blendGains(1.0, gd, gw);
+                    for (size_t i = 0; i < out.l.size(); ++i)
+                        out.l[i] = static_cast<float>((out.l[i] - gd * x.l[i]) / gw);
+                    levels.push_back(toDb(rmsOf(out.l, out.l.size() / 4) / rmsOf(x.l, x.l.size() / 4)));
+                }
+                const auto [lo, hi] = std::minmax_element(levels.begin(), levels.end());
+                std::printf("  room levels (Chamber 100 %%, %s): %.1f .. %.1f dB re the input\n", signal == 0 ? "pink, 150 Hz - 5 kHz" : "voice at 110 Hz", *lo, *hi);
+                if (signal == 0)
+                    check(*hi - *lo < 2.0, "the rooms are loudness-matched (spread " + juce::String(*hi - *lo, 1) + " dB, < 2)");
+            }
+
+            // The wet alone at Chamber 100 % for a setting.
+            const auto wetOf = [&](const ChamberSettings& s, const Stereo& x)
+            {
+                auto m = prepared(s);
+                auto out = runChamber(*m, x, { 512 }, false);
+                double gd = 1.0, gw = 0.0;
+                ChamberModule::blendGains(1.0, gd, gw);
+                for (size_t i = 0; i < out.l.size(); ++i)
+                    out.l[i] = static_cast<float>((out.l[i] - gd * x.l[i]) / gw);
+                return out.l;
+            };
+
+            // Each speaker has its own response (audit: their filters once kept the identity
+            // coefficients, so all three sounded alike): the Small box keeps the lows the Tiny
+            // speaker and the horn cut.
+            {
+                std::array<double, 3> lowShare {};
+                for (int t = 0; t < 3; ++t)
+                {
+                    auto s = on;
+                    s.amount = 1.0f;
+                    s.edge = 0.0f;
+                    s.width = 0.0f;
+                    s.speaker = t;
+                    auto wet = wetOf(s, pink);
+                    auto low = wet;
+                    for (const auto& c : { Biquad::lowpass(sr, 220.0, Biquad::c_bw4Q1), Biquad::lowpass(sr, 220.0, Biquad::c_bw4Q2) })
+                    {
+                        Biquad f;
+                        f.setCoeffs(c);
+                        f.process(low.data(), static_cast<int>(low.size()));
+                    }
+                    lowShare[static_cast<size_t>(t)] = toDb(rmsOf(low, low.size() / 4) / rmsOf(wet, wet.size() / 4));
+                }
+                std::printf("  energy under 220 Hz: Tiny %.1f, Small %.1f, Horn %.1f dB\n", lowShare[0], lowShare[1], lowShare[2]);
+                check(lowShare[1] - lowShare[0] > 6.0 && lowShare[1] - lowShare[2] > 6.0, "each speaker has its own response");
+            }
+
+            // Resonance holds the wet's level in every room (audit: a room that swells in late once
+            // jumped 9 dB at 100 %), and a room's longest decay still fits its IR.
+            for (int r = 0; r < ChamberBank::numRooms; ++r)
+            {
+                const auto bank = ChamberBank::get(sr);
+                const auto& room = bank->room(r);
+                check(room.maxDecayScale >= 1.0 && room.maxDecayScale <= ChamberBank::maxResonanceScale + 1.0e-9
+                          && room.decayStart >= 0.0 && room.decayStart < 0.25,
+                      juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + ": decay start and longest decay in range");
+                std::vector<double> levels;
+                for (const float u : { 0.0f, 0.4f, 1.0f })
+                {
+                    auto s = on;
+                    s.amount = 1.0f;
+                    s.edge = 0.0f;
+                    s.width = 0.0f;
+                    s.room = r;
+                    s.resonance = u;
+                    const auto wet = wetOf(s, pink);
+                    levels.push_back(toDb(rmsOf(wet, wet.size() / 4)));
+                }
+                const auto [lo, hi] = std::minmax_element(levels.begin(), levels.end());
+                check(*hi - *lo < 1.5, juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + ": Resonance holds the level (spread "
+                                           + juce::String(*hi - *lo, 1) + " dB, < 1.5)");
+                std::printf("  %-17s decay starts %3.0f ms, longest x%.2f, Resonance 0/40/100 %%: %+.1f / %+.1f / %+.1f dB\n",
+                            Params::chamberRoomNames[static_cast<size_t>(r)], 1000.0 * room.decayStart, room.maxDecayScale,
+                            levels[0] - levels[1], 0.0, levels[2] - levels[1]);
+            }
+            // Peaks (audit: Party Wall and Tower Block are recordings of a loud impulsive sound, not
+            // designed impulse responses, with a low-mid body 6-9 dB over the other rooms'): neither
+            // may reach higher than the loudest of the first eight, on a click (the wet's transient
+            // peak) or on a slow 50 Hz - 2 kHz sweep (a sustained sung pitch on every mode), at
+            // Chamber 100 %, Resonance 100 %, each speaker; and on a dense, low, shouted vowel at
+            // Resonance 0 and 100 % (the clip audit: Party Wall's closest case is Resonance 0 %
+            // with the Tiny speaker on a 0 dBFS shout). A pitched voice's harmonics land on or
+            // between a room's modes, so its peak varies with the pitch by more than the click's
+            // or the sweep's (as the room levels at 110 Hz above): it is allowed 1.5 dB, not 0.5.
+            // The sweep is allowed 1 dB: the full run's slower sweep (8 s) holds each mode long
+            // enough for the longest rooms to build up almost fully (Party Wall, the longest ring,
+            // reads +0.6 dB over the first eight there and -2 dB on the quick 4 s sweep).
+            // Whether a peak clips is checked through the whole plug-in in testChamberClip.
+            {
+                Signal click(static_cast<size_t>(0.8 * sr), 0.0f);
+                click[1000] = 0.5f;
+                Signal sweep(static_cast<size_t>((g_quick ? 4.0 : 8.0) * sr));
+                double phase = 0.0;
+                for (size_t i = 0; i < sweep.size(); ++i)
+                {
+                    const double t = static_cast<double>(i) / static_cast<double>(sweep.size());
+                    phase += roar::dsp::c_twoPi * 50.0 * std::pow(40.0, t) / sr;
+                    sweep[i] = static_cast<float>(0.1 * std::sqrt(2.0) * std::sin(phase));
+                }
+                auto shout = makeVoice(sr, g_quick ? 1.5 : 3.0, 82.0, 11);
+                for (auto& v : shout)
+                    v = std::tanh(4.0f * v);
+                normalisePeak(shout, 0.5f);
+                struct PeakCase { const char* name; const Signal* x; float resonance; double inputPeak, allowDb; };
+                const std::array<PeakCase, 4> cases { { { "click", &click, 1.0f, 0.5, 0.5 },
+                                                        { "sweep 50 Hz - 2 kHz", &sweep, 1.0f, 0.1 * std::sqrt(2.0), 1.0 },
+                                                        { "shout, Resonance 0 %", &shout, 0.0f, 0.5, 1.5 },
+                                                        { "shout, Resonance 100 %", &shout, 1.0f, 0.5, 1.5 } } };
+                std::array<std::array<double, cases.size()>, ChamberBank::numRooms> peaks {};
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    for (size_t k = 0; k < cases.size(); ++k)
+                    {
+                        double worst = -200.0;
+                        for (int speaker = 0; speaker < 3; ++speaker)
+                        {
+                            auto s = on;
+                            s.amount = 1.0f;
+                            s.resonance = cases[k].resonance;
+                            s.edge = 0.0f;
+                            s.width = 0.0f;
+                            s.room = r;
+                            s.speaker = speaker;
+                            const auto wet = wetOf(s, dual(*cases[k].x));
+                            float top = 0.0f;
+                            for (const float v : wet)
+                                top = std::max(top, std::abs(v));
+                            worst = std::max(worst, toDb(top / cases[k].inputPeak));
+                        }
+                        peaks[static_cast<size_t>(r)][k] = worst;
+                    }
+                for (size_t k = 0; k < cases.size(); ++k)
+                {
+                    double designed = -200.0;
+                    for (int r = 0; r < 8; ++r)
+                        designed = std::max(designed, peaks[static_cast<size_t>(r)][k]);
+                    std::printf("  wet peak re the input (%s): first eight up to %+.1f dB; Party Wall %+.1f, Tower Block %+.1f dB\n",
+                                cases[k].name, designed, peaks[8][k], peaks[9][k]);
+                    for (int r = 8; r < ChamberBank::numRooms; ++r)
+                        check(peaks[static_cast<size_t>(r)][k] <= designed + cases[k].allowDb,
+                              juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + " peaks no higher than the other rooms ("
+                                  + cases[k].name + ")");
+                }
+            }
+
+            // Resonance's level hold stays clear of its limit in every room (the clip audit: Tower
+            // Block at Resonance 100 % asks for the most, about 11 of the 12 dB). A room that needed
+            // more would change level at the ends of the knob instead of holding it.
+            {
+                double worstHold = 0.0;
+                int worstRoom = 0;
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    for (const float u : { 0.0f, 1.0f })
+                    {
+                        auto s = on;
+                        s.amount = 1.0f;
+                        s.room = r;
+                        s.resonance = u;
+                        auto m = prepared(s);
+                        runChamber(*m, dual(Signal(2048, 0.0f)), { 512 }, false);
+                        if (std::abs(m->getLevelHoldDb()) > std::abs(worstHold))
+                        {
+                            worstHold = m->getLevelHoldDb();
+                            worstRoom = r;
+                        }
+                    }
+                std::printf("  Resonance's level hold: at most %+.1f dB (%s), limit +-%.0f dB\n", worstHold,
+                            Params::chamberRoomNames[static_cast<size_t>(worstRoom)], ChamberModule::c_maxLevelHoldDb);
+                check(std::abs(worstHold) <= ChamberModule::c_maxLevelHoldDb - 0.25,
+                      "Resonance's level hold stays 0.25 dB clear of its limit (" + juce::String(worstHold, 2) + " dB)");
+            }
+        }
+
+        // --- Off: the dry, bit for bit, and the Boom hook passes untouched.
+        {
+            ChamberSettings off;
+            auto m = prepared(off);
+            const auto out = runChamber(*m, voiceStereo, { 480 }, true);
+            check(out.l == voiceStereo.l && out.r == voiceStereo.r, "Off is a bit-exact pass");
+            auto l = voiceStereo.l, r = voiceStereo.r;
+            m->processReturn(l.data(), r.data(), static_cast<int>(l.size()));
+            check(l == voiceStereo.l && r == voiceStereo.r, "the Boom hook is a bit-exact pass while Off");
+            check(m->getLatencySamples() == 0, "CHAMBER has no latency");
+        }
+
+        // --- Block-size independence (with changes of every control on the way) and clone exactness.
+        {
+            auto s = on;
+            s.width = 0.6f;
+            s.edge = 0.5f;
+            const auto changes = [&](ChamberModule& m)
+            {
+                return [&m, s](int start) mutable
+                {
+                    // Every change lands on a boundary every block pattern below shares.
+                    if (start == 7680)  { s.room = 0; s.resonance = 0.9f; m.setParams(s); }
+                    if (start == 15360) { s.speaker = 2; s.amount = 0.8f; s.width = 0.0f; m.setParams(s); }
+                    if (start == 23040) { s.boom = 3; s.edge = 0.0f; s.width = 1.0f; s.room = 6; m.setParams(s); }
+                };
+            };
+            Stereo reference;
+            bool same = true;
+            for (const auto& blocks : std::vector<std::vector<int>> { { 512 }, { 1 }, { 64 }, { 480 }, { 7680 }, { 32, 160, 96, 192 } })
+            {
+                auto m = prepared(s);
+                const auto out = runChamber(*m, voiceStereo, blocks, true, changes(*m));
+                if (reference.l.empty())
+                    reference = out;
+                else
+                    same = same && out.l == reference.l && out.r == reference.r;
+            }
+            check(same, "bit-identical at host blocks of 1, 64, 480, 512, 7680 and mixed");
+
+            // A clone mid-ring, during a room change and a Resonance glide, continues bit for bit.
+            auto a = prepared(s);
+            const int cut = 7680 + 700;
+            const Stereo first { Signal(voiceStereo.l.begin(), voiceStereo.l.begin() + cut), Signal(voiceStereo.r.begin(), voiceStereo.r.begin() + cut) };
+            const Stereo rest { Signal(voiceStereo.l.begin() + cut, voiceStereo.l.end()), Signal(voiceStereo.r.begin() + cut, voiceStereo.r.end()) };
+            runChamber(*a, first, { 128 }, true, changes(*a));
+            auto b = prepared(on);   // other settings: the clone takes the source's
+            b->copyStateFrom(*a);
+            const auto ya = runChamber(*a, rest, { 77 }, true);
+            const auto yb = runChamber(*b, rest, { 77 }, true);
+            check(ya.l == yb.l && ya.r == yb.r, "copyStateFrom mid-ring (room change and Resonance glide running) is bit-exact");
+            std::printf("  clone state: %.0f KB at 48 kHz\n", static_cast<double>(a->getConvolver().getStateBytes()) / 1024.0);
+        }
+
+        // --- Width: the mono fold-down is the same at every Width; the room's own stereo at 100 %.
+        {
+            std::array<Stereo, 2> outs;
+            for (int k = 0; k < 2; ++k)
+            {
+                auto s = on;
+                s.amount = 1.0f;
+                s.width = k == 0 ? 0.0f : 1.0f;
+                auto m = prepared(s);
+                outs[static_cast<size_t>(k)] = runChamber(*m, voiceStereo, { 512 }, true);
+            }
+            const auto mono = [](const Stereo& s)
+            {
+                Signal m(s.l.size());
+                for (size_t i = 0; i < m.size(); ++i)
+                    m[i] = 0.5f * (s.l[i] + s.r[i]);
+                return m;
+            };
+            const double m0 = toDb(rmsOf(mono(outs[0]))), m1 = toDb(rmsOf(mono(outs[1])));
+            double ll = 0.0, rr = 0.0, lr = 0.0;
+            for (size_t i = 0; i < outs[1].l.size(); ++i)
+            {
+                ll += static_cast<double>(outs[1].l[i]) * outs[1].l[i];
+                rr += static_cast<double>(outs[1].r[i]) * outs[1].r[i];
+                lr += static_cast<double>(outs[1].l[i]) * outs[1].r[i];
+            }
+            const double corr = lr / std::sqrt(std::max(ll * rr, 1.0e-30));
+            std::printf("  Width: mono fold-down %.2f dB (0 %%) vs %.2f dB (100 %%); L/R correlation at 100 %%: %.2f (dry at -6 dB included)\n",
+                        m0, m1, corr);
+            check(std::abs(m1 - m0) < 1.0, "Width's mono fold-down within 1 dB of Width 0");
+            check(outs[0].l == outs[0].r, "Width 0 is mono");
+            check(corr < 0.95, "Width 100 % is stereo");
+        }
+
+        // --- Resonance changes the ring, not the level; a longer ring after the voice stops.
+        {
+            const Stereo burst { Signal(voice.begin(), voice.begin() + voice.size() / 2), {} };
+            Stereo padded = burst;
+            padded.l.resize(voice.size(), 0.0f);
+            padded.r = padded.l;
+            std::array<double, 3> level {}, tail {};
+            const std::array<float, 3> settings { 0.0f, 0.4f, 1.0f };
+            for (size_t k = 0; k < settings.size(); ++k)
+            {
+                auto s = on;
+                s.amount = 1.0f;
+                s.width = 0.0f;
+                s.room = 1;
+                s.resonance = settings[k];
+                auto m = prepared(s);
+                const auto out = runChamber(*m, padded, { 512 }, false);
+                level[k] = toDb(rmsOf(out.l, voice.size() / 8, voice.size() / 2));
+                const size_t stop = voice.size() / 2;
+                tail[k] = toDb(rmsOf(out.l, stop + static_cast<size_t>(0.15 * sr), stop + static_cast<size_t>(0.45 * sr)));
+            }
+            std::printf("  Resonance 0 / 40 / 100 %%: level %.1f / %.1f / %.1f dB, tail 150-450 ms %.1f / %.1f / %.1f dB\n",
+                        level[0], level[1], level[2], tail[0], tail[1], tail[2]);
+            // One sung pitch (110 Hz harmonics) can sit on a room's modes, which ring louder as the
+            // decay lengthens; on broadband voice material the level holds within 1.5 dB (checked per
+            // room above, and measured on real takes in the parameter audit).
+            check(std::abs(level[0] - level[1]) < 2.0 && std::abs(level[2] - level[1]) < 2.0, "Resonance holds the level on one pitch (+-2 dB)");
+            check(tail[2] > tail[0] + 6.0, "Resonance lengthens the ring");
+        }
+
+        // --- Boom: the shelf after the whole chain, as designed, once it has glided in.
+        {
+            for (int boom = 1; boom <= 3; ++boom)
+            {
+                auto s = on;
+                s.boom = boom;
+                auto m = prepared(s);
+                for (const double hz : { 40.0, 1000.0 })
+                {
+                    auto l = makeSine(sr, 1.0, hz, 0.1);
+                    auto r = l;
+                    m->processReturn(l.data(), r.data(), static_cast<int>(l.size()));
+                    const auto ref = makeSine(sr, 1.0, hz, 0.1);
+                    const double got = toDb(rmsOf(l, l.size() / 2) / rmsOf(ref, ref.size() / 2));
+                    const double want = Biquad::lowShelf(sr, ChamberModule::c_boomHz, ChamberModule::c_boomQ,
+                                                         ChamberModule::c_boomDb[static_cast<size_t>(boom)]).magnitudeDb(hz, sr);
+                    check(std::abs(got - want) < 0.2, "Boom " + juce::String(Params::chamberBoomNames[static_cast<size_t>(boom)]) + " at "
+                                                          + juce::String(hz, 0) + " Hz: " + juce::String(got, 2) + " dB (design "
+                                                          + juce::String(want, 2) + ")");
+                    check(r == l, "Boom is the same on both channels");
+                }
+            }
+        }
+
+        // --- Through the plug-in: latency unchanged with CHAMBER On anywhere; Off anywhere renders the
+        //     same bit for bit; a 1.0 state (no CHAMBER rows) loads with CHAMBER Off after PITCH.
+        {
+            auto p = makeProcessor(sr, 512);
+            const int base = p->getLatencySamples();
+            bool constant = true;
+            for (int slot : { 0, 1, 7, 14 })
+            {
+                setParam(*p, Params::chamberOn, 1.0f);
+                setParam(*p, Params::chamberPos, static_cast<float>(slot));
+                setParam(*p, Params::chamberWidth, 80.0f);
+                render(*p, dual(makeVoice(sr, 0.1)), 512);
+                constant = constant && p->getLatencySamples() == base;
+            }
+            check(constant, "plug-in latency is the same with CHAMBER On in any slot");
+
+            const auto renderAt = [&](int slot)
+            {
+                auto q = makeProcessor(sr, 512);
+                setParam(*q, Params::chamberPos, static_cast<float>(slot));
+                restart(*q, sr, 512);
+                return render(*q, voiceStereo, 512);
+            };
+            const auto a = renderAt(1), b = renderAt(14), c = renderAt(0);
+            check(a.l == b.l && a.r == b.r && a.l == c.l && a.r == c.r, "CHAMBER Off: the same output in every slot, bit for bit");
+
+            // A 1.0 state: no CHAMBER rows, a reordered chain.
+            auto src = makeProcessor(sr, 512);
+            setOrder(*src, orderFromCodes("PI CL DS RO SH GR SW DT VO RM EN TA SU OV"));
+            juce::MemoryBlock full;
+            src->getStateInformation(full);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(full.getData(), static_cast<int>(full.getSize()));
+            for (auto* e = xml->getFirstChildElement(); e != nullptr;)
+            {
+                auto* next = e->getNextElement();
+                if (e->getStringAttribute("id").startsWith("chamber"))
+                    xml->removeChildElement(e, true);
+                e = next;
+            }
+            juce::MemoryBlock old;
+            juce::AudioProcessor::copyXmlToBinary(*xml, old);
+            auto dst = makeProcessor(sr, 512);
+            setParam(*dst, Params::chamberOn, 1.0f);
+            setParam(*dst, Params::chamberPos, 9.0f);
+            dst->setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+            check(getParam(*dst, Params::chamberOn) < 0.5f && juce::roundToInt(getParam(*dst, Params::chamberPos)) == 1,
+                  "a 1.0 state loads with CHAMBER Off, right after PITCH");
+            render(*dst, dual(makeVoice(sr, 0.2)), 512);
+            check(dst->getChain().getTopology().order == orderFromCodes("PI CL DS RO SH GR SW DT VO RM EN TA SU OV"), "a 1.0 state keeps its order");
+            check(dst->getLatencySamples() == base, "a 1.0 state keeps its latency");
+        }
+
+        // --- CPU (one instance, steady state, block 512).
+        {
+            for (double fs : { 48000.0, 192000.0 })
+            {
+                const double secs = g_quick ? 2.0 : 5.0;
+                const auto x = dual(makeVoice(fs, secs));
+                for (const float width : { 0.0f, 1.0f })
+                {
+                    auto s = on;
+                    s.width = width;
+                    ChamberModule m;
+                    m.setParams(s);
+                    m.prepare(fs, 512);
+                    runChamber(m, dual(makeVoice(fs, 0.3)), { 512 }, width > 0.0f);
+                    const auto t0 = std::chrono::steady_clock::now();
+                    runChamber(m, x, { 512 }, width > 0.0f);
+                    const double pct = 100.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / secs;
+                    std::printf("  CPU at %.0f kHz, Width %.0f %%: %.2f %% of a core\n", fs / 1000.0, 100.0 * width, pct);
+                    static const bool onSharedRunner = std::getenv("CI") != nullptr;
+                    if (!onSharedRunner)
+                        check(pct < (fs > 100000.0 ? 12.0 : 3.0), "CHAMBER CPU " + juce::String(pct, 2) + " %");
+                }
+            }
+        }
+
+        // --- The worst block: a Room change (or Width turning on) primes the new room's current
+        //     partition block at once, on the audio thread, and the 50 ms crossfade runs both
+        //     rooms. 192 kHz, block 256, Width 0.7, a room change every 0.25 s.
+        {
+            const double fs = 192000.0;
+            const int block = 256;
+            const double secs = g_quick ? 2.0 : 4.0;
+            const auto x = dual(makeVoice(fs, secs));
+            auto s = on;
+            s.width = 0.7f;
+            ChamberModule m;
+            m.setParams(s);
+            m.prepare(fs, block);
+            runChamber(m, dual(makeVoice(fs, 0.3)), { block }, true);
+            const int changeEvery = static_cast<int>(0.25 * fs) / block * block;
+            std::vector<double> times;
+            std::vector<bool> isChange;
+            auto last = std::chrono::steady_clock::now();
+            int sinceChange = 1 << 20;   // blocks since the last change (the change block and the next count)
+            int room = s.room;
+            runChamber(m, x, { block }, true, [&](int start)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (start > 0)
+                {
+                    times.push_back(std::chrono::duration<double>(now - last).count());
+                    isChange.push_back(sinceChange <= 1);
+                }
+                ++sinceChange;
+                if (start > 0 && start % changeEvery == 0)
+                {
+                    sinceChange = 0;
+                    room = (room + 3) % ChamberBank::numRooms;
+                    auto t = s;
+                    t.room = room;
+                    m.setParams(t);
+                }
+                last = std::chrono::steady_clock::now();
+            });
+            double steady = 0.0, worstChange = 0.0;
+            int steadyCount = 0;
+            for (size_t i = 0; i < times.size(); ++i)
+            {
+                if (isChange[i])
+                    worstChange = std::max(worstChange, times[i]);
+                else
+                {
+                    steady += times[i];
+                    ++steadyCount;
+                }
+            }
+            steady /= std::max(1, steadyCount);
+            const double blockSecs = block / fs;
+            std::printf("  worst block at 192 kHz, block 256, Width 70 %%: other blocks (crossfades included) mean %.0f us, on a room change %.0f us (%.1f %% of the block, %.1fx)\n",
+                        1.0e6 * steady, 1.0e6 * worstChange, 100.0 * worstChange / blockSecs, worstChange / std::max(1.0e-9, steady));
+            static const bool onSharedRunner = std::getenv("CI") != nullptr;
+            if (!onSharedRunner)
+                check(worstChange < 0.5 * blockSecs, "CHAMBER worst block on a room change " + juce::String(100.0 * worstChange / blockSecs, 1) + " % of the block");
+        }
+    }
+
+    // The audit's limits for CHAMBER's cost to OUTPUT's maximizer (gain reduction it adds, 95th
+    // percentile, against the same chain with CHAMBER off): any room at the worst corner of its
+    // legal settings, and a preset or a roll as it plays. These are not what keeps the output from
+    // clipping (that is the clamp and true-peak pass mark); they catch a change that makes a room
+    // cost the limiter much more than it did when audited. Each is the baseline measured here on
+    // these test signals plus a stated margin, so ordinary changes (Resonance's level hold, the
+    // speaker makeup, the limiter, another compiler) do not trip them; a change that does is a
+    // deliberate re-baseline, recorded in docs/parameter-audit.md ("Clipping and headroom").
+    //   worst corner: +5.8 dB measured (Resonant Chamber, bundled rooms; modelled rooms +4.0), + 1 dB;
+    //   a preset as shipped or a roll: +2.2 dB measured (Iron Tyrant; rolls +1.5), + 1.8 dB.
+    constexpr double c_chamberCornerBaselineDb = 5.8;
+    constexpr double c_chamberMaxAddedGrDb = c_chamberCornerBaselineDb + 1.0;
+    constexpr double c_chamberPresetMaxAddedGrDb = 4.0;
+
+    // CHAMBER through the whole plug-in (docs/parameter-audit.md, "Clipping and headroom"): every
+    // room at the worst corners of its legal settings, every preset that uses CHAMBER (with every
+    // room swapped in) and the dice rolls that land on CHAMBER. The pass mark is the plug-in's own:
+    // finite, under the ceiling (true peak included), OUTPUT's safety clamp never engaged, and
+    // CHAMBER costs the maximizer no more gain reduction than the audit allows. Run once with the
+    // bundled rooms (when the build has them) and once with the modelled rooms.
+    struct ChamberClipRender
+    {
+        bool ok = true;
+        double truePeakDb = -200.0;   // re the ceiling
+        double grP95 = 0.0;           // the maximizer's gain reduction, 95th percentile over active blocks, dB
+        std::uint64_t clamps = 0;
+    };
+
+    ChamberClipRender chamberClipRender(RoarschachAudioProcessor& p, const Stereo& in, double sr, int block)
+    {
+        restart(p, sr, block);
+        std::vector<double> gr;
+        const auto out = render(p, in, block, false, [&](int start)
+        {
+            // (the reduction of the block before this one; the first blocks are the limiter settling)
+            if (start >= 4 * block)
+                gr.push_back(-static_cast<double>(p.getChain().getOutput().getReductionDb()));
+        });
+        ChamberClipRender r;
+        const float ceiling = getParam(p, Params::outCeiling);
+        const auto st = stats(out);
+        r.clamps = p.getChain().getClampCount();
+        r.truePeakDb = toDb(std::max(truePeak(out.l), truePeak(out.r))) - ceiling;
+        r.ok = st.finite && st.peak <= ceilingGain(ceiling) && r.truePeakDb <= 0.2 && r.clamps == 0;
+        std::sort(gr.begin(), gr.end());
+        r.grP95 = gr.empty() ? 0.0 : gr[std::min(gr.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(gr.size())))];
+        return r;
+    }
+
+    void testChamberClip()
+    {
+        using roar::ChamberBank;
+        std::printf("[chamberclip] CHAMBER through the plug-in: every room at its worst legal corners, the presets that use it, the dice\n");
+        const double sr = 48000.0;
+        const int block = 512;
+        const double seconds = g_quick ? 1.5 : 2.5;
+        // The reference voice at its own level (IN levels it), the same voice at 0 dBFS, and a
+        // dense, low, 0 dBFS voice (a shouted, sustained vowel on a low pitch: every room's low-mid
+        // modes at once).
+        auto voice = makeVoice(sr, seconds);
+        auto hot = voice;
+        normalisePeak(hot, 0.98f);
+        auto dense = makeVoice(sr, seconds, 82.0, 11);
+        for (size_t i = 0; i < dense.size(); ++i)
+            dense[i] = std::tanh(4.0f * dense[i]);
+        normalisePeak(dense, 0.98f);
+        const std::vector<std::pair<const char*, Stereo>> signals { { "voice", dual(voice) }, { "hot", dual(hot) }, { "dense", dual(dense) } };
+        const auto roomName = [](int r) { return juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]); };
+        constexpr int numFirstRooms = 8;   // the designed rooms; the rest are recordings (Party Wall, Tower Block)
+
+        std::vector<ChamberBank::Source> sources { ChamberBank::Source::modelled };
+        if (ChamberBank::hasBundledRooms())
+            sources.insert(sources.begin(), ChamberBank::Source::bundled);
+        for (const auto source : sources)
+        {
+            ChamberBank::setForceModelled(source == ChamberBank::Source::modelled);
+            const char* sourceName = source == ChamberBank::Source::bundled ? "bundled" : "modelled";
+
+            // 1. Every room at the corners of its legal settings: Chamber 100 %, Edge 100 %, Width
+            //    100 %, Boom Heavy, Resonance 0 and 100 %, the Tiny and Horn speakers (the audit's
+            //    worst), CHAMBER last in Init (the most gain reduction) and right after PITCH (the
+            //    hottest CHAMBER output). Against the same chain with CHAMBER off.
+            {
+                std::array<double, ChamberBank::numRooms> addedGr {}, worstTp {};
+                worstTp.fill(-200.0);
+                int bad = 0, renders = 0;
+                const std::vector<const char*> orders = g_quick ? std::vector<const char*> { "PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH" }
+                                                                : std::vector<const char*> { "PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH",
+                                                                                             "PI CH CL DS DT VO RM SH GR SW RO EN TA SU OV" };
+                const std::vector<int> speakers = g_quick ? std::vector<int> { 0 } : std::vector<int> { 0, 2 };
+                for (const char* order : orders)
+                    for (const auto& [name, x] : signals)
+                    {
+                        if (g_quick && juce::String(name) == "voice")
+                            continue;
+                        auto ref = makeProcessor(sr, block);
+                        setOrder(*ref, orderFromCodes(order));
+                        setParam(*ref, Params::chamberOn, 0.0f);
+                        const auto off = chamberClipRender(*ref, x, sr, block);
+                        bad += off.ok ? 0 : 1;
+                        for (int r = 0; r < ChamberBank::numRooms; ++r)
+                            for (const float resonance : { 0.0f, 100.0f })
+                                for (const int speaker : speakers)
+                                {
+                                    auto p = makeProcessor(sr, block);
+                                    setOrder(*p, orderFromCodes(order));
+                                    setValues(*p, { { Params::chamberOn, 1.0f }, { Params::chamber, 100.0f }, { Params::chamberResonance, resonance },
+                                                    { Params::chamberDrive, 100.0f }, { Params::chamberWidth, 100.0f },
+                                                    { Params::chamberRoom, static_cast<float>(r) }, { Params::chamberSpeaker, static_cast<float>(speaker) },
+                                                    { Params::chamberBoom, 3.0f } });
+                                    const auto res = chamberClipRender(*p, x, sr, block);
+                                    ++renders;
+                                    if (!res.ok)
+                                    {
+                                        ++bad;
+                                        std::printf("    BROKEN %s, %s, %s, Resonance %.0f, speaker %d: true peak %+.2f dB re ceiling, %llu clamps\n",
+                                                    roomName(r).toRawUTF8(), name, order, resonance, speaker, res.truePeakDb,
+                                                    static_cast<unsigned long long>(res.clamps));
+                                    }
+                                    addedGr[static_cast<size_t>(r)] = std::max(addedGr[static_cast<size_t>(r)], res.grP95 - off.grP95);
+                                    worstTp[static_cast<size_t>(r)] = std::max(worstTp[static_cast<size_t>(r)], res.truePeakDb);
+                                }
+                    }
+                double firstEight = 0.0;
+                for (int r = 0; r < numFirstRooms; ++r)
+                    firstEight = std::max(firstEight, addedGr[static_cast<size_t>(r)]);
+                std::printf("  %s rooms, worst corners (%d renders): GR CHAMBER adds (p95)", sourceName, renders);
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    std::printf("%s %s %+.1f", r == 0 ? "" : ",", roomName(r).toRawUTF8(), addedGr[static_cast<size_t>(r)]);
+                std::printf(" dB; worst true peak %+.2f dB re ceiling\n", *std::max_element(worstTp.begin(), worstTp.end()));
+                check(bad == 0, juce::String(sourceName) + " rooms at their worst corners: " + juce::String(bad) + " renders over the ceiling or clamped");
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    check(addedGr[static_cast<size_t>(r)] <= c_chamberMaxAddedGrDb,
+                          juce::String(sourceName) + " " + roomName(r) + ": CHAMBER at its worst corner adds "
+                              + juce::String(addedGr[static_cast<size_t>(r)], 1) + " dB of limiting (<= " + juce::String(c_chamberMaxAddedGrDb, 1) + ")");
+                for (int r = numFirstRooms; r < ChamberBank::numRooms; ++r)
+                    check(addedGr[static_cast<size_t>(r)] <= firstEight + 0.5,
+                          juce::String(sourceName) + " " + roomName(r) + " costs the limiter no more than the first eight rooms");
+            }
+
+            // 2. Every preset that uses CHAMBER, as shipped and with every room swapped in (the
+            //    shipped room only in --quick), on the voice and the hot voice.
+            {
+                const auto& presets = PresetManager::getFactoryPresets();
+                int bad = 0, count = 0;
+                double worstShipped = 0.0, worstSwapped = 0.0;
+                juce::String worstShippedName, worstSwappedName;
+                for (size_t i = 0; i < presets.size(); ++i)
+                {
+                    if (presets[i].values.at(Params::chamberOn) < 0.5f)
+                        continue;
+                    ++count;
+                    const int shippedRoom = static_cast<int>(presets[i].values.at(Params::chamberRoom));
+                    for (size_t s = 0; s < 2; ++s)
+                    {
+                        const auto& x = signals[s].second;
+                        auto ref = makeProcessor(sr, block);
+                        ref->setCurrentProgram(static_cast<int>(i));
+                        setParam(*ref, Params::chamberOn, 0.0f);
+                        const auto off = chamberClipRender(*ref, x, sr, block);
+                        for (int r = 0; r < ChamberBank::numRooms; ++r)
+                        {
+                            if (g_quick && r != shippedRoom)
+                                continue;
+                            auto p = makeProcessor(sr, block);
+                            p->setCurrentProgram(static_cast<int>(i));
+                            setParam(*p, Params::chamberRoom, static_cast<float>(r));
+                            const auto res = chamberClipRender(*p, x, sr, block);
+                            if (!res.ok)
+                            {
+                                ++bad;
+                                std::printf("    BROKEN %s in %s (%s): true peak %+.2f dB re ceiling, %llu clamps\n", presets[i].name,
+                                            roomName(r).toRawUTF8(), signals[s].first, res.truePeakDb, static_cast<unsigned long long>(res.clamps));
+                            }
+                            const double added = res.grP95 - off.grP95;
+                            if (r == shippedRoom && added > worstShipped)
+                            {
+                                worstShipped = added;
+                                worstShippedName = juce::String(presets[i].name) + " (" + signals[s].first + ")";
+                            }
+                            if (added > worstSwapped)
+                            {
+                                worstSwapped = added;
+                                worstSwappedName = juce::String(presets[i].name) + " in " + roomName(r) + " (" + signals[s].first + ")";
+                            }
+                        }
+                    }
+                }
+                std::printf("  %s rooms, %d presets with CHAMBER: GR CHAMBER adds (p95) at most %+.1f dB as shipped (%s), %+.1f dB with any room (%s)\n",
+                            sourceName, count, worstShipped, worstShippedName.toRawUTF8(), worstSwapped, worstSwappedName.toRawUTF8());
+                check(bad == 0, juce::String(sourceName) + " rooms: " + juce::String(bad) + " CHAMBER preset renders over the ceiling or clamped");
+                check(worstShipped <= c_chamberPresetMaxAddedGrDb, juce::String(sourceName) + " rooms: a preset's CHAMBER adds "
+                          + juce::String(worstShipped, 1) + " dB of limiting (<= " + juce::String(c_chamberPresetMaxAddedGrDb, 1) + ")");
+                check(worstSwapped <= c_chamberMaxAddedGrDb, juce::String(sourceName) + " rooms: a preset with another room adds "
+                          + juce::String(worstSwapped, 1) + " dB of limiting (<= " + juce::String(c_chamberMaxAddedGrDb, 1) + ")");
+            }
+
+            // 3. ROLL ALL: the rolls that turn CHAMBER on, against the same roll with CHAMBER off.
+            {
+                const int wanted = g_quick ? 4 : 16;
+                int found = 0, bad = 0;
+                double worst = 0.0;
+                std::array<int, ChamberBank::numRooms> rooms {};
+                for (std::uint32_t seed = 1; found < wanted && seed < 400; ++seed)
+                {
+                    auto p = makeProcessor(sr, block);
+                    p->getDice().setSeed(seed);
+                    p->getDice().rollAll();
+                    if (getParam(*p, Params::chamberOn) < 0.5f)
+                        continue;
+                    ++found;
+                    ++rooms[static_cast<size_t>(std::lround(getParam(*p, Params::chamberRoom)))];
+                    const auto res = chamberClipRender(*p, signals[1].second, sr, block);
+                    setParam(*p, Params::chamberOn, 0.0f);
+                    const auto off = chamberClipRender(*p, signals[1].second, sr, block);
+                    bad += res.ok ? 0 : 1;
+                    worst = std::max(worst, res.grP95 - off.grP95);
+                }
+                std::printf("  %s rooms, %d rolls with CHAMBER on (hot voice): GR CHAMBER adds (p95) at most %+.1f dB\n", sourceName, found, worst);
+                check(found == wanted && bad == 0, juce::String(sourceName) + " rooms: " + juce::String(bad) + " rolls with CHAMBER over the ceiling or clamped");
+                check(worst <= c_chamberPresetMaxAddedGrDb, juce::String(sourceName) + " rooms: a roll's CHAMBER adds "
+                          + juce::String(worst, 1) + " dB of limiting (<= " + juce::String(c_chamberPresetMaxAddedGrDb, 1) + ")");
+            }
+        }
+        ChamberBank::setForceModelled(false);
     }
 
     void testCpu()
@@ -2709,10 +6609,18 @@ namespace
             const double fading = measure(0, true);
             std::printf("  %6.0f Hz: Init %.1f %%, worst preset %s %.1f %%, Init reordering continuously (both chains) %.1f %%\n",
                         sr, init, presets[static_cast<size_t>(worstIndex)].name, worst, fading);
-            if (sr == 48000.0)
+            // The budgets are wall-clock times, so they are only enforced on a quiet machine: shared CI
+            // runners (CI set) vary by several points from run to run, so there they are reported only.
+            // Real time (below) is checked everywhere.
+            static const bool onSharedRunner = std::getenv("CI") != nullptr;
+            if (sr == 48000.0 && !onSharedRunner)
             {
                 check(init <= 12.0, "Init CPU " + juce::String(init, 1) + " % (<= 12 %)");
                 check(worst <= 25.0, "worst preset CPU " + juce::String(worst, 1) + " % (<= 25 %)");
+            }
+            else if (sr == 48000.0)
+            {
+                std::printf("  CPU budgets reported only on a shared runner (Init <= 12 %%, worst <= 25 %%)\n");
             }
             check(worst < 100.0, "not real time at " + juce::String(sr));
         }
@@ -3171,6 +7079,22 @@ namespace
             q->getStateInformation(again);
             check(again == state, "state round trip is stable");
 
+            // Frozen keeps its colour with the session (the colour mood's axes), and a reload brings it back.
+            {
+                check(!q->getCreatureColour().has_value(), "no frozen colour is kept until one is set");
+                q->setCreatureColour(std::array<float, 4> { 0.8f, 0.25f, 0.0f, 0.5f });
+                juce::MemoryBlock withColour;
+                q->getStateInformation(withColour);
+                auto c = makeProcessor(48000.0, 512);
+                c->setStateInformation(withColour.getData(), static_cast<int>(withColour.getSize()));
+                const auto kept = c->getCreatureColour();
+                check(kept.has_value() && std::abs((*kept)[0] - 0.8f) < 1.0e-3f && std::abs((*kept)[1] - 0.25f) < 1.0e-3f
+                          && std::abs((*kept)[2]) < 1.0e-3f && std::abs((*kept)[3] - 0.5f) < 1.0e-3f && c->isCreatureFrozen(),
+                      "state round trip: the frozen colour comes back with the session");
+                q->setCreatureColour(std::nullopt);
+                check(!q->getCreatureColour().has_value(), "Live clears the kept colour");
+            }
+
             // An older session without a creature keeps this instance's one (and saves it from now on).
             auto r = makeProcessor(48000.0, 512);
             std::unique_ptr<juce::XmlElement> xml(juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize())));
@@ -3192,7 +7116,10 @@ namespace
             {
                 std::unique_ptr<juce::AudioProcessorEditor> editorBase(q->createEditor());
                 auto& view = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get()));
-                check(view.isCreatureFrozen && view.setCreatureFrozen && view.resetCreature, "the creature menu is wired");
+                check(view.isCreatureFrozen && view.setCreatureFrozen && view.resetCreature && view.keepCreatureColour, "the creature menu is wired");
+                view.keepCreatureColour(std::array<float, 4> { 0.5f, 0.0f, 0.0f, 0.0f });
+                check(q->getCreatureColour().has_value(), "the menu keeps the frozen colour with the session");
+                view.keepCreatureColour(std::nullopt);
                 check(view.isCreatureFrozen(), "the menu reads the mode");
                 view.setCreatureFrozen(false);
                 check(!q->isCreatureFrozen(), "the menu sets the mode");
@@ -3206,6 +7133,1239 @@ namespace
             check(newSeed != seed || seed == 0u, "Reset grows a new creature");
         }
     }
+
+    //==========================================================================
+    // The creature view's motion (the jaw spring, the head, the audio forces), the quality
+    // governor, the baked noise, and the renderer's GL lifetime.
+
+    // Reversals of y whose swing is at least `prominence` (a peak or trough counts only once the
+    // signal has moved that far back from it).
+    int countReversals(const std::vector<float>& y, float prominence)
+    {
+        int reversals = 0, dir = 0;
+        float ext = y.empty() ? 0.0f : y.front();
+        for (float v : y)
+        {
+            if (dir >= 0)
+            {
+                if (v > ext) ext = v;
+                else if (ext - v >= prominence) { if (dir > 0) ++reversals; dir = -1; ext = v; }
+                else if (dir == 0 && v < ext) {}
+            }
+            if (dir <= 0)
+            {
+                if (v < ext && dir < 0) ext = v;
+                else if (v - ext >= prominence) { if (dir < 0) ++reversals; dir = 1; ext = v; }
+            }
+        }
+        return reversals;
+    }
+
+    // Steps a jaw at `fps` through an input function of time; returns y per frame.
+    std::vector<float> runJaw(roar::JawMotion& jaw, double fps, double seconds,
+                              const std::function<void(double, float&, float&, float&)>& input)
+    {
+        std::vector<float> ys;
+        const int n = static_cast<int>(std::lround(seconds * fps));
+        for (int i = 0; i < n; ++i)
+        {
+            float x = 0, xf = 0, heat = 0;
+            input(i / fps, x, xf, heat);
+            jaw.step(static_cast<float>(1.0 / fps), x, xf, heat, 0.5f);
+            ys.push_back(jaw.y);
+        }
+        return ys;
+    }
+
+    // (y[i] is the state after step i, at time (i + 1) / fps)
+    float sampleAt(const std::vector<float>& y, double fps, double t)
+    {
+        const double i = std::clamp(t * fps - 1.0, 0.0, static_cast<double>(y.size() - 1));
+        const auto i0 = static_cast<size_t>(i);
+        const auto i1 = std::min(i0 + 1, y.size() - 1);
+        return static_cast<float>(y[i0] + (y[i1] - y[i0]) * (i - static_cast<double>(i0)));
+    }
+
+    void testMotion()
+    {
+        std::printf("[motion] jaw spring, head, audio forces, quality governor, noise\n");
+        using roar::JawMotion;
+
+        const auto flap = [](double t, float& x, float& xf, float&)
+        {
+            const bool hi = std::fmod(t * 4.5, 1.0) < 0.5;
+            x = hi ? 0.85f : 0.45f;
+            xf = hi ? 0.85f : 0.2f;
+        };
+        const auto stepOpen = [](double, float& x, float& xf, float&) { x = xf = 0.8f; };
+
+        std::map<double, std::vector<float>> flapAt, openAt;
+        for (const double fps : { 30.0, 60.0, 144.0 })
+        {
+            const auto tag = " (" + juce::String(fps, 0) + " fps)";
+
+            // 1. No flap through 4.5 Hz syllables.
+            {
+                JawMotion j;
+                const auto y = runJaw(j, fps, 3.0, flap);
+                flapAt[fps] = y;
+                const double mean = std::accumulate(y.begin(), y.end(), 0.0) / static_cast<double>(y.size());
+                const double rate = countReversals(y, 0.08f) / 3.0;
+                if (fps == 60.0)
+                    std::printf("  syllables at 4.5 Hz: %.2f reversals/s, mean opening %.2f\n", rate, mean);
+                check(rate <= 1.0, "jaw: no flap" + tag + ", " + juce::String(rate, 2) + " reversals/s");
+                check(mean >= 0.55, "jaw: mean opening through syllables" + tag + " " + juce::String(mean, 2));
+            }
+            // 2. Step open: heavy, no overshoot.
+            JawMotion j;
+            const auto up = runJaw(j, fps, 3.0, stepOpen);
+            openAt[fps] = up;
+            {
+                const float fin = up.back();
+                float peak = 0.0f;
+                double t10 = -1, t90 = -1;
+                for (size_t i = 0; i < up.size(); ++i)
+                {
+                    peak = std::max(peak, up[i]);
+                    if (t10 < 0 && up[i] >= 0.1f * fin) t10 = static_cast<double>(i + 1) / fps;
+                    if (t90 < 0 && up[i] >= 0.9f * fin) t90 = static_cast<double>(i + 1) / fps;
+                }
+                const double rise = t90 - t10;
+                if (fps == 60.0)
+                    std::printf("  step open: 10-90 %% rise %.2f s, overshoot %.1f %%\n", rise, 100.0 * (peak / fin - 1.0));
+                check(rise >= 0.12 && rise <= 0.45, "jaw: 10-90 % rise 0.12-0.45 s" + tag + " (" + juce::String(rise, 2) + ")");
+                check(peak <= fin * 1.02f, "jaw: overshoot <= 2 %" + tag);
+            }
+            // 2b. The onset keeps up with the sound: a full-scale step reaches half its visible
+            // opening (the shader opens by y^1.6) within 150 ms at every jaw mass.
+            for (const float sizeJ : { 0.0f, 0.5f, 1.0f })
+            {
+                JawMotion o;
+                const int n = static_cast<int>(std::lround(fps));
+                std::vector<float> vis;
+                for (int i = 0; i < n; ++i)
+                {
+                    o.step(static_cast<float>(1.0 / fps), 0.95f, 0.95f, 0.0f, sizeJ);
+                    vis.push_back(std::pow(o.y, 1.6f));
+                }
+                const float plateau = vis.back();
+                double t50 = -1.0;
+                for (size_t i = 0; i < vis.size() && t50 < 0; ++i)
+                    if (vis[i] >= 0.5f * plateau) t50 = static_cast<double>(i + 1) / fps;
+                check(t50 > 0.0 && t50 <= 0.150, "jaw: half the visible opening within 150 ms at sizeJ " + juce::String(sizeJ, 1) + tag
+                                                     + " (" + juce::String(1000.0 * t50, 0) + " ms)");
+            }
+            // 3. Step close.
+            {
+                const float peak = j.y;
+                double below = -1.0;
+                float lowest = 1.0f, rebound = 0.0f;
+                bool touched = false;
+                const auto down = runJaw(j, fps, 2.0, [](double, float& x, float& xf, float&) { x = xf = 0.0f; });
+                for (size_t i = 0; i < down.size(); ++i)
+                {
+                    lowest = std::min(lowest, down[i]);
+                    if (below < 0 && down[i] < 0.1f * peak) below = static_cast<double>(i + 1) / fps;
+                    if (down[i] <= 1.0e-4f) touched = true;
+                    else if (touched) rebound = std::max(rebound, down[i]);
+                }
+                if (fps == 60.0)
+                    std::printf("  step close: under 10 %% after %.2f s, rebound %.3f\n", below, rebound);
+                check(below > 0.0 && below <= 0.8, "jaw: closes to 10 % within 0.8 s" + tag + " (" + juce::String(below, 2) + ")");
+                check(lowest >= 0.0f, "jaw: never below shut" + tag);
+                check(rebound <= 0.02f, "jaw: rebound <= 0.02" + tag + " (" + juce::String(rebound, 3) + ")");
+            }
+            // 4. A roar holds through a 150 ms dip.
+            {
+                JawMotion r;
+                const auto y = runJaw(r, fps, 2.2, [](double t, float& x, float& xf, float&)
+                {
+                    const bool dip = t >= 1.5 && t < 1.65;
+                    x = dip ? 0.6f : 1.0f;
+                    xf = dip ? 0.4f : 1.0f;
+                });
+                const float peak = sampleAt(y, fps, 1.49);
+                float through = 1.0f;
+                for (double t = 1.5; t < 1.9; t += 1.0 / fps)
+                    through = std::min(through, sampleAt(y, fps, t));
+                check(through >= 0.85f * peak, "jaw: roar holds through a dip" + tag + " (" + juce::String(through / peak, 2) + " of peak)");
+            }
+            // 5. A bark (90 ms of voice, through the plug-in's envelopes) opens part way and shuts.
+            {
+                JawMotion b;
+                double env = 0.0, envFast = 0.0;
+                const auto y = runJaw(b, fps, 1.3, [&env, &envFast, fps](double t, float& x, float& xf, float&)
+                {
+                    // the 5 ms / 120 ms and 5 ms / 30 ms envelopes of a full-scale 90 ms burst, per frame
+                    const double a = t < 0.09 ? 1.0 : 0.0, dt = 1.0 / fps;
+                    env += (a > env ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.120)) * (a - env);
+                    envFast += (a > envFast ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.030)) * (a - envFast);
+                    x = roar::InModule::jawOf(static_cast<float>(env));
+                    xf = roar::InModule::jawOf(static_cast<float>(envFast));
+                });
+                const float peak = *std::max_element(y.begin(), y.end());
+                const float after = sampleAt(y, fps, 1.09);
+                if (fps == 60.0)
+                    std::printf("  90 ms bark: peak %.2f, %.3f a second later\n", peak, after);
+                // (the onset is fast now: a bark snaps the mouth open while it sounds, then it shuts)
+                check(peak >= 0.5f && peak <= 1.05f, "jaw: bark peak 0.5-1.05" + tag + " (" + juce::String(peak, 2) + ")");
+                check(after < 0.05f, "jaw: shut within 1 s of a bark" + tag);
+            }
+            // 8. Silence from any state.
+            {
+                JawMotion s;
+                runJaw(s, fps, 1.0, [](double, float& x, float& xf, float& h) { x = xf = 1.0f; h = 1.0f; });
+                runJaw(s, fps, 1.2, [](double, float& x, float& xf, float&) { x = xf = 0.0f; });
+                check(s.y < 0.02f && std::abs(s.v) < 0.05f, "jaw: shut and still after 1.2 s of silence" + tag + " (" + juce::String(s.y, 3) + ")");
+            }
+        }
+        // 5b. Speech: phrases of different loudness with 4 Hz syllables. The jaw follows the phrase,
+        // not the syllables (few reversals), but loud and soft phrases open differently.
+        for (const double fps : { 30.0, 60.0, 144.0 })
+        {
+            JawMotion sp;
+            std::mt19937 rng(7);
+            std::uniform_real_distribution<float> uni(0.0f, 1.0f);
+            double env = 0.0, envFast = 0.0, phraseEnd = 0.0, nextPhrase = 0.0;
+            bool inPhrase = false;
+            float loud = 0.7f;
+            std::vector<float> y;
+            for (int i = 0; i < static_cast<int>(60.0 * fps); ++i)
+            {
+                const double t = i / fps, dt = 1.0 / fps;
+                if (inPhrase && t >= phraseEnd) { inPhrase = false; nextPhrase = t + 0.3 + 0.6 * uni(rng); }
+                if (! inPhrase && t >= nextPhrase) { inPhrase = true; phraseEnd = t + 1.0 + 2.5 * uni(rng); loud = 0.4f + 0.55f * uni(rng); }
+                const double a = inPhrase ? loud * (1.0 - 0.85 * (0.5 + 0.5 * std::cos(6.283185307 * 4.0 * t))) : 0.0;
+                env += (a > env ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.120)) * (a - env);
+                envFast += (a > envFast ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.030)) * (a - envFast);
+                sp.step(static_cast<float>(dt), static_cast<float>(env), static_cast<float>(envFast), 0.0f, 0.5f);
+                y.push_back(sp.y);
+            }
+            double m = 0.0, m2 = 0.0;
+            int c = 0;
+            for (const float v : y)
+                if (v > 0.3f) { m += v; m2 += v * v; ++c; }
+            m /= std::max(c, 1);
+            const double sd = std::sqrt(std::max(0.0, m2 / std::max(c, 1) - m * m));
+            const double rate = countReversals(y, 0.08f) / 60.0;
+            if (fps == 60.0)
+                std::printf("  speech: %.2f reversals/s, opening sd %.3f while open\n", rate, sd);
+            const auto tag = " (" + juce::String(fps, 0) + " fps)";
+            check(rate <= 1.0, "jaw: speech reversals <= 1/s" + tag + " (" + juce::String(rate, 2) + ")");
+            check(sd >= 0.15, "jaw: speech opening varies with the phrase, sd >= 0.15" + tag + " (" + juce::String(sd, 3) + ")");
+        }
+        // 6. Frame-rate independence (30 vs 144 fps, resampled).
+        {
+            float worstFlap = 0.0f, worstOpen = 0.0f;
+            for (double t = 0.0; t < 2.95; t += 0.01)
+            {
+                worstFlap = std::max(worstFlap, std::abs(sampleAt(flapAt[30.0], 30.0, t) - sampleAt(flapAt[144.0], 144.0, t)));
+                worstOpen = std::max(worstOpen, std::abs(sampleAt(openAt[30.0], 30.0, t) - sampleAt(openAt[144.0], 144.0, t)));
+            }
+            const float worst = std::max(worstFlap, worstOpen);
+            std::printf("  30 vs 144 fps: worst difference %.3f through syllables, %.3f on a step\n", worstFlap, worstOpen);
+            // (the fast onset is two or three frames long at 30 fps: a little more room than the slow spring needed)
+            check(worst <= 0.13f, "jaw: 30 and 144 fps agree within 0.13 (" + juce::String(worst, 3) + ")");
+        }
+        // 7. Robustness.
+        {
+            JawMotion r;
+            const float nan = std::numeric_limits<float>::quiet_NaN(), inf = std::numeric_limits<float>::infinity();
+            const float inputs[] = { nan, inf, -inf, -1.0f, 2.0f, 0.7f };
+            const float dts[] = { 0.0f, 1.0e-6f, 0.5f, 1.0f / 60.0f, nan, -1.0f };
+            bool ok = true;
+            for (float x : inputs)
+                for (float dt : dts)
+                {
+                    r.step(dt, x, x, x, x);
+                    ok = ok && std::isfinite(r.y) && std::isfinite(r.v) && std::isfinite(r.lip) && r.y >= 0.0f && r.y <= 1.05f;
+                }
+            check(ok, "jaw: finite and in range for NaN, inf, negative inputs and odd dt");
+        }
+
+        // The head.
+        {
+            using roar::HeadMotion;
+            const auto rate = [](float sleep, float phrase)
+            {
+                HeadMotion h;
+                int wraps = 0;
+                float last = 0.0f;
+                for (int i = 0; i < 60 * 60; ++i)
+                {
+                    h.step(1.0f / 60.0f, 0.0f, phrase, false, 0.0f, 0.0f, 0.0f, sleep);
+                    if (h.phase < last) ++wraps;
+                    last = h.phase;
+                }
+                return static_cast<float>(wraps) / 60.0f;
+            };
+            const float awake = rate(0.0f, 0.0f), asleep = rate(1.0f, 0.0f), loud = rate(0.0f, 1.0f);
+            std::printf("  breath: %.3f Hz awake, %.3f Hz asleep, %.3f Hz through a loud phrase\n", awake, asleep, loud);
+            check(std::abs(awake - 0.20f) < 0.02f && std::abs(asleep - 0.11f) < 0.02f, "head: breath 0.20 Hz awake, 0.11 Hz asleep");
+            check(loud <= 0.07f, "head: breathing nearly stops while the phrase is loud");
+
+            HeadMotion h;
+            float best = 0.0f;
+            double at = 0.0;
+            for (int i = 0; i < 120; ++i)
+            {
+                h.step(1.0f / 120.0f, 0.0f, 0.5f, i == 0, i == 0 ? 5.0f : 0.0f, 0.0f, 0.0f, 1.0f);
+                if (h.offY < best) { best = h.offY; at = (i + 1) / 120.0; }
+            }
+            std::printf("  onset lunge: deepest %.4f at %.0f ms\n", best, 1000.0 * at);
+            check(at >= 0.15 && at <= 0.25, "head: the lag peaks 150-250 ms after an onset (" + juce::String(1000.0 * at, 0) + " ms)");
+
+            HeadMotion bad;
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            for (int i = 0; i < 10; ++i)
+                bad.step(i % 2 ? nan : 0.5f, nan, nan, true, nan, nan, nan, nan);
+            check(std::isfinite(bad.offY) && std::isfinite(bad.scaleAdd) && std::isfinite(bad.breath) && std::isfinite(bad.follow), "head: finite under NaN input");
+        }
+
+        // The audio forces.
+        {
+            using roar::AudioForces;
+            AudioForces f;
+            AudioForces::Inputs in;
+            std::vector<double> onsetTimes;
+            int lastOnsets = 0;
+            for (int i = 0; i < 600; ++i)   // a sub level jumping every 50 ms for 10 s at 60 fps
+            {
+                in.subLevel = (i / 3) % 2 == 0 ? 1.0f : 0.0f;
+                f.step(1.0f / 60.0f, in);
+                if (f.onsets != lastOnsets) { onsetTimes.push_back(i / 60.0); lastOnsets = f.onsets; }
+            }
+            double minGap = 1e9;
+            int worstSecond = 0;
+            for (size_t k = 1; k < onsetTimes.size(); ++k)
+                minGap = std::min(minGap, onsetTimes[k] - onsetTimes[k - 1]);
+            for (size_t k = 0; k < onsetTimes.size(); ++k)
+            {
+                int n = 0;
+                for (size_t m = k; m < onsetTimes.size() && onsetTimes[m] < onsetTimes[k] + 1.0 - 1e-9; ++m) ++n;
+                worstSecond = std::max(worstSecond, n);
+            }
+            std::printf("  sub onsets: %zu in 10 s, shortest gap %.0f ms, at most %d in a second\n", onsetTimes.size(), 1000.0 * minGap, worstSecond);
+            check(onsetTimes.size() >= 10 && minGap >= 0.12 - 1e-6, "forces: sub onsets keep their 120 ms refractory");
+            check(worstSecond <= 3, "forces: at most 3 flashes a second");
+
+            // Followers: at least 40 ms up and 150 ms down (63 % step response).
+            const auto t63 = [](bool up, const std::function<void(AudioForces::Inputs&, float)>& setIn,
+                                const std::function<float(const AudioForces&)>& out)
+            {
+                AudioForces a;
+                AudioForces::Inputs x;
+                setIn(x, up ? 0.0f : 1.0f);
+                for (int i = 0; i < 2000; ++i) a.step(0.001f, x);
+                setIn(x, up ? 1.0f : 0.0f);
+                for (int i = 1; i < 5000; ++i)
+                {
+                    a.step(0.001f, x);
+                    const float v = out(a);
+                    if (up ? v >= 0.632f : v <= 0.368f)
+                        return i / 1000.0;
+                }
+                return 99.0;
+            };
+            struct Fl { const char* n; std::function<void(AudioForces::Inputs&, float)> in; std::function<float(const AudioForces&)> out; };
+            const std::vector<Fl> fl {
+                { "roar", [](auto& x, float v) { x.roarHeat = v; }, [](const auto& a) { return a.roar; } },
+                { "growl", [](auto& x, float v) { x.growlMod = v; }, [](const auto& a) { return a.growl; } },
+                { "sub", [](auto& x, float v) { x.subLevel = v; }, [](const auto& a) { return a.sub; } },
+                { "swirl", [](auto& x, float v) { x.swirlOn = v; }, [](const auto& a) { return a.swirl; } },
+                { "ensemble", [](auto& x, float v) { x.ensemble = v; }, [](const auto& a) { return a.ensemble; } },
+                { "clip", [](auto& x, float v) { x.clip = v; }, [](const auto& a) { return a.clip; } },
+                { "strain", [](auto& x, float v) { x.strain = v; }, [](const auto& a) { return a.strain; } },
+            };
+            for (const auto& e : fl)
+            {
+                const double a = t63(true, e.in, e.out), r = t63(false, e.in, e.out);
+                check(a >= 0.039 && r >= 0.149, juce::String("forces: ") + e.n + " follower attack " + juce::String(1000.0 * a, 0)
+                                                     + " ms, release " + juce::String(1000.0 * r, 0) + " ms");
+            }
+        }
+
+        // The quality governor (scripted timings).
+        {
+            using roar::QualityGovernor;
+            const float T = 1.0f / 30.0f;
+            const auto warm = [T](QualityGovernor& g) { for (int i = 0; i < 70; ++i) g.step(T, T, -1.0f, false); };
+
+            // (slow by the frame interval, which needs no EMA to build up)
+            QualityGovernor g;
+            g.reset(3);
+            warm(g);
+            int at = -1;
+            for (int i = 0; i < 25 && at < 0; ++i)
+                if (g.step(2.0f * T, T, -1.0f, false) == 2) at = i + 1;
+            check(at == 20, "governor: down one tier after 20 slow frames (" + juce::String(at) + ")");
+            int frames = 0;
+            while (g.step(2.0f * T, T, -1.0f, false) == 2 && frames < 5000) ++frames;
+            const float waited = static_cast<float>(frames + 1) * 2.0f * T;
+            check(waited >= 2.9f && waited <= 4.5f, "governor: a further drop waits out the 3 s drop cooldown (" + juce::String(waited, 1) + " s)");
+            QualityGovernor gg;
+            gg.reset(3);
+            warm(gg);
+            int gpuAt = -1;
+            for (int i = 0; i < 60 && gpuAt < 0; ++i)
+                if (gg.step(T, T, 6.0f, false) == 2) gpuAt = i + 1;
+            check(gpuAt == 20, "governor: a slow GPU (EMA over 4 ms) steps down (" + juce::String(gpuAt) + " frames)");
+
+            // A weak GPU far over budget, at the intervals the view really reports: 70 ms frames are
+            // measurements (the view flags only gaps of 250 ms or more as stalls).
+            {
+                QualityGovernor weak;
+                weak.reset(3);
+                warm(weak);
+                const float raw = 0.070f;
+                const bool stalled = raw > 0.25f;   // (MonsterView: m_lastClamped = raw > c_stallSeconds)
+                float tDrop = -1.0f, tAt = 0.0f;
+                for (int i = 0; i < 200 && tDrop < 0.0f; ++i)
+                {
+                    tAt += raw;
+                    if (weak.step(raw, T, 60.0f, stalled) < 3) tDrop = tAt;
+                }
+                check(tDrop > 0.0f && tDrop <= 1.0f, "governor: 70 ms frames with 60 ms GPU drop within 1 s (" + juce::String(tDrop, 2) + " s)");
+                check(weak.tier == 1, "governor: far over budget drops two tiers at once (" + juce::String(weak.tier) + ")");
+                // (the single pass costs more per pixel than tier 1: measurement never goes below tier 1)
+                for (int i = 0; i < 400; ++i) weak.step(raw, T, 60.0f, stalled);
+                check(weak.tier == 1, "governor: measurement never drops to the single pass (" + juce::String(weak.tier) + ")");
+                QualityGovernor r0;
+                r0.resume(3, 0, true);
+                check(r0.tier == 1, "governor: a remembered tier 0 resumes at tier 1 (" + juce::String(r0.tier) + ")");
+            }
+            // A busy host message thread (21 fps frames, GPU well under budget) costs no quality.
+            {
+                QualityGovernor busy;
+                busy.reset(3);
+                warm(busy);
+                for (int i = 0; i < 600; ++i) busy.step(0.048f, T, 1.0f, false);
+                check(busy.tier == 3, "governor: slow intervals with a fast GPU timer never drop (" + juce::String(busy.tier) + ")");
+            }
+            // A start tier of 0 (no capability) is final.
+            {
+                QualityGovernor none;
+                none.reset(0);
+                for (int i = 0; i < 3000; ++i) none.step(T, T, 0.2f, false);
+                check(none.tier == 0, "governor: a start tier of 0 stays 0");
+            }
+            // Resuming where this GPU settled (a reopened editor).
+            {
+                QualityGovernor r;
+                r.resume(3, 1, true);
+                check(r.tier == 1 && r.startTier == 3 && r.upgradesLocked, "governor: resumes at the settled tier with its lock");
+                QualityGovernor r2;
+                r2.resume(2, 3, false);
+                check(r2.tier == 2, "governor: a resumed tier is capped by the start tier");
+            }
+
+            QualityGovernor u;
+            u.reset(3);
+            warm(u);
+            for (int i = 0; i < 20; ++i) u.step(2.0f * T, T, -1.0f, false);   // to 2
+            for (int i = 0; i < 1300; ++i) u.step(T, T, 1.0f, false);           // the cooldown passes, then 300 fast frames
+            check(u.tier == 3, "governor: back up after 300 fast frames");
+            for (int i = 0; i < 2000; ++i) u.step(T, T, 0.5f, false);
+            check(u.tier == 3, "governor: never above the starting tier");
+            for (int i = 0; i < 60 && u.tier == 3; ++i) u.step(T, T, 8.0f, false);   // to 2 again
+            for (int i = 0; i < 3000 && u.tier < 3; ++i) u.step(T, T, 1.0f, false);   // up to 3
+            const int before = u.tier;
+            for (int i = 0; i < 60 && u.tier == 3; ++i) u.step(T, T, 8.0f, false);   // slow right after the upgrade
+            check(before == 3 && u.tier == 2 && u.upgradesLocked, "governor: a failed upgrade reverts and locks");
+            for (int i = 0; i < 3000; ++i) u.step(T, T, 0.5f, false);
+            check(u.tier == 2, "governor: no upgrade once locked");
+
+            // Relief at the floor: a GPU still slow on tier 1 draws its composite smaller, then fewer
+            // frames; relief is taken back a step at a time once it is fast again.
+            {
+                QualityGovernor f;
+                f.reset(3);
+                warm(f);
+                for (int i = 0; i < 400 && f.tier > 1; ++i) f.step(T, T, 6.0f, false);
+                check(f.tier == 1 && f.relief == 0 && f.lowDivisor() == 2 && f.awakeHz() == 30, "governor: on its lowest tier a GPU starts with no relief");
+                int frames = 0;
+                while (f.relief == 0 && frames < 2000) { f.step(T, T, 6.0f, false); ++frames; }
+                check(f.relief == 1 && f.tier == 1 && f.lowDivisor() == 3 && f.awakeHz() == 30 && frames >= 60,
+                      "governor: still slow on tier 1, the composite is drawn at a third (" + juce::String(frames) + " frames)");
+                for (int i = 0; i < 600; ++i) f.step(T, T, 6.0f, false);
+                check(f.relief == 2 && f.awakeHz() == 20 && f.tier == 1, "governor: still slow, 20 frames a second (relief " + juce::String(f.relief) + ")");
+                for (int i = 0; i < 1500; ++i) f.step(1.0f / 20.0f, 1.0f / 20.0f, 6.0f, false);
+                check(f.relief == 2, "governor: 15 frames a second only where a frame costs over 8 ms (relief " + juce::String(f.relief) + " at 6 ms)");
+                for (int i = 0; i < 600; ++i) f.step(1.0f / 20.0f, 1.0f / 20.0f, 12.0f, false);
+                check(f.relief == 3 && f.awakeHz() == 15 && f.tier == 1, "governor: far over budget on tier 1, 15 frames a second (relief " + juce::String(f.relief) + ")");
+                for (int i = 0; i < 3000; ++i) f.step(1.0f / 15.0f, 1.0f / 15.0f, 12.0f, false);
+                check(f.relief == 3 && f.tier == 1, "governor: relief ends at 15 frames a second on tier 1");
+                // fast again: one step back at a time, each after the 30 s and 300 fast frames; then the tiers
+                int steps = 0, lastRelief = f.relief;
+                bool oneAtATime = true, reliefFirst = true;
+                for (int i = 0; i < 12000 && f.tier < 3; ++i)
+                {
+                    const int tierBefore = f.tier;
+                    f.step(T, T, 0.6f, false);
+                    if (f.relief != lastRelief)
+                    {
+                        oneAtATime = oneAtATime && f.relief == lastRelief - 1;
+                        lastRelief = f.relief;
+                        ++steps;
+                    }
+                    reliefFirst = reliefFirst && (f.tier == tierBefore || f.relief == 0);
+                }
+                check(steps == 3 && oneAtATime && reliefFirst && f.relief == 0 && f.tier == 3,
+                      "governor: fast again, relief is taken back a step at a time and then the tiers are climbed (relief " + juce::String(f.relief) + ", tier " + juce::String(f.tier) + ")");
+
+                // the single pass (all a GPU without the buffer has) is judged from the frame interval
+                QualityGovernor s;
+                s.reset(0);
+                warm(s);
+                for (int i = 0; i < 2000 && s.relief < 2; ++i) s.step(2.0f * T, T, -1.0f, false);
+                check(s.tier == 0 && s.relief == 2, "governor: a slow single pass is given relief from the frame interval (relief " + juce::String(s.relief) + ")");
+                for (int i = 0; i < 600; ++i) s.step(1.0f / 20.0f, 1.0f / 20.0f, 9.0f, false);
+                check(s.tier == 0 && s.relief == 2, "governor: frames on time at 20 a second are not slowed again");
+                QualityGovernor busy1;
+                busy1.reset(1);
+                warm(busy1);
+                for (int i = 0; i < 600; ++i) busy1.step(0.048f, T, 1.0f, false);
+                check(busy1.relief == 0, "governor: slow intervals with a fast GPU timer bring no relief");
+            }
+            // A lock on upgrades belongs to the size of view it was measured at.
+            {
+                QualityGovernor l;
+                l.reset(3);
+                const double large = 7200.0 * 2000.0, small = 1728.0 * 480.0;
+                const auto run = [&l, T](int frames, float ms, double px) { for (int i = 0; i < frames; ++i) { l.noteLoad(px); l.step(T, T, ms, false); } };
+                run(70, -1.0f, large);
+                run(200, 6.0f, large);                                    // down to 2
+                for (int i = 0; i < 3000 && l.tier < 3; ++i) run(1, 1.0f, large);   // back up to 3
+                run(60, 8.0f, large);                                     // slow right after: reverts, locks
+                check(l.tier == 2 && l.upgradesLocked && l.lockPixels == large, "governor: the lock remembers the size of view it was set at");
+                run(3000, 0.6f, large);
+                check(l.tier == 2 && l.upgradesLocked, "governor: at that size the lock holds");
+                run(1, 0.6f, 0.8 * large);
+                check(l.upgradesLocked, "governor: a view a little smaller keeps the lock");
+                run(1, 0.6f, small);
+                check(! l.upgradesLocked, "governor: a much smaller view drops the lock");
+                run(1500, 0.6f, small);
+                check(l.tier == 3, "governor: and climbs again on fast readings (tier " + juce::String(l.tier) + ")");
+
+                // a remembered tier from a much larger view is not resumed on a small one
+                QualityGovernor m;
+                m.resume(3, 1, true, large, 2);
+                check(m.tier == 1 && m.upgradesLocked && m.relief == 2, "governor: resumes the settled tier, its lock and its relief");
+                const int changesBefore = m.changes;
+                m.noteLoad(small);
+                check(m.tier == 3 && ! m.upgradesLocked && m.relief == 0 && m.changes == changesBefore + 1,
+                      "governor: a view much smaller than the one remembered starts from the top (tier " + juce::String(m.tier) + ")");
+                QualityGovernor m2;
+                m2.resume(3, 1, true, large, 0);
+                m2.noteLoad(0.9 * large);
+                check(m2.tier == 1 && m2.upgradesLocked, "governor: a view of about the remembered size resumes where it settled");
+            }
+
+            QualityGovernor z;
+            z.reset(3);
+            warm(z);
+            for (int i = 0; i < 100; ++i) { z.step(T, T, 0.0f, false); z.step(T, T, 300.0f, false); }
+            check(z.tier == 3 && ! z.emaValid, "governor: ignores readings of 0 and over 250 ms");
+
+            QualityGovernor n;
+            n.reset(2);
+            warm(n);
+            for (int i = 0; i < 20; ++i) n.step(2.0f * T, T, -1.0f, false);
+            check(n.tier == 1, "governor: works from the frame interval alone");
+            QualityGovernor c;
+            c.reset(2);
+            warm(c);
+            for (int i = 0; i < 40; ++i) c.step(2.0f * T, T, -1.0f, true);
+            check(c.tier == 2, "governor: ignores stalled frames");
+            QualityGovernor w;
+            w.reset(1);
+            for (int i = 0; i < 40; ++i) w.step(2.0f * T, T, 9.0f, false);
+            check(w.tier == 1, "governor: ignores the first 2 s");
+
+            check(QualityGovernor::startTierFor("AMD Radeon(TM) Graphics", "ATI Technologies Inc.") == 1
+                      && QualityGovernor::startTierFor("AMD Radeon(TM) Vega 8 Graphics", "ATI Technologies Inc.") == 1
+                      && QualityGovernor::startTierFor("AMD Radeon Pro 560 OpenGL Engine", "ATI Technologies Inc.") == 2
+                      && QualityGovernor::startTierFor("AMD Radeon Pro 5500M OpenGL Engine", "ATI Technologies Inc.") == 3
+                      && QualityGovernor::startTierFor("AMD Radeon RX 6800 XT", "ATI Technologies Inc.") == 3,
+                  "governor: integrated and entry-level AMD parts start lower");
+            // (the base Apple parts and a virtual machine's device start a tier under the Pro, Max and
+            // Ultra ones: only an Ultra has been measured, and at the largest editor size its top tier
+            // costs 1.65 ms, which a part with a tenth of its GPU does not have to spare)
+            check(QualityGovernor::startTierFor("Apple M1", "Apple") == 2 && QualityGovernor::startTierFor("Apple M4", "Apple") == 2
+                      && QualityGovernor::startTierFor("Apple Paravirtual device", "Apple") == 2
+                      && QualityGovernor::startTierFor("Apple M1 Pro", "Apple") == 3 && QualityGovernor::startTierFor("Apple M2 Max", "Apple") == 3
+                      && QualityGovernor::startTierFor("Apple M3 Ultra", "Apple") == 3 && QualityGovernor::startTierFor("Apple Software Renderer", "Apple") == 0,
+                  "governor: the base Apple parts start a tier under the Pro, Max and Ultra ones");
+            check(QualityGovernor::startTierFor("NVIDIA GeForce RTX 3060", "NVIDIA Corporation") == 3
+                      && QualityGovernor::startTierFor("Intel(R) Iris(R) Xe Graphics", "Intel") == 2
+                      && QualityGovernor::startTierFor("Intel(R) UHD Graphics 620", "Intel") == 1
+                      && QualityGovernor::startTierFor("llvmpipe (LLVM 15.0.7, 256 bits)", "Mesa") == 0
+                      && QualityGovernor::startTierFor("GDI Generic", "Microsoft Corporation") == 0,
+                  "governor: starting tier from the renderer name");
+        }
+
+        // The baked noise.
+        {
+            const auto t = roar::NoiseTexture::bake(256);
+            const int n = t.size;
+            const auto v = [&](int x, int y) { return t.value[static_cast<size_t>(((y % n + n) % n) * n + ((x % n + n) % n))]; };
+            float interior = 0.0f, seam = 0.0f;
+            for (int y = 0; y < n; ++y)
+                for (int x = 0; x + 1 < n; ++x)
+                    interior = std::max(interior, std::abs(v(x + 1, y) - v(x, y)));
+            for (int i = 0; i < n; ++i)
+                seam = std::max({ seam, std::abs(v(0, i) - v(n - 1, i)), std::abs(v(i, 0) - v(i, n - 1)) });
+            check(seam <= interior, "noise: tiles seamlessly (seam " + juce::String(seam, 4) + ", interior step " + juce::String(interior, 4) + ")");
+            float worst = 0.0f;
+            for (int y = 0; y < n; ++y)
+                for (int x = 0; x < n; ++x)
+                {
+                    const float fx = 0.5f * (v(x + 1, y) - v(x - 1, y)), fy = 0.5f * (v(x, y + 1) - v(x, y - 1));
+                    const size_t i = static_cast<size_t>(y * n + x);
+                    worst = std::max({ worst, std::abs(t.gradX[i] - fx) * roar::NoiseTexture::c_gradScale, std::abs(t.gradY[i] - fy) * roar::NoiseTexture::c_gradScale });
+                }
+            check(worst <= 3.0f / 255.0f, "noise: gradient matches finite differences within 3/255 (" + juce::String(worst * 255.0f, 2) + "/255)");
+            check(t.rgba.size() == static_cast<size_t>(n * n * 4), "noise: packed");
+        }
+
+        // The uniform table: unique names, one per shader uniform.
+        {
+            std::set<std::string> names;
+            for (const auto& s : roar::c_uniformSpecs)
+                names.insert(s.name);
+            check(static_cast<int>(names.size()) == roar::c_numFrameUniforms, "renderer: uniform names are unique");
+        }
+    }
+
+    // The clouds' colour mood: read from the settings, 0 at the defaults, rising across each
+    // module's knob; its colour per axis; the slow spring that carries the view to it.
+    void testMood()
+    {
+        std::printf("[mood] colour mood from the settings, its colours, the spring\n");
+        using M = roar::CreatureMood;
+        const auto hsv = [](const std::array<float, 3>& c, float& h, float& s)
+        {
+            const float mx = std::max(c[0], std::max(c[1], c[2])), mn = std::min(c[0], std::min(c[1], c[2])), d = mx - mn;
+            s = mx > 1.0e-6f ? d / mx : 0.0f;
+            h = 0.0f;
+            if (d > 1.0e-6f)
+            {
+                const int top = c[0] >= c[1] && c[0] >= c[2] ? 0 : (c[1] >= c[2] ? 1 : 2);
+                h = 60.0f * (top == 0 ? std::fmod((c[1] - c[2]) / d + 6.0f, 6.0f) : top == 1 ? (c[2] - c[0]) / d + 2.0f : (c[0] - c[1]) / d + 4.0f);
+            }
+        };
+
+        // the defaults are neutral, and so is the reference colour for them
+        {
+            const auto m = M::evaluate(M::Inputs::defaults());
+            check(m[0] == 0.0f && m[1] == 0.0f && m[2] == 0.0f && m[3] == 0.0f, "mood: the defaults are neutral");
+            const auto k = M::shaderMood(m);
+            check(std::abs(k[0]) < 1.0e-4f && std::abs(k[1]) < 1.0e-4f, "mood: neutral leaves the palette as it is");
+        }
+        // the preset table (and the defaults' preset, Init, is neutral)
+        for (const auto& fp : PresetManager::getFactoryPresets())
+        {
+            const auto in = M::Inputs::read([&fp](const char* id)
+            {
+                const auto it = fp.values.find(id);
+                return it != fp.values.end() ? it->second : Params::defaultOf(id);
+            });
+            const auto m = M::evaluate(in);
+            const auto c = M::referenceColour(m);
+            float h = 0.0f, s = 0.0f;
+            hsv(c, h, s);
+            std::printf("  %-18s aggr %.2f  mach %.2f  eerie %.2f  room %.2f  -> hue %5.1f sat %.2f\n", fp.name, m[0], m[1], m[2], m[3], h, s);
+            if (juce::String(fp.name) == "Init")
+                check(m[0] + m[1] + m[2] + m[3] < 1.0e-4f, "mood: Init is neutral");
+        }
+
+        // each axis rises across its modules' knobs (from the default up), each step a little
+        struct Sweep { const char* name; int axis; std::function<void(M::Inputs&, float)> set; };
+        const std::vector<Sweep> sweeps {
+            { "ROAR drive", M::aggression, [](M::Inputs& in, float x) { in.roar = 45.0f + 55.0f * x; } },
+            { "GROWL depth", M::aggression, [](M::Inputs& in, float x) { in.growl = 25.0f + 75.0f * x; } },
+            { "PITCH drive", M::aggression, [](M::Inputs& in, float x) { in.pitchDrive = 1.0f + 99.0f * x; } },
+            { "PITCH down", M::aggression, [](M::Inputs& in, float x) { in.pitch = -2.0f - 22.0f * x; } },
+            { "SUB drive", M::aggression, [](M::Inputs& in, float x) { in.subDrive = 20.0f + 80.0f * x; } },
+            { "OUTPUT clip", M::aggression, [](M::Inputs& in, float x) { in.outClip = 18.0f * x; } },
+            { "VOCODER gravel", M::machine, [](M::Inputs& in, float x) { in.vocoderOn = 1.0f; in.gravel = 100.0f * x; } },
+            { "RING amount", M::machine, [](M::Inputs& in, float x) { in.ringOn = 1.0f; in.ring = 100.0f * x; } },
+            { "SHIMMER", M::machine, [](M::Inputs& in, float x) { in.shimmer = 18.0f + 82.0f * x; } },
+            { "SWIRL", M::eerie, [](M::Inputs& in, float x) { in.swirl = 21.0f + 79.0f * x; } },
+            { "ENSEMBLE", M::eerie, [](M::Inputs& in, float x) { in.ensemble = 10.0f + 90.0f * x; } },
+            { "OVERTONE", M::eerie, [](M::Inputs& in, float x) { in.overtone = 4.0f + 96.0f * x; } },
+            { "CHAMBER", M::room, [](M::Inputs& in, float x) { in.chamberOn = 1.0f; in.chamber = 100.0f * x; in.chamberResonance = 40.0f; } },
+        };
+        for (const auto& sw : sweeps)
+        {
+            float prev = -1.0f, top = 0.0f;
+            int rises = 0;
+            const int steps = 10;
+            bool monotonic = true;
+            for (int i = 0; i <= steps; ++i)
+            {
+                auto in = M::Inputs::defaults();
+                sw.set(in, static_cast<float>(i) / steps);
+                const float v = M::evaluate(in)[static_cast<size_t>(sw.axis)];
+                monotonic = monotonic && v >= prev - 1.0e-6f;
+                rises += i > 0 && v > prev + 0.01f ? 1 : 0;
+                prev = v;
+                top = v;
+            }
+            // (a single knob reaches a clear share of its axis on its own; the strong moods take several)
+            check(monotonic && rises >= steps / 2 && top > 0.25f,
+                  juce::String("mood: ") + sw.name + " raises its axis across its travel (to " + juce::String(top, 2) + ", " + juce::String(rises) + " steps)");
+        }
+        // Mix: a dry signal is neutral
+        {
+            auto in = M::Inputs::defaults();
+            in.roar = 100.0f;
+            in.vocoderOn = 1.0f;
+            const float wet = M::evaluate(in)[0];
+            in.mix = 0.0f;
+            const auto dry = M::evaluate(in);
+            check(wet > 0.3f && dry[0] == 0.0f && dry[1] == 0.0f, "mood: Mix at 0 (dry) is neutral");
+        }
+
+        // the colours: full aggression is ember red, full machine an electric blue clearly bluer than
+        // the reference, eerie violet, room green-grey; aggression with machine is a rust (never the
+        // eerie violet); all keep the reference's value
+        const auto okHueGap = [](float a, float b) { const float d = std::fmod(std::abs(a - b), 360.0f); return std::min(d, 360.0f - d); };
+        const M::Tone ref = M::reference();
+        const float eerieHue = M::tone({ 0, 0, 1, 0 }).hue;
+        {
+            const auto lumaOf = [](const std::array<float, 3>& c) { return 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2]; };
+            const float l0 = lumaOf({ 0.580f, 0.690f, 0.757f });
+            float h0 = 0.0f, s0 = 0.0f;
+            hsv({ 0.580f, 0.690f, 0.757f }, h0, s0);
+            struct Case { const char* name; M::Axes m; float hLo, hHi, sMin; };
+            const std::vector<Case> cases {
+                { "aggression: ember red", { 1, 0, 0, 0 }, -15.0f, 20.0f, 0.30f },
+                { "machine: electric blue", { 0, 1, 0, 0 }, h0 + 10.0f, 235.0f, 0.32f },
+                { "eerie: violet", { 0, 0, 1, 0 }, 260.0f, 300.0f, 0.20f },
+                { "room: green-grey", { 0, 0, 0, 1 }, 110.0f, 175.0f, 0.12f },
+                { "aggression + machine: rust", { 1, 1, 0, 0 }, -10.0f, 30.0f, 0.25f },
+                { "aggression + room: warm stone", { 0.6f, 0, 0, 1 }, -20.0f, 45.0f, 0.15f },
+                { "machine + room: teal", { 0, 1, 0, 1 }, 175.0f, 200.0f, 0.20f },
+            };
+            for (const auto& cs : cases)
+            {
+                const auto c = M::referenceColour(cs.m);
+                float h = 0.0f, s = 0.0f;
+                hsv(c, h, s);
+                const float hs = h > 300.0f ? h - 360.0f : h;   // (reds either side of 0)
+                check(hs >= cs.hLo && hs <= cs.hHi && s >= cs.sMin && s <= 0.45f && std::abs(lumaOf(c) - l0) < 0.03f,
+                      juce::String("mood: ") + cs.name + " (hue " + juce::String(h, 1) + ", saturation " + juce::String(s, 2) + ", luma " + juce::String(lumaOf(c), 3) + ")");
+            }
+        }
+        // aggression with machine, at any balance, stays well away from the eerie violet (they sit
+        // across the wheel from each other: the stronger keeps its hue, the weaker mutes it)
+        {
+            float nearest = 360.0f, lowest = 1.0f;
+            for (int i = 1; i <= 10; ++i)
+                for (int j = 1; j <= 10; ++j)
+                {
+                    const auto t = M::tone({ i / 10.0f, j / 10.0f, 0, 0 });
+                    if (i >= 4 && j >= 4)   // (both clearly there: lighter moods are on their way from the reference)
+                        nearest = std::min(nearest, okHueGap(t.hue, eerieHue));
+                    lowest = std::min(lowest, t.chroma / ref.chroma);
+                }
+            check(nearest >= 40.0f && lowest >= 0.99f, "mood: aggression with machine stays at least 40 degrees from the eerie violet (nearest "
+                      + juce::String(nearest, 1) + "), and never greyer than the reference (" + juce::String(lowest, 2) + ")");
+            check(okHueGap(M::tone({ 1.0f, 0.79f, 0, 0 }).hue, M::tone({ 1, 0, 0, 0 }).hue) < 15.0f, "mood: strong aggression with some machine stays ember");
+        }
+        // each mood, from none to full: the chroma never drops below the reference's (no grey on the
+        // way) and the hue moves steadily from the reference's to the mood's
+        {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                float lowest = 10.0f, prevGap = 0.0f;
+                bool steady = true;
+                const float full = M::tone([axis] { M::Axes m {}; m[static_cast<size_t>(axis)] = 1.0f; return m; }()).hue;
+                for (int i = 0; i <= 40; ++i)
+                {
+                    M::Axes m {};
+                    m[static_cast<size_t>(axis)] = i / 40.0f;
+                    const auto t = M::tone(m);
+                    lowest = std::min(lowest, t.chroma / ref.chroma);
+                    // (the turn's distance from the reference along its way, which never goes back)
+                    const float left = okHueGap(t.hue, full);
+                    const float gap = 1000.0f - left;
+                    steady = steady && gap >= prevGap - 0.01f;
+                    prevGap = gap;
+                }
+                static const char* names[] = { "aggression", "machine", "eerie" };
+                check(lowest >= 0.99f && steady, juce::String("mood: ") + names[axis] + " from none to full keeps the reference's chroma (lowest "
+                          + juce::String(lowest, 2) + " of it) and turns steadily");
+            }
+            // a light room keeps the reference; a strong one leans it
+            check(okHueGap(M::tone({ 0, 0, 0, 0.4f }).hue, ref.hue) < 0.5f && okHueGap(M::tone({ 0, 0, 0, 1.0f }).hue, ref.hue) > 50.0f,
+                  "mood: a light room keeps the reference blue-grey, a strong one leans it");
+            // a half mood is part of the way: the hue mostly turned, the chroma between
+            const auto half = M::tone({ 0.5f, 0, 0, 0 }), full = M::tone({ 1, 0, 0, 0 });
+            check(okHueGap(half.hue, full.hue) < 40.0f && half.chroma > ref.chroma && half.chroma < full.chroma,
+                  "mood: half aggression is a partial lean (hue " + juce::String(half.hue, 1) + ", chroma " + juce::String(half.chroma, 3) + ")");
+            // the muddy hues (khaki, olive) are never on the way: aggression with room, any mix
+            bool clean = true;
+            for (int i = 0; i <= 10; ++i)
+                for (int j = 0; j <= 10; ++j)
+                    for (int k = 0; k <= 4; ++k)
+                    {
+                        const auto t = M::tone({ i / 10.0f, k / 8.0f, j % 3 == 0 ? 0.0f : 0.3f, j / 10.0f });
+                        clean = clean && (t.hue < 75.0f || t.hue > 135.0f || t.chroma < 0.05f);
+                    }
+            check(clean, "mood: no blend lands on a muddy khaki or olive");
+        }
+        // the factory presets: a clear mood is never greyer than the reference, and none is muddy
+        {
+            int grey = 0, muddy = 0;
+            juce::String which;
+            for (const auto& fp : PresetManager::getFactoryPresets())
+            {
+                const auto in = M::Inputs::read([&fp](const char* id)
+                {
+                    const auto it = fp.values.find(id);
+                    return it != fp.values.end() ? it->second : Params::defaultOf(id);
+                });
+                const auto m = M::evaluate(in);
+                const auto t = M::tone(m);
+                const float strength = 1.0f - (1.0f - m[0]) * (1.0f - m[1]) * (1.0f - m[2]) * (1.0f - m[3]);
+                if (strength > 0.3f && t.chroma < 0.99f * ref.chroma)
+                {
+                    ++grey;
+                    which << fp.name << " ";
+                }
+                if (t.hue > 75.0f && t.hue < 135.0f)
+                {
+                    ++muddy;
+                    which << fp.name << " ";
+                }
+            }
+            check(grey == 0 && muddy == 0, "mood: no factory preset settles greyer than the reference or muddy " + which);
+        }
+        // the shader turn: none for the reference, warm only for warm tones
+        {
+            const auto k0 = M::shaderMood(ref);
+            const auto ka = M::shaderMood(M::tone({ 1, 0, 0, 0 })), km = M::shaderMood(M::tone({ 0, 1, 0, 0 })), ke = M::shaderMood(M::tone({ 0, 0, 1, 0 }));
+            check(k0[0] == 0.0f && k0[1] == 0.0f && k0[2] == 0.0f && ka[2] > 0.9f && km[2] < 0.05f && ke[2] < 0.15f,
+                  "mood: the accents' warmth is the mood's (" + juce::String(ka[2], 2) + ", " + juce::String(km[2], 2) + ", " + juce::String(ke[2], 2) + ")");
+        }
+
+        // the spring: slow (no snap), settles, the same at any frame rate, gentle overshoot, frozen holds
+        {
+            using S = roar::MoodSpring;
+            const M::Axes zero {}, one { 1.0f, 0.5f, 0.0f, 0.25f };
+            const auto run = [&](float fps, float seconds, S sp)
+            {
+                const int n = static_cast<int>(std::lround(seconds * fps));
+                for (int i = 0; i < n; ++i)
+                    sp.step(1.0f / fps, one, false, false);
+                return sp;
+            };
+            S sp;
+            sp.snap(zero);
+            float maxStep = 0.0f, peak = 0.0f, prev = 0.0f;
+            float at1 = 0.0f, at3 = 0.0f, at12 = 0.0f;
+            for (int i = 1; i <= 30 * 20; ++i)
+            {
+                sp.step(1.0f / 30.0f, one, false, false);
+                maxStep = std::max(maxStep, std::abs(sp.value[0] - prev));
+                prev = sp.value[0];
+                peak = std::max(peak, sp.value[0]);
+                if (i == 30) at1 = sp.value[0];
+                if (i == 90) at3 = sp.value[0];
+                if (i == 360) at12 = sp.value[0];
+            }
+            std::printf("  spring 0 -> 1: %.2f after 1 s, %.2f after 3 s, %.3f after 12 s, peak %.3f, largest frame step %.4f\n", at1, at3, at12, peak, maxStep);
+            check(at1 < 0.25f && at3 > 0.3f && at3 < 0.85f, "mood spring: a slow skew, not a snap (" + juce::String(at1, 2) + " after 1 s, " + juce::String(at3, 2) + " after 3 s)");
+            check(std::abs(at12 - 1.0f) < 0.02f && std::abs(sp.value[0] - 1.0f) < 1.0e-3f, "mood spring: settles within ~10 s");
+            check(peak < 1.04f, "mood spring: a gentle overshoot at most (" + juce::String(peak, 3) + ")");
+            check(maxStep < 0.02f, "mood spring: no frame jumps (largest step " + juce::String(maxStep, 4) + " at 30 fps)");
+            S a, b, c;
+            a.snap(zero);
+            b.snap(zero);
+            c.snap(zero);
+            const auto a2 = run(24.0f, 2.5f, a), b2 = run(60.0f, 2.5f, b), c2 = run(144.0f, 2.5f, c);
+            float diff = 0.0f;
+            for (size_t i = 0; i < 4; ++i)
+                diff = std::max(diff, std::max(std::abs(a2.value[i] - b2.value[i]), std::abs(c2.value[i] - b2.value[i])));
+            check(diff < 1.0e-4f, "mood spring: the same at 24, 60 and 144 fps (" + juce::String(diff, 6) + ")");
+            // frozen: eases to a stop where it is and holds while the target moves
+            S f;
+            f.snap(zero);
+            for (int i = 0; i < 45; ++i)
+                f.step(1.0f / 30.0f, one, false, false);
+            const float atFreeze = f.value[0];
+            for (int i = 0; i < 30 * 15; ++i)
+                f.step(1.0f / 30.0f, one, true, false);
+            check(std::abs(f.value[0] - atFreeze) < 0.12f && f.value[0] < 0.9f, "mood spring: frozen holds the colour (" + juce::String(atFreeze, 3) + " -> " + juce::String(f.value[0], 3) + ")");
+            // a reset while frozen takes the settings' colour once, then holds it
+            f.step(1.0f / 30.0f, one, true, true);
+            for (int i = 0; i < 30 * 15; ++i)
+                f.step(1.0f / 30.0f, zero, true, false);
+            check(std::abs(f.value[0] - 1.0f) < 0.02f, "mood spring: a reset while frozen takes the current colour and holds it (" + juce::String(f.value[0], 3) + ")");
+            // live again: follows
+            for (int i = 0; i < 30 * 15; ++i)
+                f.step(1.0f / 30.0f, zero, false, false);
+            check(std::abs(f.value[0]) < 0.02f, "mood spring: live again, it follows the settings");
+            // a kept colour (saved with the session): a frozen view opens on it and holds it
+            {
+                S k;
+                const M::Axes kept { 0.0f, 0.9f, 0.0f, 0.0f };
+                k.snap(one, true, &kept);
+                for (int i = 0; i < 30 * 5; ++i)
+                    k.step(1.0f / 30.0f, one, true, false, &kept);
+                check(std::abs(k.value[1] - 0.9f) < 1.0e-3f && std::abs(k.value[0]) < 1.0e-3f, "mood spring: a frozen view opens on the kept colour and holds it");
+                S live;
+                live.snap(one, false, &kept);
+                check(std::abs(live.value[0] - 1.0f) < 1.0e-6f, "mood spring: a live view ignores a kept colour");
+            }
+            // nonsense in, nothing out
+            S n;
+            n.snap(zero);
+            n.step(std::numeric_limits<float>::quiet_NaN(), one, false, false);
+            M::Axes bad { std::numeric_limits<float>::quiet_NaN(), 0, 0, 0 };
+            n.step(1.0f / 30.0f, bad, false, false);
+            check(std::isfinite(n.value[0]) && std::isfinite(n.velocity[0]), "mood spring: non-finite input is ignored");
+        }
+
+        // the colour on screen: from one preset's mood to another's, the hue turns at a bounded speed,
+        // never through grey, and arrives; the same at any frame rate
+        {
+            struct Change { const char* name; M::Axes from, to; };
+            const std::vector<Change> changes {
+                { "none to aggression", { 0, 0, 0, 0 }, { 1, 0, 0, 0 } },
+                { "aggression to machine", { 1, 0, 0, 0 }, { 0, 1, 0, 0 } },
+                { "machine to eerie", { 0, 1, 0, 0 }, { 0.04f, 0.26f, 0.95f, 0 } },
+                { "aggression to room", { 1, 0, 0, 0 }, { 0, 0, 0, 1 } },
+            };
+            for (const auto& ch : changes)
+            {
+                const auto run = [&](float fps, float& fastest, float& lowest, float& at)
+                {
+                    roar::MoodSpring sp;
+                    roar::ToneFollower f;
+                    sp.snap(ch.from);
+                    f.snap(M::tone(ch.from));
+                    fastest = 0.0f;
+                    lowest = 10.0f;
+                    const float dt = 1.0f / fps;
+                    const int n = static_cast<int>(std::lround(16.0f * fps));
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float before = f.value.hue;
+                        sp.step(dt, ch.to, false, false);
+                        f.step(dt, M::tone(sp.value));
+                        fastest = std::max(fastest, okHueGap(f.value.hue, before) / dt);
+                        lowest = std::min(lowest, f.value.chroma / ref.chroma);
+                        if (i == static_cast<int>(std::lround(4.0f * fps)))
+                            at = f.value.hue;
+                    }
+                    return f.value;
+                };
+                float fast60 = 0, low60 = 0, at60 = 0, fast24 = 0, low24 = 0, at24 = 0, fast144 = 0, low144 = 0, at144 = 0;
+                const auto end60 = run(60.0f, fast60, low60, at60);
+                run(24.0f, fast24, low24, at24);
+                run(144.0f, fast144, low144, at144);
+                const auto goal = M::tone(ch.to);
+                std::printf("  colour %-22s fastest turn %.1f deg/s, lowest chroma %.2f of the reference, ends at hue %.1f (goal %.1f)\n",
+                            ch.name, fast60, low60, end60.hue, goal.hue);
+                check(std::max(fast60, std::max(fast24, fast144)) <= roar::ToneFollower::c_maxTurn + 0.5f,
+                      juce::String("mood colour: ") + ch.name + " turns at most " + juce::String(roar::ToneFollower::c_maxTurn, 0) + " degrees a second ("
+                          + juce::String(std::max(fast60, std::max(fast24, fast144)), 1) + ")");
+                check(std::min(low60, std::min(low24, low144)) >= 0.8f, juce::String("mood colour: ") + ch.name + " never passes through grey (lowest chroma "
+                          + juce::String(std::min(low60, std::min(low24, low144)), 2) + " of the reference)");
+                check(okHueGap(end60.hue, goal.hue) < 1.0f && std::abs(end60.chroma - goal.chroma) < 0.002f, juce::String("mood colour: ") + ch.name + " arrives");
+                check(okHueGap(at24, at60) < 3.0f && okHueGap(at144, at60) < 3.0f, juce::String("mood colour: ") + ch.name + " is the same at 24, 60 and 144 fps ("
+                          + juce::String(at24, 1) + ", " + juce::String(at60, 1) + ", " + juce::String(at144, 1) + ")");
+            }
+            roar::ToneFollower f;
+            f.snap(M::tone({ 1, 0, 0, 0 }));
+            f.step(std::numeric_limits<float>::quiet_NaN(), ref);
+            f.step(1.0f / 30.0f, M::Tone { std::numeric_limits<float>::quiet_NaN(), 0.05f });
+            check(std::isfinite(f.value.hue) && std::isfinite(f.value.chroma), "mood colour: non-finite input is ignored");
+        }
+    }
+
+    // The ink creature: its rig, measures, checks and screenshot tool (a section of this file).
+    #include "InkCreatureTests.h"
+
+   #if defined(__APPLE__)
+    // The renderer in a real (offscreen) GL context: every program builds, frames draw on every
+    // tier, a tier change and a context loss leave nothing behind and nothing empty.
+    void testRenderer()
+    {
+        std::printf("[renderer] GL lifetime, tiers, first frame, palette and mood (the renderer on its own, fed a frame directly)\n");
+        for (const bool core : { true, false })
+        {
+            CGLPixelFormatAttribute attrs[] = { kCGLPFAOpenGLProfile, static_cast<CGLPixelFormatAttribute>(core ? kCGLOGLPVersion_3_2_Core : kCGLOGLPVersion_Legacy),
+                                                kCGLPFAColorSize, static_cast<CGLPixelFormatAttribute>(24), static_cast<CGLPixelFormatAttribute>(0) };
+            CGLPixelFormatObj pf = nullptr;
+            GLint npf = 0;
+            if (CGLChoosePixelFormat(attrs, &pf, &npf) != kCGLNoError || pf == nullptr)
+            {
+                std::printf("  (no %s GL pixel format: skipped)\n", core ? "core" : "legacy");
+                continue;
+            }
+            CGLContextObj ctx = nullptr;
+            CGLCreateContext(pf, nullptr, &ctx);
+            CGLDestroyPixelFormat(pf);
+            CGLSetCurrentContext(ctx);
+            juce::gl::loadFunctions();
+            using namespace juce::gl;
+            const juce::String tag = core ? " (core)" : " (legacy)";
+
+            const int W = 784, H = 240;
+            GLuint fbo = 0, rb = 0;
+            glGenFramebuffers(1, &fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glGenRenderbuffers(1, &rb);
+            glBindRenderbuffer(GL_RENDERBUFFER, rb);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, W, H);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rb);
+
+            const auto& noise = roar::NoiseTexture::shared();
+            const auto& logo = LogoSdf::shared();
+            roar::MonsterFrame frame;
+            using E = roar::CreatureEvolution;
+            const auto p = E::evaluateAt(0.6f, { 0.25f, 0.25f, 0.25f, 0.25f }, 1.0f, 1u);
+            using roar::U;
+            frame.set(U::uRes, static_cast<float>(W), static_cast<float>(H));
+            frame.set(U::uPxScale, 0.5f);
+            frame.set(U::uRadius, 4.0f);   // (as the view sets it: with no radius the corner mask halves every pixel)
+            frame.set(U::uJaw, 0.4f);
+            frame.set(U::uRoar, 0.35f);
+            frame.set(U::uSize, 0.35f);
+            frame.set(U::uLevel, 0.3f);
+            frame.set(U::uStage, p[E::stageOut]);
+            frame.set(U::uEvoChar, p[E::charFluid], p[E::charBeast], p[E::charEldritch], p[E::charDeep]);
+            frame.set(U::uColCloudLit, p[E::cloudLitR], p[E::cloudLitG], p[E::cloudLitB]);
+            frame.set(U::uColOuter, 0.035f, 0.043f, 0.06f);
+            frame.inkFormation = 1.0f;
+            frame.inputLoud = 0.4f;
+
+            const auto read = [&]
+            {
+                std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
+                glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                return px;
+            };
+            const auto meanLuma = [&]
+            {
+                const auto px = read();
+                double sum = 0.0;
+                for (size_t i = 0; i < px.size(); i += 4)
+                    sum += 0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2];
+                return sum / (W * H) / 255.0;
+            };
+            const int vp[4] = { 0, 0, W, H };
+            const auto draw = [&](roar::MonsterRenderer& r, int frames)
+            {
+                for (int i = 0; i < frames; ++i)
+                {
+                    r.prepare(frame);
+                    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                    glClearColor(0, 0, 0, 1);
+                    glClear(GL_COLOR_BUFFER_BIT);
+                    r.render(frame, fbo, vp);
+                }
+            };
+            // the cloud's median luma and saturation, its circular mean hue and its share of warm pixels
+            // (inside a margin: the rounded corners are the outside colour). The cloud is what the mood
+            // turns: the held ink stays near-neutral blue-black in every mood (the spec's colour rule),
+            // so pixels of ink (luma under 0.30) are left out.
+            const auto measure = [&](float& l50, float& s50, float& h50, float& redShare)
+            {
+                const auto px = read();
+                std::vector<float> lum, sat;
+                double hx = 0.0, hy = 0.0;
+                int red = 0, n = 0;
+                for (int y = H / 10; y < H - H / 10; ++y)
+                    for (int x = W / 20; x < W - W / 20; ++x)
+                    {
+                        const unsigned char* q = &px[(static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4];
+                        const float rr = q[0] / 255.0f, gg = q[1] / 255.0f, bb = q[2] / 255.0f;
+                        const float mx = std::max(rr, std::max(gg, bb)), mn = std::min(rr, std::min(gg, bb));
+                        if (0.3f * rr + 0.59f * gg + 0.11f * bb < 0.30f)
+                            continue;
+                        lum.push_back(0.3f * rr + 0.59f * gg + 0.11f * bb);
+                        sat.push_back(mx > 1.0e-4f ? (mx - mn) / mx : 0.0f);
+                        ++n;
+                        red += rr > bb ? 1 : 0;
+                        if (mx > 1.0e-4f && (mx - mn) / mx > 0.05f)
+                        {
+                            const float d = mx - mn;
+                            const int top = rr >= gg && rr >= bb ? 0 : (gg >= bb ? 1 : 2);
+                            const float hh = 60.0f * (top == 0 ? std::fmod((gg - bb) / d + 6.0f, 6.0f) : top == 1 ? (bb - rr) / d + 2.0f : (rr - gg) / d + 4.0f);
+                            hx += std::cos(hh * 0.0174533f);
+                            hy += std::sin(hh * 0.0174533f);
+                        }
+                    }
+                std::sort(lum.begin(), lum.end());
+                std::sort(sat.begin(), sat.end());
+                l50 = lum[lum.size() / 2];
+                s50 = sat[sat.size() / 2];
+                h50 = static_cast<float>(std::fmod(std::atan2(hy, hx) * 57.29578 + 360.0, 360.0));
+                redShare = static_cast<float>(red) / static_cast<float>(std::max(1, n));
+            };
+
+            roar::MonsterRenderer r;
+            r.setFixedStep(true);
+            const bool created = r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);
+            check(created, "renderer: created" + tag);
+            if (created)
+            {
+                const auto& st = r.getStats();
+                std::printf("  %s: start tier %d, float probe %s, timers %s, %d texture units, programs built in %.0f ms\n", core ? "core" : "legacy",
+                            st.startTier, st.probeOk ? "ok" : "failed", st.timers ? "yes" : "no", st.maxUnits, st.compileMs);
+                // A shared CI runner's virtual GPU may only run tier 0 (the plug-in falls back to it the same way),
+                // so the buffer-tier checks are reported, not gated, there. On a real machine they gate.
+                const bool bufferTiers = st.startTier >= 1;
+                const bool reportOnly = ! bufferTiers && std::getenv("CI") != nullptr;
+                const auto bufferCheck = [&](bool ok, const juce::String& what)
+                {
+                    if (reportOnly)
+                        std::printf("  (reported only: this GPU runs tier 0) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
+                    else
+                        check(ok, what);
+                };
+                bufferCheck(bufferTiers, "renderer: the ink buffer's tiers are available" + tag);
+                for (const int tier : { 3, 2, 1, 0 })
+                {
+                    r.setForcedTier(tier);
+                    draw(r, 20);   // (past the half-second crossfade a tier change draws: then at most 3 draws a frame)
+                    const double l = meanLuma();
+                    const juce::String what = "renderer: tier " + juce::String(tier) + " draws (mean " + juce::String(l, 3) + ", " + juce::String(r.getStats().draws) + " draws)" + tag;
+                    if (tier == 0)
+                        check(r.getTier() == tier && l > 0.02 && l < 0.9, what);
+                    else
+                        bufferCheck(r.getTier() == tier && l > 0.02 && l < 0.9 && r.getStats().draws <= 3, what);
+                }
+                {
+                    const float* tint = frame.at(U::uAtmoTint);
+                    check(std::abs(tint[0] - 1.0f) < 0.25f && std::abs(tint[1] - 1.0f) < 0.25f && std::abs(tint[2] - 1.0f) < 0.25f,
+                          "renderer: the stage's hue lean is subtle" + tag);
+                }
+                // The palette: the drawn frame is high-key and cool, in the reference's blue-grey.
+                for (const int tier : { 3, 0 })
+                {
+                    r.setForcedTier(tier);
+                    draw(r, 8);
+                    float l50 = 0, s50 = 0, h50 = 0, warm = 0;
+                    measure(l50, s50, h50, warm);
+                    std::printf("  tier %d: luma median %.3f, saturation median %.3f, hue %.1f, warm share %.2f\n", tier, l50, s50, h50, warm);
+                    check(l50 > 0.52f && l50 < 0.80f && s50 > 0.12f && s50 < 0.36f && warm < 0.5f,
+                          "renderer: tier " + juce::String(tier) + " is high-key and cool (luma median " + juce::String(l50, 3) + ", saturation median " + juce::String(s50, 3) + ")" + tag);
+                    check(h50 > 196.0f && h50 < 212.0f, "renderer: tier " + juce::String(tier) + " keeps the reference's blue-grey hue (" + juce::String(h50, 1) + " degrees)" + tag);
+                }
+                // The colour mood: full aggression leans the cloud to ember red, full machine to a
+                // clearly bluer, stronger blue, each keeping the high-key values and a bounded saturation.
+                {
+                    using M = roar::CreatureMood;
+                    for (const int tier : { 3, 0 })
+                    {
+                        r.setForcedTier(tier);
+                        float l0 = 0, s0 = 0, h0 = 0, r0 = 0;
+                        frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
+                        draw(r, 6);
+                        measure(l0, s0, h0, r0);
+                        const auto k = M::shaderMood({ 1.0f, 0.0f, 0.0f, 0.0f });
+                        frame.set(U::uMood, k[0], k[1], k[2], 0.0f);
+                        draw(r, 6);
+                        float la = 0, sa = 0, ha = 0, ra = 0;
+                        measure(la, sa, ha, ra);
+                        const auto km = M::shaderMood({ 0.0f, 1.0f, 0.0f, 0.0f });
+                        frame.set(U::uMood, km[0], km[1], km[2], 0.0f);
+                        draw(r, 6);
+                        float lm = 0, sm = 0, hm = 0, rm = 0;
+                        measure(lm, sm, hm, rm);
+                        frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
+                        const juce::String t = "renderer: tier " + juce::String(tier) + " ";
+                        std::printf("  tier %d mood: none hue %.0f sat %.2f luma %.2f | ember hue %.0f sat %.2f luma %.2f warm %.2f | electric hue %.0f sat %.2f luma %.2f\n",
+                                    tier, h0, s0, l0, ha, sa, la, ra, hm, sm, lm);
+                        check((ha < 40.0f || ha > 340.0f) && ra > 0.6f && r0 < 0.1f,
+                              t + "full aggression leans the cloud ember red (hue " + juce::String(ha, 0) + ", " + juce::String(ra * 100.0f, 0) + " % warm)" + tag);
+                        check(hm > h0 + 8.0f && hm < 240.0f && sm > s0 + 0.06f,
+                              t + "full machine is a clearly bluer, stronger blue (hue " + juce::String(h0, 0) + " -> " + juce::String(hm, 0) + ", saturation " + juce::String(s0, 2) + " -> " + juce::String(sm, 2) + ")" + tag);
+                        check(la > 0.52f && la < 0.80f && lm > 0.52f && lm < 0.80f && std::abs(la - l0) < 0.04f && std::abs(lm - l0) < 0.04f,
+                              t + "the mood keeps the high-key values (luma " + juce::String(l0, 3) + ", " + juce::String(la, 3) + ", " + juce::String(lm, 3) + ")" + tag);
+                        check(sa <= 0.45f && sm <= 0.45f, t + "the mood's saturation stays bounded (" + juce::String(sa, 2) + ", " + juce::String(sm, 2) + ")" + tag);
+                    }
+                }
+                // Roaring with the rift lit: the warm light is there and bounded. (The creature before
+                // this one had a glowing throat in a dark cavity and was held to R-B under 0.25 with
+                // its warmest pixel below the median; the rift's breath is lit vapour that the flow
+                // carries out into the cloud by design, so its warmest pixel is pale, and its shape is
+                // held by check 9 in the ink tests instead. The bound here was set from the first run
+                // of this check on the ink creature, which measured 0.37 at most.)
+                frame.set(U::uRoarDrive, 1.0f);
+                frame.set(U::uRoar, 1.0f);
+                frame.set(U::uJaw, 1.0f);
+                frame.set(U::uLevel, 0.7f);
+                r.setInkLight(1.0f);
+                for (const int tier : { 3, 0 })
+                {
+                    r.setForcedTier(tier);
+                    draw(r, 12);
+                    const auto px = read();
+                    int warm = 0;
+                    float bestRB = -1.0f, bestL = 0.0f;
+                    std::vector<float> lum;
+                    for (size_t i = 0; i < px.size(); i += 4)
+                    {
+                        const float rr = px[i] / 255.0f, gg = px[i + 1] / 255.0f, bb = px[i + 2] / 255.0f;
+                        const float l = 0.3f * rr + 0.59f * gg + 0.11f * bb;
+                        lum.push_back(l);
+                        warm += rr - bb > 0.04f ? 1 : 0;
+                        if (rr - bb > bestRB) { bestRB = rr - bb; bestL = l; }
+                    }
+                    std::sort(lum.begin(), lum.end());
+                    const float l50 = lum[lum.size() / 2];
+                    std::printf("  tier %d roaring: %d warm pixels, warmest R-B %.3f at luma %.3f (median %.3f)\n", tier, warm, bestRB, bestL, l50);
+                    check(warm >= 40 && bestRB < 0.45f, "renderer: tier " + juce::String(tier) + " roaring shows warm light, never a saturated patch (" + juce::String(warm) + " pixels, R-B max " + juce::String(bestRB, 3) + ")" + tag);
+                }
+                r.setInkLight(-1.0f);
+                frame.set(U::uRoarDrive, 0.0f);
+                frame.set(U::uRoar, 0.35f);
+                frame.set(U::uJaw, 0.4f);
+                frame.set(U::uLevel, 0.3f);
+
+                r.setForcedTier(3);
+                draw(r, 6);
+                std::vector<float> v;
+                int vw = 0, vh = 0;
+                bool finite = r.readTarget(roar::MonsterRenderer::Target::ink, v, vw, vh);
+                for (float x : v) finite = finite && std::isfinite(x);
+                bufferCheck(finite, "renderer: the ink buffer stays finite across tier changes" + tag);
+                const double before = meanLuma();
+
+                // (each kind asked after with its own query: the timer queries and the vertex array too.
+                // Before the release the context must know them all, or the check after it proves
+                // nothing; a timer query's name is only known once it has timed a frame)
+                const InkGlObjects held(r);
+                const int known = held.alive();
+                r.release();
+                const int alive = held.alive();
+                const InkGlObjects after(r);
+                check(! held.ids.textures.empty() && held.complete(core) && known >= held.total() - static_cast<int>(held.ids.queries.size()) && alive == 0 && after.total() == 0,
+                      "renderer: release deletes every GL object and zeroes the ids (" + juce::String(known) + " of " + juce::String(held.total())
+                      + " known before, " + juce::String(alive) + " left)" + tag);
+
+                // A context loss and back: the first frame is a full one, not an empty grid.
+                r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);
+                draw(r, 1);
+                const double first = meanLuma();
+                check(std::abs(first - before) <= 0.15 * before, "renderer: first frame after recreation matches (" + juce::String(first, 3) + " vs " + juce::String(before, 3) + ")" + tag);
+                r.release();
+            }
+            glDeleteRenderbuffers(1, &rb);
+            glDeleteFramebuffers(1, &fbo);
+            CGLSetCurrentContext(nullptr);
+            CGLDestroyContext(ctx);
+        }
+    }
+   #endif
 
     void testLogoSdf()
     {
@@ -3259,8 +8419,58 @@ namespace
     //==========================================================================
     // Offline render mode.
 
-    int renderFiles(const juce::File& input, const juce::File& outDir, juce::StringArray presetNames,
-                    const juce::StringArray& only, const juce::StringArray& without, const juce::String& order)
+    struct RenderOptions
+    {
+        juce::StringArray presets, only, without;
+        juce::String order;
+        juce::StringArray sets;    // "id=value" (real value or choice name) or "id=@0.75" (knob position 0..1)
+        juce::File metrics;        // --metrics: a JSON file of metrics per render
+        juce::String sweepId;      // --sweep id from to steps
+        double sweepFrom = 0.0, sweepTo = 0.0;
+        int sweepSteps = 0;
+        bool sweepNorm = false;    // --norm: the sweep's from/to are knob positions 0..1
+        bool writeWav = true;      // --no-wav
+        bool rawOutput = false;    // --raw-out: OUTPUT's filters, auto gain and Ride off (module-level measurements)
+        int rollFrom = 0, rollTo = -1;   // --roll from to: one render per seed, ROLL ALL (seeded) after the sets
+    };
+
+    /** Sets id from "value", "@knob" (0..1) or a choice name; false (and a message) when it cannot. */
+    bool setFromText(RoarschachAudioProcessor& p, const juce::String& id, const juce::String& text)
+    {
+        auto* param = p.getValueTreeState().getParameter(id);
+        if (param == nullptr)
+        {
+            std::printf("no parameter \"%s\"\n", id.toRawUTF8());
+            return false;
+        }
+        if (text.startsWithChar('@'))
+        {
+            param->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, text.substring(1).getFloatValue()));
+            return true;
+        }
+        if (!text.containsOnly("+-.0123456789eE"))
+        {
+            for (const auto& spec : Params::all)
+                if (id == spec.id && spec.choices != nullptr)
+                    for (int c = 0; c < spec.numChoices; ++c)
+                        if (text.equalsIgnoreCase(spec.choices[c]))
+                        {
+                            param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(c)));
+                            return true;
+                        }
+            if (text.equalsIgnoreCase("on") || text.equalsIgnoreCase("off"))
+            {
+                param->setValueNotifyingHost(text.equalsIgnoreCase("on") ? 1.0f : 0.0f);
+                return true;
+            }
+            std::printf("cannot read \"%s\" as a value of %s\n", text.toRawUTF8(), id.toRawUTF8());
+            return false;
+        }
+        param->setValueNotifyingHost(param->convertTo0to1(text.getFloatValue()));
+        return true;
+    }
+
+    int renderFiles(const juce::File& input, const juce::File& outDir, RenderOptions opt)
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -3282,10 +8492,10 @@ namespace
         in.r = file.getNumChannels() > 1 ? Signal(file.getReadPointer(1), file.getReadPointer(1) + length) : in.l;
         const bool monoIn = file.getNumChannels() < 2;
 
-        if (presetNames.isEmpty())
-            presetNames = { "Init" };
+        if (opt.presets.isEmpty())
+            opt.presets = { "Init" };
 
-        if (!outDir.createDirectory())
+        if (opt.writeWav && !outDir.createDirectory())
         {
             std::printf("cannot create %s\n", outDir.getFullPathName().toRawUTF8());
             return 1;
@@ -3295,8 +8505,77 @@ namespace
         std::printf("input %s: %.2f s @ %.0f Hz (rendered at this rate), %d ch, rms %.1f dBFS, peak %.1f dBFS\n",
                     input.getFileName().toRawUTF8(), length / sr, sr, file.getNumChannels(), toDb(inStats.rms), toDb(inStats.peak));
 
+        // The sweep's values (or one pass without a sweep), or the seeds of --roll.
+        const Params::Spec* sweepSpec = nullptr;
+        std::vector<double> sweepValues { std::numeric_limits<double>::quiet_NaN() };
+        const bool rolling = opt.rollTo >= opt.rollFrom;
+        if (rolling)
+        {
+            if (opt.sweepId.isNotEmpty())
+            {
+                std::printf("--roll and --sweep cannot be combined\n");
+                return 1;
+            }
+            sweepValues.clear();
+            for (int seed = opt.rollFrom; seed <= opt.rollTo; ++seed)
+                sweepValues.push_back(seed);
+        }
+        if (opt.sweepId.isNotEmpty())
+        {
+            for (const auto& spec : Params::all)
+                if (opt.sweepId == spec.id)
+                    sweepSpec = &spec;
+            if (sweepSpec == nullptr || opt.sweepSteps < 1)
+            {
+                std::printf("bad sweep: parameter \"%s\", %d steps\n", opt.sweepId.toRawUTF8(), opt.sweepSteps);
+                return 1;
+            }
+            sweepValues.clear();
+            for (int i = 0; i < opt.sweepSteps; ++i)
+                sweepValues.push_back(opt.sweepSteps == 1 ? opt.sweepFrom
+                                      : opt.sweepFrom + (opt.sweepTo - opt.sweepFrom) * i / (opt.sweepSteps - 1));
+        }
+
+        const bool wantMetrics = opt.metrics != juce::File();
+        std::unique_ptr<RenderMetrics::Reference> reference;
+        juce::Array<juce::var> records;
+        auto* root = new juce::DynamicObject();
+        juce::var rootVar(root);
+        if (wantMetrics)
+        {
+            reference = std::make_unique<RenderMetrics::Reference>(RenderMetrics::makeReference(in.l, in.r, sr));
+            auto* inRec = new juce::DynamicObject();
+            inRec->setProperty("file", input.getFullPathName());
+            inRec->setProperty("sampleRate", sr);
+            inRec->setProperty("seconds", length / sr);
+            inRec->setProperty("channels", file.getNumChannels());
+            inRec->setProperty("sineHz", RenderMetrics::num(reference->sineHz));
+            inRec->setProperty("metrics", RenderMetrics::measure(in.l, in.r, *reference, sr,
+                                                                 toDb(std::max(truePeak(in.l), truePeak(in.r))), 0));
+            root->setProperty("input", juce::var(inRec));
+            root->setProperty("thirdOctaveCentresHz", RenderMetrics::numArray(RenderMetrics::thirdOctaveCentres()));
+            root->setProperty("amBandEdgesHz", RenderMetrics::numArray(RenderMetrics::modBandEdges()));
+            juce::Array<juce::var> setList;
+            for (const auto& s : opt.sets)
+                setList.add(s);
+            root->setProperty("set", setList);
+            if (sweepSpec != nullptr)
+            {
+                auto* sw = new juce::DynamicObject();
+                sw->setProperty("param", opt.sweepId);
+                sw->setProperty("name", juce::String(sweepSpec->name));
+                sw->setProperty("min", sweepSpec->minValue);
+                sw->setProperty("max", sweepSpec->maxValue);
+                sw->setProperty("from", opt.sweepFrom);
+                sw->setProperty("to", opt.sweepTo);
+                sw->setProperty("steps", opt.sweepSteps);
+                sw->setProperty("norm", opt.sweepNorm);
+                root->setProperty("sweep", juce::var(sw));
+            }
+        }
+
         int failures = 0;
-        for (const auto& name : presetNames)
+        for (const auto& name : opt.presets)
         {
             const int index = presetIndex(name);
             if (index < 0)
@@ -3306,77 +8585,711 @@ namespace
                 continue;
             }
 
-            auto p = makeProcessor(sr, 512, monoIn ? 1 : 2, 2);
-            p->setCurrentProgram(index);
-            juce::String suffix;
-            if (!only.isEmpty())
+            for (const double sweepValue : sweepValues)
             {
-                for (const auto& m : Params::modules)
-                    setParam(*p, m.onId, only.contains(m.code) ? 1.0f : 0.0f);
-                suffix << "-only-" << only.joinIntoString("-").toLowerCase();
-            }
-            for (const auto& code : without)
-            {
-                const int m = Params::moduleIndexForCode(code.toStdString());
-                if (m >= 0)
-                    setParam(*p, Params::modules[static_cast<size_t>(m)].onId, 0.0f);
-            }
-            if (!without.isEmpty())
-                suffix << "-without-" << without.joinIntoString("-").toLowerCase();
-            if (order.isNotEmpty())
-            {
-                setOrder(*p, orderFromCodes(order));
-                suffix << "-order-" << order.removeCharacters(" ,").toLowerCase();
-            }
-            restart(*p, sr, 512);
-            const int latency = p->getLatencySamples();
+                auto p = makeProcessor(sr, 512, monoIn ? 1 : 2, 2);
+                p->setCurrentProgram(index);
+                juce::String suffix;
+                if (!opt.only.isEmpty())
+                {
+                    for (const auto& m : Params::modules)
+                        setParam(*p, m.onId, opt.only.contains(m.code) ? 1.0f : 0.0f);
+                    suffix << "-only-" << opt.only.joinIntoString("-").toLowerCase();
+                }
+                for (const auto& code : opt.without)
+                {
+                    const int m = Params::moduleIndexForCode(code.toStdString());
+                    if (m >= 0)
+                        setParam(*p, Params::modules[static_cast<size_t>(m)].onId, 0.0f);
+                }
+                if (!opt.without.isEmpty())
+                    suffix << "-without-" << opt.without.joinIntoString("-").toLowerCase();
+                if (opt.order.isNotEmpty())
+                {
+                    setOrder(*p, orderFromCodes(opt.order));
+                    suffix << "-order-" << opt.order.removeCharacters(" ,").toLowerCase();
+                }
+                for (const auto& s : opt.sets)
+                {
+                    const auto id = s.upToFirstOccurrenceOf("=", false, false).trim();
+                    const auto value = s.fromFirstOccurrenceOf("=", false, false).trim();
+                    if (!s.contains("=") || !setFromText(*p, id, value))
+                        return 1;
+                    suffix << "-" << id << "-" << value.removeCharacters("@");
+                }
 
-            // Pad with the latency plus a tail, then drop the latency so the file lines up with the input.
-            Stereo padded = in;
-            const int extra = latency + static_cast<int>(0.5 * sr);
-            padded.l.resize(static_cast<size_t>(length + extra), 0.0f);
-            padded.r.resize(static_cast<size_t>(length + extra), 0.0f);
-            auto out = render(*p, padded, 512);
-            out.l.erase(out.l.begin(), out.l.begin() + latency);
-            out.r.erase(out.r.begin(), out.r.begin() + latency);
+                juce::RangedAudioParameter* swept = nullptr;
+                if (sweepSpec != nullptr)
+                {
+                    swept = p->getValueTreeState().getParameter(opt.sweepId);
+                    if (opt.sweepNorm)
+                        swept->setValueNotifyingHost(static_cast<float>(juce::jlimit(0.0, 1.0, sweepValue)));
+                    else
+                        swept->setValueNotifyingHost(swept->convertTo0to1(static_cast<float>(sweepValue)));
+                    suffix << "-" << opt.sweepId << "-" << juce::String(getParam(*p, opt.sweepId.toRawUTF8()), 3);
+                }
 
-            const auto st = stats(out);
-            double sideSq = 0.0, midSq = 0.0;
-            for (size_t i = 0; i < out.l.size(); ++i)
-            {
-                const double mid = 0.5 * (out.l[i] + out.r[i]), side = 0.5 * (out.l[i] - out.r[i]);
-                sideSq += side * side;
-                midSq += mid * mid;
+                int rollSeed = -1;
+                if (rolling)
+                {
+                    rollSeed = static_cast<int>(sweepValue);
+                    p->getDice().setSeed(static_cast<std::uint32_t>(rollSeed));
+                    p->getDice().rollAll();
+                    suffix << "-roll-" << rollSeed;
+                }
+
+                if (opt.rawOutput)
+                {
+                    p->getChainForTests().setOutputTestOptions(false, false, false);
+                    suffix << "-raw";
+                }
+                restart(*p, sr, 512);
+                const int latency = p->getLatencySamples();
+
+                // Pad with the latency plus a tail, then drop the latency so the file lines up with the input.
+                Stereo padded = in;
+                const int extra = latency + static_cast<int>(0.5 * sr);
+                padded.l.resize(static_cast<size_t>(length + extra), 0.0f);
+                padded.r.resize(static_cast<size_t>(length + extra), 0.0f);
+                // OUTPUT's maximizer gain reduction per block (95th percentile over the input's
+                // length, after the first blocks of the limiter settling): what the render costs it.
+                std::vector<double> gr;
+                auto out = render(*p, padded, 512, false, [&](int start)
+                {
+                    if (start >= 4 * 512 && start < length + latency)
+                        gr.push_back(-static_cast<double>(p->getChain().getOutput().getReductionDb()));
+                });
+                std::sort(gr.begin(), gr.end());
+                const double grP95 = gr.empty() ? 0.0 : gr[std::min(gr.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(gr.size())))];
+                out.l.erase(out.l.begin(), out.l.begin() + latency);
+                out.r.erase(out.r.begin(), out.r.begin() + latency);
+
+                const auto st = stats(out);
+                double sideSq = 0.0, midSq = 0.0;
+                for (size_t i = 0; i < out.l.size(); ++i)
+                {
+                    const double mid = 0.5 * (out.l[i] + out.r[i]), side = 0.5 * (out.l[i] - out.r[i]);
+                    sideSq += side * side;
+                    midSq += mid * mid;
+                }
+                const double tpDb = toDb(std::max(truePeak(out.l), truePeak(out.r)));
+                const auto clamps = p->getChain().getClampCount();
+
+                const juce::File target = outDir.getChildFile((name + suffix).replaceCharacter(' ', '-').replaceCharacter('&', 'n').toLowerCase() + ".wav");
+                if (opt.writeWav)
+                {
+                    target.deleteFile();
+                    juce::WavAudioFormat wav;
+                    std::unique_ptr<juce::OutputStream> stream(target.createOutputStream());
+                    std::unique_ptr<juce::AudioFormatWriter> writer(stream != nullptr
+                        ? wav.createWriterFor(stream.get(), sr, 2, 24, {}, 0) : nullptr);
+                    if (writer != nullptr)
+                    {
+                        stream.release();
+                        const float* channels[] { out.l.data(), out.r.data() };
+                        writer->writeFromFloatArrays(channels, 2, static_cast<int>(out.l.size()));
+                    }
+                    else
+                    {
+                        std::printf("cannot write %s\n", target.getFullPathName().toRawUTF8());
+                        ++failures;
+                    }
+                }
+
+                const float ceiling = ceilingGain(getParam(*p, Params::outCeiling));
+                const bool broken = !st.finite || st.peak > ceiling || std::abs(st.mean) > 0.01;
+                failures += broken ? 1 : 0;
+
+                juce::String metricLine;
+                if (wantMetrics)
+                {
+                    // Measured over the input's length (aligned with it); the tail is in the file only.
+                    const Signal l(out.l.begin(), out.l.begin() + length), r(out.r.begin(), out.r.begin() + length);
+                    auto m = RenderMetrics::measure(l, r, *reference, sr, tpDb, clamps);
+                    auto* rec = new juce::DynamicObject();
+                    rec->setProperty("preset", name);
+                    rec->setProperty("suffix", suffix);
+                    if (swept != nullptr)
+                    {
+                        rec->setProperty("param", opt.sweepId);
+                        rec->setProperty("value", getParam(*p, opt.sweepId.toRawUTF8()));   // the real value after snapping
+                        rec->setProperty("norm", swept->getValue());
+                        rec->setProperty("text", swept->getCurrentValueAsText());
+                    }
+                    if (rollSeed >= 0)
+                    {
+                        rec->setProperty("roll", rollSeed);
+                        juce::String on;
+                        for (const auto& mod : Params::modules)
+                            if (getParam(*p, mod.onId) > 0.5f)
+                                on << (on.isEmpty() ? "" : " ") << mod.code;
+                        rec->setProperty("on", on);
+                        auto* rolled = new juce::DynamicObject();
+                        for (const auto& r : Params::Random::ranges)
+                            rolled->setProperty(r.id, p->getValueTreeState().getParameter(r.id)->getCurrentValueAsText());
+                        rec->setProperty("rolled", juce::var(rolled));
+                    }
+                    rec->setProperty("latency", latency);
+                    rec->setProperty("wav", opt.writeWav ? juce::var(target.getFullPathName()) : juce::var());
+                    rec->setProperty("broken", broken);
+                    rec->setProperty("metrics", m);
+                    rec->setProperty("grP95Db", grP95);
+                    records.add(juce::var(rec));
+                    metricLine << juce::String::formatted("  %6.1f LUFS  HNR %5.1f dB  env r %.2f",
+                                                          static_cast<double>(m["lufs"]), static_cast<double>(m["hnrDb"]),
+                                                          static_cast<double>(m["envCorr1to4k"]));
+                }
+
+                std::printf("%-18s%s rms %6.1f dBFS  peak %6.2f dBFS  true peak %6.2f dBTP  side/mid %5.1f dB  GR p95 %4.1f dB  clamps %llu  latency %d  %s%s%s%s\n",
+                            name.toRawUTF8(), suffix.toRawUTF8(), toDb(st.rms), toDb(st.peak), tpDb,
+                            toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), grP95, static_cast<unsigned long long>(clamps),
+                            latency, broken ? "BROKEN" : "ok", metricLine.toRawUTF8(),
+                            opt.writeWav ? " -> " : "", opt.writeWav ? target.getFullPathName().toRawUTF8() : "");
             }
+        }
 
-            const juce::File target = outDir.getChildFile(name.replaceCharacter(' ', '-').replaceCharacter('&', 'n').toLowerCase() + suffix + ".wav");
-            target.deleteFile();
-            juce::WavAudioFormat wav;
-            std::unique_ptr<juce::OutputStream> stream(target.createOutputStream());
-            std::unique_ptr<juce::AudioFormatWriter> writer(stream != nullptr
-                ? wav.createWriterFor(stream.get(), sr, 2, 24, {}, 0) : nullptr);
-            if (writer != nullptr)
+        if (wantMetrics)
+        {
+            root->setProperty("records", records);
+            opt.metrics.getParentDirectory().createDirectory();
+            if (!opt.metrics.replaceWithText(juce::JSON::toString(rootVar)))
             {
-                stream.release();
-                const float* channels[] { out.l.data(), out.r.data() };
-                writer->writeFromFloatArrays(channels, 2, static_cast<int>(out.l.size()));
+                std::printf("cannot write %s\n", opt.metrics.getFullPathName().toRawUTF8());
+                ++failures;
             }
             else
             {
-                std::printf("cannot write %s\n", target.getFullPathName().toRawUTF8());
-                ++failures;
+                std::printf("metrics -> %s\n", opt.metrics.getFullPathName().toRawUTF8());
             }
-
-            const float ceiling = ceilingGain(getParam(*p, Params::outCeiling));
-            const bool broken = !st.finite || st.peak > ceiling || std::abs(st.mean) > 0.01;
-            failures += broken ? 1 : 0;
-            std::printf("%-18s%s rms %6.1f dBFS  peak %6.2f dBFS  true peak %6.2f dBTP  side/mid %5.1f dB  clamps %llu  latency %d  %s -> %s\n",
-                        name.toRawUTF8(), suffix.toRawUTF8(), toDb(st.rms), toDb(st.peak),
-                        toDb(std::max(truePeak(out.l, true), truePeak(out.r, true))),
-                        toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), static_cast<unsigned long long>(p->getChain().getClampCount()),
-                        latency, broken ? "BROKEN" : "ok", target.getFullPathName().toRawUTF8());
         }
         return failures == 0 ? 0 : 1;
+    }
+
+}
+
+namespace
+{
+    // ---------------------------------------------------------------------------------------------
+    // Knob laws (dsp/KnobLaws.h): tapers, laws, conversions, state migration, preset conversion.
+
+    /** n -> value of a parameter through the processor's own range (the knob's taper). */
+    float valueAtKnob(RoarschachAudioProcessor& p, const char* id, float n)
+    {
+        return p.getValueTreeState().getParameter(id)->convertFrom0to1(n);
+    }
+
+    // The first release's factory preset values for the remapped knobs (the conversion source).
+    struct V1Preset
+    {
+        const char* name;
+        bool roarOn;
+        // contain, gate, deess, low, high, gravel, shimmer, swirl, ensemble, width, growl, roar,
+        // roarTone, tame, sub, subDrive, overtone, push, ceiling, clip, clipShape, attack
+        std::array<float, 22> v;
+    };
+
+    // PITCH Drive per factory preset in the first release (its knob was the drive amount itself).
+    const std::map<std::string, float>& v1PitchDrive()
+    {
+        static const std::map<std::string, float> t {
+            { "Init", 5.0f },
+            { "Symbiote", 20.0f },
+            { "Liquid Beast", 25.0f },
+            { "Gravel Throat", 45.0f },
+            { "Cave Troll", 25.0f },
+            { "Kaiju", 50.0f },
+            { "Gargoyle", 25.0f },
+            { "Hellhound", 60.0f },
+            { "Golem", 25.0f },
+            { "Kraken", 25.0f },
+            { "Throat Singer", 25.0f },
+            { "Big Bad Narrator", 30.0f },
+            { "Demon Whisper", 25.0f },
+            { "Giant", 25.0f },
+            { "Possessed", 25.0f },
+            { "Ogre Radio", 25.0f },
+            { "Cyber Commander", 40.0f },
+            { "Respirator Rasp", 30.0f },
+            { "Rasp Machine", 55.0f },
+            { "Robot Ogre", 25.0f },
+            { "Scorched Swirl", 5.0f },
+            { "Molten Chorus", 5.0f },
+            { "Sub Furnace", 5.0f },
+            { "Ribcage", 5.0f },
+            { "Tar Pit", 25.0f },
+            { "Breathing Walls", 5.0f },
+            { "Chopped Space", 5.0f },
+            { "Vocoded Fire", 5.0f },
+            { "Clanking Choir", 5.0f },
+            { "Pulse Choir", 5.0f },
+            { "Two Octaves Down", 5.0f },
+            { "Gravel Pit", 5.0f },
+            { "Iron Lung", 5.0f },
+            { "Detail Only", 25.0f },
+            { "Subtle Size", 15.0f },
+            { "Clean Lift", 25.0f },
+            { "Loud & Contained", 5.0f },
+            { "Crunch Lift", 5.0f },
+            { "Smashed", 5.0f },
+            { "Phone Monster", 5.0f }
+        };
+        return t;
+    }
+
+    const std::vector<V1Preset>& v1Presets()
+    {
+        static const std::vector<V1Preset> t {
+            { "Init", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 45.0f, 60.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Symbiote", true, { 40.0f, 45.0f, 40.0f, 30.0f, 25.0f, 50.0f, 25.0f, 32.0f, 30.0f, 15.0f, 55.0f, 50.0f, 0.0f, 35.0f, 55.0f, 40.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Liquid Beast", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 40.0f, 50.0f, 60.0f, 70.0f, 40.0f, 40.0f, 0.0f, 30.0f, 55.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Gravel Throat", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 45.0f, 12.0f, 30.0f, 18.0f, 12.0f, 55.0f, 50.0f, 0.0f, 30.0f, 50.0f, 50.0f, 35.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Cave Troll", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 15.0f, 30.0f, 30.0f, 10.0f, 50.0f, 45.0f, -30.0f, 30.0f, 70.0f, 50.0f, 40.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Kaiju", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 40.0f, 12.0f, 30.0f, 18.0f, 12.0f, 60.0f, 65.0f, -20.0f, 70.0f, 80.0f, 65.0f, 40.0f, 7.0f, -1.0f, 4.0f, 0.0f, 2.0f } },
+            { "Gargoyle", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 50.0f, 18.0f, 12.0f, 35.0f, 60.0f, 40.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Hellhound", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 70.0f, 70.0f, 20.0f, 30.0f, 45.0f, 70.0f, 35.0f, 8.0f, -2.0f, 3.0f, 60.0f, 0.5f } },
+            { "Golem", true, { 35.0f, 35.0f, 30.0f, 60.0f, 35.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 30.0f, 40.0f, 0.0f, 30.0f, 60.0f, 50.0f, 10.0f, 6.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Kraken", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 60.0f, 55.0f, 70.0f, 90.0f, 20.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Throat Singer", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 40.0f, 45.0f, 10.0f, 30.0f, 60.0f, 50.0f, 55.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Big Bad Narrator", true, { 35.0f, 35.0f, 30.0f, 70.0f, 40.0f, 50.0f, 12.0f, 20.0f, 18.0f, 12.0f, 15.0f, 30.0f, 0.0f, 30.0f, 40.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Demon Whisper", true, { 50.0f, 15.0f, 70.0f, 60.0f, 40.0f, 50.0f, 35.0f, 30.0f, 35.0f, 60.0f, 48.0f, 45.0f, 40.0f, 30.0f, 25.0f, 50.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Giant", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 35.0f, 25.0f, 0.0f, 45.0f, 30.0f, -30.0f, 30.0f, 65.0f, 50.0f, 10.0f, 6.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Possessed", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 35.0f, 30.0f, 30.0f, 18.0f, 12.0f, 40.0f, 40.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Ogre Radio", true, { 50.0f, 45.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 35.0f, 15.0f, 48.0f, 70.0f, 50.0f, 30.0f, 20.0f, 50.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Cyber Commander", true, { 55.0f, 40.0f, 60.0f, 65.0f, 35.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 20.0f, 45.0f, 30.0f, 55.0f, 50.0f, 50.0f, 30.0f, 9.0f, -2.5f, 3.0f, 40.0f, 2.0f } },
+            { "Respirator Rasp", true, { 50.0f, 20.0f, 35.0f, 85.0f, 40.0f, 50.0f, 15.0f, 35.0f, 35.0f, 15.0f, 35.0f, 35.0f, 10.0f, 30.0f, 50.0f, 50.0f, 30.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Rasp Machine", true, { 60.0f, 45.0f, 55.0f, 55.0f, 45.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 25.0f, 65.0f, 40.0f, 60.0f, 50.0f, 50.0f, 30.0f, 9.0f, -3.0f, 6.0f, 70.0f, 0.5f } },
+            { "Robot Ogre", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 80.0f, 12.0f, 30.0f, 18.0f, 12.0f, 40.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Scorched Swirl", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 55.0f, 18.0f, 12.0f, 48.0f, 50.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Molten Chorus", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 55.0f, 80.0f, 48.0f, 55.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 8.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Sub Furnace", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 60.0f, -30.0f, 30.0f, 65.0f, 75.0f, 10.0f, 5.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Ribcage", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, -10.0f, 30.0f, 60.0f, 50.0f, 60.0f, 6.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Tar Pit", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 50.0f, 50.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Breathing Walls", true, { 35.0f, 35.0f, 30.0f, 80.0f, 30.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Chopped Space", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 35.0f, 30.0f, 18.0f, 12.0f, 50.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Vocoded Fire", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 55.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 55.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Clanking Choir", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 60.0f, 90.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 11.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Pulse Choir", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 70.0f, 12.0f, 30.0f, 60.0f, 100.0f, 45.0f, 20.0f, 0.0f, 30.0f, 30.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Two Octaves Down", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 75.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 60.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Gravel Pit", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 90.0f, 12.0f, 30.0f, 18.0f, 12.0f, 50.0f, 55.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Iron Lung", true, { 35.0f, 35.0f, 30.0f, 80.0f, 35.0f, 60.0f, 50.0f, 50.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Detail Only", false, { 50.0f, 45.0f, 50.0f, 70.0f, 35.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 45.0f, 35.0f, 0.0f, 50.0f, 50.0f, 50.0f, 30.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Subtle Size", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 15.0f, 20.0f, 20.0f, 15.0f, 25.0f, 20.0f, 0.0f, 30.0f, 35.0f, 50.0f, 20.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Clean Lift", false, { 35.0f, 35.0f, 30.0f, 55.0f, 30.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 45.0f, 35.0f, 0.0f, 30.0f, 50.0f, 50.0f, 30.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Loud & Contained", true, { 70.0f, 45.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 70.0f, 50.0f, 50.0f, 10.0f, 10.5f, -1.0f, 4.0f, 0.0f, 2.0f } },
+            { "Crunch Lift", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 10.0f, -1.0f, 3.0f, 60.0f, 0.5f } },
+            { "Smashed", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 13.0f, -1.0f, 9.0f, 100.0f, 0.05f } },
+            { "Phone Monster", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 55.0f, 50.0f, 60.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+        };
+        return t;
+    }
+
+    /** True when f is non-decreasing over u in 0..1, with the given end values and real movement
+        in the first and last 10 % of the travel (no dead bottom or top). */
+    bool lawShape(const std::function<double(double)>& f, double at0, double at1, double tol, juce::String& why)
+    {
+        double prev = f(0.0);
+        for (int i = 1; i <= 1000; ++i)
+        {
+            const double y = f(i / 1000.0);
+            if (y < prev - 1e-12)
+            {
+                why = "not monotonic at " + juce::String(i / 1000.0);
+                return false;
+            }
+            prev = y;
+        }
+        if (std::abs(f(0.0) - at0) > tol || std::abs(f(1.0) - at1) > tol)
+        {
+            why = "ends " + juce::String(f(0.0)) + " .. " + juce::String(f(1.0));
+            return false;
+        }
+        const double span = std::abs(at1 - at0);
+        const double bottom = std::abs(f(0.1) - f(0.0)) / span, top = std::abs(f(1.0) - f(0.9)) / span;
+        if (bottom < 0.02 || top < 0.02)
+        {
+            why = "first / last 10 % move " + juce::String(bottom * 100.0, 1) + " % / " + juce::String(top * 100.0, 1) + " % of the span";
+            return false;
+        }
+        return true;
+    }
+
+    void testKnobLaws()
+    {
+        std::printf("[laws] log tapers, knob laws, conversions, state migration, preset conversion, DC, Vibrato, Rattle\n");
+        namespace laws = roar::laws;
+        auto p = makeProcessor(48000.0, 512);
+
+        // Log tapers: the geometric centre at mid travel, equal travel per octave, n -> v -> n.
+        for (const auto& spec : Params::all)
+        {
+            if (!Params::hasLogTaper(spec))
+                continue;
+            auto* param = p->getValueTreeState().getParameter(spec.id);
+            const float mid = param->convertFrom0to1(0.5f);
+            const float centre = std::sqrt(spec.minValue * spec.maxValue);
+            check(std::abs(mid - centre) <= 0.005f * centre + spec.step, juce::String(spec.id) + " mid travel " + juce::String(mid) + " (sqrt (min max) " + juce::String(centre) + ")");
+            int worst = 0;
+            for (int i = 0; i <= 20; ++i)
+            {
+                const float n = static_cast<float>(i) / 20.0f;
+                const float v = param->convertFrom0to1(n);
+                const float back = param->convertTo0to1(v);
+                const float stepN = spec.step > 0.0f ? param->convertTo0to1(std::min(spec.maxValue, v + spec.step)) - back : 0.0f;
+                if (std::abs(back - n) > 1e-4f + std::abs(stepN))
+                    ++worst;
+            }
+            check(worst == 0, juce::String(spec.id) + ": " + juce::String(worst) + " knob positions do not round trip");
+            // Equal travel per octave: the first 20 % of the travel covers 20 % of the octaves.
+            const double octaves = std::log2(static_cast<double>(spec.maxValue / spec.minValue));
+            const double first = std::log2(static_cast<double>(param->convertFrom0to1(0.2f) / spec.minValue));
+            check(std::abs(first / octaves - 0.2) < 0.01, juce::String(spec.id) + ": the first 20 % covers " + juce::String(100.0 * first / octaves, 1) + " % of the octaves");
+        }
+        check(std::abs(valueAtKnob(*p, Params::shimmerRate, 1.0f) - 25.0f) < 1e-3f && std::abs(valueAtKnob(*p, Params::growlRate, 0.0f) - 2.0f) < 1e-3f
+                  && std::abs(valueAtKnob(*p, Params::outAttack, 0.0f) - 0.2f) < 1e-4f,
+              "Shimmer Rate tops at 25 Hz, Growl Rate starts at 2 Hz, Attack at 0.2 ms");
+        // Push and Clip: skewed, 10 dB and 5 dB at mid travel.
+        check(std::abs(valueAtKnob(*p, Params::outPush, 0.5f) - 10.0f) < 0.06f, "Push: 10 dB at mid travel");
+        check(std::abs(valueAtKnob(*p, Params::outClip, 0.5f) - 5.0f) < 0.06f, "Clip: 5 dB at mid travel");
+
+        // Each forward law: monotonic, the documented ends, and no dead bottom or top.
+        struct Law { const char* name; std::function<double(double)> f; double at0, at1; };
+        const std::vector<Law> forward {
+            { "contain", laws::containCurve, 0.0, 1.0 },
+            { "gate depth", [](double u) { return -laws::gateDepthDb(u); }, 0.0, 30.0 },
+            { "gate ratio", laws::gateRatio, 1.5, 5.0 },
+            { "de-ess range", [](double u) { return -laws::deessRangeDb(u); }, 0.0, 24.0 },
+            { "de-ess threshold shift", laws::deessThresholdShiftDb, 0.0, 12.0 },
+            { "detail depth", laws::detailDepthDb, 0.0, 34.0 },
+            { "gravel", laws::gravelAmount, 0.0, 1.0 },
+            { "ring AM", laws::ringAmAmount, 0.0, 1.0 },
+            { "shimmer", laws::shimmerAmount, 0.0, 0.65 },
+            { "growl depth", laws::growlDepth, 0.0, 1.0 - std::pow(10.0, -18.0 / 20.0) },
+            { "swirl", laws::swirlMix, 0.0, 1.0 },
+            { "roar scoop", [](double a) { return -laws::roarScoopDb(a); }, 0.0, 7.0 },
+            { "roar drive", laws::roarDrive1Db, 0.0, 30.0 },
+            { "ensemble", laws::ensembleAmount, 0.0, 0.7 },
+            { "vibrato", [](double u) { return laws::ensembleVibratoAmount(laws::ensembleAmount(u)); }, 0.0, std::sqrt(0.7) },
+            { "width", [](double u) { return laws::ensembleSideGain(1.5 * u); }, 0.0, 0.85914057 },
+            { "tame", laws::tameT, 0.0, 2.2 },
+            { "pitch drive (gain dB)", [](double u) { const double d = laws::pitchDriveAmount(u); return 24.0 * d * std::sqrt(d); }, 0.0, 24.0 },
+            { "gate threshold offset", laws::gateThresholdOffsetDb, 6.0, 18.0 },
+            { "overtone add (gain)", laws::overtoneAddGain, 0.0, std::pow(10.0, 14.8 / 20.0) },
+            { "sub level", laws::subLevelDb, -14.0, 10.0 },
+            { "overtone", laws::overtoneLevelDb, -10.0, 10.0 },
+            { "overtone low cut", laws::overtoneLowCut, 0.0, 1.0 },
+            { "clip knee", [](double s) { return -laws::clipKnee(s, 0.2); }, -0.2, 0.0 },
+            { "auto fast release (log)", [](double u) { return std::log(laws::autoFastReleaseMs(std::pow(1000.0, u))); }, std::log(3.0), std::log(250.0) },
+            { "mix wet", laws::mixWetGain, 0.0, 1.0 },
+        };
+        for (const auto& law : forward)
+        {
+            juce::String why;
+            // The roar scoop and the overtone low cut reach their end early on purpose (flat from
+            // 60 % and 25 %), the equal-power mix flattens at 100 % by design (sin), and the de-ess
+            // threshold shift starts at 40 % (the range alone does the first part): only their
+            // monotonic ends are checked.
+            const juce::String n(law.name);
+            const bool flatTop = n == "roar scoop" || n == "overtone low cut" || n == "mix wet" || n == "de-ess threshold shift";
+            bool ok = true;
+            if (flatTop)
+            {
+                double prev = law.f(0.0);
+                for (int i = 1; i <= 1000 && ok; ++i)
+                {
+                    const double y = law.f(i / 1000.0);
+                    ok = y >= prev - 1e-12;
+                    prev = y;
+                }
+                ok = ok && std::abs(law.f(0.0) - law.at0) < 1e-6 && std::abs(law.f(1.0) - law.at1) < 1e-6;
+            }
+            else
+                ok = lawShape(law.f, law.at0, law.at1, 1e-6, why);
+            check(ok, juce::String("law ") + law.name + " " + why);
+        }
+        // The scoop is C1 (no kink at 40 % or 60 %) and matches the previous -14 a up to 40 %.
+        {
+            const double h = 1e-6;
+            const auto slope = [h](double a) { return (laws::roarScoopDb(a + h) - laws::roarScoopDb(a - h)) / (2.0 * h); };
+            check(std::abs(slope(0.4) - (-14.0)) < 1e-3 && std::abs(slope(0.6)) < 1e-3 && std::abs(laws::roarScoopDb(0.3) + 4.2) < 1e-9,
+                  "roar scoop: -14 a to 40 %, smooth turn, flat -7 dB from 60 %");
+        }
+        // Clip Shape acts over its whole travel at any Clip (no dead span below 1 - 2 cap).
+        for (const double clipDb : { 1.0, 3.0, 6.0 })
+        {
+            const double cap = 1.0 - std::pow(10.0, -clipDb / 20.0);
+            check(laws::clipKnee(0.0, cap) - laws::clipKnee(0.25, cap) > 0.1 * laws::clipKnee(0.0, cap),
+                  "Clip Shape moves the knee from 0 % at Clip " + juce::String(clipDb));
+            check(laws::clipKnee(0.75, cap) - laws::clipKnee(1.0, cap) > 0.1 * laws::clipKnee(0.0, cap),
+                  "Clip Shape still moves the knee in its last 25 % at Clip " + juce::String(clipDb));
+        }
+        // Auto release's fast stage: 3 ms at 1 ms, 15 ms at 60 ms, R / 4 above, continuous.
+        check(std::abs(laws::autoFastReleaseMs(1.0) - 3.0) < 1e-9 && std::abs(laws::autoFastReleaseMs(60.0) - 15.0) < 1e-9
+                  && std::abs(laws::autoFastReleaseMs(400.0) - 100.0) < 1e-9 && laws::autoFastReleaseMs(3.0) > laws::autoFastReleaseMs(2.0) + 0.3,
+              "Auto fast release: 3 ms at 1 ms, 15 ms at 60 ms, a step for every Release");
+
+        // Conversions: the new law at the converted value gives the previous law's value.
+        {
+            int bad = 0;
+            const auto near = [&bad](double a, double b, double tol, const char* what, double old)
+            {
+                if (std::abs(a - b) > tol)
+                {
+                    ++bad;
+                    std::printf("    %s at %.1f: %.5f vs %.5f\n", what, old, a, b);
+                }
+            };
+            namespace cv = laws::convert;
+            for (int i = 0; i <= 100; ++i)
+            {
+                const double old = i, u = old / 100.0;
+                near(laws::containCurve(cv::contain(old) / 100.0), laws::v1::containCurve(u), 1e-6, "contain", old);
+                near(laws::detailDepthDb(cv::detail(old) / 100.0), std::min(laws::v1::detailDepthDb(u), 34.0), 1e-6, "detail", old);
+                near(laws::gravelAmount(cv::gravel(old) / 100.0), laws::v1::gravelAmount(u), 1e-6, "gravel", old);
+                near(laws::ringAmAmount(cv::ringAm(old) / 100.0), laws::v1::ringAmAmount(u), 1e-6, "ring AM", old);
+                near(laws::shimmerAmount(cv::shimmer(old) / 100.0), std::min(laws::v1::shimmerAmount(u), 0.65), 1e-6, "shimmer", old);
+                near(laws::growlDepth(cv::growl(old) / 100.0), std::min(laws::v1::growlDepth(u), laws::growlDepth(1.0)), 1e-6, "growl", old);
+                near(laws::swirlMix(cv::swirl(old) / 100.0), laws::v1::swirlMix(u), 1e-6, "swirl", old);
+                near(laws::ensembleAmount(cv::ensemble(old, false) / 100.0), std::min(laws::v1::ensembleAmount(u), 0.7), 1e-6, "ensemble", old);
+                near(laws::tameT(cv::tame(old) / 100.0), laws::v1::tameT(u), 1e-6, "tame", old);
+                near(laws::pitchDriveAmount(cv::pitchDrive(old) / 100.0), u, 1e-6, "pitch drive", old);
+                if (i > 0)
+                    near(laws::subLevelDb(cv::sub(old) / 100.0), std::min(laws::v1::subLevelDb(u), 10.0), 1e-6, "sub", old);
+                // Overtone (with the 2 % fade-ins), as linear gains.
+                {
+                    const auto gainFor = [](double (*law)(double), double x)
+                    {
+                        if (x <= 0.0)
+                            return 0.0;
+                        return x < 0.02 ? std::pow(10.0, law(0.02) / 20.0) * x / 0.02 : std::pow(10.0, law(x) / 20.0);
+                    };
+                    near(gainFor(laws::overtoneLevelDb, cv::overtone(old, false) / 100.0), gainFor(laws::v1::overtoneLevelDb, u), 1e-6, "overtone", old);
+                    near(laws::overtoneAddGain(cv::overtone(old, true) / 100.0), gainFor(laws::v1::overtoneLevelDb, u), 1e-6, "overtone (add)", old);
+                }
+                // Gate: the room-tone cut matches up to the 15 dB the previous law could reach.
+                near(laws::gateDepthDb(cv::gate(old) / 100.0), -std::min(-laws::v1::gateDepthDb(u), 15.0), 1e-6, "gate", old);
+                // De-ess: the previous range (with the ROAR link) where the laws agree (up to 6 dB, 40 %);
+                // beyond, a measured map that never goes past the previous reduction's ceiling.
+                for (const double drive : { 0.0, 50.0, 100.0 })
+                {
+                    const double r = laws::v1::deessRangeDb(u, true, drive / 100.0), v = cv::deess(old, true, drive);
+                    if (r >= -6.0)
+                        near(laws::deessRangeDb(v / 100.0), r, 1e-6, "de-ess", old);
+                    else if (! (v > 40.0 && v <= 55.61))
+                        near(v, 48.0, 7.6, "de-ess (measured map)", old);
+                }
+                // Roar: the first stage's drive matches (up to the previous top).
+                near(laws::roarDrive1Db(cv::roarDrive(old) / 100.0), laws::v1::roarDrive1Db(u), 1e-6, "roar drive", old);
+                // Width (up to the new 150 %, which is the previous 105 %).
+                if (old <= 105.0)
+                    near(laws::ensembleSideGain(cv::width(old) / 100.0), laws::v1::ensembleSideGain(u), 1e-6, "width", old);
+            }
+            for (int t = -100; t <= 100; t += 10)
+                for (const double drive : { 10.0, 45.0, 70.0 })
+                {
+                    const double nd = laws::convert::roarDrive(drive);
+                    near(laws::roarToneStrength(nd / 100.0) * laws::convert::roarTone(t, drive, nd) / 100.0,
+                         laws::v1::roarToneStrength(drive / 100.0) * t / 100.0, 1e-6, "roar tone", t);
+                }
+            for (int s = 0; s <= 100; s += 10)
+                for (const double clipDb : { 1.0, 3.0, 9.0 })
+                {
+                    const double cap = 1.0 - std::pow(10.0, -clipDb / 20.0);
+                    near(laws::clipKnee(laws::convert::clipShape(s, clipDb) / 100.0, cap), laws::v1::clipKnee(s / 100.0, cap), 1e-6, "clip shape", s);
+                }
+            near(laws::pushGainDb(laws::convert::push(8.0, -2.0), -2.0), 8.0, 1e-9, "push", 8.0);
+            check(bad == 0, juce::String(bad) + " conversions do not reproduce the previous law");
+        }
+
+        // State migration: a first-release state (stateVersion 2) loads converted; a current one is untouched.
+        {
+            auto src = makeProcessor(48000.0, 512);
+            setValues(*src, { { Params::cleanContain, 35.0f }, { Params::growl, 48.0f }, { Params::shimmer, 12.0f }, { Params::outPush, 8.0f },
+                              { Params::outCeiling, -3.0f }, { Params::subDrive, 60.0f }, { Params::roar, 70.0f }, { Params::roarTone, 20.0f },
+                              { Params::ringMode, 1.0f }, { Params::ring, 50.0f }, { Params::ensembleMotion, 3.0f }, { Params::ensemble, 18.0f },
+                              { Params::inAuto, 1.0f }, { Params::inTrim, 6.0f } });
+            juce::MemoryBlock current;
+            src->getStateInformation(current);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(current.getData(), static_cast<int>(current.getSize()));
+            check(xml != nullptr && xml->getIntAttribute("stateVersion") == 3, "states are written as version 3");
+
+            auto same = makeProcessor(48000.0, 512);
+            same->setStateInformation(current.getData(), static_cast<int>(current.getSize()));
+            check(std::abs(getParam(*same, Params::growl) - 48.0f) < 1e-3f && std::abs(getParam(*same, Params::outPush) - 8.0f) < 1e-3f,
+                  "a current state is not converted");
+
+            xml->setAttribute("stateVersion", 2);
+            juce::MemoryBlock old;
+            juce::AudioProcessor::copyXmlToBinary(*xml, old);
+            auto q = makeProcessor(48000.0, 512);
+            q->setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+            const auto expect = [&q](const char* id, double value, double tol)
+            {
+                const float v = getParam(*q, id);
+                check(std::abs(static_cast<double>(v) - value) <= tol, juce::String("v2 state: ") + id + " " + juce::String(v) + " (expected " + juce::String(value) + ")");
+            };
+            namespace cv = laws::convert;
+            expect(Params::cleanContain, cv::contain(35.0), 0.06);
+            expect(Params::growl, cv::growl(48.0), 0.06);
+            expect(Params::shimmer, cv::shimmer(12.0), 0.06);
+            expect(Params::outPush, 10.0, 0.06);                          // 8 dB at a -3 dB ceiling
+            expect(Params::subDrive, laws::subDriveNeutral, 0.06);
+            expect(Params::roar, cv::roarDrive(70.0), 0.06);
+            expect(Params::roarTone, cv::roarTone(20.0, 70.0, cv::roarDrive(70.0)), 0.06);
+            expect(Params::ring, 25.0, 0.06);                             // AM: old^2
+            expect(Params::ensemble, cv::ensemble(18.0, true), 0.06);     // Vibrato: the previous 70 % wet
+            expect(Params::inTrim, 0.0, 0.06);                            // inside Auto Level's old dead window
+            expect(Params::cleanGate, cv::gate(Params::defaultOf(Params::cleanGate)), 0.06);   // a default that was written too
+        }
+
+        // The converter user presets and states share: values it has no rule for, and missing
+        // values, are left alone; Ring Amount converts only in AM mode.
+        {
+            std::map<std::string, double> v { { "growl", 48.0 }, { "tame", 50.0 }, { "pitch", -7.0 }, { "ring", 50.0 } };
+            laws::migrateFromV1(v);
+            check(std::abs(v["growl"] - laws::convert::growl(48.0)) < 1e-9 && std::abs(v["tame"] - laws::convert::tame(50.0)) < 1e-9 && std::abs(v["pitch"] + 7.0) < 1e-9
+                      && v["ring"] == 50.0 && v.count("subDrive") == 0,
+                  "migrateFromV1 converts only what it has rules for");
+        }
+
+        // Factory presets: 1.1 redesigns them on the new laws (see docs/parameter-audit.md), so only
+        // Init (whose values are the parameter defaults) is still the conversion of the first
+        // release's. Every first-release preset keeps its name.
+        {
+            const auto& presets = PresetManager::getFactoryPresets();
+            int bad = 0;
+            namespace cv = laws::convert;
+            for (const auto& old : v1Presets())
+            {
+                const int i = presetIndex(old.name);
+                check(i >= 0, juce::String("a first-release preset is missing: ") + old.name);
+                if (i < 0 || juce::String(old.name) != "Init")
+                    continue;
+                const auto& values = presets[static_cast<size_t>(i)].values;
+                const auto get = [&values](const char* id) { return static_cast<double>(values.at(id)); };
+                const auto& o = old.v;
+                const auto expect = [&](const char* id, double value)
+                {
+                    if (std::abs(get(id) - value) > 0.51)
+                    {
+                        ++bad;
+                        std::printf("    %s %s: %.2f, expected %.2f\n", old.name, id, get(id), value);
+                    }
+                };
+                expect(Params::cleanContain, cv::contain(o[0]));
+                expect(Params::cleanGate, cv::gate(o[1]));
+                expect(Params::deess, cv::deess(o[2], old.roarOn, o[11]));
+                expect(Params::detailLow, cv::detail(o[3]));
+                expect(Params::detailHigh, cv::detail(o[4]));
+                expect(Params::gravel, cv::gravel(o[5]));
+                expect(Params::shimmer, cv::shimmer(o[6]));
+                expect(Params::swirl, cv::swirl(o[7]));
+                expect(Params::ensemble, cv::ensemble(o[8], false));
+                expect(Params::ensembleWidth, cv::width(o[9]));
+                expect(Params::growl, cv::growl(o[10]));
+                const double drive = cv::roarDrive(o[11]);
+                expect(Params::roar, drive);
+                expect(Params::roarTone, cv::roarTone(o[12], o[11], std::round(drive)));
+                expect(Params::tame, cv::tame(o[13]));
+                expect(Params::sub, cv::sub(o[14]));
+                expect(Params::subDrive, laws::subDriveNeutral);
+                // The previous Overtone value sat in the dead zone: it became 10 on the Lean / Replace
+                // law (-5 dB), the same level at about 2-4 % on Add's law.
+                expect(Params::overtone, cv::overtoneForGain(std::pow(10.0, laws::overtoneLevelDb(0.1) / 20.0), get(Params::overtoneMode) < 0.5));
+                {
+                    const auto it = v1PitchDrive().find(old.name);
+                    check(it != v1PitchDrive().end(), juce::String("v1 pitch drive table: no ") + old.name);
+                    if (it != v1PitchDrive().end())
+                        expect(Params::pitchDrive, cv::pitchDrive(it->second));
+                }
+                expect(Params::outPush, cv::push(o[17], o[18]));
+                expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
+                expect(Params::outAttack, std::max(0.2, static_cast<double>(o[21])));
+            }
+            check(bad == 0, juce::String(bad) + " Init values are not the conversion of the first release's");
+            check(v1Presets().size() == 40 && presets.size() == 51, "40 first-release presets plus Simple Size, Iron Tyrant, Tin Can Drone, "
+                                                                   "Upside Down, Spore Throat, Hoarse Hoarder, Angry Pepper Pot, Ball Bearing, Use Your Words, "
+                                                                   "Thing Next Door and Stairwell Stalker");
+            // The parameter defaults are Init's values.
+            int defaults = 0;
+            for (const auto& [id, value] : presets[0].values)
+                if (std::abs(Params::defaultOf(id.toStdString()) - value) > 1e-4f && !id.endsWith("Pos"))
+                {
+                    ++defaults;
+                    std::printf("    default of %s is %.2f, Init has %.2f\n", id.toRawUTF8(), Params::defaultOf(id.toStdString()), value);
+                }
+            check(defaults == 0, juce::String(defaults) + " defaults differ from Init");
+        }
+
+        const double sr = 48000.0;
+        // DC: a heavy, asymmetric preset pushed to the limit leaves no DC after the clipper.
+        {
+            auto q = makeProcessor(sr, 512);
+            q->setCurrentProgram(presetIndex("Smashed"));
+            setParam(*q, Params::outPush, 24.0f);
+            const auto out = render(*q, dual(makeVoice(sr, 5.0)), 512);
+            // The mean over whole syllable cycles of the test voice (0.45 s each), after the first second.
+            const int from = static_cast<int>(sr), count = static_cast<int>(8 * 0.45 * sr);
+            double mean = 0.0;
+            for (int i = from; i < from + count; ++i)
+                mean += static_cast<double>(out.l[static_cast<size_t>(i)]);
+            mean /= static_cast<double>(count);
+            // (1.0.0 left -0.004 to -0.009 on real recordings here. What remains comes from the
+            // safety stage, which must stay exact so the ceiling holds.)
+            check(std::abs(mean) < 1e-3, "Smashed at Push 24: DC " + juce::String(mean, 6));
+        }
+
+        const auto renderWith = [sr](const Values& values, int seconds10 = 15)
+        {
+            auto q = makeProcessor(sr, 512);
+            setValues(*q, values);
+            q->reset();
+            return render(*q, dual(makeVoice(sr, seconds10 / 10.0)), 512);
+        };
+        const auto differenceDb = [](const Stereo& a, const Stereo& b)
+        {
+            double d = 0.0, e = 0.0;
+            for (int i = a.size() / 3; i < a.size(); ++i)
+            {
+                const double x = a.l[static_cast<size_t>(i)], y = b.l[static_cast<size_t>(i)];
+                d += (x - y) * (x - y);
+                e += x * x;
+            }
+            return 10.0 * std::log10(d / std::max(e, 1e-30) + 1e-30);
+        };
+        // Ensemble Vibrato grows with Amount (it was stuck at 70 % wet from 10 % up).
+        {
+            const Values base { { Params::ensembleMotion, 3.0f } };
+            auto a = base, b = base;
+            a.push_back({ Params::ensemble, 20.0f });
+            b.push_back({ Params::ensemble, 60.0f });
+            const double d = differenceDb(renderWith(a), renderWith(b));
+            check(d > -30.0, "Vibrato at 20 % and 60 % differ by " + juce::String(d, 1) + " dB");
+        }
+        // The top of De-ess keeps taking more (it stopped at the detector's slope near 70 %).
+        {
+            const double d = differenceDb(renderWith({ { Params::deess, 75.0f } }), renderWith({ { Params::deess, 100.0f } }));
+            check(d > -40.0, "De-ess at 75 % and 100 % differ by " + juce::String(d, 1) + " dB");
+        }
+        // Rattle rattles at the reference level (it was identical to Sine).
+        {
+            const Values base { { Params::growl, 60.0f }, { Params::growlRate, 20.0f } };
+            auto a = base, b = base;
+            a.push_back({ Params::growlShape, 0.0f });
+            b.push_back({ Params::growlShape, 4.0f });
+            const double d = differenceDb(renderWith(a), renderWith(b));
+            check(d > -40.0, "Rattle differs from Sine by " + juce::String(d, 1) + " dB at the reference level");
+        }
+        // Sub Drive 20 is clean; 100 is audibly driven (it was inaudible at every setting).
+        {
+            const Values base { { Params::sub, 60.0f } };
+            auto a = base, b = base, c = base;
+            a.push_back({ Params::subDrive, 0.0f });
+            b.push_back({ Params::subDrive, 20.0f });
+            c.push_back({ Params::subDrive, 100.0f });
+            const auto ra = renderWith(a);
+            const double clean = differenceDb(ra, renderWith(b)), driven = differenceDb(ra, renderWith(c));
+            check(driven > clean + 10.0 && driven > -30.0, "Sub Drive: 20 % vs 0 % " + juce::String(clean, 1) + " dB, 100 % vs 0 % " + juce::String(driven, 1) + " dB");
+        }
     }
 }
 
@@ -3384,6 +9297,13 @@ int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
+    if (argc >= 2 && std::string(argv[1]) == "--motion")
+    {
+        // (just the creature's motion models and the quality governor: quick)
+        testMotion();
+        std::printf("\n%d checks, %d failed\n", g_checks, g_failures);
+        return g_failures == 0 ? 0 : 1;
+    }
     if (argc >= 3 && std::string(argv[1]) == "--snapshot")
     {
         // A PNG of the editor at its design size (for a quick look at the layout).
@@ -3404,26 +9324,94 @@ int main(int argc, char* argv[])
     if (argc >= 3 && std::string(argv[1]) == "--snapshots")
         return runSnapshots(juce::File(argv[2]));
 
+    if (argc >= 3 && std::string(argv[1]) == "--ink-ascii")
+    {
+        // The anatomy of a seed as text (the CPU mask): a quick look at what the generator made.
+        const auto seed = static_cast<std::uint32_t>(std::atoll(argv[2]));
+        const float stage = argc >= 4 ? static_cast<float>(std::atof(argv[3])) : 0.6f;
+        const auto g = roar::CreatureAnatomy::generate(seed);
+        auto pose = roar::CreatureAnatomy::evaluate(g, stage);
+        pose.maw[2] = argc >= 5 ? roar::CreatureAnatomy::opening(static_cast<float>(std::atof(argv[4])), stage) : 0.0f;
+        const int w = 120, h = 34;
+        const auto m = inkmask::ofPose(pose, w, h, 3.6f);
+        for (int y = h - 1; y >= 0; --y)
+        {
+            for (int x = 0; x < w; ++x)
+                std::putchar(m[static_cast<size_t>(y * w + x)] != 0 ? '#' : '.');
+            std::putchar('\n');
+        }
+        const auto rep = roar::CreatureAnatomy::inspect(pose);
+        std::printf("seed %u stage %.2f: build %d, %d lobes, %d limbs, %d bays, rift at %.2f half %.2f; re-rolls %d (%d face), valid %d\n"
+                    "  area %.3f, largest part %.2f, enclosed %d, extent %.2f x %.2f, negative %.2f, limbs %d, face layout %d\n",
+                    seed, static_cast<double>(stage), static_cast<int>(g.build), g.numLobes, g.numLimbs, g.numBays, static_cast<double>(pose.maw[0]),
+                    static_cast<double>(pose.maw[1]), g.rerolls, g.faceRerolls, g.valid ? 1 : 0, static_cast<double>(rep.area),
+                    static_cast<double>(rep.largestShare), rep.enclosed, static_cast<double>(rep.maxX), static_cast<double>(rep.maxY),
+                    static_cast<double>(rep.negative), rep.limbs, rep.faceLayout ? 1 : 0);
+        return 0;
+    }
+
+   #if defined(__APPLE__)
+    if (argc >= 3 && std::string(argv[1]) == "--ink-shots")
+        return runInkShots(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]),
+                           argc >= 4 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]) : juce::File());
+   #endif
+
     if (argc >= 4 && std::string(argv[1]) == "--render")
     {
-        juce::StringArray presets, only, without;
-        juce::String order;
+        RenderOptions opt;
         for (int i = 4; i < argc; ++i)
         {
             const std::string a(argv[i]);
             const bool hasValue = i + 1 < argc;
             if (a == "--preset" && hasValue)
-                presets.add(argv[++i]);
+                opt.presets.add(argv[++i]);
             else if (a == "--only" && hasValue)
-                only.add(juce::String(argv[++i]).toUpperCase());
+                opt.only.add(juce::String(argv[++i]).toUpperCase());
             else if (a == "--without" && hasValue)
-                without.add(juce::String(argv[++i]).toUpperCase());
+                opt.without.add(juce::String(argv[++i]).toUpperCase());
             else if (a == "--order" && hasValue)
-                order = argv[++i];
+                opt.order = argv[++i];
+            else if (a == "--set" && hasValue)
+                opt.sets.add(argv[++i]);
+            else if (a == "--metrics" && hasValue)
+                opt.metrics = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]);
+            else if (a == "--sweep" && i + 4 < argc)
+            {
+                opt.sweepId = argv[++i];
+                opt.sweepFrom = std::atof(argv[++i]);
+                opt.sweepTo = std::atof(argv[++i]);
+                opt.sweepSteps = std::atoi(argv[++i]);
+            }
+            else if (a == "--norm")
+                opt.sweepNorm = true;
+            else if (a == "--roll" && i + 2 < argc)
+            {
+                opt.rollFrom = std::atoi(argv[++i]);
+                opt.rollTo = std::atoi(argv[++i]);
+            }
+            else if (a == "--no-wav")
+                opt.writeWav = false;
+            else if (a == "--raw-out")
+                opt.rawOutput = true;
+            else if (a.rfind("--", 0) == 0)
+            {
+                std::printf("unknown or incomplete option %s\n", a.c_str());
+                return 1;
+            }
             else
-                presets.add(argv[i]);   // a bare name is a preset
+                opt.presets.add(argv[i]);   // a bare name is a preset
         }
-        return renderFiles(juce::File(argv[2]), juce::File(argv[3]), presets, only, without, order);
+        for (const auto* codes : { &opt.only, &opt.without })
+            for (const auto& code : *codes)
+                if (Params::moduleIndexForCode(code.toStdString()) < 0)
+                {
+                    std::printf("unknown module code %s (one of PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH)\n", code.toRawUTF8());
+                    return 1;
+                }
+        if (opt.sweepId.isNotEmpty() && opt.metrics == juce::File())
+            opt.metrics = juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]).getChildFile("sweep-" + opt.sweepId + ".json");
+        return renderFiles(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]),
+                           juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]), opt);
     }
 
     juce::StringArray selected;
@@ -3437,6 +9425,7 @@ int main(int argc, char* argv[])
 
     const std::vector<std::pair<const char*, void (*)()>> tests {
         { "params", testParameters },
+        { "laws", testKnobLaws },
         { "latency", testLatency },
         { "null", testNulls },
         { "mix", testMixPhase },
@@ -3449,9 +9438,20 @@ int main(int argc, char* argv[])
         { "blocks", testBlockSizes },
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
+        { "voicedsp", testVoiceModules },
+        { "chamber", testChamber },
+        { "chamberclip", testChamberClip },
         { "editor", testEditor },
+        { "ui", testUi },
+        { "dice", testDice },
         { "creature", testCreature },
         { "logo", testLogoSdf },
+        { "motion", testMotion },
+        { "mood", testMood },
+        { "ink", testInk },
+       #if defined(__APPLE__)
+        { "renderer", testRenderer },
+       #endif
         { "cpu", testCpu },
     };
 

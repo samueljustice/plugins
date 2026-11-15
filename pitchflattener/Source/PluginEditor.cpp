@@ -1,609 +1,184 @@
 #include "PluginEditor.h"
 
 #include "AboutWindow.h"
-#include "PresetManager.h"
-#include "SpectrogramVisualizer.h"
+#include "UpdatePopup.h"
 
 namespace
 {
-    constexpr int c_width  = PitchFlattenerAudioProcessorEditor::baseWidth;
-    constexpr int c_height = PitchFlattenerAudioProcessorEditor::baseHeight;
-    constexpr int c_margin = 16;
-    constexpr int c_headerHeight = 56;
-    constexpr int c_sourceHeight = 46;
-    constexpr int c_controlsHeight = 230;
-    constexpr int c_helpHeight = 26;
-    constexpr int c_gap = 10;
-    constexpr int c_sectionGap = 12;
-    constexpr int c_sectionHeaderHeight = 32;
-    constexpr int c_labelHeight = 16;
-
 #ifdef PLUGIN_VERSION
     const char* const c_version = PLUGIN_VERSION;
 #else
     const char* const c_version = JucePlugin_VersionString;
 #endif
 
-    const char* const c_defaultHelp = "Hover over a control for help.  Double-click a knob to reset it, Alt-click a menu to reset it.";
+    using State = pitchflattener::Engine::State;
+    using Processor = PitchFlattenerAudioProcessor;
 
-    enum class Format { Percent, MixPercent, Hertz, HertzNote, Decibels, OctavesPerSecond, Milliseconds, Semitones };
+    constexpr int c_margin = 16;
+    constexpr int c_gap = 10;
 
-    /** "A4", "c#3", "Bb2" -> Hz, or 0 when the text is not a note name. */
-    double parseNoteName (const juce::String& text)
-    {
-        const auto t = text.trim();
-        if (t.isEmpty())
-            return 0.0;
-
-        static const int pitchClasses[] = { 9, 11, 0, 2, 4, 5, 7 }; // A B C D E F G
-        const auto first = juce::CharacterFunctions::toUpperCase (t[0]);
-        if (first < 'A' || first > 'G')
-            return 0.0;
-
-        int pc = pitchClasses[first - 'A'];
-        int pos = 1;
-
-        if (t[pos] == '#')      { ++pc; ++pos; }
-        else if (t[pos] == 'b') { --pc; ++pos; }
-
-        const auto octaveText = t.substring (pos).trim();
-        if (octaveText.isEmpty() || ! octaveText.containsOnly ("-0123456789"))
-            return 0.0;
-
-        const int midi = (octaveText.getIntValue() + 1) * 12 + pc;
-        return 440.0 * std::exp2 ((midi - 69) / 12.0);
-    }
-
-    double parseValue (const juce::String& text, Format format)
-    {
-        const auto t = text.trim();
-
-        if (format == Format::Hertz || format == Format::HertzNote)
-            if (const double hz = parseNoteName (t); hz > 0.0)
-                return hz;
-
-        double v = t.getDoubleValue(); // leading number; units and note names after it are ignored
-
-        switch (format)
-        {
-            case Format::Hertz:
-            case Format::HertzNote:
-                if (t.containsIgnoreCase ("k"))
-                    v *= 1000.0;
-                break;
-            case Format::Milliseconds:
-                if (t.endsWithIgnoreCase ("s") && ! t.endsWithIgnoreCase ("ms"))
-                    v *= 1000.0;
-                break;
-            case Format::MixPercent:
-                v /= 100.0;
-                break;
-            case Format::Percent:
-            case Format::Decibels:
-            case Format::OctavesPerSecond:
-            case Format::Semitones:
-                break;
-        }
-
-        return v;
-    }
-
-    juce::String formatValue (double v, Format format)
-    {
-        switch (format)
-        {
-            case Format::Percent:          return juce::String (juce::roundToInt (v)) + "%";
-            case Format::MixPercent:       return juce::String (juce::roundToInt (v * 100.0)) + "%";
-            case Format::Hertz:            return Theme::formatHertz (v);
-            case Format::HertzNote:        return Theme::formatHertz (v) + " " + Theme::noteName ((float) v);
-            case Format::Decibels:         return Theme::signedText (v, " dB");
-            case Format::OctavesPerSecond: return juce::String (v, v < 10.0 ? 1 : 0) + " oct/s";
-            case Format::Milliseconds:     return v >= 1000.0 ? juce::String (v / 1000.0, 2) + " s"
-                                                              : juce::String (juce::roundToInt (v)) + " ms";
-            case Format::Semitones:        return juce::String (v, std::abs (v - std::round (v)) < 0.05 ? 0 : 1) + " st";
-        }
-
-        return juce::String (v);
-    }
-
-    void resetParameterToDefault (juce::RangedAudioParameter* param)
-    {
-        if (param == nullptr)
-            return;
-
-        param->beginChangeGesture();
-        param->setValueNotifyingHost (param->getDefaultValue());
-        param->endChangeGesture();
-    }
-
-    //==========================================================================
-    /** ComboBox that resets its parameter on Alt-click (a double-click would open the menu). */
-    class ResetComboBox : public juce::ComboBox
-    {
-    public:
-        std::function<void()> onResetRequest;
-
-        void mouseDown (const juce::MouseEvent& e) override
-        {
-            if (e.mods.isAltDown() && onResetRequest != nullptr && isEnabled())
-            {
-                onResetRequest();
-                return;
-            }
-
-            juce::ComboBox::mouseDown (e);
-        }
+    const char* const c_targetLabels[] = { "HIGH POINT", "CENTRE", "LOW POINT", "START", "NOTE" };
+    const char* const c_targetTips[] = {
+        "High Point: flattens the sound to the top of its pitch (a pass-by's approach, a siren's peak). "
+        "The flattened sound is never longer than the original.",
+        "Centre: flattens the sound to the pitch it spends most of its time at, so it changes least overall.",
+        "Low Point: flattens the sound to the bottom of its pitch. The flattened sound is longer than the original.",
+        "Start: flattens the sound to the pitch it opens on.",
+        "Note: flattens the sound to the pitch set with the Note control."
     };
+    const char* const c_lineLabels[] = { "AUTO", "HARMONIC", "RIDGE" };
+    const char* const c_lineTip =
+        "Line: which reading of the sound's pitch it is flattened by. Auto takes the one that flattens it better. "
+        "Harmonic suits voices, engines and whines; Ridge suits sirens, whistles and higher sounds. "
+        "Clicking a line in the display picks it too.";
 
-    //==========================================================================
-    /** Vertical input level meter with the gate threshold marked. */
-    class GateMeter : public juce::Component
-    {
-    public:
-        void setLevels (float levelDb, float gateDb)
-        {
-            const float level = juce::jlimit (-80.0f, 0.0f, levelDb);
-            // Compare the raw level too: below -80 dB the bar is pinned but the
-            // readout text (and the "-inf" switch at -100 dB) still changes.
-            if (std::abs (level - m_levelDb) > 0.05f || std::abs (levelDb - m_rawDb) > 0.05f
-                || ! juce::approximatelyEqual (gateDb, m_gateDb))
-            {
-                m_levelDb = level;
-                m_gateDb = gateDb;
-                m_rawDb = levelDb;
-                repaint();
-            }
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            using namespace Theme::Colours;
-
-            auto r = getLocalBounds().toFloat();
-            auto textRow = r.removeFromBottom (18.0f);
-            const auto bar = r.reduced (0.0f, 6.0f).withSizeKeepingCentre (8.0f, r.getHeight() - 12.0f);
-            const bool open = m_rawDb > m_gateDb;
-
-            const auto toY = [&bar] (float db) { return bar.getBottom() - bar.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 80.0f) / 80.0f); };
-
-            g.setColour (outline);
-            g.fillRoundedRectangle (bar, 4.0f);
-            g.setColour ((open ? good : textFaint).withAlpha (0.9f));
-            g.fillRoundedRectangle (bar.withTop (toY (m_levelDb)), 4.0f);
-
-            g.setColour (Theme::Colours::detect);
-            const float gy = toY (m_gateDb);
-            g.fillRoundedRectangle (juce::Rectangle<float> (bar.getX() - 5.0f, gy - 1.0f, bar.getWidth() + 10.0f, 2.0f), 1.0f);
-
-            g.setFont (m_fonts->body (12.0f));
-            g.setColour (open ? good : textDim);
-            g.drawText (m_rawDb <= -100.0f ? juce::String ("-inf dB") : juce::String (m_rawDb, 1) + " dB",
-                        textRow, juce::Justification::centred, false);
-        }
-
-    private:
-        juce::SharedResourcePointer<Theme::Fonts> m_fonts;
-        float m_levelDb = -80.0f, m_gateDb = -50.0f, m_rawDb = -120.0f;
-    };
+    juce::String seconds (double s) { return juce::String (s, 2) + " S"; }
 }
 
 //==============================================================================
-// Content: everything, laid out at the fixed base size
-//==============================================================================
-class PitchFlattenerAudioProcessorEditor::Content : public juce::Component, private juce::Timer
-{
-public:
-    Content (PitchFlattenerAudioProcessor& processor, PitchFlattenerLookAndFeel& lookAndFeel);
-    ~Content() override;
-
-    void paint (juce::Graphics&) override;
-    void resized() override;
-
-    void mouseEnter (const juce::MouseEvent&) override { updateHelp(); }
-    void mouseMove (const juce::MouseEvent&) override  { updateHelp(); }
-    void mouseExit (const juce::MouseEvent&) override  { updateHelp(); }
-
-private:
-    enum KnobId
-    {
-        targetPitchKnob, autoWindowKnob, amountKnob, overrideFreqKnob,
-        sensitivityKnob, speedKnob, smoothingKnob, gapFillKnob, minFreqKnob, maxFreqKnob,
-        gateKnob, highpassKnob, lowpassKnob,
-        maxShiftKnob, mixKnob,
-        numKnobs
-    };
-
-    struct Knob
-    {
-        juce::Slider slider;
-        juce::Label label;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
-    };
-
-    struct Section
-    {
-        juce::String title;
-        juce::Colour accent;
-        juce::Rectangle<int> bounds;
-    };
-
-    void timerCallback() override;
-
-    void setupKnob (KnobId id, const char* paramId, const juce::String& name, juce::Colour accent, Format format,
-                    const juce::String& help);
-    void setupChoice (ResetComboBox& combo, const char* paramId, juce::Colour accent, const juce::String& help,
-                      std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>& attachment);
-    void setupToggle (juce::ToggleButton& button, juce::Label& label, const char* paramId, const juce::String& name,
-                      juce::Colour accent, const juce::String& help,
-                      std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>& attachment);
-    void setupCaption (juce::Label& label, const juce::String& name);
-    void setupSourceType();
-
-    void userPickedSourceType (int index);
-    void updateSourceBlurb();
-    void updateEnablement();
-    void showAbout();
-
-    void setHelp (juce::Component& c, const juce::String& text) { m_help[&c] = text; }
-    void updateHelp();
-    juce::String findHelpFor (juce::Component* c) const;
-
-    juce::Rectangle<int> bodyOf (const Section& s) const { return s.bounds.withTrimmedTop (c_sectionHeaderHeight).reduced (4, 4); }
-    static void placeInCell (juce::Rectangle<int> cell, juce::Component& control, juce::Label& label, int controlHeight = 0);
-
-    PitchFlattenerAudioProcessor& m_processor;
-    PitchFlattenerLookAndFeel& m_lookAndFeel;
-    juce::SharedResourcePointer<Theme::Fonts> m_fonts;
-
-    PitchDisplay m_display;
-    PresetBar m_presetBar;
-    juce::TextButton m_aboutButton { "?" };
-
-    // Source strip
-    ResetComboBox m_sourceCombo, m_detectorCombo;
-    std::unique_ptr<juce::ParameterAttachment> m_sourceAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_detectorAttachment;
-    juce::String m_sourceBlurb;
-    pf::DetectorType m_shownActiveDetector = pf::DetectorType::NumDetectors;
-    juce::Rectangle<int> m_sourceStrip, m_blurbArea, m_activeArea;
-
-    // Knobs
-    std::array<Knob, numKnobs> m_knobs;
-
-    // Target
-    ResetComboBox m_targetModeCombo;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_targetModeAttachment;
-    juce::TextButton m_relatchButton { "RE-LATCH" };
-    juce::Label m_relatchLabel;
-    juce::ToggleButton m_overrideToggle;
-    juce::Label m_overrideLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_overrideAttachment;
-
-    // Input
-    GateMeter m_gateMeter;
-    juce::Label m_levelLabel;
-
-    // Output
-    ResetComboBox m_qualityCombo;
-    juce::Label m_qualityLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_qualityAttachment;
-    juce::ToggleButton m_formantToggle;
-    juce::Label m_formantLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_formantAttachment;
-
-    std::array<Section, 4> m_sections;
-    juce::Rectangle<int> m_helpArea;
-    juce::String m_helpText { c_defaultHelp };
-    std::map<const juce::Component*, juce::String> m_help;
-
-    std::atomic<float>* m_targetModeValue = nullptr;
-    std::atomic<float>* m_overrideValue = nullptr;
-    std::atomic<float>* m_gateValue = nullptr;
-
-    std::unique_ptr<AboutWindow> m_aboutWindow; // at most one per editor, closed with it
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Content)
-};
-
-//==============================================================================
-PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcessor& processor,
-                                                      PitchFlattenerLookAndFeel& lookAndFeel)
-    : m_processor (processor)
-    , m_lookAndFeel (lookAndFeel)
-    , m_display (processor)
-    , m_presetBar (processor.parameters, lookAndFeel)
+PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFlattenerAudioProcessor& p)
+    : AudioProcessorEditor (&p)
+    , m_processor (p)
+    , m_lookAndFeel (*m_fonts)
 {
     using namespace Theme::Colours;
-    auto& params = m_processor.parameters;
-
-    // Set our LookAndFeel before any child creates LookAndFeel-dependent parts
-    // (slider value boxes, combo labels). This component is not yet inside the
-    // editor here, so it would otherwise inherit the default LookAndFeel.
     setLookAndFeel (&m_lookAndFeel);
+    setOpaque (true);
+    Hud::setFramebufferHost (*this);   // the children draw only through the framebuffer
+    m_tooltipWindow.setLookAndFeel (&m_lookAndFeel);
+    PitchFlattenerLookAndFeel::showFocusRingsAfterTab (*this);
 
-    m_targetModeValue = params.getRawParameterValue (ParamIDs::targetMode);
-    m_overrideValue = params.getRawParameterValue (ParamIDs::manualOverride);
-    m_gateValue = params.getRawParameterValue (ParamIDs::volumeThreshold);
+    m_learn.onClick = [this] { learnClicked(); };
+    m_learn.setTooltip ("Learn: press, then play the sound once through the plug-in. It records the sound (letting it through "
+                        "unchanged), stops after a second of silence, and flattens it. Press again while it listens to stop there. "
+                        "Afterwards, whenever that sound plays through the plug-in again, from the start or from any point in it, "
+                        "the flattened sound plays in its place.");
+    addAndMakeVisible (m_learn);
 
-    m_sections = { Section { "TARGET",   target,     {} },
-                   Section { "TRACKING", detect,     {} },
-                   Section { "INPUT",    detect,     {} },
-                   Section { "OUTPUT",   correction, {} } };
+    m_clear.onClick = [this] { m_processor.getEngine().clear(); refreshNow(); };
+    m_clear.setTooltip ("Clear: forgets the learned sound. Audio then passes through unchanged until another sound is learned.");
+    addAndMakeVisible (m_clear);
 
-    addAndMakeVisible (m_display);
-    addAndMakeVisible (m_presetBar);
+    m_about.onClick = [this] { showAbout(); };
+    m_about.setTooltip ("About Pitch Flattener: version, credits and the update check.");
+    addAndMakeVisible (m_about);
 
-    // The wobble warning's "Try ..." button picks a Source Type exactly as the Source menu does.
-    m_display.onTrySourceType = [this] (int type) { userPickedSourceType (type); };
+    for (size_t i = 0; i < m_targets.size(); ++i)
+    {
+        auto& b = m_targets[i];
+        b = std::make_unique<HudButton> (c_targetLabels[i], HudButton::Style::Segment);
+        b->setTooltip (c_targetTips[i]);
+        b->onClick = [this, i] { m_processor.setParameterFromEditor (Processor::targetId, (float) i); refreshNow(); };
+        addAndMakeVisible (*b);
+    }
 
-    m_aboutButton.onClick = [this] { showAbout(); };
-    m_aboutButton.setTooltip ("About SammyJs Pitch Flattener");
-    addAndMakeVisible (m_aboutButton);
+    setupKnob (m_note, Processor::noteId,
+               "Note: the pitch the sound is flattened to when the target is Note. Type a note name such as A3, or C#4 +20 for cents.",
+               m_noteAttachment);
+    setupKnob (m_amount, Processor::amountId,
+               "Amount: how much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in.",
+               m_amountAttachment);
 
-    // --- Source strip ----------------------------------------------------
-    setupSourceType();
-    setupChoice (m_detectorCombo, ParamIDs::detector, detect,
-                 "Detector: the pitch detection algorithm. Each Source Type picks one; change it here to override. "
-                 "pYIN suits voices, MPM solo instruments, Spectral Peak tones, Spectral + MPM sirens, Harmonic Sum engines and drones.",
-                 m_detectorAttachment);
+    for (size_t i = 0; i < m_lines.size(); ++i)
+    {
+        auto& b = m_lines[i];
+        b = std::make_unique<HudButton> (c_lineLabels[i], HudButton::Style::Segment);
+        b->setTooltip (c_lineTip);
+        b->onClick = [this, i]
+        {
+            m_processor.setParameterFromEditor (Processor::lineId, (float) i);
+            m_processor.syncOptions();
+            refreshNow();
+        };
+        addAndMakeVisible (*b);
+    }
 
-    // --- Target ------------------------------------------------------------
-    setupChoice (m_targetModeCombo, ParamIDs::targetMode, target,
-                 "Target mode. Latch: lock to the first stable pitch of each sound. Fixed: flatten everything to Target Hz. "
-                 "Auto: remove movement faster than the Auto Window but keep the overall contour.",
-                 m_targetModeAttachment);
+    m_scopeTab.setTooltip ("Scope: the learned sound as an exact graph of its pitch over time, the target and the play head.");
+    m_flightTab.setTooltip ("Flight: the learned sound flown as a course, its pitch as a track that rises and falls beside the "
+                            "level lane of the flattened sound.");
+    m_scopeTab.onClick = [this] { chooseView (Processor::kViewScope); };
+    m_flightTab.onClick = [this] { chooseView (Processor::kViewFlight); };
+    addAndMakeVisible (m_scopeTab);
+    addAndMakeVisible (m_flightTab);
 
-    setupKnob (targetPitchKnob, ParamIDs::targetPitch, "Target Hz", target, Format::HertzNote,
-               "Target Hz (Fixed mode): the pitch everything is flattened to. Type a note name such as A4 to enter it directly.");
-    setupKnob (autoWindowKnob, ParamIDs::autoWindow, "Auto Win", target, Format::Milliseconds,
-               "Auto Window (Auto mode): pitch movement faster than this is removed, slower movement is kept. Longer = flatter.");
-    setupKnob (amountKnob, ParamIDs::flattenAmount, "Amount", target, Format::Percent,
-               "Amount: how much of the pitch deviation is removed. 100% = completely flat, 50% = half the movement.");
-    setupKnob (overrideFreqKnob, ParamIDs::overrideFreq, "Override Hz", target, Format::HertzNote,
-               "Override Hz: the target used while Override is on, replacing the target mode.");
+    m_display.onLineClicked = [this] (int line)
+    {
+        m_processor.setParameterFromEditor (Processor::lineId, (float) (line + 1));
+        m_processor.syncOptions();
+        refreshNow();
+    };
+    addChildComponent (m_display);
+    addChildComponent (m_flight);
+    addAndMakeVisible (m_banner);   // over both views, never taking a click
 
-    setupCaption (m_relatchLabel, "Latch");
-    m_relatchButton.onClick = [this] { m_processor.relatch(); };
-    addAndMakeVisible (m_relatchButton);
-    setHelp (m_relatchButton, "Re-latch (Latch mode): forget the latched pitch so the next stable pitch is latched again.");
-
-    setupToggle (m_overrideToggle, m_overrideLabel, ParamIDs::manualOverride, "Override", target,
-                 "Override: flatten to Override Hz instead of the target mode.", m_overrideAttachment);
-
-    // --- Tracking ----------------------------------------------------------
-    setupKnob (sensitivityKnob, ParamIDs::sensitivity, "Sensitivity", detect, Format::Percent,
-               "Sensitivity: how readily frames are treated as pitched. Higher tracks quieter or noisier sounds; lower rejects more noise.");
-    setupKnob (speedKnob, ParamIDs::trackingSpeed, "Speed", detect, Format::OctavesPerSecond,
-               "Tracking Speed: the fastest pitch movement the tracker follows, in octaves per second. Raise it for fast sirens and yelps.");
-    setupKnob (smoothingKnob, ParamIDs::trackSmoothing, "Smoothing", detect, Format::Milliseconds,
-               "Smoothing: smooths the pitch track (centred, using the lookahead, so it adds no lag).");
-    setupKnob (gapFillKnob, ParamIDs::gapFill, "Gap Fill", detect, Format::Milliseconds,
-               "Gap Fill: bridges unpitched gaps up to this long so the correction does not drop out mid-sound.");
-    setupKnob (minFreqKnob, ParamIDs::minFreq, "Min Freq", detect, Format::Hertz,
-               "Min Freq: lowest pitch the detector looks for. Keep the range tight around the source for the most reliable tracking.");
-    setupKnob (maxFreqKnob, ParamIDs::maxFreq, "Max Freq", detect, Format::Hertz,
-               "Max Freq: highest pitch the detector looks for.");
-
-    // --- Input ---------------------------------------------------------------
-    setupKnob (gateKnob, ParamIDs::volumeThreshold, "Gate", detect, Format::Decibels,
-               "Gate: input below this level is treated as unpitched (the teal line on the level meter).");
-    setupKnob (highpassKnob, ParamIDs::detectionHighpass, "Highpass", detect, Format::Hertz,
-               "Detection Highpass: filters rumble out of the signal the detector hears. The audio itself is not filtered.");
-    setupKnob (lowpassKnob, ParamIDs::detectionLowpass, "Lowpass", detect, Format::Hertz,
-               "Detection Lowpass: filters hiss and high harmonics out of the signal the detector hears. The audio itself is not filtered.");
-
-    setupCaption (m_levelLabel, "Level");
-    addAndMakeVisible (m_gateMeter);
-    setHelp (m_gateMeter, "Live input level. Green when above the gate (teal line), so the detector is listening.");
-
-    // --- Output --------------------------------------------------------------
-    setupKnob (maxShiftKnob, ParamIDs::maxShift, "Max Shift", correction, Format::Semitones,
-               "Max Shift: the largest correction allowed, in semitones. Larger deviations are only corrected this far.");
-    setupKnob (mixKnob, ParamIDs::mix, "Mix", correction, Format::MixPercent,
-               "Mix: blend between the dry input and the flattened signal (both latency-aligned).");
-
-    setupCaption (m_qualityLabel, "Quality");
-    setupChoice (m_qualityCombo, ParamIDs::quality, correction,
-                 "Shifter quality. Smooth: standard window, best for sustained tones. Tight: short window, better for fast movement and transients.",
-                 m_qualityAttachment);
-
-    setupToggle (m_formantToggle, m_formantLabel, ParamIDs::rbFormantPreserve, "Formant", correction,
-                 "Formant: preserve the spectral envelope while shifting (keeps voices natural). Off is usually better for sirens and machines.",
-                 m_formantAttachment);
-
-    setHelp (m_presetBar.getNameButton(), "Presets: one factory preset per Source Type, plus your own saved presets. "
-                                          "Click for the menu: load, save, delete, reset to defaults, show the presets folder.");
-    setHelp (m_presetBar.getPreviousButton(), "Previous preset: steps back through the factory presets, then your own, in menu order.");
-    setHelp (m_presetBar.getNextButton(), "Next preset: steps through the factory presets, then your own, in menu order.");
-    setHelp (m_presetBar.getSaveButton(), "Save the current settings as a user preset.");
-    setHelp (m_aboutButton, "About Pitch Flattener: version, credits and update check.");
-
-    // Help text for every child (and grandchild) under the mouse.
-    addMouseListener (this, true);
-
-    // Children were created before they had a parent (so with the default
-    // LookAndFeel); rebuild their LookAndFeel-created parts with ours.
+    // Children were made before they had this LookAndFeel's parent; rebuild their parts with it.
     sendLookAndFeelChange();
 
-    updateEnablement();
-    setSize (c_width, c_height);
+    setSize (width, height);
+    refreshNow();
     startTimerHz (30);
+
+    // Looks for a newer release on a background thread (at most once a day, silent on any failure).
+    m_updateCheck = std::make_unique<sammyj::UpdateCheck> ("pitchflattener", "pitchflattener-v", c_version,
+        [this] (const sammyj::UpdateInfo& info) { showUpdatePopup (info); });
 }
 
-PitchFlattenerAudioProcessorEditor::Content::~Content()
+PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
 {
     stopTimer();
-    removeMouseListener (this);
+    m_updateCheck.reset();
+    m_updatePopup.reset();
     m_aboutWindow.reset();
+    juce::PopupMenu::dismissAllActiveMenus();
+    m_tooltipWindow.hideTip();
+    m_tooltipWindow.setLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
 }
 
-//==============================================================================
-void PitchFlattenerAudioProcessorEditor::Content::setupKnob (KnobId id, const char* paramId, const juce::String& name,
-                                                             juce::Colour accent, Format format, const juce::String& help)
+void PitchFlattenerAudioProcessorEditor::setupKnob (juce::Slider& slider, const char* paramId, const juce::String& tooltip,
+                                                    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>& attachment)
 {
-    auto& knob = m_knobs[(size_t) id];
-    auto& slider = knob.slider;
-
     slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 92, 18);
+    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 40);   // drawn in the gauge's middle (see the LookAndFeel)
     slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, accent);
-    // The attachment sets the range (with skew) from the parameter, and installs
-    // the parameter's own text conversion, so ours must be set after it.
-    knob.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (m_processor.parameters, paramId, slider);
-    slider.textFromValueFunction = [format] (double v) { return formatValue (v, format); };
-    slider.valueFromTextFunction = [format] (const juce::String& t) { return parseValue (t, format); };
-
-    // Double-click (or Alt-click) resets; the slider brackets it in drag
-    // notifications, so the attachment records it as one host gesture.
+    slider.setColour (juce::Slider::rotarySliderFillColourId, Theme::Colours::orange);
+    slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (m_processor.parameters, paramId, slider);
     if (auto* param = m_processor.parameters.getParameter (paramId))
         slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
-
-    slider.updateText();
+    slider.setTooltip (tooltip);
     addAndMakeVisible (slider);
-
-    // The value box was created before the slider had a parent (default
-    // LookAndFeel); changing a colour makes the slider rebuild it with ours.
-    slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-
-    setupCaption (knob.label, name);
-    setHelp (slider, help);
 }
 
-void PitchFlattenerAudioProcessorEditor::Content::setupChoice (ResetComboBox& combo, const char* paramId, juce::Colour accent,
-                                                               const juce::String& help,
-                                                               std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>& attachment)
+//==============================================================================
+void PitchFlattenerAudioProcessorEditor::timerCallback()
 {
-    auto* param = m_processor.parameters.getParameter (paramId);
-
-    // Items must exist before the attachment so it can restore the selection.
-    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (param))
-        combo.addItemList (choice->choices, 1);
-
-    combo.setColour (juce::ComboBox::arrowColourId, accent);
-    combo.setColour (juce::ComboBox::focusedOutlineColourId, accent.withAlpha (0.6f));
-    combo.onResetRequest = [param] { resetParameterToDefault (param); };
-    addAndMakeVisible (combo);
-    setHelp (combo, help);
-
-    attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (m_processor.parameters, paramId, combo);
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::setupToggle (juce::ToggleButton& button, juce::Label& label, const char* paramId,
-                                                               const juce::String& name, juce::Colour accent, const juce::String& help,
-                                                               std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>& attachment)
-{
-    button.setColour (juce::ToggleButton::tickColourId, accent);
-    button.setButtonText ({});
-    addAndMakeVisible (button);
-    setHelp (button, help);
-    setupCaption (label, name);
-
-    attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (m_processor.parameters, paramId, button);
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::setupCaption (juce::Label& label, const juce::String& name)
-{
-    label.setText (name.toUpperCase(), juce::dontSendNotification);
-    label.setJustificationType (juce::Justification::centred);
-    label.setColour (juce::Label::textColourId, Theme::Colours::textDim);
-    label.setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (label);
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::setupSourceType()
-{
-    using namespace Theme::Colours;
-
-    auto* param = m_processor.parameters.getParameter (ParamIDs::sourceType);
-    jassert (param != nullptr);
-
-    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (param))
-        m_sourceCombo.addItemList (choice->choices, 1);
-
-    m_sourceCombo.setColour (juce::ComboBox::arrowColourId, detect);
-    m_sourceCombo.setColour (juce::ComboBox::focusedOutlineColourId, detect.withAlpha (0.6f));
-    addAndMakeVisible (m_sourceCombo);
-    setHelp (m_sourceCombo, "Source Type: what you are flattening. Picking one loads tuned detector, range, tracking, filter "
-                            "and shifter settings for that kind of sound; adjust them afterwards as needed.");
-
-    if (param == nullptr)
+    // Hidden (minimised, another tab of the host): nothing moves and nothing is drawn; a slow tick
+    // only notices when it shows again.
+    if (! isShowing())
+    {
+        if (getTimerInterval() != 250)
+            startTimer (250);
         return;
-
-    // Not a ComboBoxAttachment: parameter -> combo updates must never count as
-    // a user pick, otherwise loading a session or preset would overwrite the
-    // detector settings. The attachment updates the combo silently; onChange
-    // therefore only fires for the user's own menu selection.
-    m_sourceAttachment = std::make_unique<juce::ParameterAttachment> (*param, [this] (float value)
-    {
-        m_sourceCombo.setSelectedItemIndex (juce::roundToInt (value), juce::dontSendNotification);
-        updateSourceBlurb();
-    });
-
-    m_sourceCombo.onChange = [this] { userPickedSourceType (m_sourceCombo.getSelectedItemIndex()); };
-    m_sourceCombo.onResetRequest = [this, param]
-    {
-        userPickedSourceType (juce::roundToInt (param->convertFrom0to1 (param->getDefaultValue())));
-    };
-
-    m_sourceAttachment->sendInitialUpdate();
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::userPickedSourceType (int index)
-{
-    if (index < 0 || index >= (int) pf::SourceType::NumSourceTypes || m_sourceAttachment == nullptr)
-        return;
-
-    m_sourceAttachment->setValueAsCompleteGesture ((float) index);
-    m_processor.applySourceTypeDefaults ((pf::SourceType) index);
-    updateSourceBlurb();
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::updateSourceBlurb()
-{
-    const int index = m_sourceCombo.getSelectedItemIndex();
-    m_sourceBlurb = index >= 0 ? juce::String (pf::getSourcePreset ((pf::SourceType) index).blurb) : juce::String();
-    repaint (m_blurbArea);
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::updateEnablement()
-{
-    const int mode = m_targetModeValue != nullptr ? juce::roundToInt (m_targetModeValue->load()) : 0;
-    const bool overrideOn = m_overrideValue != nullptr && m_overrideValue->load() > 0.5f;
-
-    const auto enable = [] (juce::Component& c, juce::Label& label, bool on)
-    {
-        c.setEnabled (on);
-        label.setEnabled (on);
-    };
-
-    auto& k = m_knobs;
-    enable (k[targetPitchKnob].slider, k[targetPitchKnob].label, ! overrideOn && mode == (int) pf::TargetMode::Fixed);
-    enable (k[autoWindowKnob].slider, k[autoWindowKnob].label, ! overrideOn && mode == (int) pf::TargetMode::Auto);
-    enable (k[overrideFreqKnob].slider, k[overrideFreqKnob].label, overrideOn);
-    enable (m_relatchButton, m_relatchLabel, ! overrideOn && mode == (int) pf::TargetMode::Latch);
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::timerCallback()
-{
-    updateEnablement();
-    m_presetBar.refreshIfNameChanged();
-
-    m_gateMeter.setLevels (m_processor.getInputLevelDb(), m_gateValue != nullptr ? m_gateValue->load() : -50.0f);
-
-    const auto active = m_processor.getActiveDetector();
-    if (active != m_shownActiveDetector)
-    {
-        m_shownActiveDetector = active;
-        repaint (m_activeArea);
     }
+    if (getTimerInterval() == 250)
+        startTimerHz (30);
+
+    refreshNow();
 }
 
-void PitchFlattenerAudioProcessorEditor::Content::showAbout()
+void PitchFlattenerAudioProcessorEditor::learnClicked()
 {
-    // One About window per editor: another click brings it back to the front. The content owns it,
-    // so it is closed (and its update check stopped) when the editor goes.
+    auto& engine = m_processor.getEngine();
+    if (engine.isLearnArmed())
+        engine.disarmLearn();
+    else
+        engine.armLearn();
+    refreshNow();
+}
+
+void PitchFlattenerAudioProcessorEditor::showAbout()
+{
     if (m_aboutWindow != nullptr)
     {
         m_aboutWindow->setMinimised (false);
@@ -614,326 +189,453 @@ void PitchFlattenerAudioProcessorEditor::Content::showAbout()
     m_aboutWindow = std::make_unique<AboutWindow> (m_lookAndFeel, [this] { m_aboutWindow.reset(); });
 }
 
-//==============================================================================
-juce::String PitchFlattenerAudioProcessorEditor::Content::findHelpFor (juce::Component* c) const
+juce::Component* PitchFlattenerAudioProcessorEditor::aboutContent() const
 {
-    for (; c != nullptr && c != this; c = c->getParentComponent())
-    {
-        if (c == &m_display)
-            return m_display.getHelpTextAt (m_display.getMouseXYRelative());
-
-        if (const auto it = m_help.find (c); it != m_help.end())
-            return it->second;
-    }
-
-    return c_defaultHelp;
+    return m_aboutWindow != nullptr ? m_aboutWindow->getContentComponent() : nullptr;
 }
 
-void PitchFlattenerAudioProcessorEditor::Content::updateHelp()
+int PitchFlattenerAudioProcessorEditor::shownView() const
 {
-    // Look up whatever is under the mouse now (robust to enter/exit ordering).
-    juce::Component* under = nullptr;
-    const auto mouse = getMouseXYRelative();
-
-    if (getLocalBounds().contains (mouse))
-        under = getComponentAt (mouse);
-
-    const auto text = findHelpFor (under);
-
-    if (text != m_helpText)
-    {
-        m_helpText = text;
-        repaint (m_helpArea);
-    }
+    const int chosen = m_processor.getDisplayView();
+    if (chosen != Processor::kViewUnset)
+        return chosen;
+    // Not chosen yet: the attract loop while nothing is learned, the exact graph once something is.
+    return m_processor.getEngine().result() != nullptr ? Processor::kViewScope : Processor::kViewFlight;
 }
 
-//==============================================================================
-void PitchFlattenerAudioProcessorEditor::Content::placeInCell (juce::Rectangle<int> cell, juce::Component& control,
-                                                               juce::Label& label, int controlHeight)
+void PitchFlattenerAudioProcessorEditor::chooseView (int view)
 {
-    label.setBounds (cell.removeFromTop (c_labelHeight));
-
-    if (controlHeight > 0)
-        control.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), controlHeight));
-    else
-        control.setBounds (cell);
+    m_processor.setDisplayView (view);
+    refreshNow();
 }
 
-void PitchFlattenerAudioProcessorEditor::Content::resized()
-{
-    auto bounds = getLocalBounds();
-
-    // Header: title (painted), preset bar (<  name  >  SAVE), about
-    auto header = bounds.removeFromTop (c_headerHeight).reduced (c_margin, 0);
-    m_aboutButton.setBounds (header.removeFromRight (26).withSizeKeepingCentre (26, 26));
-    header.removeFromRight (14);
-    m_presetBar.setBounds (header.removeFromRight (400).withSizeKeepingCentre (400, 26)); // as Subbertone's
-
-    bounds.reduce (c_margin, 0);
-
-    // Help bar
-    m_helpArea = bounds.removeFromBottom (c_helpHeight + 6).withTrimmedBottom (6);
-
-    // Source strip
-    m_sourceStrip = bounds.removeFromTop (c_sourceHeight);
-    {
-        auto r = m_sourceStrip.reduced (12, 0);
-        r.removeFromLeft (84); // "SOURCE" caption (painted)
-        m_sourceCombo.setBounds (r.removeFromLeft (190).withSizeKeepingCentre (190, 26));
-        r.removeFromLeft (14);
-
-        m_activeArea = r.removeFromRight (104);
-        r.removeFromRight (12);
-        m_detectorCombo.setBounds (r.removeFromRight (150).withSizeKeepingCentre (150, 26));
-        r.removeFromRight (86); // "DETECTOR" caption (painted)
-        m_blurbArea = r.withTrimmedRight (10);
-    }
-
-    bounds.removeFromTop (c_gap);
-
-    // Controls
-    auto controls = bounds.removeFromBottom (c_controlsHeight);
-    bounds.removeFromBottom (c_sectionGap);
-    m_display.setBounds (bounds);
-
-    // 3 + 3 + 2 + 2 columns
-    const int unit = (controls.getWidth() - 3 * c_sectionGap) / 10;
-    m_sections[0].bounds = controls.removeFromLeft (unit * 3);
-    controls.removeFromLeft (c_sectionGap);
-    m_sections[1].bounds = controls.removeFromLeft (unit * 3);
-    controls.removeFromLeft (c_sectionGap);
-    m_sections[3].bounds = controls.removeFromRight (unit * 2);
-    controls.removeFromRight (c_sectionGap);
-    m_sections[2].bounds = controls;
-
-    const auto grid = [this] (const Section& s, int columns)
-    {
-        // Returns a lambda giving the cell at (column, row) of a 2-row grid.
-        const auto body = bodyOf (s);
-        const int cw = body.getWidth() / columns;
-        const int ch = body.getHeight() / 2;
-        return [body, cw, ch] (int col, int row, int span = 1)
-        {
-            return juce::Rectangle<int> (body.getX() + col * cw, body.getY() + row * ch, cw * span, ch);
-        };
-    };
-
-    auto& k = m_knobs;
-    const auto placeKnob = [&k] (KnobId id, juce::Rectangle<int> cell)
-    {
-        k[(size_t) id].label.setBounds (cell.removeFromTop (c_labelHeight));
-        k[(size_t) id].slider.setBounds (cell);
-    };
-
-    // TARGET
-    {
-        const auto cell = grid (m_sections[0], 3);
-        placeKnob (targetPitchKnob, cell (0, 0));
-        placeKnob (autoWindowKnob, cell (1, 0));
-        placeKnob (amountKnob, cell (2, 0));
-
-        placeInCell (cell (0, 1).reduced (6, 0), m_relatchButton, m_relatchLabel, 26);
-        placeInCell (cell (1, 1), m_overrideToggle, m_overrideLabel, 26);
-        placeKnob (overrideFreqKnob, cell (2, 1));
-
-        auto row = m_sections[0].bounds.withHeight (c_sectionHeaderHeight).reduced (8, 5);
-        m_targetModeCombo.setBounds (row.removeFromRight (std::min (120, row.getWidth() - 90)));
-    }
-
-    // TRACKING
-    {
-        const auto cell = grid (m_sections[1], 3);
-        placeKnob (sensitivityKnob, cell (0, 0));
-        placeKnob (speedKnob, cell (1, 0));
-        placeKnob (smoothingKnob, cell (2, 0));
-        placeKnob (gapFillKnob, cell (0, 1));
-        placeKnob (minFreqKnob, cell (1, 1));
-        placeKnob (maxFreqKnob, cell (2, 1));
-    }
-
-    // INPUT
-    {
-        const auto cell = grid (m_sections[2], 2);
-        placeKnob (gateKnob, cell (0, 0));
-        placeInCell (cell (1, 0), m_gateMeter, m_levelLabel);
-        placeKnob (highpassKnob, cell (0, 1));
-        placeKnob (lowpassKnob, cell (1, 1));
-    }
-
-    // OUTPUT
-    {
-        const auto cell = grid (m_sections[3], 2);
-        placeKnob (maxShiftKnob, cell (0, 0));
-        placeKnob (mixKnob, cell (1, 0));
-        placeInCell (cell (0, 1).reduced (4, 0), m_qualityCombo, m_qualityLabel, 26);
-        placeInCell (cell (1, 1), m_formantToggle, m_formantLabel, 26);
-    }
-}
-
-void PitchFlattenerAudioProcessorEditor::Content::paint (juce::Graphics& g)
+void PitchFlattenerAudioProcessorEditor::refreshNow()
 {
     using namespace Theme::Colours;
+    auto& engine = m_processor.getEngine();
+    const auto state = engine.state();
+    const auto result = engine.result();
+    const bool playing = engine.playPosition() >= 0 && result != nullptr && engine.playGeneration() == result->generation;
+    const double now = m_clock.now();
 
-    g.fillAll (background);
+    // What to do or what is happening (the guidance bar), and the Learn button's two lines.
+    juce::String learnHint, status;
+    juce::Colour statusColour = text, learnColour = orange;
+    bool learnFilled = false;
+    switch (state)
+    {
+        case State::Idle:
+            m_learnText = "LEARN";
+            learnHint = "PLAY THE SOUND ONCE";
+            status = "PRESS LEARN, THEN PLAY THE SOUND ONCE";
+            break;
+        case State::Armed:
+            m_learnText = "ARMED";
+            learnHint = "WAITING FOR SOUND";
+            learnColour = lime;
+            learnFilled = true;
+            status = "LEARN IS ARMED: PLAY THE SOUND ONCE";
+            statusColour = lime;
+            break;
+        case State::Listening:
+            m_learnText = "LISTENING";
+            learnHint = juce::String (engine.captureSeconds(), 1) + " S";
+            learnColour = magenta;
+            learnFilled = true;
+            status = "LISTENING: LET THE SOUND PLAY TO ITS END";
+            statusColour = magenta;
+            break;
+        case State::Analysing:
+            m_learnText = "ANALYSING";
+            learnHint = "READING THE PITCH";
+            learnColour = cyan;
+            learnFilled = true;
+            status = "ANALYSING THE SOUND";
+            statusColour = cyan;
+            break;
+        case State::NothingToFlatten:
+            m_learnText = "LEARNED";
+            learnHint = "PRESS TO LEARN ANOTHER";
+            status = "NO STEADY PITCH FOUND: THE SOUND IS LEFT AS IT IS";
+            statusColour = magenta;
+            break;
+        case State::Ready:
+            m_learnText = "LEARNED";
+            learnHint = "PRESS TO LEARN ANOTHER";
+            if (engine.sampleRateMismatch() && result != nullptr)
+            {
+                status = "LEARNED AT " + juce::String (juce::roundToInt (result->learned->sampleRate)) + " HZ: THE SESSION IS AT "
+                       + juce::String (juce::roundToInt (engine.sampleRate())) + " HZ";
+                statusColour = magenta;
+            }
+            else if (playing)
+            {
+                status = "PLAYING THE FLATTENED SOUND";
+                statusColour = lime;
+            }
+            else
+            {
+                status = "LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED";
+                statusColour = lime;
+            }
+            break;
+    }
+    // Pressing Learn is the next step only while nothing is learned or armed.
+    m_learn.setContent (m_learnText, learnHint, learnColour, learnFilled, state == State::Idle);
 
-    // --- Header ----------------------------------------------------------------
-    auto header = getLocalBounds().removeFromTop (c_headerHeight).reduced (c_margin, 0).toFloat();
+    juce::String before, after, flatText;
+    if (result != nullptr && result->playable())
+    {
+        const double rate = result->learned->sampleRate;
+        before = seconds ((double) result->learned->locator.length() / rate);
+        after = seconds ((double) result->flattened.channels[0].size() / rate);
+        flatText = PitchFlattenerAudioProcessor::noteText (result->flattened.targetMidi);
+    }
+    else if (result != nullptr)
+        before = seconds ((double) result->learned->locator.length() / result->learned->sampleRate);
 
-    // Mark: a wobbling teal line that settles into a flat amber line.
-    PitchFlattenerLookAndFeel::drawMark (g, header.removeFromLeft (34.0f).withSizeKeepingCentre (34.0f, 22.0f));
+    const bool armed = state == State::Armed || state == State::Listening;
+    m_clear.setEnabled (result != nullptr || armed || state == State::Analysing);
 
+    const int chosen = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::targetId)->load());
+    for (size_t i = 0; i < m_targets.size(); ++i)
+        if (m_targets[i]->getToggleState() != ((int) i == chosen))
+            m_targets[i]->setToggleState ((int) i == chosen, juce::dontSendNotification);
+    m_note.setEnabled (chosen == 4);
+
+    const int line = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::lineId)->load());
+    for (size_t i = 0; i < m_lines.size(); ++i)
+        if (m_lines[i]->getToggleState() != ((int) i == line))
+            m_lines[i]->setToggleState ((int) i == line, juce::dontSendNotification);
+
+    // The two views: only the one shown is fed and drawn.
+    const int view = shownView();
+    m_display.setVisible (view == Processor::kViewScope);
+    m_flight.setVisible (view == Processor::kViewFlight);
+    m_scopeTab.setToggleState (view == Processor::kViewScope, juce::dontSendNotification);
+    m_flightTab.setToggleState (view == Processor::kViewFlight, juce::dontSendNotification);
+
+    PitchDisplay::View displayView;
+    displayView.result = result;
+    displayView.state = state;
+    displayView.captureSeconds = engine.captureSeconds();
+    displayView.playPosition = playing ? engine.playPosition() : -1;
+    displayView.playGeneration = engine.playGeneration();
+    displayView.rendering = engine.isRendering();
+    displayView.autoLine = line == 0;
+    m_display.setView (displayView);
+
+    if (view == Processor::kViewFlight)
+    {
+        double playSeconds = -1.0;
+        if (playing && result->playable())
+            playSeconds = result->flattened.sourceSampleFor ((double) engine.playPosition()) / result->learned->sampleRate;
+        m_flight.setView (result, playSeconds);
+        m_flight.renderFrame();
+    }
+
+    // The banners.
+    BannerLogic::Input in;
+    in.state = state;
+    in.playing = engine.playPosition() >= 0 && result != nullptr;
+    in.rateMismatch = engine.sampleRateMismatch();
+    in.learnedId = result != nullptr && result->learned != nullptr ? result->learned->id : 0;
+    m_bannerLogic.update (in, now);
+    m_banner.show (m_bannerLogic.kind(), m_bannerLogic.since(), engine.captureSeconds());
+    if (m_bannerLogic.flatTag() != m_flatTagShown)
+    {
+        m_flatTagShown = m_bannerLogic.flatTag();
+        repaint (m_displayPanel.withHeight (30));
+    }
+    m_banner.tick();
+    if (m_learn.isPulsing())
+        m_learn.repaint();
+
+    if (status != m_status || before != m_lengthBefore || after != m_lengthAfter || flatText != m_flatText || statusColour != m_statusColour)
+    {
+        m_status = status;
+        m_lengthBefore = before;
+        m_lengthAfter = after;
+        m_flatText = flatText;
+        m_statusColour = statusColour;
+        repaint (m_readout);
+        repaint (m_guide);
+    }
+    repaint (m_guide.withWidth (60));   // only its chevron marker moves
+}
+
+//==============================================================================
+void PitchFlattenerAudioProcessorEditor::resized()
+{
+    auto area = getLocalBounds().reduced (c_margin);
+
+    m_header = area.removeFromTop (50);
+    m_about.setBounds (m_header.withTrimmedLeft (m_header.getWidth() - 40).withSizeKeepingCentre (40, 30));
+
+    area.removeFromTop (8);
+    auto action = area.removeFromTop (64);
+    m_learn.setBounds (action.removeFromLeft (330));
+    action.removeFromLeft (c_gap);
+    m_clear.setBounds (action.removeFromLeft (130).reduced (0, 8));
+    action.removeFromLeft (c_gap);
+    m_readout = action;
+
+    area.removeFromTop (c_gap);
+    m_displayPanel = area.removeFromTop (290);
+    {
+        const auto header = m_displayPanel.withHeight (30).reduced (8, 5);
+        auto tabs = header;
+        m_flightTab.setBounds (tabs.removeFromRight (80));
+        tabs.removeFromRight (6);
+        m_scopeTab.setBounds (tabs.removeFromRight (76));
+        m_viewArea = m_displayPanel.withTrimmedTop (30).reduced (3, 0).withTrimmedBottom (3);
+    }
+    m_display.setBounds (m_viewArea);
+    m_flight.setBounds (m_viewArea);
+    m_banner.setBounds (m_viewArea);
+    m_banner.setLearnButtonX ((float) (m_learn.getBounds().getCentreX() - m_viewArea.getX()));
+
+    area.removeFromTop (8);
+    m_guide = area.removeFromTop (40);
+    area.removeFromTop (8);
+
+    auto controls = area;
+    m_targetCell = controls.removeFromLeft (380);
+    controls.removeFromLeft (c_gap);
+    m_noteCell = controls.removeFromLeft (140);
+    controls.removeFromLeft (c_gap);
+    m_amountCell = controls.removeFromLeft (140);
+    controls.removeFromLeft (c_gap);
+    m_lineCell = controls;
+
+    {
+        auto cell = m_targetCell.withTrimmedTop (40).reduced (14, 0);
+        auto top = cell.removeFromTop (38);
+        cell.removeFromTop (8);
+        auto bottom = cell.removeFromTop (38);
+        const int w = (top.getWidth() - 2 * 8) / 3;
+        for (int i = 0; i < 3; ++i)
+        {
+            m_targets[(size_t) i]->setBounds (top.removeFromLeft (w));
+            top.removeFromLeft (8);
+        }
+        const int w2 = (bottom.getWidth() - 8) / 2;
+        m_targets[3]->setBounds (bottom.removeFromLeft (w2));
+        bottom.removeFromLeft (8);
+        m_targets[4]->setBounds (bottom);
+    }
+    m_note.setBounds (m_noteCell.withTrimmedTop (34).reduced (14, 6));
+    m_amount.setBounds (m_amountCell.withTrimmedTop (34).reduced (14, 6));
+    {
+        auto row = m_lineCell.withTrimmedTop (40).reduced (14, 0).withHeight (38);
+        const int w = (row.getWidth() - 2 * 6) / 3;
+        for (size_t i = 0; i < m_lines.size(); ++i)
+        {
+            m_lines[i]->setBounds (i + 1 < m_lines.size() ? row.removeFromLeft (w) : row);
+            row.removeFromLeft (6);
+        }
+    }
+
+    if (m_updatePopup != nullptr)
+        m_updatePopup->setBounds (getLocalBounds());
+}
+
+void PitchFlattenerAudioProcessorEditor::paintHeader (juce::Graphics& g)
+{
+    using namespace Theme::Colours;
+    auto header = m_header.toFloat();
+
+    // The mark, then the name, sheared and large, with the idea drawn under it: a cyan wobble that
+    // runs into a flat lime line.
+    PitchFlattenerLookAndFeel::drawMark (g, header.removeFromLeft (40.0f).withSizeKeepingCentre (40.0f, 26.0f));
     header.removeFromLeft (12.0f);
-
-    const auto titleFont = m_fonts->heading (20.0f);
+    const auto titleFont = m_fonts->display (27.0f);
     const juce::String title = "PITCH FLATTENER";
-    const float titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
-    g.setFont (titleFont);
-    g.setColour (text);
-    g.drawText (title, header.removeFromLeft (titleWidth + 4.0f), juce::Justification::centredLeft, false);
-
-    header.removeFromLeft (14.0f);
-    g.setFont (m_fonts->label (10.5f));
-    g.setColour (textFaint);
-    g.drawText ("SAMMYJS", header.withTrimmedTop (4.0f), juce::Justification::centredLeft, false);
-
-    // --- Cards -------------------------------------------------------------------
-    const auto card = [&g] (juce::Rectangle<int> bounds)
+    const float titleWidth = Hud::shearedWidth (titleFont, title) + 2.0f;
+    const auto titleBox = header.removeFromLeft (titleWidth).withTrimmedBottom (12.0f);
+    Hud::drawSheared (g, title, titleBox, titleFont, text, juce::Justification::centredLeft);
     {
-        const auto r = bounds.toFloat();
-        g.setColour (panel);
-        g.fillRoundedRectangle (r, 8.0f);
-        g.setColour (outlineSoft);
-        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+        const float y = titleBox.getBottom() + 4.0f;
+        const float x0 = titleBox.getX(), x1 = titleBox.getRight(), split = x0 + (x1 - x0) * 0.42f;
+        juce::Path wobble;
+        for (int i = 0; i <= 60; ++i)
+        {
+            const float t = (float) i / 60.0f;
+            const float x = x0 + (split - x0) * t;
+            const float yy = y + 3.5f * (1.0f - t) * std::sin (t * juce::MathConstants<float>::twoPi * 4.0f);
+            if (i == 0) wobble.startNewSubPath (x, yy);
+            else        wobble.lineTo (x, yy);
+        }
+        g.setColour (cyan);
+        g.strokePath (wobble, juce::PathStrokeType (2.0f));
+        g.setColour (lime);
+        g.fillRect (juce::Rectangle<float> (split, y - 1.5f, x1 - split, 3.0f));
+        // A second, thinner stripe below, as a speed line.
+        g.fillRect (juce::Rectangle<float> (split + (x1 - split) * 0.35f, y + 4.0f, (x1 - split) * 0.65f, 1.5f));
+    }
+    header.removeFromLeft (16.0f);
+    Hud::drawText (g, "SAMMYJS", header.removeFromLeft (80.0f).withTrimmedBottom (12.0f), m_fonts->label (11.0f), textDim, juce::Justification::centredLeft);
+
+    // Right: the delay the plug-in reports and the version, beside the About button.
+    auto right = m_header.toFloat().withTrimmedRight (52.0f);
+    const auto small = m_fonts->label (11.0f);
+    const auto value = m_fonts->display (12.0f);
+    const auto readout = [&] (const juce::String& label, const juce::String& v, juce::Colour colour)
+    {
+        const float vw = Hud::shearedWidth (value, v) + 2.0f;
+        Hud::drawSheared (g, v, right.removeFromRight (vw), value, colour, juce::Justification::centredRight);
+        right.removeFromRight (6.0f);
+        const float lw = Hud::textWidth (small, label) + 2.0f;
+        Hud::drawText (g, label, right.removeFromRight (lw), small, textDim, juce::Justification::centredRight);
+        right.removeFromRight (22.0f);
+    };
+    readout ("VERSION", juce::String (c_version), text.withAlpha (0.85f));
+    readout ("DELAY", juce::String (pitchflattener::Engine::kLatencySeconds, 2) + " S", text.withAlpha (0.85f));
+}
+
+void PitchFlattenerAudioProcessorEditor::paintReadout (juce::Graphics& g)
+{
+    using namespace Theme::Colours;
+    const auto r = m_readout.toFloat();
+    Hud::frame (g, r, 12.0f, panel, panelEdge);
+
+    auto inner = r.reduced (18.0f, 8.0f);
+    const auto labelFont = m_fonts->label (11.0f);
+    const auto valueFont = m_fonts->display (18.0f);
+    const float labelWidth = 74.0f;
+
+    const auto row = [&] (juce::Rectangle<float> line, const juce::String& label)
+    {
+        Hud::drawText (g, label, line.removeFromLeft (labelWidth), labelFont, textDim, juce::Justification::centredLeft);
+        return line;
     };
 
-    const auto dotTitle = [this, &g] (juce::Rectangle<float> row, const juce::String& name, juce::Colour accent)
+    // Length: as heard (cyan), and flattened (lime).
+    auto top = row (inner.removeFromTop (inner.getHeight() * 0.5f), "LENGTH");
+    if (m_lengthBefore.isEmpty())
+        Hud::drawSheared (g, "--", top.withWidth (60.0f), valueFont, textDim);
+    else
     {
-        g.setColour (accent);
-        g.fillEllipse (row.removeFromLeft (6.0f).withSizeKeepingCentre (6.0f, 6.0f));
-        row.removeFromLeft (8.0f);
-        g.setFont (m_fonts->heading (11.0f));
-        g.setColour (text.withAlpha (0.85f));
-        g.drawText (name, row, juce::Justification::centredLeft, false);
-    };
-
-    // Source strip
-    {
-        card (m_sourceStrip);
-        auto r = m_sourceStrip.toFloat().reduced (12.0f, 0.0f);
-        dotTitle (r.removeFromLeft (84.0f), "SOURCE", detect);
-
-        g.setFont (m_fonts->label (10.0f));
-        g.setColour (textDim);
-        g.drawFittedText (m_sourceBlurb, m_blurbArea, juce::Justification::centredLeft, 2, 1.0f);
-
-        // Detector caption
-        const auto caption = juce::Rectangle<int> (m_detectorCombo.getX() - 86, m_sourceStrip.getY(), 80, m_sourceStrip.getHeight());
-        g.setFont (m_fonts->label (10.5f));
-        g.setColour (textDim);
-        g.drawText ("DETECTOR", caption.withTrimmedBottom (caption.getHeight() / 2).withTrimmedTop (4), juce::Justification::bottomRight, false);
-        g.setFont (m_fonts->label (8.5f));
-        g.setColour (textFaint);
-        g.drawText ("SET BY SOURCE", caption.withTrimmedTop (caption.getHeight() / 2 + 2), juce::Justification::topRight, false);
-
-        // Running detector (it can lag a parameter change while it is rebuilt)
-        const auto active = m_activeArea;
-        g.setFont (m_fonts->label (8.5f));
-        g.setColour (textFaint);
-        g.drawText ("RUNNING", active.withTrimmedBottom (active.getHeight() / 2).withTrimmedTop (4), juce::Justification::bottomLeft, false);
-
-        const bool known = m_shownActiveDetector != pf::DetectorType::NumDetectors;
-        g.setFont (m_fonts->label (10.5f));
-        g.setColour (known ? detect : textFaint);
-        g.drawText (known ? juce::String (pf::getDetectorName (m_shownActiveDetector)).toUpperCase() : juce::String ("--"),
-                    active.withTrimmedTop (active.getHeight() / 2 + 1), juce::Justification::topLeft, false);
+        const float w1 = Hud::shearedWidth (valueFont, m_lengthBefore) + 2.0f;
+        Hud::drawSheared (g, m_lengthBefore, top.removeFromLeft (w1), valueFont, cyan);
+        if (m_lengthAfter.isNotEmpty())
+        {
+            top.removeFromLeft (8.0f);
+            Hud::chevron (g, { top.getX() + 6.0f, top.getCentreY() }, 5.0f, 0.0f, 2.0f, textDim);
+            Hud::chevron (g, { top.getX() + 13.0f, top.getCentreY() }, 5.0f, 0.0f, 2.0f, textDim);
+            top.removeFromLeft (26.0f);
+            Hud::drawSheared (g, m_lengthAfter, top.removeFromLeft (Hud::shearedWidth (valueFont, m_lengthAfter) + 2.0f), valueFont, lime);
+        }
     }
 
-    // Sections
-    for (const auto& section : m_sections)
-    {
-        card (section.bounds);
-        dotTitle (section.bounds.toFloat().withHeight ((float) c_sectionHeaderHeight).reduced (12.0f, 0.0f), section.title, section.accent);
-
-        g.setColour (outlineSoft);
-        g.drawHorizontalLine (section.bounds.getY() + c_sectionHeaderHeight,
-                              (float) section.bounds.getX() + 12.0f, (float) section.bounds.getRight() - 12.0f);
-    }
-
-    // Help bar
-    {
-        auto r = m_helpArea.toFloat();
-        g.setColour (outlineSoft);
-        g.drawHorizontalLine (m_helpArea.getY(), r.getX(), r.getRight());
-
-        auto versionArea = r.removeFromRight (90.0f);
-        g.setFont (m_fonts->body (11.0f));
-        g.setColour (target.withAlpha (0.8f));
-        g.drawText (juce::String ("v") + c_version, versionArea, juce::Justification::centredRight, false);
-
-        g.setFont (m_fonts->body (11.5f));
-        g.setColour (m_helpText == c_defaultHelp ? textFaint : textDim);
-        g.drawFittedText (m_helpText, r.toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
-    }
+    // The pitch it is flattened to: the user's target, orange.
+    auto bottom = row (inner, "FLAT ON");
+    Hud::drawSheared (g, m_flatText.isEmpty() ? juce::String ("--") : m_flatText,
+                      bottom.withWidth (std::min (bottom.getWidth(), Hud::shearedWidth (valueFont, m_flatText.isEmpty() ? juce::String ("--") : m_flatText) + 2.0f)),
+                      valueFont, m_flatText.isEmpty() ? textDim : orange);
 }
 
-//==============================================================================
-// Editor
-//==============================================================================
-PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFlattenerAudioProcessor& p)
-    : AudioProcessorEditor (&p)
-    , m_lookAndFeel (*m_fonts)
+void PitchFlattenerAudioProcessorEditor::paintGuide (juce::Graphics& g)
 {
-    setLookAndFeel (&m_lookAndFeel);
-    m_tooltipWindow.setLookAndFeel (&m_lookAndFeel);
-    PitchFlattenerLookAndFeel::showFocusRingsAfterTab (*this); // keyboard focus rings after Tab, hidden by a click
+    using namespace Theme::Colours;
+    const auto r = m_guide.toFloat();
+    Hud::frame (g, r, 10.0f, panel, m_statusColour.withAlpha (0.45f));
 
-    m_content = std::make_unique<Content> (p, m_lookAndFeel);
-    addAndMakeVisible (*m_content);
+    // The marker: three chevrons with a light running through them, pointing at the words.
+    auto area = r.reduced (16.0f, 0.0f);
+    auto marker = area.removeFromLeft (40.0f);
+    const int lit = (int) std::floor (m_clock.now() * 6.0) % 4;
+    for (int i = 0; i < 3; ++i)
+        Hud::chevron (g, { marker.getX() + 6.0f + (float) i * 11.0f, marker.getCentreY() }, 6.0f, 0.0f, 2.5f,
+                      m_statusColour.withAlpha (i == lit ? 1.0f : 0.35f));
+    area.removeFromLeft (10.0f);
 
-    setResizable (true, true);
-    setResizeLimits (baseWidth * 6 / 10, baseHeight * 6 / 10, baseWidth * 2, baseHeight * 2);
-
-    if (auto* constrainer = getConstrainer())
-        constrainer->setFixedAspectRatio ((double) baseWidth / (double) baseHeight);
-
-    setSize (baseWidth, baseHeight);
-}
-
-PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
-{
-    // Nothing the editor opened may outlive it: the content closes the About window (and its update
-    // check) and the preset dialogs; then any popup menu (it would keep using m_lookAndFeel) and the
-    // tooltip window go.
-    m_content.reset();
-    juce::PopupMenu::dismissAllActiveMenus();
-    m_tooltipWindow.hideTip();
-    m_tooltipWindow.setLookAndFeel (nullptr);
-    setLookAndFeel (nullptr);
-}
-
-//==============================================================================
-PitchFlattenerAudioProcessorEditor::EditorTooltipWindow::EditorTooltipWindow (juce::Component& editor)
-    : juce::TooltipWindow (&editor, 700)
-{
-    setOpaque (false);                        // the LookAndFeel draws a rounded panel; its corners show the editor
-    setInterceptsMouseClicks (false, false);  // a tip pushed under the mouse near an edge never takes a click
+    const float h = Hud::fitHeight ([this] (float fh) { return m_fonts->body (fh); }, m_status, area.getWidth(), 17.0f, 11.0f, false);
+    Hud::drawText (g, m_status, area, m_fonts->body (h), m_statusColour, juce::Justification::centredLeft);
 }
 
 void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::Colours::background);
+    // Only the area being repainted is drawn afresh into the framebuffer, then shown.
+    const auto region = g.getClipBounds().getIntersection (getLocalBounds());
+    m_framebuffer.render (*this, region, [this] (juce::Graphics& fb) { paintContent (fb); });
+    m_framebuffer.draw (g, region);
 }
 
-void PitchFlattenerAudioProcessorEditor::resized()
+void PitchFlattenerAudioProcessorEditor::paintContent (juce::Graphics& g)
 {
-    if (m_content == nullptr || getWidth() <= 0 || getHeight() <= 0)
+    using namespace Theme::Colours;
+    g.fillAll (space);
+
+    // Only the parts in the area being repainted (a pulse or a marker repaints a few pixels).
+    const auto in = [&g] (juce::Rectangle<int> r) { return g.clipRegionIntersects (r); };
+    if (in (m_header))
+        paintHeader (g);
+    if (in (m_readout))
+        paintReadout (g);
+
+    // The display's frame and heading (the views fill its inside).
+    if (in (m_displayPanel))
+    {
+        const auto r = m_displayPanel.toFloat();
+        Hud::frame (g, r, 12.0f, space, panelEdge);
+        const bool scope = shownView() == PitchFlattenerAudioProcessor::kViewScope;
+        Hud::heading (g, juce::Rectangle<float> (r.getX() + 16.0f, r.getY() + 6.0f, 420.0f, 18.0f),
+                      scope ? "SCOPE  /  PITCH OVER TIME" : "FLIGHT  /  THE SOUND AS A COURSE", m_fonts->display (12.0f), orange);
+
+        // FLAT: the flattened sound is playing (a tag at the display's corner, beside the tabs).
+        if (m_flatTagShown)
+        {
+            const auto font = m_fonts->display (12.0f);
+            const juce::String word = "FLAT";
+            const float w = Hud::shearedWidth (font, word) + 30.0f;
+            const auto tag = juce::Rectangle<float> ((float) m_scopeTab.getX() - 14.0f - w, (float) m_scopeTab.getY(), w, (float) m_scopeTab.getHeight());
+            Hud::frame (g, tag, 5.0f, lime, juce::Colours::transparentBlack);
+            g.setColour (space);
+            g.fillRect (juce::Rectangle<float> (tag.getX() + 8.0f, tag.getCentreY() - 3.0f, 6.0f, 6.0f));
+            Hud::drawSheared (g, word, tag.withTrimmedLeft (18.0f).withTrimmedRight (5.0f), font, space, juce::Justification::centred);
+        }
+    }
+
+    if (in (m_guide))
+        paintGuide (g);
+
+    if (in (m_targetCell))
+        m_lookAndFeel.drawPanel (g, m_targetCell.toFloat(), "TARGET", orange, 32.0f);
+    if (in (m_noteCell))
+        m_lookAndFeel.drawPanel (g, m_noteCell.toFloat(), "NOTE", orange, 32.0f);
+    if (in (m_amountCell))
+        m_lookAndFeel.drawPanel (g, m_amountCell.toFloat(), "AMOUNT", orange, 32.0f);
+    if (in (m_lineCell))
+        m_lookAndFeel.drawPanel (g, m_lineCell.toFloat(), "LINE", orange, 32.0f);
+
+    const auto caption = m_lineCell.toFloat().withTrimmedTop (90.0f).reduced (14.0f, 0.0f);
+    const auto small = m_fonts->body (11.0f);
+    Hud::drawText (g, "THE PITCH READING", caption.withHeight (15.0f), small, textDim);
+    Hud::drawText (g, "IT IS FLATTENED BY", caption.withTrimmedTop (16.0f).withHeight (15.0f), small, textDim);
+}
+
+//==============================================================================
+void PitchFlattenerAudioProcessorEditor::showUpdatePopup (const sammyj::UpdateInfo& info)
+{
+    if (m_updatePopup != nullptr)
         return;
 
-    // Uniform scale of the fixed-size content, centred if the host ignores the aspect ratio.
-    const float scale = std::min ((float) getWidth() / (float) baseWidth, (float) getHeight() / (float) baseHeight);
-    const float x = ((float) getWidth() - (float) baseWidth * scale) * 0.5f;
-    const float y = ((float) getHeight() - (float) baseHeight * scale) * 0.5f;
+    m_updatePopup = std::make_unique<UpdatePopup> (info, [safeThis = juce::Component::SafePointer<PitchFlattenerAudioProcessorEditor> (this)]
+    {
+        // Deferred: this runs inside one of the popup's own button callbacks.
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->m_updatePopup.reset();
+        });
+    });
 
-    m_content->setBounds (0, 0, baseWidth, baseHeight);
-    m_content->setTransform (juce::AffineTransform::scale (scale).translated (x, y));
+    addAndMakeVisible (*m_updatePopup);
+    m_updatePopup->toFront (false);
+    m_updatePopup->setEditorScale (1.0f);
+    resized();
+
+    if (isShowing())
+        m_updatePopup->grabKeyboardFocus();
 }

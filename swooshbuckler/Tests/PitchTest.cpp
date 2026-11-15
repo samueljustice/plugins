@@ -1,15 +1,18 @@
 // Offline test for the track pitch shifter (PitchShifter: pitch changes, duration stays).
 //
-//   SwooshbucklerPitch
+//   SwooshbucklerPitch [output-dir]
 //
 // Runs at 48 kHz and 96 kHz and checks: ratio 1 is a pure delay of the reported latency,
 // sines land on the right pitch (octave up, octave down, a fifth up), a tone burst keeps
 // its length, the level holds, clicks stay sharp when shifted, a ratio sweep stays finite
 // and bounded, the output does not depend on how the audio is chunked, leaving a shift
-// gets back to the exact bypass, and ten instances run far faster than real time.
-// Writes a few WAVs to the current directory for listening (pitch_up12.wav etc.).
+// gets back to the exact bypass, noise comes out at the level it went in (less what the shift
+// pushes past Nyquist), a hit has no pre-echo, and ten instances run far faster than real time.
+// With an output-dir argument it writes a few WAVs there for listening (pitch_up12.wav etc.);
+// without one it writes nothing.
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include "TestClock.h"
 #include <juce_dsp/juce_dsp.h>
 
 #include "PitchShifter.h"
@@ -32,9 +35,13 @@ namespace
 
     using Signal = std::vector<float>;
 
+    juce::File g_outDir; // where the listening files go; none are written when it isn't set
+
     void writeWav(const juce::String& name, const Signal& s, double rate)
     {
-        auto f = juce::File::getCurrentWorkingDirectory().getChildFile(name + ".wav");
+        if (g_outDir == juce::File())
+            return;
+        auto f = g_outDir.getChildFile(name + ".wav");
         f.deleteFile();
         juce::AudioBuffer<float> b(1, static_cast<int>(s.size()));
         for (int i = 0; i < b.getNumSamples(); ++i)
@@ -122,6 +129,47 @@ namespace
             }
         }
         return { first, last };
+    }
+
+    // Share of the power of s over [from, to) that is not at the harmonics of f0 (up to maxHz), in dB.
+    // Hann-weighted fit of each harmonic, so neighbours 40 Hz apart do not leak into each other over a second or more.
+    double residueDb(const Signal& s, size_t from, size_t to, double rate, double f0, double maxHz)
+    {
+        const size_t len = to - from;
+        std::vector<double> w(len);
+        double sumW = 0.0, total = 0.0;
+        for (size_t i = 0; i < len; ++i)
+        {
+            w[i] = 0.5 - 0.5 * std::cos(c_twoPi * static_cast<double>(i) / static_cast<double>(len));
+            sumW += w[i];
+            total += w[i] * w[i] * static_cast<double>(s[from + i]) * s[from + i];
+        }
+        double harmonic = 0.0, sumW2 = 0.0;
+        for (size_t i = 0; i < len; ++i)
+            sumW2 += w[i] * w[i];
+        for (int h = 1; f0 * h <= maxHz && f0 * h < 0.49 * rate; ++h)
+        {
+            const double step = c_twoPi * f0 * h / rate;
+            double c = 0.0, q = 0.0;
+            for (size_t i = 0; i < len; ++i)
+            {
+                const double v = w[i] * s[from + i];
+                c += v * std::cos(step * static_cast<double>(i));
+                q += v * std::sin(step * static_cast<double>(i));
+            }
+            const double amp2 = 4.0 * (c * c + q * q) / (sumW * sumW); // amplitude^2 of this harmonic
+            harmonic += 0.5 * amp2 * sumW2;                              // its share of `total`
+        }
+        return 10.0 * std::log10(std::max(1.0e-12, (total - harmonic) / std::max(1.0e-30, total)));
+    }
+
+    Signal saw(double rate, double f0, double seconds, double maxHz, float amp = 0.3f)
+    {
+        Signal s(static_cast<size_t>(rate * seconds), 0.0f);
+        for (int h = 1; f0 * h <= maxHz; ++h)
+            for (size_t i = 0; i < s.size(); ++i)
+                s[i] += amp * static_cast<float>(std::sin(c_twoPi * f0 * h * static_cast<double>(i) / rate) / h);
+        return s;
     }
 
     void testRate(double rate)
@@ -393,6 +441,89 @@ namespace
         }
     }
 
+    // Noise keeps its level: white noise through the shifter comes out at the input level, less only what the
+    // shift pushes past Nyquist (10 log10(1 / ratio) going up). Tones hold theirs too.
+    void testLevels(double rate)
+    {
+        const juce::String tag = " @ " + juce::String(rate / 1000.0, 0) + " kHz";
+        std::cout << "\n== levels" << tag << " ==" << std::endl;
+        PitchShifter probe;
+        probe.prepare(rate);
+        const auto lat = static_cast<size_t>(probe.getLatencySamples());
+
+        const Signal in = noise(rate, 6.0, 21, 0.3f);
+        const size_t from = static_cast<size_t>(rate * 2.0), to = static_cast<size_t>(rate * 5.5);
+        const float inRms = rms(in, from - lat, to - lat);
+        float worst = 0.0f;
+        for (float st : { 1.0f, 3.0f, 7.0f, 12.0f, 24.0f, -3.0f, -7.0f, -12.0f, -24.0f })
+        {
+            const float ratio = std::pow(2.0f, st / 12.0f);
+            const Signal out = run(rate, in, ratio);
+            const float db = juce::Decibels::gainToDecibels(rms(out, from, to) / inRms);
+            const float expectDb = 10.0f * std::log10(std::min(1.0f, 1.0f / ratio));
+            std::cout << "  noise at " << st << " st: " << db << " dB (band-limit alone gives " << expectDb << " dB), off by "
+                      << db - expectDb << " dB" << std::endl;
+            worst = std::max(worst, std::abs(db - expectDb));
+        }
+        check(worst < 0.75f, "white noise at +-1 .. +-24 st comes out within 0.75 dB of the band-limited level" + tag);
+
+        const Signal tone = sine(rate, 440.0, 4.0, 0.5f);
+        const size_t tFrom = static_cast<size_t>(rate * 1.5), tTo = static_cast<size_t>(rate * 3.5);
+        const float toneRms = rms(tone, tFrom - lat, tTo - lat);
+        float toneWorst = 0.0f;
+        for (float st : { 1.0f, 2.0f, 3.5f, 5.0f, 7.0f, 12.0f, -1.0f, -2.5f, -5.0f, -7.0f, -12.0f })
+            toneWorst = std::max(toneWorst, std::abs(juce::Decibels::gainToDecibels(rms(run(rate, tone, std::pow(2.0f, st / 12.0f)), tFrom, tTo) / toneRms)));
+        std::cout << "  440 Hz sine across eleven shifts: level off by at most " << toneWorst << " dB" << std::endl;
+        check(toneWorst < 0.5f, "a sine holds its level within 0.5 dB at every shift" + tag);
+    }
+
+    // A hit has no pre-echo: a decaying 30 ms noise burst over a very quiet bed. The 20 ms before the hit stay
+    // at the level of the bed, the hit keeps its peak and its first 5 ms, and the bed is back straight after it.
+    void testPreEcho(double rate)
+    {
+        const juce::String tag = " @ " + juce::String(rate / 1000.0, 0) + " kHz";
+        std::cout << "\n== hit pre-echo" << tag << " ==" << std::endl;
+        PitchShifter probe;
+        probe.prepare(rate);
+        const auto lat = static_cast<size_t>(probe.getLatencySamples());
+
+        Signal in = noise(rate, 3.0, 31, 0.002f); // about -59 dBFS RMS
+        const size_t onset = static_cast<size_t>(rate * 1.2345);
+        juce::Random r(32);
+        for (size_t i = 0; i < static_cast<size_t>(rate * 0.03); ++i)
+            in[onset + i] += 0.8f * (r.nextFloat() * 2.0f - 1.0f) * static_cast<float>(std::exp(-static_cast<double>(i) / (rate * 0.008)));
+
+        auto ms = [rate](double v) { return static_cast<size_t>(rate * v / 1000.0); };
+        const size_t at = onset + lat;
+        float inPeak = 0.0f;
+        for (size_t i = onset; i < onset + ms(30.0); ++i)
+            inPeak = std::max(inPeak, std::abs(in[i]));
+        const float inFirst = rms(in, onset, onset + ms(5.0));
+
+        float worstPre = -100.0f, worstPeak = 10.0f, worstFirst = 0.0f, worstDip = 0.0f;
+        for (float st : { 7.0f, 12.0f, -12.0f, -5.0f })
+        {
+            const Signal out = run(rate, in, std::pow(2.0f, st / 12.0f));
+            const float bed = rms(out, at - ms(600.0), at - ms(100.0));
+            const float pre = juce::Decibels::gainToDecibels(rms(out, at - ms(20.0), at - ms(1.0)) / bed);
+            const float before = juce::Decibels::gainToDecibels(rms(out, at - ms(43.0), at - ms(20.0)) / bed);
+            float peak = 0.0f;
+            for (size_t i = at - ms(2.0); i < at + ms(30.0); ++i)
+                peak = std::max(peak, std::abs(out[i]));
+            const float first = juce::Decibels::gainToDecibels(rms(out, at, at + ms(5.0)) / inFirst);
+            std::cout << "  " << st << " st: 20 ms before the hit " << pre << " dB over the bed (43..20 ms before: " << before
+                      << " dB), peak " << 100.0f * peak / inPeak << " %, first 5 ms " << first << " dB of the source" << std::endl;
+            worstPre = std::max(worstPre, pre);
+            worstDip = std::min(worstDip, before);
+            worstPeak = std::min(worstPeak, peak / inPeak);
+            worstFirst = std::max(worstFirst, std::abs(first));
+        }
+        check(worstPre < 6.0f, "the 20 ms before a hit stay within 6 dB of the bed (no pre-echo)" + tag);
+        check(worstDip > -3.0f, "43 to 20 ms before the hit the bed is still there" + tag);
+        check(worstPeak >= 0.5f, "the hit keeps at least half its peak" + tag);
+        check(worstFirst < 6.0f, "the first 5 ms of the hit are within 6 dB of the source" + tag);
+    }
+
     // A richer source for listening: a buzzy tone with vibrato plus drum-like hits.
     Signal listeningSource(double rate, double seconds)
     {
@@ -415,8 +546,14 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    if (argc > 1)
+    {
+        g_outDir = juce::File::getCurrentWorkingDirectory().getChildFile(juce::String(argv[1]));
+        g_outDir.createDirectory();
+    }
+
     // Frame size (= latency) follows the rate, ~43 ms everywhere.
     {
         std::cout << "\n== frame sizes ==" << std::endl;
@@ -433,6 +570,29 @@ int main()
 
     testRate(48000.0);
     testRate(96000.0);
+    testLevels(48000.0);
+    testLevels(96000.0);
+    testPreEcho(48000.0);
+    testPreEcho(96000.0);
+
+    // Low tones: how much of a shifted sawtooth is not at its harmonics.
+    {
+        std::cout << "\n== low sawtooths ==" << std::endl;
+        const double rate = 48000.0;
+        for (double f0 : { 40.0, 55.0, 80.0, 110.0 })
+        {
+            const Signal in = saw(rate, f0, 4.0, 4000.0);
+            for (float st : { -5.0f, 7.0f })
+            {
+                const double ratio = std::pow(2.0, st / 12.0);
+                const Signal out = run(rate, in, static_cast<float>(ratio));
+                const double db = residueDb(out, static_cast<size_t>(rate * 1.5), static_cast<size_t>(rate * 3.5), rate, f0 * ratio, 4000.0 * ratio);
+                std::cout << "  saw " << f0 << " Hz at " << st << " st: " << db << " dB not at the harmonics" << std::endl;
+                if (f0 >= 80.0)
+                    check(db < -25.0, "saw " + juce::String(f0, 0) + " Hz at " + juce::String(st, 0) + " st stays harmonic (under -25 dB elsewhere)");
+            }
+        }
+    }
 
     // Listening files.
     {
@@ -443,7 +603,8 @@ int main()
         writeWav("pitch_down12", run(rate, src, 0.5f), rate);
         writeWav("pitch_up7", run(rate, src, std::pow(2.0f, 7.0f / 12.0f)), rate);
         writeWav("pitch_down5_cents30", run(rate, src, std::pow(2.0f, (-5.0f + 0.3f) / 12.0f)), rate);
-        std::cout << "\n  wrote pitch_*.wav to " << juce::File::getCurrentWorkingDirectory().getFullPathName() << std::endl;
+        if (g_outDir != juce::File())
+            std::cout << "\n  wrote pitch_*.wav to " << g_outDir.getFullPathName() << std::endl;
     }
 
     // Speed: ten instances, 10 s at 48 kHz, 32-sample calls, all shifting.
@@ -454,11 +615,11 @@ int main()
         for (auto& s : shifters)
             s.prepare(rate);
         Signal out(32);
-        const auto t0 = std::chrono::steady_clock::now();
+        const double t0 = TestClock::cpuMs();
         for (int i = 0; i + 32 <= static_cast<int>(src.size()); i += 32)
             for (size_t k = 0; k < shifters.size(); ++k)
                 shifters[k].process(src.data() + i, out.data(), 32, std::pow(2.0f, (static_cast<float>(k) - 4.5f) / 6.0f));
-        const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        const double secs = (TestClock::cpuMs() - t0) * 0.001;
         const double factor = 10.0 / secs;
         std::cout << "\n  speed: 10 instances x 10 s took " << secs << " s (" << factor << "x real time)" << std::endl;
         check(factor > 20.0, "ten shifting instances run faster than 20x real time");

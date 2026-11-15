@@ -15,7 +15,7 @@ namespace roar
     {
         bool on = Params::defaultOf (Params::shimmerOn) > 0.5f;
         float amount = Params::defaultOf (Params::shimmer) * 0.01f;    // u, 0..1
-        float rateHz = Params::defaultOf (Params::shimmerRate);        // 0.5..40 Hz
+        float rateHz = Params::defaultOf (Params::shimmerRate);        // 0.5..25 Hz
         Params::ShimmerMode mode = static_cast<Params::ShimmerMode> (static_cast<int> (Params::defaultOf (Params::shimmerMode)));
     };
 
@@ -33,7 +33,8 @@ namespace roar
      *   wet    = Up: up | Down: down | Up+Down: (up + down) / sqrt 2 | Stereo: L = down, R = up
      *   out    = c(m) ((1 - m) x + m sqrt (1 - q g^2) wet)
      *
-     *   - Amount m = u. Feedback g = clamp (0.30 + 0.53 max (0, m - 0.25), 0, 0.75), internal.
+     *   - Amount m = 0.65 u (laws::shimmerAmount: past m = 0.65 the dry fades under the shifted
+     *     copy and the wobble gets shallower again, so the travel ends there). Feedback g = clamp (0.30 + 0.53 max (0, m - 0.25), 0, 0.75), internal.
      *   - c(m) = ((1 - m)^2 + m^2)^-0.42 is the static mix-law makeup: the dry and the shifted
      *     copy are incoherent over a beat period, so a linear mix alone would lose up to 3 dB.
      *     The exponent is a little under full power compensation (0.5), so the level stays

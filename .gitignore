@@ -54,3 +54,5 @@ CLAUDE.local.md
 __pycache__/
 *.pyc
 /.aax-sdk-download/
+/aax-signed/
+/site-preview/

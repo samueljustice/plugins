@@ -9,7 +9,7 @@
 /**
  * Real-time spectral morph between two mono sources (A and B), in the spirit of
  * Zynaptiq MORPH (whose algorithms are proprietary: this recreates the
- * behaviour from published techniques, see docs/experiments/06-morph.md).
+ * behaviour from published techniques).
  *
  * STFT: Hann / Hann, hop = N / 4, N = 2048 at 44.1/48 kHz, scaled with the rate
  * (4096 at 96, 8192 at 192 kHz) so the frame is always ~43 ms. Latency = N.
@@ -38,8 +38,15 @@
  * Under the hood (no UI needed):
  *  - every parameter is smoothed per frame (~40 ms), mode changes crossfade over
  *    6 frames, so fast x/y moves and mode switches are click-free;
- *  - level matching: each output frame is scaled to the log-interpolated energy
- *    of the inputs, so there is no level dip mid-morph;
+ *  - level matching: each output frame is scaled to the mix of the two inputs'
+ *    powers, (1 - x) A + x B, so there is no level dip mid-morph and a swell in
+ *    one input stays a swell (the geometric mean, which would halve it in dB, is
+ *    only used while an input fades out through its gate);
+ *  - attacks in Glide: a jump in spectral flux marks an onset; for the three
+ *    frames in which it has most of the frame ahead of it, the moved partials
+ *    take their phases from the two analysis frames, so the hit is not smeared
+ *    ahead of itself by stale phases (what is left mid-X is the other input's
+ *    share of those frames, which the transport brings up to the hit's level);
  *  - silence handling: each input has a smoothed presence gate (-75..-60 dBFS);
  *    the effective x is pulled towards the input that is present, so a silent A
  *    gives B and vice versa; both silent gives silence;
@@ -88,7 +95,8 @@ private:
 
     void processFrame();
     void analyse(const std::vector<float>& in, std::vector<Cpx>& spec, std::vector<float>& mag,
-                 std::vector<float>& phase, std::vector<float>& logMag, float& energy, float& rms);
+                 std::vector<float>& phase, std::vector<float>& logMag, float& energy, float& rms,
+                 float& total, float& flux);
     void trueEnvelope(const float* logMag, float* env, int iterations);
     void cepstralSmooth(const float* in, float* out);
 
@@ -113,6 +121,7 @@ private:
     Params m_target;
     float m_x = 0.5f, m_y = 0.5f, m_amount = 1.0f;
     float m_gateA = 0.0f, m_gateB = 0.0f;
+    int m_onsetLeft = 0; // frames for which an onset is still inside the frame
 
     // Slow loudness trim: compares the emitted output with the (latency-delayed) target level and
     // corrects the residual dip left by phase interaction in overlap-add (mainly Glide).
@@ -123,4 +132,52 @@ private:
     int m_mode = Blend, m_prevMode = Blend;
     float m_modeFade = 1.0f;
     bool m_first = true;
+};
+
+/**
+ * The morph as it sits between two buses: it takes what feeds bus A and bus B, morphs the two, and hands the
+ * result back to both buses in proportion to X (equal power), switched in and out by a 0..1 mix.
+ *
+ * The morph is one frame late (getLatencySamples) and the buses are not, so the switch is done in two steps
+ * that never mix a sound with a late copy of itself for longer than a splice:
+ *  - when the mix leaves 0 the buses are spliced (10 ms, equal power) onto a copy of themselves delayed by the
+ *    morph's latency, and the mix then crossfades that delayed copy against the morph, sample-aligned. The
+ *    morph is given one latency to fill before it is let in;
+ *  - when the mix is back at 0 the buses are spliced back to the live sound, and the morph is cleared, so
+ *    nothing old is left inside it for the next time.
+ * While the mix is 0 this only keeps the two delay lines fed.
+ *
+ * Allocation-free and lock-free after prepare().
+ */
+class MorphInsert
+{
+public:
+    void prepare(double sampleRate, int maxBlock);
+
+    /** Clears everything; on = start with the morph fully in. */
+    void reset(bool on);
+
+    void setParams(const SpectralMorph::Params& p) { m_morph.setParams(p); }
+
+    /** a, b: the two bus inputs, changed in place. mix: how far the morph is in at the end of this block (0..1).
+        wetA / wetB: when given, that side's share of the morph is ADDED there instead, and a / b keeps only what
+        is left of its dry sound (for a side whose input is one track rather than the whole bus). They must not
+        be a or b. */
+    void process(float* a, float* b, int numSamples, float mix, float* wetA = nullptr, float* wetB = nullptr);
+
+    int getLatencySamples() const { return m_morph.getLatencySamples(); }
+    bool isRunning() const { return m_running; }
+
+private:
+    void processBlock(float* a, float* b, int n, float mixFrom, float mixTo, float* wetA, float* wetB);
+
+    SpectralMorph m_morph;
+    std::vector<float> m_delayA, m_delayB, m_wet;
+    int m_latency = 2048, m_delayPos = 0, m_maxBlock = 0;
+    int m_filled = 0;            // samples the morph has been fed since it was last cleared (stops at 2 x latency)
+    float m_mix = 0.0f;          // the mix at the end of the last block
+    float m_align = 0.0f;        // 0 = the buses are live, 1 = on the delayed copy
+    float m_alignStep = 1.0f / 480.0f;
+    float m_toA = 1.0f, m_toB = 0.0f;
+    bool m_running = false;      // the morph is being fed
 };

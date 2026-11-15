@@ -23,11 +23,14 @@ namespace roar
      * ROAR: a two-stage triode saturator with the tone stack between the stages (spec §5.10).
      *
      *   in -> voicing (Line: flat; Mic: -3.8 dB wide bell @ 70 Hz, -2 dB top shelf)
-     *      -> 2x up -> x Drive1 -> Miller LPF 1 (20 kHz * 0.5^a) -> TRIODE 1 (dynamic bias)
+     *      -> 2x up -> x Drive1 (18 a + 48 max (0, a - 0.5)^2 dB, laws::roarDrive1Db) -> Miller LPF 1 (20 kHz * 0.5^a) -> TRIODE 1 (dynamic bias)
      *      -> / Drive1 -> coupling HPF 12 Hz
      *      -> tone stack: bass boost (1st-order low shelves 80 + 300 Hz, split 85/15),
-     *                     plate scoop (bell 200 Hz, Q 0.8, -14 dB per unit Drive, at most -7 dB),
+     *                     plate scoop (bell 200 Hz, Q 0.8: -14 a dB to a = 0.4, a smooth turn to
+     *                     -7 dB at 0.6, flat above; laws::roarScoopDb),
      *                     treble boost (1st-order high shelf 2.5 kHz + 2nd-order 10 kHz shelf, 35/65),
+     *                     bass = 6 (a - s t) dB, treble = 7 (a + s t) dB, Tone t, tilt strength
+     *                     s = 1.5 at every Drive (laws::roarToneStrength: Tone works at low Drive too),
      *                     fixed +1.5 dB top lift
      *      -> x Drive2 -> Miller LPF 2 (16 kHz) -> TRIODE 2 (lighter bias shift) -> / Drive2
      *      -> 2x down -> output transformer (1-pole LPF 18 kHz * 0.75^a, HPF 25 Hz Q 0.9)
@@ -58,6 +61,12 @@ namespace roar
      * Dynamic bias: stage 1 Kb = 0.6 -> 0.4 as Drive rises, envelope 2 ms / 150 ms; stage 2
      * Kb = 0.3, 3 ms / 250 ms. In stereo each channel runs its own curve and both share one
      * envelope per stage (the max), so the image never wanders.
+     *
+     * Top octave: the stage sounds the same at every rate. Below 88.2 kHz a +4.5 dB high shelf at
+     * the 2x rate (corner 0.36 fs, right after the upsampler, so the curves' own products are not
+     * lifted with it) makes up for the two ADAA averages, and the output low-pass is designed to
+     * the magnitude its bilinear form has at 96 kHz, so 15-18 kHz at 44.1 / 48 kHz sit within
+     * about 0.5 dB of a 96 kHz session (1 dB at 18 kHz at 44.1 kHz).
      *
      * Level: there is no output-measuring level follower. A static makeup gain (a function of
      * Drive and Tone only) keeps the loudness of a voice at the reference level within +-1.5 dB
@@ -118,7 +127,8 @@ namespace roar
             Biquad scoop;            // plate scoop bell 200 Hz
             Biquad trebleTop;        // 2nd-order treble shelf 12 kHz
             Biquad fixedTop;         // fixed top lift
-            TptOnePole outLp;
+            Biquad droop;            // below 88.2 kHz: high shelf at the 2x rate for the ADAA droop
+            Biquad outLp;            // output transformer: matched one-pole low-pass
             Biquad outHp;
             double bypass1 = 0.0, bypass2 = 0.0;   // previous Miller bypass samples (2-tap average)
         };
@@ -138,6 +148,7 @@ namespace roar
         static const AdaaTable& table();
 
         double m_fs = 48000.0, m_fs2 = 96000.0;
+        bool m_droopShelf = true;   // below 88.2 kHz
         OnFade m_fade;
         std::array<Channel, 2> m_ch;
 

@@ -23,11 +23,15 @@ namespace Theme
         inline const juce::Colour textDim     { 0xffa39b8e };
         inline const juce::Colour textFaint   { 0xff6b655b };
 
-        inline const juce::Colour mode        { 0xff8be07f }; // lamp green
-        inline const juce::Colour reverser    { 0xff58b6ff }; // logo-arrow blue
+        // Keycap colours, like moulded plastic: each control keeps one, so it reads at a glance.
+        inline const juce::Colour mode        { 0xff5fd6a8 }; // mint (the MODE panel, and the first mode key)
+        inline const juce::Colour modeSecond  { 0xffffc53d }; // mustard
+        inline const juce::Colour modeThird   { 0xffff6f59 }; // coral
+        inline const juce::Colour reverser    { 0xff3fa9ff }; // electric blue
         inline const juce::Colour sand        { 0xffffb347 }; // hourglass sand
-        inline const juce::Colour feedback    { 0xffef7a8e }; // loop rose
-        inline const juce::Colour mix         { 0xff8fc1ff }; // fader blue
+        inline const juce::Colour feedback    { 0xffff5c9d }; // hot pink
+        inline const juce::Colour mix         { 0xff3ed6c8 }; // turquoise (wet)
+        inline const juce::Colour dry         { 0xffb69cff }; // lilac
 
         inline const juce::Colour scope       { 0xff0c0b0a };
         inline const juce::Colour grid        { 0xff24221e };
