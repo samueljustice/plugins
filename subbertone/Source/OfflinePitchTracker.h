@@ -21,25 +21,53 @@
  *   Engine  For sounds whose partials all move in step (engine orders,
  *           drones). Neighbouring frames of a whitened log-frequency
  *           spectrogram are cross-correlated to measure the shift of the entire set
- *           of partials; summing those shifts gives a contour, before
- *           any partial has been picked. The contour is then slid to the
- *           offset where it overlaps the most whitened level, raised an octave
+ *           of partials; summing those shifts gives a first contour, before
+ *           any partial has been picked. That sum wanders on a steady note and
+ *           carries every mis-measured shift to the end, so the contour is then
+ *           found again from the set of partials itself: the clearest frame
+ *           gives a pattern (then the average of all frames lined up on the
+ *           contour), every frame is matched against it at every shift, and a
+ *           Viterbi search picks the shifts, trusting the measured
+ *           frame-to-frame shift where the two frames matched well and paying
+ *           a fixed charge for a break (less after silence). The contour is
+ *           slid to the offset where it overlaps the most whitened level while
+ *           every frame of it stays inside lowestHz..highestHz, raised an octave
  *           at a time while the partial up there still scores climbShare of
- *           that (in exhausts the top-scoring partial is frequently a half
- *           order, while the perceived pitch is the firing rate), and pulled
- *           onto the nearest ridge.
- *   Auto    Runs Tonal; if that result steps by more than three semitones
- *           between adjacent frames anywhere, Engine runs too. Bass lines also
- *           move by fourths, fifths and octaves, so Settings::autoCrossCheck adds
- *           a test: the Engine result is used only if most of the Tonal frames
- *           lie a whole number of octaves from it (an engine's Tonal pass jumps
- *           between octaves of the firing rate) and it never left its analysis
- *           grid. Otherwise the Tonal result is returned.
+ *           the strongest one (in exhausts the top-scoring partial is frequently
+ *           half the firing rate, while the perceived pitch is the firing rate)
+ *           and still fits in the range, and pulled onto the nearest ridge. The
+ *           other partials are returned as lines at exact small fractions of the
+ *           chosen one (1/2, 3/4, 3/2, 2 ...).
+ *   Auto    Runs Tonal. A result without a step or a hole in it is returned as
+ *           it is. Otherwise Engine runs too and the audio decides
+ *           (Settings::autoCrossCheck). At each step of the Tonal line the
+ *           partials around it are compared before and after: if they kept
+ *           their places the sound changed pitch (a note); if they all moved by
+ *           the step, the sound carried on and the line hopped to another
+ *           partial. Undoing the hops gives a steadied Tonal line.
+ *             - Only changes of pitch (a bass line, a melody), or notes too
+ *               short to judge: the Tonal result as it stands.
+ *             - Hops (an engine, a drone, a growl): the steadied line when it
+ *               is whole, with gaps between its stretches filled along
+ *               Engine's contour; Engine instead when it keeps one frequency
+ *               ratio to that line (the same contour, and Engine comes with the
+ *               other partials to choose from), or when the steadied line still
+ *               has steps or holes in it and Engine's line can be trusted
+ *               (Analysis::engineOnGrid); otherwise what the Tonal pass has.
+ *             - No step to judge, but holes in the Tonal line: Engine when its
+ *               line is on a partial nearly throughout, else Tonal.
  *
- * Engine adds up frame-to-frame shifts over the entire buffer, and one shift
- * can be at most 1/4 octave across 80 ms. A faster jump (a loop seam, an edit,
- * an abrupt gear change) therefore offsets everything after it. Pass a single
- * loop cycle, and read Analysis::engineOnGrid.
+ * Engine's contour is measured against one pattern in every frame, so a jump
+ * (a gear change, a lift-off, an edit, a loop seam) is a step in one line and
+ * nothing after it is offset: Analysis::engineBreaks counts the steps. What it
+ * cannot tell apart is a set of partials and the same set an octave away, so a
+ * melody's octave leaps are not followed. Its line never leaves
+ * lowestHz..highestHz. When the contour spans more than that range, or the line
+ * is on a partial for too little of the sound, it is not to be trusted: read
+ * Analysis::engineOnGrid and Analysis::engineConfidence. Engine gives every
+ * audible frame a pitch, noise included. Sounds that are mostly noise with a
+ * tone passing through (a pass-by at a distance, a cabin recording) are not what
+ * either method is for.
  *
  * Silence is an absolute level (Settings::silenceDbfs; Learn passes the
  * Threshold knob less 10 dB), so what the analysis calls silent agrees with the
@@ -52,7 +80,8 @@
  *
  * Memory is dominated by Engine's spectrogram, which Settings::compactGrid keeps
  * in 8 bits: a 60 s loop at about 12 kHz (what Learn captures) is analysed as it
- * is and peaks near 16.5 MB; a buffer at a host rate adds its decimated copy (19 MB).
+ * is and peaks near 18.5 MB (the contour search adds 2 MB); a buffer at a host
+ * rate adds its decimated copy (21 MB).
  *
  * The result depends only on the samples, their rate and the settings: one
  * thread, no randomness, and every ordering decision has a tie-break, so the
@@ -94,12 +123,12 @@ namespace subbertone::offline
         bool thresholdVoting = false;     // score dips by the threshold votes they collect instead of their depth
 
         // Auto
-        bool autoCrossCheck = true;        // use Engine only when it agrees with the Tonal pass (see above)
-        double autoCrossCheckShare = 0.6;  // fraction of Tonal frames that must lie a whole number of octaves from Engine
+        bool autoCrossCheck = true;        // let the audio decide between Engine and Tonal (see above); false: Engine whenever Tonal leaps
+        double autoCrossCheckShare = 0.75; // share of the steadied Tonal line that must keep one frequency ratio to Engine for Engine to be preferred
 
         // Engine
-        double climbShare = 0.6;   // step to the partial an octave higher whenever its score reaches this fraction
-        int parallelLines = 6;     // how many alternative partials (parallel curves) to return as well
+        double climbShare = 0.75;  // step to the partial an octave higher while its score reaches this fraction of the strongest partial's
+        int parallelLines = 6;     // how many alternative partials (lines at exact fractions of the chosen one) to return as well
         bool compactGrid = true;   // 8-bit spectrogram: a quarter of the memory (an engine run-up: curve moved <= 3 cents)
 
         // Finishing, both methods
@@ -111,7 +140,7 @@ namespace subbertone::offline
     {
         float hz = 0.0f;          // 0 = unpitched or silent
         float confidence = 0.0f;  // 0..1, 0 on bridged frames
-        bool bridged = false;     // filled in across a gap, not measured
+        bool bridged = false;     // filled in across a gap, not measured (frames Auto borrows from Engine's contour count as measured)
         bool silent = false;      // below the silence threshold: no pitch, and never bridged
     };
 
@@ -136,16 +165,24 @@ namespace subbertone::offline
 
     struct Analysis
     {
-        Method usedMethod = Method::Tonal;  // Engine or Tonal, also when Auto was asked for
+        Method usedMethod = Method::Tonal;  // Engine or Tonal, also when Auto was asked for (Tonal covers Auto's steadied Tonal line)
         double hopSeconds = 0.005;
         double durationSeconds = 0.0;
 
         Line line;                   // the chosen curve, finished (gaps bridged, slew limited)
-        std::vector<Line> parallel;  // Engine: other lines parallel to `line`, strongest first
+        std::vector<Line> parallel;  // Engine: other partials, each `line` times an exact fraction (Line::ratio), strongest first
         Line other;                  // Auto that ran both methods: the curve of the one it did not use
         int tonalLeaps = -1;         // Auto: leaps of more than a quarter octave in the Tonal pass
-        float octaveAgreement = -1;  // Auto that ran Engine: share of Tonal's pitched hops within 50 cents of an octave multiple of the Engine line
-        bool engineOnGrid = true;    // Engine: the line stayed inside its analysis grid (false = it drifted, do not trust it)
+        float octaveAgreement = -1;  // Auto that ran Engine: share of the steadied Tonal line's own frames where Engine keeps one
+                                     // frequency ratio to it, within 35 cents (the name is from when only octaves counted).
+                                     // -1 = not judged: Engine did not run, the two lines share no frame, or Auto took Engine
+                                     // for another reason than this agreement (the steadied line was not whole, or Engine
+                                     // filled the holes of a Tonal line without steps), so a low value never means a doubt there
+        bool engineOnGrid = true;    // Engine: the line can be trusted: its contour fitted inside the search range and it sits
+                                     // on a partial for at least 80 % of the sound (false = it did not lock, do not trust it)
+        float engineConfidence = -1;    // Engine ran: share of audible frames where its line is on a partial, 0..1
+        float enginePatternMatch = -1;  // Engine ran: how well the partial pattern was found along the line, 0..1
+        int engineBreaks = -1;          // Engine ran: breaks (gear changes, lift-offs, a loop seam) its line stepped across
         Summary summary;             // of `line`
         bool cancelled = false;
     };

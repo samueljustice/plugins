@@ -88,16 +88,17 @@ Hover over LEARN or its prompt for the details, such as how much of a passage no
 <img src="docs/learn-view.png" alt="The Learn view on an engine run-up: the line the sub follows (teal) and the sub (amber) rise through the pass, the other lines found are faint with their tags at the right, and the live tracker's dots fall off the line after the first second and a half" width="1568">
 
 - **Lines:** click another line, or its tag, and the sub follows that one instead, for example the line an octave up (x2). The analysis' own choice is tagged AUTO. Max Pitch doesn't limit a learned line.
-- **METHOD:** Auto tries both methods and keeps the one that fits the sound; Engine suits sounds whose partials all move together, such as engines and drones; Tonal suits notes, such as bass lines and melodies. Choosing one works the passage out again. (If the passage's audio is no longer kept, for example after the session was reopened, LEARN arms instead and learns it with that method on its next pass.)
+- **METHOD:** Auto tries both methods and keeps the line that fits the sound; Engine suits sounds whose partials all move together, such as engines, drones and growls; Tonal suits notes, such as bass lines and melodies. On an engine, Auto may also keep the Tonal line with its hops from one partial to another undone; the status line then names Tonal. Choosing a method works the passage out again. (If the passage's audio is no longer kept, for example after the session was reopened, LEARN arms instead and learns it with that method on its next pass.)
 - **GAP FILL:** the longest stretch without a clear pitch that the learned line bridges, 0 to 1000 ms (150 ms by default). Silences are never bridged, so notes keep their ends.
 - **USE LEARNED:** off, the pitch is tracked live everywhere, and what was learned is kept.
 - **CLEAR** forgets everything learned (with UNDO for 10 seconds). The menu at the left lists every learned passage and can forget the one on show.
-- The status line under the lane names the method and the line, and how cleanly the passage was learned. STEPS counts where the line moves by more than a semitone at once, such as a bass line's note changes; an engine's line glides, so it has few if any.
+- The status line under the lane names the method and the line, and how cleanly the passage was learned. STEPS counts where the line moves by more than a semitone at once, such as a bass line's note changes; an engine's line glides, and steps only where the engine does: at a gear change, a lift-off or an edit.
 
 With the view closed, the scope's readout says whether the sub follows a learned pitch (LEARNED) or the live tracker (LIVE), with five segments for how sure that pitch is.
 
 **Good to know:**
 
+- LEARN follows a sound whose pitch is in the recording throughout: an engine or exhaust recorded close, a voice, a creature, a bass. A recording that is mostly noise with the tone passing through it, such as a pass-by from the roadside or the inside of a moving car, usually gives a broken line or none; live tracking is no better there.
 - LEARN needs a host timeline: it remembers each passage by its place in the timeline. The standalone app, Pro Tools' AudioSuite and hosts that run plug-ins without a transport have none, so LEARN is dimmed there.
 - For the same reason, loop the passage on the timeline. A clip launcher, such as Live's Session View, Bitwig's Clip Launcher or Logic's Live Loops, repeats a clip while the timeline runs on, so LEARN never hears the loop come round: it listens for up to 60 seconds and learns that stretch of the timeline, which the playhead has left by then. In Live, loop the passage in the Arrangement View.
 - At another playback speed (half speed, varispeed, a play rate other than 1), the pitch is tracked live: what was learned at normal speed doesn't line up with the audio then.

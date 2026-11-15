@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -652,10 +653,550 @@ namespace subbertone::offline
             std::vector<float> m_full;
             std::vector<std::uint8_t> m_small;
         };
+        // What Auto may look at once Engine has run: the whitened spectrogram, while it is
+        // still in memory. The callback returns false when it was cancelled.
+        struct GridView
+        {
+            const LineGrid* grid = nullptr;
+            double lowHz = 0.0; // frequency of bin 0
+            int bins = 0;
+
+            double binOf(double hz) const noexcept { return std::log2(hz / lowHz) * c_binsPerOctave; }
+        };
+
+        using GridUse = std::function<bool(const GridView&)>;
+
+        constexpr double c_onPartialLevel = 0.4; // whitened level (log units) at which a frame of the line counts as on a partial
+        constexpr float c_trustedShare = 0.8f;   // Analysis::engineOnGrid needs this share of audible frames on a partial (below it the line is seldom one partial)
+
+        //==============================================================================
+        // Engine: contour from the partial pattern
+        //==============================================================================
+
+        constexpr int c_patternHop = 2;     // frames per contour step
+        constexpr int c_patternBins = 2;    // grid bins per contour state
+        constexpr int c_patternReach = 6;   // states the contour may move in one step without a break
+        constexpr int c_patternJump = 2 * c_patternReach + 1; // back-pointer code of a break
+        constexpr int c_patternPoints = 32;        // peaks of the pattern that are matched
+        constexpr int c_patternPasses = 2;         // contour searches: the clearest frame's pattern, then the re-learnt one
+        constexpr double c_valleyShare = 0.5;      // weight of the gap between two peaks, as a share of their mean
+        constexpr double c_bandPower = 0.5;        // how far a state is excused for the peaks it puts off the grid (0 = not, 1 = fully)
+        constexpr float c_breakCost = 48.0f;       // a move of any size, in units of one frame's perfect match
+        constexpr float c_silenceBreak = 0.25f;    // ... times this after 30 ms of silence
+        constexpr float c_moveCost = 0.25f;        // per state away from the move step 3 expects (scaled by how far that is trusted)
+        constexpr double c_steadyFloor = 0.2;      // step 2's match (normalised correlation) at and below which its shift is ignored
+        constexpr double c_steadyTop = 0.5;        // ... and at and above which it is trusted in full
+
+        struct PatternPoint
+        {
+            int offset;    // grid bins from the pattern's origin
+            float weight;  // > 0 on a partial, < 0 in the gap between two
+        };
+
+        // Summing frame-to-frame shifts (step 3) random-walks on steady notes and
+        // carries every mis-measured shift (a gear change, a lift-off, a loop seam)
+        // to the end of the buffer. This step measures the position of the entire
+        // set of partials in every frame against one pattern instead:
+        //   - the pattern starts as the clearest frame's row, and is then re-learnt as
+        //     the average of all rows lined up along the contour found with it;
+        //   - on a log-frequency grid the partials of one source keep their spacing
+        //     whatever the pitch, and no other shift lines up all of them, so the
+        //     match has one best shift per frame (gaps between partials count
+        //     against a shift, which is what rules out the octaves);
+        //   - a Viterbi search then picks the contour: small moves are cheap, and a
+        //     move of any size (a break) costs a fixed charge, less after silence.
+        // The contour is absolute, so nothing accumulates, and a pass with gear
+        // changes comes out as one line with a step at each change.
+        bool patternContour(const LineGrid& grid, int gridBins, const std::vector<std::uint8_t>& silent,
+                            const std::vector<float>& steadiness, const Settings& s,
+                            const std::atomic<bool>* cancel, std::vector<double>& shape, int& breaks, float& match)
+        {
+            const int numFrames = static_cast<int>(shape.size());
+            const int steps = (numFrames + c_patternHop - 1) / c_patternHop;
+            const int reachBins = static_cast<int>(std::ceil(std::log2(s.highestHz / s.lowestHz) * c_binsPerOctave));
+            const int centre = reachBins / c_patternBins;   // state of "no shift"
+            const int states = 2 * centre + 1;
+            const int patternLength = gridBins + 2 * reachBins; // pattern index = offset + reachBins
+
+            const int silenceSteps = std::max(1, static_cast<int>(std::lround(0.03 / (s.hopSeconds * c_patternHop))));
+
+            std::vector<float> scratch(static_cast<std::size_t>(gridBins));
+            std::vector<float> row(static_cast<std::size_t>(gridBins));
+
+            // A frame's row, smoothed over +-2 bins so a partial is found from a state grid of 2 bins.
+            auto smoothRow = [&](int f)
+            {
+                const float* v = grid.row(f, scratch.data());
+
+                for (int g = 0; g < gridBins; ++g)
+                {
+                    const float a = g >= 2 ? v[g - 2] : 0.0f;
+                    const float b = g >= 1 ? v[g - 1] : 0.0f;
+                    const float d = g + 1 < gridBins ? v[g + 1] : 0.0f;
+                    const float e = g + 2 < gridBins ? v[g + 2] : 0.0f;
+                    row[static_cast<std::size_t>(g)] = (a + 2.0f * b + 3.0f * v[g] + 2.0f * d + e) * (1.0f / 9.0f);
+                }
+            };
+
+            // The clearest stretch: the highest whitened energy, averaged over +-0.1 s.
+            std::vector<float> energy(static_cast<std::size_t>(steps), 0.0f);
+            int audible = 0;
+
+            for (int j = 0; j < steps; ++j)
+            {
+                const int f = j * c_patternHop;
+
+                if (j % c_progressFrames == 0 && isCancelled(cancel))
+                    return false;
+
+                if (silent[static_cast<std::size_t>(f)] != 0)
+                    continue;
+
+                const float* v = grid.row(f, scratch.data());
+                double sum = 0.0;
+
+                for (int g = 0; g < gridBins; ++g)
+                    sum += static_cast<double>(v[g]) * v[g];
+
+                energy[static_cast<std::size_t>(j)] = static_cast<float>(sum);
+                ++audible;
+            }
+
+            if (audible < 4)
+                return true;
+
+            int reference = 0;
+            {
+                const int half = std::max(1, static_cast<int>(std::lround(0.1 / (s.hopSeconds * c_patternHop))));
+                double best = -1.0;
+
+                for (int j = 0; j < steps; ++j)
+                {
+                    if (energy[static_cast<std::size_t>(j)] <= 0.0f)
+                        continue;
+
+                    double sum = 0.0;
+
+                    for (int k = std::max(0, j - half); k <= std::min(steps - 1, j + half); ++k)
+                        sum += energy[static_cast<std::size_t>(k)];
+
+                    if (sum > best)
+                    {
+                        best = sum;
+                        reference = j;
+                    }
+                }
+            }
+
+            std::vector<float> pattern(static_cast<std::size_t>(patternLength), 0.0f);
+            std::vector<float> cover(static_cast<std::size_t>(patternLength), 0.0f);
+            smoothRow(reference * c_patternHop);
+
+            for (int g = 0; g < gridBins; ++g)
+            {
+                pattern[static_cast<std::size_t>(g + reachBins)] = row[static_cast<std::size_t>(g)];
+                cover[static_cast<std::size_t>(g + reachBins)] = 1.0f;
+            }
+
+            // What step 3 expects each step to move (in states), and how far to trust it.
+            std::vector<float> expected(static_cast<std::size_t>(steps), 0.0f);
+            std::vector<float> trust(static_cast<std::size_t>(steps), 0.0f);
+
+            for (int j = 1; j < steps; ++j)
+            {
+                const int f = j * c_patternHop;
+                expected[static_cast<std::size_t>(j)] = static_cast<float>((shape[static_cast<std::size_t>(f)] - shape[static_cast<std::size_t>(f - c_patternHop)]) / c_patternBins);
+                float q = 1.0f;
+
+                for (int k = f - c_patternHop + 1; k <= f; ++k)
+                    q = std::min(q, steadiness[static_cast<std::size_t>(k)]);
+
+                trust[static_cast<std::size_t>(j)] = static_cast<float>(std::clamp((q - c_steadyFloor) / (c_steadyTop - c_steadyFloor), 0.0, 1.0));
+            }
+
+            std::vector<PatternPoint> points;
+            std::vector<float> scale(static_cast<std::size_t>(states));
+            std::vector<float> acc(static_cast<std::size_t>(states));
+            std::vector<float> previous(static_cast<std::size_t>(states));
+            std::vector<float> current(static_cast<std::size_t>(states));
+            std::vector<std::uint8_t> back((static_cast<std::size_t>(steps) * static_cast<std::size_t>(states) + 1) / 2);
+            std::vector<std::int16_t> leader(static_cast<std::size_t>(steps), 0);
+            std::vector<int> path(static_cast<std::size_t>(steps), centre);
+            std::vector<float> matched(static_cast<std::size_t>(steps), 0.0f);
+            std::vector<std::uint8_t> broke(static_cast<std::size_t>(steps), 0);
+            std::vector<float> fine(static_cast<std::size_t>(steps), 0.0f);
+
+            // The pattern as a few points: its tallest peaks, and the lowest point between neighbours.
+            auto pickPoints = [&]
+            {
+                points.clear();
+                double mean = 0.0;
+                int covered = 0;
+
+                for (int k = 0; k < patternLength; ++k)
+                {
+                    if (cover[static_cast<std::size_t>(k)] > 0.0f)
+                    {
+                        mean += pattern[static_cast<std::size_t>(k)];
+                        ++covered;
+                    }
+                }
+
+                if (covered == 0)
+                    return;
+
+                mean /= covered;
+                std::vector<int> peaks;
+
+                for (int k = 1; k + 1 < patternLength; ++k)
+                {
+                    const float v = pattern[static_cast<std::size_t>(k)];
+
+                    if (cover[static_cast<std::size_t>(k)] > 0.0f && v > mean
+                        && v > pattern[static_cast<std::size_t>(k) - 1] && v >= pattern[static_cast<std::size_t>(k) + 1])
+                        peaks.push_back(k);
+                }
+
+                std::stable_sort(peaks.begin(), peaks.end(),
+                                 [&](int a, int b) { return pattern[static_cast<std::size_t>(a)] > pattern[static_cast<std::size_t>(b)]; });
+
+                std::vector<int> kept;
+
+                for (const int k : peaks)
+                {
+                    if (static_cast<int>(kept.size()) >= c_patternPoints)
+                        break;
+
+                    if (std::none_of(kept.begin(), kept.end(), [&](int other) { return std::abs(other - k) < 6; }))
+                        kept.push_back(k);
+                }
+
+                std::sort(kept.begin(), kept.end());
+
+                for (std::size_t i = 0; i < kept.size(); ++i)
+                {
+                    const int k = kept[i];
+                    points.push_back({ k - reachBins, static_cast<float>(pattern[static_cast<std::size_t>(k)] - mean) });
+
+                    if (i + 1 < kept.size() && kept[i + 1] - k >= 8)
+                    {
+                        int lowest = k + 1;
+
+                        for (int m = k + 1; m < kept[i + 1]; ++m)
+                            if (pattern[static_cast<std::size_t>(m)] < pattern[static_cast<std::size_t>(lowest)])
+                                lowest = m;
+
+                        const double either = 0.5 * (pattern[static_cast<std::size_t>(k)] + pattern[static_cast<std::size_t>(kept[i + 1])]) - mean;
+                        points.push_back({ lowest - reachBins, static_cast<float>(-c_valleyShare * either) });
+                    }
+                }
+
+                // A state's match is divided by the pattern's own match, less for the share of
+                // its peaks that state keeps on the grid; states that keep under a quarter are out.
+                double self = 0.0;
+                double total = 0.0;
+
+                for (const auto& point : points)
+                {
+                    self += point.weight * pattern[static_cast<std::size_t>(point.offset + reachBins)];
+                    total += std::max(0.0f, point.weight);
+                }
+
+                for (int state = 0; state < states; ++state)
+                {
+                    const int shift = (state - centre) * c_patternBins;
+                    double inside = 0.0;
+
+                    for (const auto& point : points)
+                    {
+                        const int g = point.offset + shift;
+
+                        if (g >= 0 && g < gridBins)
+                            inside += std::max(0.0f, point.weight);
+                    }
+
+                    const double share = total > 0.0 ? inside / total : 0.0;
+                    scale[static_cast<std::size_t>(state)] = share >= 0.25 && self > 0.0
+                        ? static_cast<float>(1.0 / (self * std::pow(share, c_bandPower))) : 0.0f;
+                }
+            };
+
+            // Match of the current `row` against the pattern at every state.
+            auto matchRow = [&]
+            {
+                std::fill(acc.begin(), acc.end(), 0.0f);
+
+                for (const auto& point : points)
+                {
+                    // g = offset + (state - centre) * bins must lie in [0, gridBins)
+                    const int base = point.offset - centre * c_patternBins;
+                    const int first = std::max(0, (-base + c_patternBins - 1) / c_patternBins);
+                    const int last = std::min(states - 1, (gridBins - 1 - base) / c_patternBins);
+                    const float w = point.weight;
+                    const float* r = row.data() + base;
+
+                    for (int state = first; state <= last; ++state)
+                        acc[static_cast<std::size_t>(state)] += w * r[state * c_patternBins];
+                }
+
+                for (int state = 0; state < states; ++state)
+                    acc[static_cast<std::size_t>(state)] *= scale[static_cast<std::size_t>(state)];
+            };
+
+            auto setBack = [&](int j, int state, int code)
+            {
+                const std::size_t i = static_cast<std::size_t>(j) * static_cast<std::size_t>(states) + static_cast<std::size_t>(state);
+                const int shiftBits = (i & 1) != 0 ? 4 : 0;
+                back[i / 2] = static_cast<std::uint8_t>((back[i / 2] & ~(0xF << shiftBits)) | (code << shiftBits));
+            };
+
+            auto getBack = [&](int j, int state)
+            {
+                const std::size_t i = static_cast<std::size_t>(j) * static_cast<std::size_t>(states) + static_cast<std::size_t>(state);
+                return (back[i / 2] >> ((i & 1) != 0 ? 4 : 0)) & 0xF;
+            };
+
+            for (int pass = 0; pass < c_patternPasses; ++pass)
+            {
+                pickPoints();
+
+                if (points.empty())
+                    return true;
+
+                std::fill(previous.begin(), previous.end(), 0.0f);
+                int quiet = 0;
+
+                for (int j = 0; j < steps; ++j)
+                {
+                    if (j % 16 == 0 && isCancelled(cancel))
+                        return false;
+
+                    const int f = j * c_patternHop;
+                    int lead = 0;
+
+                    for (int state = 1; state < states; ++state)
+                        if (previous[static_cast<std::size_t>(state)] > previous[static_cast<std::size_t>(lead)])
+                            lead = state;
+
+                    leader[static_cast<std::size_t>(j)] = static_cast<std::int16_t>(lead);
+                    const float top = previous[static_cast<std::size_t>(lead)];
+
+                    if (silent[static_cast<std::size_t>(f)] != 0)
+                    {
+                        for (int state = 0; state < states; ++state)
+                        {
+                            current[static_cast<std::size_t>(state)] = previous[static_cast<std::size_t>(state)] - top;
+                            setBack(j, state, c_patternReach);
+                        }
+
+                        ++quiet;
+                    }
+                    else
+                    {
+                        smoothRow(f);
+                        matchRow();
+                        const float sure = trust[static_cast<std::size_t>(j)];
+                        const float want = expected[static_cast<std::size_t>(j)];
+                        const float jump = top - (quiet >= silenceSteps ? c_breakCost * c_silenceBreak : c_breakCost);
+                        quiet = 0;
+
+                        for (int state = 0; state < states; ++state)
+                        {
+                            float best = jump;
+                            int code = c_patternJump;
+
+                            for (int d = -c_patternReach; d <= c_patternReach; ++d)
+                            {
+                                const int from = state + d;
+
+                                if (from < 0 || from >= states)
+                                    continue;
+
+                                // moving from `from` to `state` is a move of -d states
+                                const float v = previous[static_cast<std::size_t>(from)]
+                                              - c_moveCost * std::abs(static_cast<float>(-d) - sure * want);
+
+                                if (v > best || (!(v < best) && code == c_patternJump)) // a tie goes to a move, not to a break
+                                {
+                                    best = v;
+                                    code = d + c_patternReach;
+                                }
+                            }
+
+                            current[static_cast<std::size_t>(state)] = best + acc[static_cast<std::size_t>(state)] - top;
+                            setBack(j, state, code);
+                        }
+                    }
+
+                    std::swap(previous, current);
+                }
+
+                int state = 0;
+
+                for (int k = 1; k < states; ++k)
+                    if (previous[static_cast<std::size_t>(k)] > previous[static_cast<std::size_t>(state)])
+                        state = k;
+
+                std::fill(broke.begin(), broke.end(), std::uint8_t { 0 });
+
+                for (int j = steps - 1; j >= 0; --j)
+                {
+                    path[static_cast<std::size_t>(j)] = state;
+
+                    if (j == 0)
+                        break;
+
+                    const int code = getBack(j, state);
+
+                    if (code == c_patternJump)
+                    {
+                        const int from = leader[static_cast<std::size_t>(j)];
+                        broke[static_cast<std::size_t>(j)] = from != state ? 1 : 0;
+                        state = from;
+                    }
+                    else
+                    {
+                        state += code - c_patternReach;
+                    }
+                }
+
+                // Along the path: the match (the weight of each frame in the next pattern)
+                // and a parabola through the neighbouring states for the fraction of a state.
+                const bool lastPass = pass + 1 == c_patternPasses;
+
+                if (!lastPass)
+                {
+                    std::fill(pattern.begin(), pattern.end(), 0.0f);
+                    std::fill(cover.begin(), cover.end(), 0.0f);
+                }
+
+                double weightSum = 0.0;
+
+                for (int j = 0; j < steps; ++j)
+                {
+                    const int f = j * c_patternHop;
+                    matched[static_cast<std::size_t>(j)] = 0.0f;
+                    fine[static_cast<std::size_t>(j)] = 0.0f;
+
+                    if (silent[static_cast<std::size_t>(f)] != 0)
+                        continue;
+
+                    if (j % 64 == 0 && isCancelled(cancel))
+                        return false;
+
+                    smoothRow(f);
+                    const int at = path[static_cast<std::size_t>(j)];
+                    float near[3] = { 0.0f, 0.0f, 0.0f };
+
+                    for (int o = -1; o <= 1; ++o)
+                    {
+                        const int k = at + o;
+
+                        if (k < 0 || k >= states)
+                            continue;
+
+                        const int shift = (k - centre) * c_patternBins;
+                        float sum = 0.0f;
+
+                        for (const auto& point : points)
+                        {
+                            const int g = point.offset + shift;
+
+                            if (g >= 0 && g < gridBins)
+                                sum += point.weight * row[static_cast<std::size_t>(g)];
+                        }
+
+                        near[o + 1] = sum * scale[static_cast<std::size_t>(k)];
+                    }
+
+                    matched[static_cast<std::size_t>(j)] = near[1];
+                    const float curvature = near[0] - 2.0f * near[1] + near[2];
+
+                    if (curvature < -1e-9f && near[1] >= near[0] && near[1] >= near[2])
+                        fine[static_cast<std::size_t>(j)] = std::clamp(0.5f * (near[0] - near[2]) / curvature, -0.5f, 0.5f);
+
+                    if (!lastPass && near[1] > 0.0f)
+                    {
+                        const int shift = (at - centre) * c_patternBins;
+
+                        for (int g = 0; g < gridBins; ++g)
+                        {
+                            const int k = g - shift + reachBins;
+
+                            if (k >= 0 && k < patternLength)
+                            {
+                                pattern[static_cast<std::size_t>(k)] += near[1] * row[static_cast<std::size_t>(g)];
+                                cover[static_cast<std::size_t>(k)] += near[1];
+                            }
+                        }
+
+                        weightSum += near[1];
+                    }
+                }
+
+                if (!lastPass)
+                {
+                    if (!(weightSum > 0.0))
+                        return true;
+
+                    for (int k = 0; k < patternLength; ++k)
+                    {
+                        const auto i = static_cast<std::size_t>(k);
+
+                        if (cover[i] >= 0.25 * weightSum)
+                        {
+                            pattern[i] /= cover[i];
+                        }
+                        else
+                        {
+                            pattern[i] = 0.0f;
+                            cover[i] = 0.0f;
+                        }
+                    }
+                }
+            }
+
+            // The contour in grid bins per frame: straight between steps, stepped at a break.
+            breaks = 0;
+            auto binsAt = [&](int j) { return (path[static_cast<std::size_t>(j)] - centre + static_cast<double>(fine[static_cast<std::size_t>(j)])) * c_patternBins; };
+            const double origin = binsAt(0);
+
+            for (int f = 0; f < numFrames; ++f)
+            {
+                const int j = f / c_patternHop;
+                const int next = std::min(steps - 1, j + 1);
+                const double u = static_cast<double>(f - j * c_patternHop) / c_patternHop;
+                const double here = binsAt(j);
+                const double there = binsAt(next);
+                const bool step = next != j && broke[static_cast<std::size_t>(next)] != 0;
+                shape[static_cast<std::size_t>(f)] = (step ? (u < 0.5 ? here : there) : here + (there - here) * u) - origin;
+            }
+
+            for (int j = 1; j < steps; ++j)
+                breaks += broke[static_cast<std::size_t>(j)] != 0 ? 1 : 0;
+
+            double sum = 0.0;
+
+            for (int j = 0; j < steps; ++j)
+                sum += std::clamp(matched[static_cast<std::size_t>(j)], 0.0f, 1.0f);
+
+            match = static_cast<float>(sum / audible);
+            return true;
+        }
+
+        // What Engine says about its own line, for Auto and for Analysis.
+        struct EngineReport
+        {
+            bool trusted = true;          // Analysis::engineOnGrid
+            bool fits = true;             // the contour fitted inside the search range
+            float partialShare = -1.0f;   // share of audible frames where the line is on a partial
+            float patternMatch = -1.0f;   // how well the partial pattern was found along the contour, 0..1
+            int breaks = -1;              // steps the contour made (gear changes, lift-offs, edits)
+        };
 
         bool runEngine(const Signal& x, const std::vector<std::uint8_t>& silent, const Settings& s,
                        const std::atomic<bool>* cancel, const Stage& stage, Line& chosen, std::vector<Line>& parallel,
-                       bool& onGrid)
+                       EngineReport& report, const GridUse& useGrid = {})
         {
             const int n = x.length;
             const double rate = x.rate;
@@ -779,6 +1320,7 @@ namespace subbertone::offline
             const int span = std::max(2, static_cast<int>(std::lround(0.08 / s.hopSeconds)));
             const int maxSlide = c_binsPerOctave / 4; // search +-48 bins
             std::vector<double> slope(static_cast<std::size_t>(numFrames), 0.0);
+            std::vector<float> steadiness(static_cast<std::size_t>(numFrames), 0.0f); // 0..1: how well the two frames matched
             std::vector<double> match(static_cast<std::size_t>(2 * maxSlide + 1));
             std::vector<float> moving(static_cast<std::size_t>(span + 1) * static_cast<std::size_t>(gridBins));
             std::vector<double> sumBefore(static_cast<std::size_t>(gridBins), 0.0);
@@ -860,6 +1402,21 @@ namespace subbertone::offline
                 }
 
                 slope[static_cast<std::size_t>(f - span / 2)] = slide / span; // grid bins per hop, centred
+
+                if (bestSlide > -maxSlide && bestSlide < maxSlide)
+                {
+                    double nowPower = 0.0;
+                    double thenPower = 0.0;
+
+                    for (int g = 0; g < gridBins; ++g)
+                    {
+                        nowPower += static_cast<double>(now[g]) * now[g];
+                        thenPower += static_cast<double>(then[g]) * then[g];
+                    }
+
+                    if (nowPower > 0.0 && thenPower > 0.0)
+                        steadiness[static_cast<std::size_t>(f - span / 2)] = static_cast<float>(std::clamp(best / std::sqrt(nowPower * thenPower), 0.0, 1.0));
+                }
             }
 
             // 3. Moving-average the per-frame shift (+-span) and accumulate it into the contour (grid bins).
@@ -885,13 +1442,47 @@ namespace subbertone::offline
                 }
             }
 
+            // 3b. Re-anchor the contour on the partial pattern itself (see patternContour).
+            if (!patternContour(grid, gridBins, silent, steadiness, s, cancel, shape, report.breaks, report.patternMatch))
+                return false;
+
             stage(0.9f);
 
-            // 4. Vertical placement: every offset in the search range is tried, scoring the
-            //    mean whitened level found along the offset contour over audible frames.
-            //    Local maxima of that score are the alternative partials (step 6).
+            // 4. Vertical placement. The contour may be slid up and down only as far as the
+            //    whole of it stays inside the search range: the anchor offsets tried are those
+            //    for which the lowest audible frame is at or above lowestHz and the highest
+            //    at or below highestHz. Each is scored by the mean whitened level found along
+            //    the offset contour over audible frames; local maxima of that score are the
+            //    partials.
             const double offsetLow = std::log2(s.lowestHz / gridLowHz) * c_binsPerOctave;
             const double offsetHigh = std::log2(s.highestHz / gridLowHz) * c_binsPerOctave;
+            double shapeLow = 0.0;
+            double shapeHigh = 0.0;
+            {
+                bool any = false;
+
+                for (int f = 0; f < numFrames; ++f)
+                {
+                    if (silent[static_cast<std::size_t>(f)] != 0)
+                        continue;
+
+                    const double v = shape[static_cast<std::size_t>(f)];
+                    shapeLow = any ? std::min(shapeLow, v) : v;
+                    shapeHigh = any ? std::max(shapeHigh, v) : v;
+                    any = true;
+                }
+            }
+
+            double anchorLow = offsetLow - shapeLow;
+            double anchorHigh = offsetHigh - shapeHigh;
+            const bool fits = anchorLow <= anchorHigh;
+
+            if (!fits)
+            {
+                // The contour spans more than the search range, so it cannot be a single
+                // partial inside it: centre it, clamp it (step 5), and say so (onGrid).
+                anchorLow = anchorHigh = 0.5 * (anchorLow + anchorHigh);
+            }
 
             auto scoreOffset = [&](double offset)
             {
@@ -912,10 +1503,10 @@ namespace subbertone::offline
 
             std::vector<double> offsets;
             std::vector<double> scores;
-            double bestOffset = offsetLow;
+            double bestOffset = anchorLow;
             double topScore = -1.0;
 
-            for (double c = offsetLow; c <= offsetHigh; c += 1.0)
+            for (double c = anchorLow; c <= anchorHigh; c += 1.0)
             {
                 if (isCancelled(cancel))
                     return false;
@@ -932,34 +1523,41 @@ namespace subbertone::offline
             }
 
             // In exhausts the top-scoring partial is frequently a half order, and the
-            // perceived pitch sits one octave above it. So raise the offset by 192 bins (at
-            // most three times) while the best score near there still reaches climbShare of
-            // the current one.
-            for (int i = 0; i < 3; ++i)
+            // perceived pitch sits an octave or two above it. So step up an octave at a
+            // time (at most three) while the partial up there still reaches climbShare of
+            // the STRONGEST partial's score and the whole line stays inside the range. The
+            // comparison is always with the strongest partial, never with the previous
+            // step, so a chain of ever weaker octaves cannot carry the line away.
+            double chosenScore = topScore;
             {
-                const double up = bestOffset + c_binsPerOctave;
-                double higherOffset = up;
-                double higherScore = -1.0;
+                const double strongestOffset = bestOffset;
 
-                for (double c = up - 4; c <= up + 4; c += 0.5)
+                for (int i = 1; i <= 3; ++i)
                 {
-                    if (c <= offsetHigh)
-                    {
-                        const double score = scoreOffset(c);
+                    const double up = strongestOffset + i * c_binsPerOctave;
+                    double higherOffset = up;
+                    double higherScore = -1.0;
 
-                        if (score > higherScore)
+                    for (double c = up - 4; c <= up + 4; c += 0.5)
+                    {
+                        if (c <= anchorHigh)
                         {
-                            higherScore = score;
-                            higherOffset = c;
+                            const double score = scoreOffset(c);
+
+                            if (score > higherScore)
+                            {
+                                higherScore = score;
+                                higherOffset = c;
+                            }
                         }
                     }
+
+                    if (higherScore < s.climbShare * topScore)
+                        break;
+
+                    bestOffset = higherOffset;
+                    chosenScore = higherScore;
                 }
-
-                if (higherScore < s.climbShare * topScore)
-                    break;
-
-                bestOffset = higherOffset;
-                topScore = higherScore;
             }
 
             // 5. Render a contour at an offset, then correct it towards the ridge: in each
@@ -1025,32 +1623,88 @@ namespace subbertone::offline
                         }
                     }
 
-                    const double g = offset + shape[static_cast<std::size_t>(f)] + (m > 0 ? sum / m : 0.0);
+                    const double g = std::clamp(offset + shape[static_cast<std::size_t>(f)] + (m > 0 ? sum / m : 0.0), offsetLow, offsetHigh);
                     frame.hz = static_cast<float>(binToHz(g));
                     frame.confidence = static_cast<float>(std::clamp(grid.at(f, g) / 3.0, 0.0, 1.0));
                 }
             };
 
             place(bestOffset, chosen.frames);
-            chosen.score = static_cast<float>(topScore);
+            chosen.score = static_cast<float>(chosenScore);
             chosen.ratio = 1.0f;
 
-            // A line that leaves the grid has drifted (see the header): nothing there was measured.
-            onGrid = std::all_of(chosen.frames.begin(), chosen.frames.end(), [&](const Frame& frame)
+            // How much of the line is on a partial: the share of audible frames whose
+            // whitened level at the line reaches c_onPartialLevel. A contour that had to be
+            // clamped into the range, or a line that is on a partial too rarely, is not to
+            // be trusted (see the header).
             {
-                return frame.hz <= 0.0f || (frame.hz >= gridLowHz && frame.hz <= gridHighHz);
-            });
+                int audible = 0;
+                int onPartial = 0;
 
-            // 6. Parallel lines for the multi-curve view: the other peaks of the score,
-            //    at least 50 cents from each other and from the chosen line.
+                for (int f = 0; f < numFrames; ++f)
+                {
+                    if (silent[static_cast<std::size_t>(f)] != 0)
+                        continue;
+
+                    ++audible;
+                    const double g = std::log2(static_cast<double>(chosen.frames[static_cast<std::size_t>(f)].hz) / gridLowHz) * c_binsPerOctave;
+                    onPartial += grid.at(f, g) >= c_onPartialLevel ? 1 : 0;
+                }
+
+                report.partialShare = audible > 0 ? static_cast<float>(onPartial) / static_cast<float>(audible) : 0.0f;
+                report.fits = fits;
+                report.trusted = fits && report.partialShare >= c_trustedShare;
+            }
+
+            // 6. Candidate lines for the multi-curve view: the other partials that move with
+            //    the chosen one, each as an exact small fraction of it. Every other peak of
+            //    the placement score (at least 50 cents from its neighbours) is read as the
+            //    simplest fraction p/q, q <= 8, within 25 cents of it, and scored where that
+            //    fraction says it is; peaks that fit none are left out. The octave below and
+            //    the octave above are always offered when they fit in the range. The lines
+            //    are the chosen line times the fraction, so they stay inside the range too.
             if (s.parallelLines > 0 && scores.size() > 2)
             {
+                struct Candidate
+                {
+                    int p;
+                    int q;
+                    double score;
+                    bool octave;
+                };
+
+                std::vector<Candidate> candidates;
+
+                auto add = [&](int p, int q, bool octave)
+                {
+                    for (const auto& c : candidates)
+                        if (c.p == p && c.q == q)
+                            return;
+
+                    const double offset = bestOffset + std::log2(static_cast<double>(p) / q) * c_binsPerOctave;
+
+                    if (offset < anchorLow || offset > anchorHigh)
+                        return;
+
+                    double score = 0.0;
+
+                    for (int k = -2; k <= 2; ++k)
+                        score = std::max(score, scoreOffset(offset + k));
+
+                    candidates.push_back({ p, q, score, octave });
+                };
+
+                add(1, 2, true);
+                add(2, 1, true);
+
                 const int apart = c_binsPerOctave / 24;
                 const int last = static_cast<int>(scores.size()) - 1;
-                std::vector<int> peaks;
 
                 for (int k = 1; k < last; ++k)
                 {
+                    if (isCancelled(cancel))
+                        return false;
+
                     if (scores[static_cast<std::size_t>(k)] <= 0.0)
                         continue;
 
@@ -1063,32 +1717,72 @@ namespace subbertone::offline
                             isPeak = false;
                     }
 
-                    if (isPeak && std::abs(offsets[static_cast<std::size_t>(k)] - bestOffset) > apart)
-                        peaks.push_back(k);
+                    if (!isPeak)
+                        continue;
+
+                    const double octaves = (offsets[static_cast<std::size_t>(k)] - bestOffset) / c_binsPerOctave;
+                    const double ratio = std::exp2(octaves);
+
+                    for (int q = 1; q <= 8; ++q)
+                    {
+                        const int p = static_cast<int>(std::lround(ratio * q));
+
+                        if (p >= 1 && std::abs(octaves - std::log2(static_cast<double>(p) / q)) * 1200.0 <= 25.0)
+                        {
+                            if (p != q)
+                                add(p, q, false);
+
+                            break;
+                        }
+                    }
                 }
 
-                std::stable_sort(peaks.begin(), peaks.end(),
-                                 [&](int p, int q) { return scores[static_cast<std::size_t>(p)] > scores[static_cast<std::size_t>(q)]; });
+                // Strongest first; equal scores keep the order they were found in.
+                std::stable_sort(candidates.begin(), candidates.end(),
+                                 [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
 
-                if (static_cast<int>(peaks.size()) > s.parallelLines)
-                    peaks.resize(static_cast<std::size_t>(s.parallelLines));
+                // Too many: the weakest go, the two octaves last of all.
+                for (const bool octaves : { false, true })
+                {
+                    for (int i = static_cast<int>(candidates.size()) - 1; i >= 0 && static_cast<int>(candidates.size()) > s.parallelLines; --i)
+                        if (candidates[static_cast<std::size_t>(i)].octave == octaves)
+                            candidates.erase(candidates.begin() + i);
+                }
 
-                for (const int k : peaks)
+                for (const auto& c : candidates)
                 {
                     if (isCancelled(cancel))
                         return false;
 
+                    const double ratio = static_cast<double>(c.p) / c.q;
+                    const double shift = std::log2(ratio) * c_binsPerOctave;
                     Line line;
                     line.frames.resize(static_cast<std::size_t>(numFrames));
-                    place(offsets[static_cast<std::size_t>(k)], line.frames);
-                    line.score = static_cast<float>(scores[static_cast<std::size_t>(k)]);
-                    line.ratio = static_cast<float>(std::exp2((offsets[static_cast<std::size_t>(k)] - bestOffset) / c_binsPerOctave));
+
+                    for (int f = 0; f < numFrames; ++f)
+                    {
+                        const Frame& from = chosen.frames[static_cast<std::size_t>(f)];
+
+                        if (from.hz > 0.0f)
+                        {
+                            const double g = std::clamp(std::log2(static_cast<double>(from.hz) / gridLowHz) * c_binsPerOctave + shift, offsetLow, offsetHigh);
+                            line.frames[static_cast<std::size_t>(f)].hz = static_cast<float>(binToHz(g));
+                            line.frames[static_cast<std::size_t>(f)].confidence = static_cast<float>(std::clamp(grid.at(f, g) / 3.0, 0.0, 1.0));
+                        }
+                    }
+
+                    line.score = static_cast<float>(c.score);
+                    line.ratio = static_cast<float>(ratio);
                     parallel.push_back(std::move(line));
                 }
             }
 
+            if (useGrid && !useGrid(GridView { &grid, gridLowHz, gridBins }))
+                return false;
+
             return true;
         }
+
 
         //==============================================================================
         // Finishing helpers
@@ -1218,27 +1912,578 @@ namespace subbertone::offline
             return leaps;
         }
 
-        // Share of the frames pitched in both lines where `tonal` lies within 50 cents of
-        // a whole number of octaves from `engine`.
-        float octaveAgreement(const std::vector<Frame>& engine, const std::vector<Frame>& tonal)
+        //==============================================================================
+        // Auto: which line to trust
+        //==============================================================================
+        //
+        // The evidence is in the audio, read off Engine's whitened spectrogram:
+        //
+        //   Where the Tonal line steps by more than a semitone, either the sound changed
+        //   pitch (a note, a gear shift) or the line hopped to another partial of a sound
+        //   that carried on. Seen from the line, the partials around it keep their places
+        //   in the first case and all move by the size of the step in the second.
+        //
+        //   Undoing the hops leaves a steadied Tonal line that stays on one partial. Where
+        //   it has holes, Engine's contour is borrowed between two of its stretches when
+        //   it gets from one to the other within a semitone.
+        //
+        //   YIN measures a period in every frame and Engine matches a pattern of partials,
+        //   so the two do not make the same mistakes: an Engine line that keeps one
+        //   frequency ratio to the steadied line's own frames is on the same contour.
+        //
+        // What Auto does with that is in analyse().
+
+        constexpr int    c_spreadReach = 2 * c_binsPerOctave;  // a pattern spans two octaves either side of the line
+        constexpr int    c_spreadBins = 2 * c_spreadReach + 1;
+        constexpr int    c_spreadSlack = 3;                    // bins (19 cents) either way when looking for an unmoved pattern
+        constexpr int    c_hopSlack = 12;                       // bins (75 cents) around the step when looking for a moved one
+        constexpr int    c_ridgeReach = 8;                      // bins (50 cents) a moved stretch may be nudged onto its ridge
+        constexpr double c_anchorSeconds = 0.300;               // a stretch of Tonal line this long without a step is kept
+        constexpr double c_stepGuardSeconds = 0.100;            // frames this close to a step still hear both sides of it
+        constexpr double c_stepPatternSeconds = 0.300;          // length of line a pattern is averaged over
+        constexpr double c_linkSeconds = 0.150;                 // stretches this close are compared along their own slope ...
+        constexpr double c_engineLinkSeconds = 3.0;             // ... further apart, up to this, along Engine's contour
+        constexpr double c_extendSeconds = 2.5;                 // how far Engine's contour may carry the line on towards silence
+        constexpr double c_hopMargin = 0.05;                    // a hop must match this much better than a real step, and the reverse
+        constexpr double c_realSmallest = 0.25;                 // octaves: Engine can follow smaller steps, so they say nothing against it
+        constexpr double c_realMatch = 0.5;                     // a real step leaves the pattern around the line this well in place
+        constexpr double c_agreeCents = 35.0;                   // Engine may wander this far from its ratio to the steadied line
+        constexpr double c_rangeSlack = 1.0 / 24.0;             // octaves: a quarter tone outside the search range still counts as inside
+        constexpr double c_pieceInRange = 0.995;                // a piece of the steadied line is placed where this share of it is inside the search range
+        constexpr double c_engineJudged = 0.30;                 // share of the audible frames the steadied line must cover to judge Engine
+        constexpr double c_steadyCovers = 0.80;                 // share of the audible frames a whole steadied line has a pitch on
+        constexpr double c_steadyKeeps = 0.80;                  // the steadied line must keep this share of the Tonal line's pitched frames
+        constexpr double c_steadyJudges = 0.50;                 // share of the Tonal line that must lie in steady stretches before its steps say anything
+        constexpr double c_tonalHoles = 0.80;                   // a Tonal line pitched on less than this share of the audible frames has holes
+        constexpr float  c_holesOnPartial = 0.9f;               // ... which Engine may fill when its line is on a partial for this share of them
+
+        // Mean whitened level at fixed musical distances from a line, over some of its frames.
+        struct Spread
         {
-            int joint = 0;
-            int onOctaves = 0;
+            std::array<float, c_spreadBins> sum {};
+            std::array<int, c_spreadBins> count {};
+            int frames = 0;
+        };
 
-            for (std::size_t i = 0; i < engine.size() && i < tonal.size(); ++i)
+        void addToSpread(const GridView& view, const std::vector<Frame>& frames, int from, int to, Spread& pattern)
+        {
+            for (int f = from; f <= to; ++f)
             {
-                const float e = engine[i].hz;
-                const float t = tonal[i].hz;
+                const float hz = frames[static_cast<std::size_t>(f)].hz;
 
-                if (e > 0.0f && t > 0.0f)
+                if (hz <= 0.0f)
+                    continue;
+
+                const int centre = static_cast<int>(std::lround(view.binOf(hz)));
+
+                for (int d = std::max(-c_spreadReach, -centre); d <= std::min(c_spreadReach, view.bins - 1 - centre); ++d)
                 {
-                    const double octaves = std::log2(static_cast<double>(t) / static_cast<double>(e));
-                    ++joint;
-                    onOctaves += std::abs(octaves - std::round(octaves)) * 1200.0 <= 50.0 ? 1 : 0;
+                    pattern.sum[static_cast<std::size_t>(d + c_spreadReach)] += view.grid->cell(f, centre + d);
+                    ++pattern.count[static_cast<std::size_t>(d + c_spreadReach)];
+                }
+
+                ++pattern.frames;
+            }
+        }
+
+        // Correlation of `after` with `before` read `shift` bins higher, over the distances
+        // both measured in at least half of their frames.
+        double spreadMatch(const Spread& before, const Spread& after, int shift)
+        {
+            double n = 0.0;
+            double sx = 0.0;
+            double sy = 0.0;
+            double sxx = 0.0;
+            double syy = 0.0;
+            double sxy = 0.0;
+
+            for (int i = 0; i < c_spreadBins; ++i)
+            {
+                const int j = i + shift;
+
+                if (j < 0 || j >= c_spreadBins)
+                    continue;
+
+                const auto a = static_cast<std::size_t>(j);
+                const auto b = static_cast<std::size_t>(i);
+
+                if (2 * before.count[a] < before.frames || 2 * after.count[b] < after.frames
+                    || before.count[a] == 0 || after.count[b] == 0)
+                    continue;
+
+                const double x = static_cast<double>(before.sum[a]) / before.count[a];
+                const double y = static_cast<double>(after.sum[b]) / after.count[b];
+                n += 1.0;
+                sx += x;
+                sy += y;
+                sxx += x * x;
+                syy += y * y;
+                sxy += x * y;
+            }
+
+            if (n < c_binsPerOctave)
+                return -1.0; // less than an octave in common: nothing to go on
+
+            const double vx = sxx - sx * sx / n;
+            const double vy = syy - sy * sy / n;
+            return vx > 1e-9 && vy > 1e-9 ? (sxy - sx * sy / n) / std::sqrt(vx * vy) : -1.0;
+        }
+
+        // The best spreadMatch within `slack` bins of `shift`, and where it was (the nearest to `shift` on a tie).
+        double bestSpreadMatch(const Spread& before, const Spread& after, int shift, int slack, int& at)
+        {
+            double best = -2.0;
+            at = shift;
+
+            for (int k = 0; k <= slack; ++k)
+            {
+                for (const int sign : { 1, -1 })
+                {
+                    if (k == 0 && sign < 0)
+                        continue;
+
+                    const double match = spreadMatch(before, after, shift + sign * k);
+
+                    if (match > best)
+                    {
+                        best = match;
+                        at = shift + sign * k;
+                    }
                 }
             }
 
-            return joint > 0 ? static_cast<float>(onOctaves) / static_cast<float>(joint) : 0.0f;
+            return best;
+        }
+
+        struct Steadied
+        {
+            std::vector<Frame> frames;                // the Tonal line with its hops undone, gaps not yet bridged
+            std::vector<Frame> own;                   // the same before anything was borrowed from Engine
+            int hops = 0;                             // steps where the line changed partial
+            int real = 0;                             // steps where the sound changed pitch
+        };
+
+        // Rebuilds the Tonal line from its stretches of at least c_anchorSeconds without a
+        // step. From one stretch to the next the line is expected to carry on: along its
+        // own slope across a short gap, along Engine's contour across a longer one. A step
+        // away from that which the partials did not make is undone, so the later stretch
+        // continues the earlier one. Fragments between stretches are left out; the gaps
+        // that Engine's contour spans from one end to the other within a semitone are
+        // filled along it, the rest is left for the bridging.
+        bool steadyTonal(const GridView& view, const std::vector<Frame>& tonal, const std::vector<Frame>& engine,
+                         const Settings& s, const std::atomic<bool>* cancel, Steadied& out)
+        {
+            const int numFrames = static_cast<int>(tonal.size());
+            std::vector<Frame> raw = tonal;
+            clearBridges(raw);
+
+            const int minAnchor = std::max(2, static_cast<int>(std::lround(c_anchorSeconds / s.hopSeconds)));
+            const int guard = std::max(0, static_cast<int>(std::lround(c_stepGuardSeconds / s.hopSeconds)));
+            const int reach = std::max(4, static_cast<int>(std::lround(c_stepPatternSeconds / s.hopSeconds)));
+            const int nearLink = std::max(1, static_cast<int>(std::lround(c_linkSeconds / s.hopSeconds)));
+            const int farLink = std::max(nearLink, static_cast<int>(std::lround(c_engineLinkSeconds / s.hopSeconds)));
+            const int slopeReach = std::max(2, static_cast<int>(std::lround(c_bridgeSlopeSeconds / s.hopSeconds)));
+            const int extend = std::max(0, static_cast<int>(std::lround(c_extendSeconds / s.hopSeconds)));
+            const double lowest = std::log2(s.lowestHz) - c_rangeSlack;
+            const double highest = std::log2(s.highestHz) + c_rangeSlack;
+
+            auto log2Of = [](const std::vector<Frame>& frames, int f)
+            {
+                return std::log2(static_cast<double>(frames[static_cast<std::size_t>(f)].hz));
+            };
+
+            struct Anchor
+            {
+                int first = 0;
+                int last = 0;
+                double lift = 0.0;    // octaves added to the Tonal line over this stretch
+                int piece = 0;
+                bool joined = false;  // carries on from the stretch before it
+            };
+
+            std::vector<Anchor> anchors;
+
+            for (int f = 0; f < numFrames;)
+            {
+                if (raw[static_cast<std::size_t>(f)].hz <= 0.0f)
+                {
+                    ++f;
+                    continue;
+                }
+
+                int g = f;
+
+                while (g + 1 < numFrames && raw[static_cast<std::size_t>(g) + 1].hz > 0.0f
+                       && std::abs(log2Of(raw, g + 1) - log2Of(raw, g)) <= c_jumpOctaves)
+                    ++g;
+
+                if (g - f + 1 >= minAnchor)
+                    anchors.push_back({ f, g, 0.0, 0, false });
+
+                f = g + 1;
+            }
+
+            out.frames = raw;
+
+            for (auto& frame : out.frames)
+            {
+                frame.hz = 0.0f;
+                frame.confidence = 0.0f;
+            }
+
+            int piece = 0;
+
+            for (std::size_t k = 1; k < anchors.size(); ++k)
+            {
+                if (isCancelled(cancel))
+                    return false;
+
+                const Anchor& a = anchors[k - 1];
+                Anchor& b = anchors[k];
+                const int apart = b.first - a.last;
+                bool linked = apart - 1 <= farLink;
+
+                for (int f = a.last + 1; f < b.first && linked; ++f)
+                    linked = !raw[static_cast<std::size_t>(f)].silent;
+
+                const bool near = apart - 1 <= nearLink;
+                const bool engineSpans = engine[static_cast<std::size_t>(a.last)].hz > 0.0f && engine[static_cast<std::size_t>(b.first)].hz > 0.0f;
+
+                if (!linked || (!near && !engineSpans))
+                {
+                    b.piece = ++piece;
+                    continue;
+                }
+
+                // Where the later stretch should start if the line simply carried on.
+                double carried = 0.0;
+
+                if (near)
+                {
+                    double slopeA = 0.0;
+                    double slopeB = 0.0;
+                    const bool hasA = edgeSlope(raw, a.last, -1, slopeReach, slopeA);
+                    const bool hasB = edgeSlope(raw, b.first, 1, slopeReach, slopeB);
+                    carried = (hasA && hasB ? 0.5 * (slopeA + slopeB) : hasA ? slopeA : hasB ? slopeB : 0.0) * apart;
+                }
+                else
+                {
+                    carried = log2Of(engine, b.first) - log2Of(engine, a.last);
+                }
+
+                const double step = log2Of(raw, b.first) - log2Of(raw, a.last) - carried;
+                bool hop = false;
+                bool real = false;
+                int found = 0;
+
+                if (std::abs(step) > c_jumpOctaves)
+                {
+                    Spread before;
+                    Spread after;
+                    int to = a.last - guard;
+
+                    if (to - a.first + 1 < minAnchor / 2)
+                        to = a.last;
+
+                    addToSpread(view, raw, std::max(a.first, to - reach + 1), to, before);
+
+                    int from = b.first + guard;
+
+                    if (b.last - from + 1 < minAnchor / 2)
+                        from = b.first;
+
+                    addToSpread(view, raw, from, std::min(b.last, from + reach - 1), after);
+
+                    // If the line hopped, the partials are found moved by the step, and where
+                    // exactly they are found is the size of the hop to undo.
+                    int same = 0;
+                    const int shift = static_cast<int>(std::lround(step * c_binsPerOctave));
+                    const int slack = std::clamp(std::abs(shift) - c_spreadSlack - 1, 0, c_hopSlack);
+                    const double asHop = bestSpreadMatch(before, after, shift, slack, found);
+                    const double asReal = bestSpreadMatch(before, after, 0, c_spreadSlack, same);
+                    hop = asHop > asReal + c_hopMargin;
+                    real = std::abs(step) >= c_realSmallest && asReal > asHop + c_hopMargin && asReal >= c_realMatch;
+                }
+
+                const bool carriedOn = std::abs(step) <= c_jumpOctaves;
+
+                if (!near && !hop && !carriedOn)
+                {
+                    // Too far apart to tell a change of pitch from a contour that lost its way,
+                    // unless the patterns show the sound itself made the step.
+                    out.real += real ? 1 : 0;
+                    b.piece = ++piece;
+                    continue;
+                }
+
+                b.piece = piece;
+                b.lift = hop ? a.lift - static_cast<double>(found) / c_binsPerOctave : a.lift;
+
+                if (!carriedOn && !real)
+                {
+                    // The line keeps coming back to the few partials it knows: a lift already
+                    // used in this piece that lets the later stretch carry on is taken, also
+                    // where the patterns were too blurred to show a hop.
+                    const double wanted = a.lift - step;
+                    double nearest = c_jumpOctaves;
+
+                    for (std::size_t j = k; j-- > 0 && anchors[j].piece == piece;)
+                    {
+                        if (std::abs(anchors[j].lift - wanted) < nearest)
+                        {
+                            nearest = std::abs(anchors[j].lift - wanted);
+                            b.lift = anchors[j].lift;
+                            hop = true;
+                        }
+                    }
+                }
+
+                b.joined = hop || carriedOn;
+                out.hops += hop ? 1 : 0;
+                out.real += real ? 1 : 0;
+            }
+
+            // Each piece keeps the Tonal line where it spent the longest and moves the rest
+            // to it, unless that takes the line out of the search range: then the place it
+            // visited that keeps the most of the piece in range, moved by octaves if need be.
+            for (std::size_t k = 0; k < anchors.size();)
+            {
+                if (isCancelled(cancel))
+                    return false;
+
+                std::size_t end = k;
+
+                while (end < anchors.size() && anchors[end].piece == anchors[k].piece)
+                    ++end;
+
+                int total = 0;
+
+                for (std::size_t i = k; i < end; ++i)
+                    total += anchors[i].last - anchors[i].first + 1;
+
+                auto insideAt = [&](double lift)
+                {
+                    int inside = 0;
+
+                    for (std::size_t i = k; i < end; ++i)
+                    {
+                        for (int f = anchors[i].first; f <= anchors[i].last; ++f)
+                        {
+                            const double y = log2Of(raw, f) + anchors[i].lift - lift;
+                            inside += y >= lowest && y <= highest ? 1 : 0;
+                        }
+                    }
+
+                    return inside;
+                };
+
+                double bestLift = 0.0;
+                int bestFrames = -1;
+                int bestInside = -1;
+                const int enough = static_cast<int>(std::ceil(c_pieceInRange * total));
+
+                for (std::size_t i = k; i < end; ++i)
+                {
+                    bool seen = false;
+
+                    for (std::size_t j = k; j < i && !seen; ++j)
+                        seen = std::abs(anchors[j].lift - anchors[i].lift) <= 0.5 * c_jumpOctaves;
+
+                    if (seen)
+                        continue;
+
+                    int frames = 0;
+
+                    for (std::size_t j = k; j < end; ++j)
+                        if (std::abs(anchors[j].lift - anchors[i].lift) <= 0.5 * c_jumpOctaves)
+                            frames += anchors[j].last - anchors[j].first + 1;
+
+                    const int inside = std::min(enough, insideAt(anchors[i].lift));
+
+                    if (inside > bestInside || (inside == bestInside && frames > bestFrames))
+                    {
+                        bestInside = inside;
+                        bestFrames = frames;
+                        bestLift = anchors[i].lift;
+                    }
+                }
+
+                if (bestInside < enough)
+                {
+                    const double placed = bestLift;
+
+                    for (const int octaves : { 1, -1, 2, -2 })
+                    {
+                        const int inside = std::min(enough, insideAt(placed - octaves));
+
+                        if (inside > bestInside)
+                        {
+                            bestInside = inside;
+                            bestLift = placed - octaves;
+                        }
+                    }
+                }
+
+                for (std::size_t i = k; i < end; ++i)
+                {
+                    // Stretches that come back to the kept place are the Tonal line itself there.
+                    const bool atKeptPlace = std::abs(anchors[i].lift - bestLift) <= 0.5 * c_jumpOctaves;
+
+                    if (atKeptPlace)
+                        anchors[i].lift = bestLift;
+
+                    // A moved stretch should lie along a partial: settle it on the ridge next to it.
+                    if (!atKeptPlace)
+                    {
+                        double bestLevel = -1.0;
+                        int bestNudge = 0;
+
+                        for (int nudge = -c_ridgeReach; nudge <= c_ridgeReach; ++nudge)
+                        {
+                            double level = 0.0;
+
+                            for (int f = anchors[i].first; f <= anchors[i].last; ++f)
+                                level += view.grid->at(f, view.binOf(raw[static_cast<std::size_t>(f)].hz)
+                                                              + (anchors[i].lift - bestLift) * c_binsPerOctave + nudge);
+
+                            level *= 1.0 - 0.25 * std::abs(nudge) / c_ridgeReach;
+
+                            if (level > bestLevel)
+                            {
+                                bestLevel = level;
+                                bestNudge = nudge;
+                            }
+                        }
+
+                        anchors[i].lift += static_cast<double>(bestNudge) / c_binsPerOctave;
+                    }
+
+                    for (int f = anchors[i].first; f <= anchors[i].last; ++f)
+                    {
+                        // What still ends up outside the search range stays unpitched.
+                        const double y = log2Of(raw, f) + anchors[i].lift - bestLift;
+
+                        if (y < lowest || y > highest)
+                            continue;
+
+                        Frame& frame = out.frames[static_cast<std::size_t>(f)];
+                        frame = raw[static_cast<std::size_t>(f)];
+                        frame.hz = static_cast<float>(std::exp2(y));
+                    }
+                }
+
+                k = end;
+            }
+
+            out.own = out.frames;
+
+            // Frames of a gap, along Engine's contour from `from` (a steadied frame), bent
+            // evenly by `bend` octaves over the way to `to`.
+            auto borrow = [&](int from, int to, double bend)
+            {
+                const int direction = to > from ? 1 : -1;
+                const double start = log2Of(out.frames, from) - log2Of(engine, from);
+
+                for (int f = from + direction; f != to; f += direction)
+                {
+                    const Frame& source = engine[static_cast<std::size_t>(f)];
+                    Frame& frame = out.frames[static_cast<std::size_t>(f)];
+
+                    if (source.hz <= 0.0f || frame.silent)
+                        continue;
+
+                    const double y = start + log2Of(engine, f) + bend * (f - from) / (to - from);
+
+                    if (y < lowest || y > highest)
+                        continue;
+
+                    frame.hz = static_cast<float>(std::exp2(y));
+                    frame.confidence = source.confidence;
+                    frame.bridged = false;
+                }
+            };
+
+            for (std::size_t k = 0; k < anchors.size(); ++k)
+            {
+                const Anchor& b = anchors[k];
+                const bool firstOfPiece = k == 0 || anchors[k - 1].piece != b.piece;
+                const bool lastOfPiece = k + 1 == anchors.size() || anchors[k + 1].piece != b.piece;
+
+                if (!firstOfPiece && b.joined && b.first - anchors[k - 1].last > 1)
+                {
+                    const int from = anchors[k - 1].last;
+
+                    if (out.frames[static_cast<std::size_t>(from)].hz > 0.0f && out.frames[static_cast<std::size_t>(b.first)].hz > 0.0f
+                        && engine[static_cast<std::size_t>(from)].hz > 0.0f && engine[static_cast<std::size_t>(b.first)].hz > 0.0f)
+                    {
+                        const double bend = log2Of(out.frames, b.first) - log2Of(out.frames, from)
+                                          - (log2Of(engine, b.first) - log2Of(engine, from));
+
+                        if (std::abs(bend) <= c_jumpOctaves)
+                            borrow(from, b.first, bend);
+                    }
+                }
+
+                // Towards silence, or the ends of the buffer, there is nothing to meet: carry on a little way.
+                auto reachOut = [&](int from, int direction)
+                {
+                    if (out.frames[static_cast<std::size_t>(from)].hz <= 0.0f || engine[static_cast<std::size_t>(from)].hz <= 0.0f)
+                        return;
+
+                    int to = from;
+
+                    while (std::abs(to + direction - from) <= extend && to + direction >= 0 && to + direction < numFrames
+                           && !raw[static_cast<std::size_t>(to + direction)].silent
+                           && engine[static_cast<std::size_t>(to + direction)].hz > 0.0f
+                           && out.frames[static_cast<std::size_t>(to + direction)].hz <= 0.0f)
+                        to += direction;
+
+                    // Only when it gets there: the walk stops at any frame that already has a pitch, so
+                    // a stretch of another piece in the way is left alone.
+                    const int beyond = to + direction;
+                    const bool open = beyond < 0 || beyond >= numFrames || raw[static_cast<std::size_t>(beyond)].silent;
+
+                    if (open && to != from)
+                        borrow(from, beyond, 0.0);
+                };
+
+                if (firstOfPiece)
+                    reachOut(b.first, -1);
+
+                if (lastOfPiece)
+                    reachOut(b.last, 1);
+            }
+
+            return true;
+        }
+
+        // Share of the frames pitched in both lines where Engine keeps one frequency ratio
+        // (within c_agreeCents) to the steadied line: the most that any one ratio covers.
+        // `judged` is the number of frames that could be compared. Only the steadied
+        // line's own frames are passed in: the ones borrowed from Engine would agree
+        // with it whatever it did.
+        float ratioAgreement(const std::vector<Frame>& engine, const std::vector<Frame>& steady, int& judged)
+        {
+            std::vector<float> ratios;
+
+            for (std::size_t f = 0; f < engine.size() && f < steady.size(); ++f)
+                if (engine[f].hz > 0.0f && steady[f].hz > 0.0f)
+                    ratios.push_back(std::log2(engine[f].hz / steady[f].hz));
+
+            std::sort(ratios.begin(), ratios.end());
+            const float width = static_cast<float>(2.0 * c_agreeCents / 1200.0);
+            std::size_t most = 0;
+
+            for (std::size_t i = 0, j = 0; i < ratios.size(); ++i)
+            {
+                while (j < ratios.size() && ratios[j] - ratios[i] <= width)
+                    ++j;
+
+                most = std::max(most, j - i);
+            }
+
+            judged = static_cast<int>(ratios.size());
+            return judged > 0 ? static_cast<float>(most) / static_cast<float>(judged) : 0.0f;
         }
     } // namespace
 
@@ -1494,11 +2739,11 @@ namespace subbertone::offline
             return true;
         };
 
-        auto engineLine = [&](const Stage& stage, Line& line, std::vector<Line>& parallel, bool& onGrid)
+        auto engineLine = [&](const Stage& stage, Line& line, std::vector<Line>& parallel, EngineReport& report, const GridUse& useGrid = {})
         {
             line.frames.assign(static_cast<std::size_t>(numFrames), Frame {});
 
-            if (!runEngine(x, silent, s, cancel, stage, line, parallel, onGrid))
+            if (!runEngine(x, silent, s, cancel, stage, line, parallel, report, useGrid))
                 return false;
 
             finishLine(line, silent, s);
@@ -1506,6 +2751,10 @@ namespace subbertone::offline
             for (auto& other : parallel)
                 finishLine(other, silent, s);
 
+            result.engineOnGrid = report.trusted;
+            result.engineConfidence = report.partialShare;
+            result.enginePatternMatch = report.patternMatch;
+            result.engineBreaks = report.breaks;
             stage(1.0f);
             return true;
         };
@@ -1522,7 +2771,9 @@ namespace subbertone::offline
 
             case Method::Engine:
             {
-                if (!engineLine(secondStage, result.line, result.parallel, result.engineOnGrid))
+                EngineReport report;
+
+                if (!engineLine(secondStage, result.line, result.parallel, report))
                     return stopped();
 
                 break;
@@ -1530,7 +2781,7 @@ namespace subbertone::offline
 
             case Method::Auto:
             {
-                // Decide with plain dip depth: the order-to-order jumps it produces on an
+                // Decide with plain dip depth: the partial-to-partial hops it produces on an
                 // engine are the evidence, and threshold voting tends to hide them.
                 Line tonal;
 
@@ -1538,9 +2789,11 @@ namespace subbertone::offline
                     return stopped();
 
                 const int leaps = countLeaps(tonal.frames);
+                const Summary heard = summarise(tonal.frames);
                 result.tonalLeaps = leaps;
 
-                if (leaps == 0)
+                // A Tonal line without a step in it and without a hole leaves nothing to decide.
+                if (leaps == 0 && heard.jumps == 0 && heard.pitchedShare + heard.silentShare >= 0.999f)
                 {
                     if (s.thresholdVoting && !tonalLine(true, secondStage, tonal))
                         return stopped();
@@ -1551,28 +2804,104 @@ namespace subbertone::offline
                 }
 
                 Line engine;
+                Line steadied;
                 std::vector<Line> parallel;
-                bool onGrid = true;
+                EngineReport report;
+                int hops = 0;
+                int realSteps = 0;
+                int judged = 0;
+                int ownFrames = 0;
+                float agreement = 0.0f;
 
-                if (!engineLine(secondStage, engine, parallel, onGrid))
+                // The spectrogram only lives while Engine runs, so the evidence is gathered then.
+                const GridUse weigh = [&](const GridView& view)
+                {
+                    Steadied steady;
+
+                    if (!steadyTonal(view, tonal.frames, engine.frames, s, cancel, steady))
+                        return false;
+
+                    agreement = ratioAgreement(engine.frames, steady.own, judged);
+                    hops = steady.hops;
+                    realSteps = steady.real;
+
+                    for (const auto& frame : steady.own)
+                        ownFrames += frame.hz > 0.0f ? 1 : 0;
+
+                    steadied.frames = std::move(steady.frames);
+                    return true;
+                };
+
+                if (!engineLine(secondStage, engine, parallel, report, weigh))
                     return stopped();
 
-                result.octaveAgreement = octaveAgreement(engine.frames, tonal.frames);
-                result.engineOnGrid = onGrid;
+                finishLine(steadied, silent, s);
 
-                if (s.autoCrossCheck && (!onGrid || result.octaveAgreement < s.autoCrossCheckShare))
+                int audible = 0;
+                int steadyPitched = 0;
+                int tonalPitched = 0;
+
+                for (std::size_t f = 0; f < silent.size(); ++f)
                 {
-                    // Engine does not explain the Tonal pass (a melody, or a drifted line): keep Tonal.
-                    result.usedMethod = Method::Tonal;
-                    result.line = std::move(tonal);
-                    result.other = std::move(engine);
+                    audible += silent[f] == 0 ? 1 : 0;
+                    steadyPitched += steadied.frames[f].hz > 0.0f ? 1 : 0;
+                    tonalPitched += tonal.frames[f].hz > 0.0f ? 1 : 0;
                 }
-                else
+
+                // What the steps of the Tonal line say about the sound:
+                //   only real steps    notes (a bass line, a melody): the Tonal pass as it stands;
+                //   no step judged     with no leap, a held or gliding sound: the Tonal pass as it
+                //                      stands, unless it has holes that a well-locked Engine line
+                //                      fills. With leaps but too little steady line to judge them
+                //                      (fast notes), the Tonal pass as it stands too;
+                //   hops               a set of partials that carries on while the Tonal line
+                //                      changes partial (an engine, a drone, a growl). The steadied
+                //                      line is used when it is whole, except that Engine is
+                //                      preferred where the two agree, because it comes with the
+                //                      other partials to choose from; Engine when the steadied
+                //                      line is not whole and Engine's own line can be trusted
+                //                      (on a partial for c_trustedShare of the sound); failing
+                //                      both, the steadied line if it kept most of the Tonal
+                //                      pass, else the Tonal pass.
+                const bool notes = realSteps > 0 && hops == 0;
+                const bool unjudged = realSteps == 0 && hops == 0;
+                const bool steadyWhole = summarise(steadied.frames).jumps <= realSteps && steadyPitched >= c_steadyCovers * audible;
+                const bool vouched = judged >= c_engineJudged * audible && agreement >= s.autoCrossCheckShare;
+                enum class Use { tonal, steadied, engine };
+                Use use = Use::tonal;
+
+                if (!s.autoCrossCheck)
+                    use = leaps > 0 ? Use::engine : Use::tonal;
+                else if (notes)
+                    use = Use::tonal;
+                else if (unjudged && leaps == 0)
+                    use = tonalPitched < c_tonalHoles * audible && report.trusted && report.partialShare >= c_holesOnPartial ? Use::engine : Use::tonal;
+                else if (unjudged && ownFrames < c_steadyJudges * tonalPitched)
+                    use = Use::tonal;
+                else if (steadyWhole)
+                    use = report.trusted && vouched ? Use::engine : Use::steadied;
+                else if (report.trusted)
+                    use = Use::engine;
+                else if (steadyPitched >= c_steadyKeeps * tonalPitched)
+                    use = Use::steadied;
+
+                // Reported only where it was measured and, when Engine is used, where the choice rested on it.
+                const bool restedOnAgreement = s.autoCrossCheck && !notes && !(unjudged && leaps == 0)
+                                               && !(unjudged && ownFrames < c_steadyJudges * tonalPitched) && steadyWhole;
+                result.octaveAgreement = judged > 0 && (use != Use::engine || restedOnAgreement) ? agreement : -1.0f;
+
+                if (use == Use::engine)
                 {
                     result.usedMethod = Method::Engine;
                     result.line = std::move(engine);
                     result.parallel = std::move(parallel);
                     result.other = std::move(tonal);
+                }
+                else
+                {
+                    result.usedMethod = Method::Tonal;
+                    result.line = use == Use::steadied ? std::move(steadied) : std::move(tonal);
+                    result.other = std::move(engine);
                 }
 
                 break;

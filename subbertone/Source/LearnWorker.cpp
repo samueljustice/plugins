@@ -187,8 +187,10 @@ namespace subbertone::learn
                 return true;
 
             // Engine climbs to the octave above whenever that line keeps enough of the score (the perceived firing
-            // rate), so a stronger line an octave below is expected, not a doubt. A doubt is a line that left the
-            // analysis grid, or Auto taking Engine on a narrow agreement with the Tonal pass.
+            // rate), so a stronger line an octave below is expected, not a doubt. A doubt is a line that never locked
+            // onto a partial (engineOnGrid), or Auto taking Engine where the steadied Tonal pass does not keep one
+            // frequency ratio to it (octaveAgreement: the two methods do not show the same contour; the tracker
+            // leaves it at -1 where Auto took Engine for another reason, so that is not flagged).
             if (! engine)
                 return false;
 
