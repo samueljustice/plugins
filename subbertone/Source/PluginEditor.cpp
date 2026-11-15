@@ -11,6 +11,8 @@ namespace
     constexpr int c_stripPanelHeight = 108;
     constexpr int c_sectionGap = 12;
     constexpr int c_sectionHeaderHeight = 32;
+    constexpr int c_learnWidth = 180, c_learnHeight = 34;   // LEARN in the header: about three header pills' size
+    constexpr int c_learnPromptGap = 16;
     constexpr float c_minScale = 0.55f, c_maxScale = 1.4f, c_defaultScale = 0.8f;
 
     const juce::Identifier c_viewEditorScale { "viewEditorScale" };
@@ -62,6 +64,42 @@ namespace
         };
         return patterns;
     }
+
+    // Knob travel. These parameters' own curves crowd what can be heard into one corner of the knob: Cutoff and Hi Cut
+    // change the sound in the first quarter of their travel and hardly at all above it, the bottom quarter of Lo Cut
+    // lies below the lowest sub the plug-in makes, and the time knobs spend much of their travel on settings that sound
+    // alike. So these knobs move on a curve of their own (KnobTaper.h), logarithmic, so that equal moves make equal
+    // changes of pitch or time. Every value stays on the knob, and the parameters keep their ranges, so sessions,
+    // presets and host automation are untouched. Every other knob follows its parameter's own curve.
+    std::optional<KnobTaper> knobTaperFor(const juce::String& paramId)
+    {
+        // Cutoff: 20 Hz to 5 kHz, where the Drive harmonics are, over 90% of the travel (about 430 Hz at 12 o'clock);
+        // the last 10% goes on to 20 kHz, where there is little left to filter.
+        if (paramId == "distortionTone")
+            return KnobTaper({ { 0.0, 20.0 }, { 0.9, 5000.0 }, { 1.0, 20000.0 } }, true);
+
+        // Hi Cut: about 630 Hz at 12 o'clock.
+        if (paramId == "postDriveLowpass")
+            return KnobTaper::logarithmic(20.0, 20000.0);
+
+        // Lo Cut: 10-20 Hz, below the lowest sub the plug-in makes, in the first 5%; about 39 Hz at 12 o'clock.
+        if (paramId == "loCutFreq")
+            return KnobTaper({ { 0.0, 10.0 }, { 0.05, 20.0 }, { 1.0, 80.0 } }, true);
+
+        // Glide: 50 ms at 12 o'clock.
+        if (paramId == "pitchGlide")
+            return KnobTaper::logarithmic(5.0, 500.0);
+
+        // The filter envelope's Release: 5-20 ms, which sound alike, in the first 5%; about 180 ms at 12 o'clock.
+        if (paramId == "filterEnvRelease")
+            return KnobTaper({ { 0.0, 5.0 }, { 0.05, 20.0 }, { 1.0, 2000.0 } }, true);
+
+        // The limiter's Release: 1-10 ms, hard and crunchy limiting, in the first 10%; about 77 ms at 12 o'clock.
+        if (paramId == "limiterRelease")
+            return KnobTaper({ { 0.0, 1.0 }, { 0.1, 10.0 }, { 1.0, 1000.0 } }, true);
+
+        return std::nullopt;
+    }
 }
 
 //==============================================================================
@@ -70,6 +108,8 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     , m_audioProcessor(audioProcessor)
     , m_lookAndFeel(*m_fonts)
     , m_waveformVisualizer(audioProcessor)
+    , m_learnButton(audioProcessor.getLearner())
+    , m_learnPrompt(audioProcessor.getLearner())
     , m_mixAttachment(m_audioProcessor.m_parameters, "mix", m_mixSlider)
     , m_distortionAttachment(m_audioProcessor.m_parameters, "distortion", m_distortionSlider)
     , m_toneAttachment(m_audioProcessor.m_parameters, "distortionTone", m_toneSlider)
@@ -109,8 +149,11 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
 
     m_content.addAndMakeVisible(m_waveformVisualizer);
 
+    // Bars are H1..H16 (1..16) and the deeper subs S2 / S3 (-2 / -3: the octaves below the input).
     m_harmonicStrip = std::make_unique<HarmonicStrip>(m_audioProcessor.m_parameters, *m_fonts,
-                                                      [this](int k) { return m_audioProcessor.getHarmonicActivity(k); });
+                                                      [this](int bar) { return bar > 0 ? m_audioProcessor.getHarmonicActivity(bar)
+                                                                                       : m_audioProcessor.getSubOctaveActivity(-bar); },
+                                                      [this] { return m_audioProcessor.getCurrentFundamental(); });
     m_content.addAndMakeVisible(*m_harmonicStrip);
 
     // HARMONICS header: the Phase Align switch, mint like the strip.
@@ -125,18 +168,45 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
 
     // DETECT
     setupKnob(m_pitchThresholdSlider, m_pitchThresholdLabel, "Threshold", "pitchThreshold",
-              "Input level needed before the sub is generated. Lower catches quieter notes.",
+              "Level below which the sub stops. Set it about 10-25 dB under the IN level your notes reach. Lower lets "
+              "tails ring on and carries the sub through short gaps; higher separates notes, shortens tails and keeps "
+              "the sub off hum and noise between notes. At the notes' own level the sub drops out.",
               Theme::Colours::input, Format::Decibels);
     setupKnob(m_fundamentalLimitSlider, m_fundamentalLimitLabel, "Max Pitch", "fundamentalLimit",
-              "Highest input fundamental that is tracked. Notes above this are ignored.",
+              "Highest input pitch the sub follows; 250 Hz suits most bass and 808s. Notes above it are not ignored: "
+              "they get a sub an octave or more too low. On engines a higher setting also makes the sub louder.",
               Theme::Colours::input, Format::Hertz);
     setupKnob(m_glideSlider, m_glideLabel, "Glide", "pitchGlide",
-              "How smoothly the sub follows pitch changes. Raise it for noisy or wandering sources such as engines.",
+              "How quickly the sub follows pitch changes inside a note or a legato line. 5-15 ms keeps bass lines and "
+              "808 slides tight; 25-60 ms smooths the warble on engines; above about 150 ms the sub audibly trails "
+              "moving notes, which suits only steady drones and hum. Notes that start from silence always begin on "
+              "their own pitch.",
               Theme::Colours::input, Format::Milliseconds);
+
+    // LEARN, in the middle of the header. The button, the prompt beside it and the glow in the editor's margins follow
+    // LEARN's status (the timer); a double-click on the button opens its view. While the editor shows, the processor
+    // reads the host's play head, so the editor can tell whether there is a timeline to learn on.
+    m_audioProcessor.watchHostTimeline(true);
+    m_learnButton.setStandaloneApp(m_audioProcessor.isStandaloneApp());
+    m_learnButton.onToggleView = [this] { setLearnViewOpen(! isLearnViewOpen()); };
+    m_content.addAndMakeVisible(m_learnButton);
+    m_learnPrompt.onUndo = [this] { updateLearn(); };
+    m_content.addAndMakeVisible(m_learnPrompt);
+    m_learnGlow.onFrameColour = [this](juce::Colour colour) { m_waveformVisualizer.setFrameGlow(colour); };
+    m_learnGlow.onHeaderFrame = [this]
+    {
+        m_learnButton.repaint();
+        m_learnPrompt.repaint();
+    };
+    m_learnButton.setGlow(&m_learnGlow);   // the button's outline and the prompt breathe on the glow's clock
+    m_learnPrompt.setGlow(&m_learnGlow);
+    m_learnButton.refresh();
 
     // DRIVE
     setupKnob(m_distortionSlider, m_distortionLabel, "Drive", "distortion",
-              "Crossfades the clean sub into its saturated harmonics while increasing drive.",
+              "Blends the clean sub into its saturated harmonics and drives them harder. Most of the change in tone "
+              "happens below about 60%; above that Drive mainly lowers the sub (S2 and S3 with it), and at 100% only "
+              "the harmonics are left.",
               Theme::Colours::harmonics, Format::Percent);
     setupChoice(m_distortionTypeCombo, "distortionType",
                 "Saturation character:\n"
@@ -144,34 +214,44 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
                 "Valve - warm, strong 2nd harmonic\n"
                 "Console - harder knee, brighter\n"
                 "Transformer - soft, mostly odd with a touch of 2nd\n"
-                "Rectifier - even harmonics only; reinforces the input note\n"
-                "Wavefolder - harmonics sweep upward as drive rises",
+                "Rectifier - even harmonics only; with PHASE ALIGN on it reinforces the input note\n"
+                "Wavefolder - harmonics sweep upward as Drive rises; small Drive moves change it a lot "
+                "(Shift-drag Drive for fine steps)",
                 m_distortionTypeAttachment);
     m_distortionTypeCombo.setColour(juce::ComboBox::arrowColourId, Theme::Colours::harmonics);
     setupCaption(m_distortionTypeLabel, "TYPE");
 
     // FILTER
     setupKnob(m_toneSlider, m_toneLabel, "Cutoff", "distortionTone",
-              "Filter cutoff for the harmonics. The envelope sweeps up or down from here.",
+              "Cutoff for the Drive harmonics. They sit between about twice and sixteen times the sub's pitch (roughly "
+              "50 Hz to 1 kHz for bass and 808s), so that is where the filter is heard. Env sweeps up or down from "
+              "here. At Drive 0% there are no harmonics to filter.",
               Theme::Colours::filter, Format::Hertz);
     setupKnob(m_resonanceSlider, m_resonanceLabel, "Reso", "filterResonance",
-              "Filter resonance. The resonant peak is driven into saturation: subtle overtones up to full overdrive.",
+              "Lifts the harmonics around the cutoff and drives them into saturation. Heard when Cutoff sits among the "
+              "harmonics; near the top it can turn grainy on high-pitched sources.",
               Theme::Colours::filter, Format::Percent);
     setupKnob(m_envAmountSlider, m_envAmountLabel, "Env", "filterEnvAmount",
-              "How far each note's envelope sweeps the cutoff, in octaves (negative sweeps down).",
+              "Moves the cutoff with the input level, by up to this many octaves at full level: about two thirds of it "
+              "on a typical bass, and little on quiet input (Threshold sets where it starts). Decaying notes get a "
+              "sweep, held notes a fixed shift; negative moves it down.",
               Theme::Colours::filter, Format::Octaves);
     setupKnob(m_envReleaseSlider, m_envReleaseLabel, "Release", "filterEnvRelease",
-              "How quickly the filter envelope falls back after each note.",
+              "How slowly the cutoff falls back as a note fades. Heard on hits and plucks when Env sweeps the cutoff "
+              "through the harmonics; on held notes it only shapes the note's end.",
               Theme::Colours::filter, Format::Milliseconds);
     setupChoice(m_filterModeCombo, "filterMode",
-                "Filter response for the harmonics: lowpass, bandpass (vocal, focused) or notch (hollow).",
+                "Filter response for the Drive harmonics: lowpass darkens them, bandpass keeps a band of them "
+                "(thinner, vocal), notch cuts a band out (hollow). Bandpass and notch are heard with the cutoff below "
+                "about 1 kHz.",
                 m_filterModeAttachment);
     m_filterModeCombo.setColour(juce::ComboBox::arrowColourId, Theme::Colours::filter);
     m_filterModeCombo.setColour(juce::ComboBox::focusedOutlineColourId, Theme::Colours::filter.withAlpha(0.6f));
 
     // OVERTONES
     setupKnob(m_overtoneAmountSlider, m_overtoneAmountLabel, "Amount", "overtoneAmount",
-              "Master level for the harmonic bars H2-H16 (the MaxxBass/RBass trick: the sub is heard on small speakers).",
+              "Level of the harmonic bars H2-H16; at 0% they are off. Raise it, and the upper bars (H5 and up), when "
+              "the bass has to be heard on phones and laptops.",
               Theme::Colours::overtones, Format::Percent);
     setupCaption(m_patternLabel, "PATTERN");
     m_patternButton.setButtonText("CHOOSE");
@@ -182,38 +262,49 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
 
     // OUTPUT
     setupKnob(m_loCutSlider, m_loCutLabel, "Lo Cut", "loCutFreq",
-              "Steep 48 dB/oct low cut on the generated sub (switch it on with LO CUT). Subs below ~30 Hz mostly use up "
-              "headroom; when a very low sub is cut, the harmonic bars still carry its pitch.",
+              "Steep low cut on the generated sub, S2 and S3 included (switch it on with LO CUT). Notes below about "
+              "twice this frequency lose their sub; the harmonic bars above the cut still carry their pitch. 30-40 Hz "
+              "suits most systems; above about 60 Hz only high-pitched sources keep a sub. It saves no headroom: "
+              "switching it on can raise peaks by a dB or two.",
               Theme::Colours::output, Format::Hertz);
     m_loCutButton.setButtonText("LO CUT");
     m_loCutButton.setClickingTogglesState(true);
-    m_loCutButton.setTooltip("Switch the 48 dB/oct low cut on the generated sub on or off");
+    m_loCutButton.setTooltip("Switch the 48 dB/oct low cut on the generated sub (S2 and S3 included) on or off");
     m_loCutButton.setColour(juce::TextButton::buttonOnColourId, Theme::Colours::output.withAlpha(0.28f));
     m_loCutButton.setColour(juce::TextButton::textColourOnId, Theme::Colours::text);
     m_content.addAndMakeVisible(m_loCutButton);
 
     setupKnob(m_postDriveLowpassSlider, m_postDriveLowpassLabel, "Hi Cut", "postDriveLowpass",
-              "Low-pass on the whole sub signal, after drive, filter and overtones.",
+              "Low-pass on everything the plug-in generates (sub, drive and overtones), not on the dry input. Around "
+              "100-300 Hz only the sub is left; above about 2 kHz there is little left to cut.",
               Theme::Colours::output, Format::Hertz);
     setupKnob(m_mixSlider, m_mixLabel, "Mix", "mix",
-              "Blend between the dry input and the generated sub.",
+              "Crossfade between the input and the generated sound: at 50% both play 6 dB down, so the result is "
+              "quieter than the input; 100% is the generated sound alone.",
               Theme::Colours::output, Format::Percent);
     setupKnob(m_outputGainSlider, m_outputGainLabel, "Output", "outputGain",
-              "Output level, before the master stage (so it also drives the limiter).",
+              "Output level before the master stage, so it also drives the limiter. With LIMIT on, a few dB of gain "
+              "reduction stays clean on bass; beyond about 6 dB it adds distortion more than loudness.",
               Theme::Colours::output, Format::Decibels);
 
     // MASTER
     setupKnob(m_inflateSlider, m_inflateLabel, "Inflate", "inflateEffect",
-              "Inflator-style density: makes the mix louder and fuller without raising the peaks.",
+              "Lifts the quieter parts so the sound gets louder and denser. Peaks at 0 dBFS stay where they are, but "
+              "lower peaks rise with the rest: on quieter material it is mostly a level boost (up to about +4.5 dB). "
+              "Densest with the peaks just under 0 dBFS; it does less once Output pushes into the limiter.",
               Theme::Colours::master, Format::Percent);
     setupKnob(m_inflateCurveSlider, m_inflateCurveLabel, "Curve", "inflateCurve",
-              "Character of the inflate curve: negative is gentler, positive is more aggressive.",
+              "Fine-tunes Inflate: negative lifts less, positive lifts more and adds a little 2nd harmonic. Only audible "
+              "with Inflate set high on loud material.",
               Theme::Colours::master, Format::Signed);
     setupKnob(m_ceilingSlider, m_ceilingLabel, "Ceiling", "limiterCeiling",
-              "Brickwall limiter ceiling: the output never goes above this when LIMIT is on.",
+              "Highest sample peak the limiter lets out. It does not push the sound into the limiter: raise Output for "
+              "that. Bright sounds can read up to about 1 dB higher on a true-peak meter, so leave a margin for "
+              "true-peak limits.",
               Theme::Colours::master, Format::Decibels);
     setupKnob(m_limiterReleaseSlider, m_limiterReleaseLabel, "Release", "limiterRelease",
-              "How quickly the limiter lets go after a peak.",
+              "How quickly the limiter lets go after a peak. Short times are louder but distort bass (below about 30 ms "
+              "on subs); long times stay clean on bass but duck the tails of 808s and hits. 100-300 ms suits most bass.",
               Theme::Colours::master, Format::Milliseconds);
     m_limiterButton.setButtonText("LIMIT");
     m_limiterButton.setClickingTogglesState(true);
@@ -260,6 +351,11 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
 SubbertoneAudioProcessorEditor::~SubbertoneAudioProcessorEditor()
 {
     stopTimer();
+    m_audioProcessor.watchHostTimeline(false);
+    m_learnGlow.onFrameColour = nullptr;
+    m_learnGlow.onHeaderFrame = nullptr;
+    m_learnButton.setGlow(nullptr);   // the glow goes before them
+    m_learnPrompt.setGlow(nullptr);
     m_limiterButton.onStateChange = nullptr;
 
     // Nothing the editor opened may outlive it: the About window (and its update check), any
@@ -290,7 +386,7 @@ float SubbertoneAudioProcessorEditor::EditorTooltipWindow::getDesktopScaleFactor
     return juce::Component::getApproximateScaleFactorForComponent(&m_editor);
 }
 
-void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label& label, const juce::String& name,
+void SubbertoneAudioProcessorEditor::setupKnob(TaperedKnob& slider, juce::Label& label, const juce::String& name,
                                                const juce::String& paramId, const juce::String& tooltip,
                                                juce::Colour accent, Format format)
 {
@@ -299,6 +395,9 @@ void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label
     slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
     slider.setColour(juce::Slider::rotarySliderFillColourId, accent);
     slider.setTooltip(tooltip);
+
+    // A drag with Shift, Cmd or Ctrl held moves in fine steps (TaperedKnob), so a knob whose sound changes quickly can
+    // be set exactly. Alt alone resets: JUCE checks for it as the knob is pressed, before any drag.
 
     switch (format)
     {
@@ -332,6 +431,17 @@ void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label
             return static_cast<double>(param->convertFrom0to1(param->getValueForText(text)));
         };
         slider.setDoubleClickReturnValue(true, param->convertFrom0to1(param->getDefaultValue()));
+
+        // The knob's own travel, if it has one. It spans the parameter's whole range, so every value keeps a place on
+        // the knob and a press never pulls a value somewhere else.
+        if (auto taper = knobTaperFor(paramId))
+        {
+            const auto& range = param->getNormalisableRange();
+            jassert(juce::approximatelyEqual(taper->getMinimum(), static_cast<double>(range.start))
+                    && juce::approximatelyEqual(taper->getMaximum(), static_cast<double>(range.end)));
+            juce::ignoreUnused(range);
+            slider.setTaper(std::move(taper));
+        }
     }
 
     slider.updateText();
@@ -414,6 +524,17 @@ void SubbertoneAudioProcessorEditor::layoutContent()
     presetRow.removeFromLeft(4);
     m_presetNameButton.setBounds(presetRow);
 
+    // LEARN in the middle of the header, between the title block and the preset bar, and its prompt beside it, up
+    // to the preset bar. Laid out at design size, so it keeps its place at every editor scale.
+    {
+        const auto learn = juce::Rectangle<int>(c_learnWidth, c_learnHeight).withCentre({ c_baseWidth / 2, c_headerHeight / 2 });
+        m_learnButton.setBounds(learn);
+
+        const int promptLeft = learn.getRight() + c_learnPromptGap;
+        m_learnPrompt.setBounds(promptLeft, learn.getY(), m_presetPrevButton.getX() - c_learnPromptGap - promptLeft, learn.getHeight());
+        m_learnGlow.setHeaderArea(m_learnButton.getBounds().getUnion(m_learnPrompt.getBounds()));
+    }
+
     bounds.reduce(c_margin, 0);
     bounds.removeFromBottom(c_margin);
 
@@ -479,6 +600,12 @@ void SubbertoneAudioProcessorEditor::layoutContent()
                                            { &m_inflateCurveSlider, &m_inflateCurveLabel },
                                            { &m_ceilingSlider, &m_ceilingLabel },
                                            { &m_limiterReleaseSlider, &m_limiterReleaseLabel } });
+
+    // LEARN's view takes the scope's place; the glow runs along the editor's edges.
+    if (m_learnView != nullptr)
+        m_learnView->setBounds(m_waveformVisualizer.getBounds());
+
+    m_learnGlow.setLayout(m_content.getLocalBounds());
 
     // Header-row controls: filter mode selector, limiter switch (+ gain-reduction readout area).
     auto filterHeader = m_sections[2].bounds.withHeight(c_sectionHeaderHeight).reduced(8, 5);
@@ -571,7 +698,8 @@ void SubbertoneAudioProcessorEditor::paintContent(juce::Graphics& g)
         auto hintRow = drawPanel(m_stripPanel, "HARMONICS", overtones, 26);
         g.setFont(m_fonts->label(9.5f));
         g.setColour(textFaint);
-        g.drawText("H1 = THE SUB   /   CLICK TO TOGGLE   /   DRAG TO SET   /   DRAG ACROSS TO DRAW   /   DOUBLE-CLICK RESETS",
+        g.drawText("S3, S2 = DEEPER SUBS   /   H1 = THE SUB   /   CLICK TO TOGGLE   /   DRAG TO SET   /   DRAG ACROSS TO DRAW   /   "
+                   "DOUBLE-CLICK RESETS",
                    hintRow.withTrimmedRight(4.0f), juce::Justification::centredRight, false);
     }
 
@@ -630,6 +758,9 @@ void SubbertoneAudioProcessorEditor::paintContent(juce::Graphics& g)
         g.setColour(textFaint);
         g.strokePath(chevron, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
+
+    // LEARN's glow, last: it only reaches into the margins, so nothing it is drawn over is a control.
+    m_learnGlow.paint(g);
 }
 
 void SubbertoneAudioProcessorEditor::timerCallback()
@@ -646,6 +777,67 @@ void SubbertoneAudioProcessorEditor::timerCallback()
     m_waveformVisualizer.setSignalText(levelText, signalDb > threshold);
 
     updateLimiterReadout();
+    updateLearn();
+}
+
+//==============================================================================
+// LEARN
+//==============================================================================
+void SubbertoneAudioProcessorEditor::updateLearn()
+{
+    auto& learner = m_audioProcessor.getLearner();
+    const auto status = learner.getStatus();
+    const auto snapshot = learner.getSnapshot();
+
+    const bool buttonChanged = m_learnButton.update(status, *snapshot, m_audioProcessor.hasHostTimeline());
+    const bool promptChanged = m_learnPrompt.update(m_learnButton, status);
+    m_learnGlow.setMode(LearnGlow::modeFor(m_learnButton.getLook()));
+
+    // While the glow runs, its frames for the top edge repaint the button and the prompt, so that the header is
+    // never repainted in the same frame as another edge (see LearnGlow). Otherwise they are repainted here: when what
+    // they show changes, and while the button moves. While the glow holds still, only the button's pulse moves (when
+    // LEARN listens or works, and its bar moves anyway); its breathing outline and the prompt hold still with the glow.
+    if (const bool held = m_learnGlow.isHeld(); held || ! m_learnGlow.drivesHeader())
+    {
+        if (buttonChanged || (held ? m_learnButton.isPulsing() : m_learnButton.isAnimating()))
+            m_learnButton.repaint();
+
+        if (promptChanged)
+            m_learnPrompt.repaint();
+    }
+
+    if (isLearnViewOpen())
+    {
+        m_audioProcessor.getLearnTrail(m_learnTrail);
+        m_learnView->update(status, snapshot, m_learnTrail);
+    }
+}
+
+void SubbertoneAudioProcessorEditor::setLearnViewOpen(bool open)
+{
+    if (open && m_learnView == nullptr)
+    {
+        m_learnView = std::make_unique<LearnView>(m_audioProcessor.getLearner(), *m_fonts);
+        m_learnView->onClose = [this] { setLearnViewOpen(false); };
+        m_learnView->setBounds(m_waveformVisualizer.getBounds());
+        m_content.addChildComponent(*m_learnView);
+    }
+
+    if (m_learnView == nullptr || open == isLearnViewOpen())
+        return;
+
+    // The scope's OpenGL view is a native view that would cover the view: hidden, it lets go of its context and stops
+    // its timer; shown again, it takes up a new context.
+    m_waveformVisualizer.setVisible(! open);
+    m_learnView->setVisible(open);
+
+    if (open)
+    {
+        updateLearn();
+
+        if (m_learnView->isShowing())
+            m_learnView->grabKeyboardFocus();   // Esc closes it
+    }
 }
 
 void SubbertoneAudioProcessorEditor::updateLimiterReadout()
@@ -690,12 +882,28 @@ void SubbertoneAudioProcessorEditor::showPatternMenu()
 
         if (result == 1000 || result == 1001)
         {
-            if (auto* h1 = safe->m_audioProcessor.m_parameters.getParameter("harmonic1"))
+            auto& parameters = safe->m_audioProcessor.m_parameters;
+            auto setPercent = [&parameters](const char* id, float percent)
             {
-                h1->beginChangeGesture();
-                h1->setValueNotifyingHost(h1->convertTo0to1(result == 1001 ? 100.0f : 0.0f));
-                h1->endChangeGesture();
+                if (auto* param = parameters.getParameter(id))
+                {
+                    param->beginChangeGesture();
+                    param->setValueNotifyingHost(param->convertTo0to1(percent));
+                    param->endChangeGesture();
+                }
+            };
+
+            // Sub off leaves only the harmonics, so the deeper subs (S2, S3) go with the sub. Sub on brings back the
+            // sub alone and leaves S2 and S3 where they are.
+            if (result == 1001)
+            {
+                setPercent("harmonic1", 100.0f);
+                return;
             }
+
+            for (const char* id : { "harmonic1", "subOctave2", "subOctave3" })
+                setPercent(id, 0.0f);
+
             return;
         }
 

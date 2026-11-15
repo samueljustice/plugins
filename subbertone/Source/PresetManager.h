@@ -16,8 +16,9 @@
  *     macOS:   ~/Library/Audio/Presets/SammyJs/Subbertone
  *     Windows: %APPDATA%\SammyJs\Subbertone\Presets
  * - A preset stores every parameter by ID with its real (not normalised) value.
- *   Parameters missing from a preset fall back to their defaults, so presets
- *   made by older versions keep loading as parameters are added.
+ *   A parameter missing from a preset takes getValueWhenAbsent(), the default it
+ *   was first given, so presets made by older versions (or edited by hand) keep
+ *   loading, and keep their sound, as parameters are added and defaults change.
  * - A user preset is identified by its FILE, not by its name: two files may carry
  *   the same name (a Finder duplicate, a downloaded copy), and Save / Delete always
  *   act on the file that was loaded.
@@ -120,6 +121,12 @@ public:
 
     static juce::File getUserPresetDirectory();
 
+    /** The value a parameter takes wherever a session, a host or user preset file or a factory preset has none for it:
+        the default the parameter was first given, which never changes. Today's defaults are for new instances, Init
+        and the host's reset; anything saved before a parameter existed, or before its default changed, keeps the
+        sound it had. Safe on any thread. */
+    static float getValueWhenAbsent(const juce::RangedAudioParameter& parameter);
+
     /** Host program change (setCurrentProgram): applied synchronously on the calling thread. */
     bool loadFactoryPresetForHost(int factoryIndex);
 
@@ -155,12 +162,15 @@ private:
 
     using Values = std::vector<std::pair<juce::String, float>>;
 
+    // What a parameter that a preset doesn't list is set to: its default today (Init), or getValueWhenAbsent().
+    enum class Absent { currentDefault, valueWhenAbsent };
+
     // All of these expect m_operationLock to be held.
     void refreshLocked();
     bool applyFactory(int factoryIndex, Origin origin);
     bool applyUserFile(const juce::File& file, Origin origin);
     bool step(int direction);
-    void applyValues(const Values& values);
+    void applyValues(const Values& values, Absent absent);
     Values captureValues() const;
     SaveTarget resolveSaveTarget(const juce::String& name, const std::vector<UserEntry>& users) const;
     int currentProgram() const; // factory index, or getNumFactory() for anything else

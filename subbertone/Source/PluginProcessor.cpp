@@ -110,12 +110,21 @@ SubbertoneAudioProcessor::SubbertoneAudioProcessor()
     m_loCutOnParam          = m_parameters.getRawParameterValue("loCutOn");
     m_loCutFreqParam        = m_parameters.getRawParameterValue("loCutFreq");
     m_phaseAlignParam       = m_parameters.getRawParameterValue("phaseAlign");
+    m_subOctave2Param       = m_parameters.getRawParameterValue("subOctave2");
+    m_subOctave3Param       = m_parameters.getRawParameterValue("subOctave3");
+
+    // What is learned is saved with the session, so a change to it (on whatever thread made it: the worker
+    // publishes new regions) should make the host see the session as changed.
+    m_learnStore.setChangeCallback([this] { m_hostDisplay.post(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true)); });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::createParameterLayout()
 {
-    // IDs, ranges, defaults and order are unchanged from earlier versions so
-    // saved sessions and automation keep mapping to the same parameters.
+    // IDs, ranges (with their skews and steps) and order never change, so saved sessions and host automation, which
+    // store each value as 0..1 of its range, keep mapping to the same parameters and values. A default may change: it is
+    // what new instances, Init and the host's reset use. Wherever a session or preset has no value for a parameter, it
+    // takes the default the parameter was first given instead (PresetManager::getValueWhenAbsent()), so it keeps its
+    // sound.
     using Float = juce::AudioParameterFloat;
     using Choice = juce::AudioParameterChoice;
     using Range = juce::NormalisableRange<float>;
@@ -124,7 +133,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
     {
         std::make_unique<Float>(juce::ParameterID("mix", 0), "Mix", Range(0.0f, 100.0f), 50.0f, percent()),
 
-        std::make_unique<Float>(juce::ParameterID("distortion", 0), "Drive", Range(0.0f, 100.0f), 50.0f, percent()),
+        // 30 %: the clean sub and its harmonics start out about equally loud, whatever the Type.
+        std::make_unique<Float>(juce::ParameterID("distortion", 0), "Drive", Range(0.0f, 100.0f), 30.0f, percent()),
 
         std::make_unique<Choice>(juce::ParameterID("distortionType", 0), "Drive Type",
                                  juce::StringArray{ "Tape", "Valve", "Console", "Transformer", "Rectifier", "Wavefolder" }, 0),
@@ -144,7 +154,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
 
         std::make_unique<Float>(juce::ParameterID("outputGain", 0), "Output Gain", Range(-24.0f, 24.0f), 0.0f, decibels()),
 
-        std::make_unique<Float>(juce::ParameterID("pitchThreshold", 0), "Threshold", Range(-60.0f, -20.0f), -40.0f, decibels()),
+        // -50 dB: quiet sources (notes peaking around -30 dBFS) keep their sub; on louder ones it acts like -40 dB.
+        std::make_unique<Float>(juce::ParameterID("pitchThreshold", 0), "Threshold", Range(-60.0f, -20.0f), -50.0f, decibels()),
 
         std::make_unique<Float>(juce::ParameterID("fundamentalLimit", 0), "Max Pitch", Range(100.0f, 800.0f), 250.0f, hertz()),
 
@@ -169,11 +180,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
                                                 juce::AudioParameterFloatAttributes()
                                                     .withStringFromValueFunction([](float v, int) { const int i = juce::roundToInt(v); return (i > 0 ? "+" : "") + juce::String(i); })
                                                     .withValueFromStringFunction(parseNumber)));
+    // Ceiling -1 dB leaves a margin for true-peak limits; a 150 ms release keeps limited bass clean.
     parameterLayout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("limiterOn", 2), "Limiter", false));
-    parameterLayout.add(std::make_unique<Float>(juce::ParameterID("limiterCeiling", 2), "Limiter Ceiling", Range(-12.0f, 0.0f, 0.1f), -0.3f, decibels()));
-    parameterLayout.add(std::make_unique<Float>(juce::ParameterID("limiterRelease", 2), "Limiter Release", Range(1.0f, 1000.0f, 0.1f, 0.4f), 100.0f, milliseconds()));
+    parameterLayout.add(std::make_unique<Float>(juce::ParameterID("limiterCeiling", 2), "Limiter Ceiling", Range(-12.0f, 0.0f, 0.1f), -1.0f, decibels()));
+    parameterLayout.add(std::make_unique<Float>(juce::ParameterID("limiterRelease", 2), "Limiter Release", Range(1.0f, 1000.0f, 0.1f, 0.4f), 150.0f, milliseconds()));
 
-    // Steep (48 dB/oct) low cut on the generated sub: subs below ~30 Hz mostly eat headroom.
+    // Steep (48 dB/oct) low cut on the generated sub, S2 and S3, for systems that can't play the lowest subs.
     parameterLayout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("loCutOn", 2), "Lo Cut", false));
     parameterLayout.add(std::make_unique<Float>(juce::ParameterID("loCutFreq", 2), "Lo Cut Frequency", Range(10.0f, 80.0f, 0.1f, 0.6f), 30.0f, hertz()));
 
@@ -181,6 +193,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
     // SubharmonicEngine.h). Appended after every 1.2.0 parameter. Off is Classic, the 1.2.0 sound, and
     // a state or preset without this parameter loads with it off, so it recalls exactly as before.
     parameterLayout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("phaseAlign", 3), "Phase Align", false));
+
+    // The deeper subs, S2 and S3 in the harmonic strip: sines two and three octaves below the input, relative to the
+    // unit sub like the harmonic bars. Appended after every earlier parameter (hosts such as Logic address AU
+    // parameters by index). At 0, their default, the sound is exactly what it was without them, and a state or preset
+    // without them loads them at 0.
+    parameterLayout.add(std::make_unique<Float>(juce::ParameterID("subOctave2", 4), "Sub Level (S2, 1/4)", Range(0.0f, 100.0f, 0.1f), 0.0f, percent()));
+    parameterLayout.add(std::make_unique<Float>(juce::ParameterID("subOctave3", 4), "Sub Level (S3, 1/8)", Range(0.0f, 100.0f, 0.1f), 0.0f, percent()));
 
     return parameterLayout;
 }
@@ -336,7 +355,12 @@ void SubbertoneAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     m_presetManager.writeToState(state);
 
     if (std::unique_ptr<juce::XmlElement> xml { state.createXml() })
+    {
+        // LEARN's data: a child of its own, written even when nothing is learned, so that loading this state
+        // replaces whatever another instance had learned.
+        m_learnStore.writeState(*xml);
         copyXmlToBinary(*xml, destData);
+    }
 }
 
 void SubbertoneAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
@@ -345,6 +369,12 @@ void SubbertoneAudioProcessor::setStateInformation(const void* data, int sizeInB
 
     if (xmlState == nullptr || !xmlState->hasTagName(m_parameters.state.getType()))
         return;
+
+    // LEARN's data is taken out of the XML before anything else reads it, so it never reaches the parameter tree
+    // (which would keep a copy and write it twice). A state without it (saved before Learn existed) keeps what is
+    // learned; one with it replaces it, and captures and jobs still running for the old data stop.
+    if (m_learnStore.takeState(*xmlState) != subbertone::learn::LearnStore::StateResult::absent)
+        m_learner.stateLoaded();
 
     // Everything that isn't a parameter is read from the XML (a private copy) first.
     const auto presetInfo = PresetManager::readStateInfo(*xmlState);
@@ -365,16 +395,44 @@ void SubbertoneAudioProcessor::setStateInformation(const void* data, int sizeInB
         m_viewOptions = std::move(viewOptions);
     }
 
-    // The parameter tree: PARAM children only. Non-finite values are dropped (that parameter
-    // takes its default). Version 1 states (Subbertone 1.0/1.1) contain the same parameter
-    // IDs, so they load as-is; parameters they lack get their defaults, which match 1.1.0.
-    // Likewise a 1.2.0 state has no phaseAlign and loads with Phase Align off (Classic).
+    // The parameter tree: PARAM children only. Non-finite values are dropped.
     auto tree = juce::ValueTree::fromXml(*xmlState);
     tree.removeAllProperties(nullptr);
 
     for (auto child : tree)
         if (child.hasProperty("value") && !std::isfinite(static_cast<double>(child.getProperty("value"))))
             child.removeProperty("value", nullptr);
+
+    // A parameter the state has no value for (a state saved before the parameter existed, or one edited by hand) gets
+    // PresetManager::getValueWhenAbsent(), the default it was first given, whatever its default is today: the session
+    // then recalls exactly as it sounded. A 1.0 or 1.1 state lacks every later parameter, a 1.2 state Phase Align (it
+    // loads off), a 1.3 state S2 and S3 (they load at 0). Every such parameter gets an entry with that value:
+    // replaceState() would otherwise keep whatever this instance had, so a session loaded into an instance already in
+    // use would not recall exactly. (APVTS finds a parameter's entry by its id alone.)
+    for (auto* parameter : getParameters())
+    {
+        auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter);
+
+        if (ranged == nullptr)
+            continue;
+
+        const float absent = PresetManager::getValueWhenAbsent(*ranged);
+        bool listed = false;
+
+        for (auto child : tree)
+        {
+            if (child.getProperty("id").toString() != ranged->paramID)
+                continue;
+
+            listed = true;
+
+            if (!child.hasProperty("value"))
+                child.setProperty("value", absent, nullptr);
+        }
+
+        if (!listed)
+            tree.appendChild(juce::ValueTree("PARAM", { { "id", ranged->paramID }, { "value", absent } }), nullptr);
+    }
 
     m_presetManager.restoreState(presetInfo, [this, &tree] { m_parameters.replaceState(tree); });
 }
@@ -481,6 +539,15 @@ void SubbertoneAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBl
 
     m_currentFundamental.store(0.0f);
     m_currentSignalLevelDb.store(0.0f);
+
+    // LEARN: the listener's filters and grids for this rate (its buffers only once Learn is used); a capture that
+    // was under way at another rate is asked for again. AudioSuite has no timeline to learn on.
+    m_inAudioSuite.store(juce::PluginHostType::isInAAXAudioSuite(*this), std::memory_order_relaxed);
+    m_learnAudio.prepare(sampleRate);
+    m_learner.prepare();
+    m_liveConfidence = 0.0f;
+    m_pitchLearned.store(false, std::memory_order_relaxed);
+    m_pitchConfidence.store(0.0f, std::memory_order_relaxed);
 }
 
 void SubbertoneAudioProcessor::reset()
@@ -520,6 +587,8 @@ SubharmonicEngine::Parameters SubbertoneAudioProcessor::readEngineParameters() c
     p.loCutOn          = m_loCutOnParam->load() >= 0.5f;
     p.loCutHz          = m_loCutFreqParam->load();
     p.phaseAlign       = m_phaseAlignParam->load() >= 0.5f;
+    p.subOctave2       = m_subOctave2Param->load() * 0.01f;
+    p.subOctave3       = m_subOctave3Param->load() * 0.01f;
     return p;
 }
 
@@ -670,6 +739,19 @@ void SubbertoneAudioProcessor::render(juce::AudioBuffer<float>& buffer, bool byp
     m_mixSmoothed.setTargetValue(m_mixParam->load() * 0.01f);
     m_outputGainSmoothed.setTargetValue(juce::Decibels::decibelsToGain(m_outputGainParam->load()));
 
+    // LEARN: where this block lies on the host's timeline. Until Learn is first used the play head is read only
+    // while an editor shows (to tell whether the host has a timeline at all), and no guide is ever given, so the
+    // engine runs exactly as it always did.
+    subbertone::learn::Transport transport;
+
+    if (m_learnAudio.isInUse() || m_timelineWatched.load(std::memory_order_relaxed))
+    {
+        readTransport(transport);
+        m_hostTimeline.store(isUsableTimeline(transport, numSamples) ? 1 : 0, std::memory_order_relaxed);
+    }
+
+    m_learnAudio.beginBlock(transport, numSamples, isNonRealtime(), m_pitchGlideParam->load(), m_pitchThresholdParam->load());
+
     // Output channels with a MASTER stage and a bypass path (every output channel in practice).
     const int numOutChannels = std::min({ numOutputs, numBufferChannels, static_cast<int>(m_dryDelay.size()) });
     const float bypassTarget = bypassed ? 1.0f : 0.0f;
@@ -692,7 +774,13 @@ void SubbertoneAudioProcessor::render(juce::AudioBuffer<float>& buffer, bool byp
             m_monoBuffer[static_cast<size_t>(i)] = sum * channelScale;
         }
 
-        m_subharmonicEngine.process(m_monoBuffer.data(), m_wetBuffer.data(), m_residualBuffer.data(), n);
+        // LEARN hears the same mono sum, and guides the engine where it follows a learned curve (null: live).
+        const auto* guide = m_learnAudio.processChunk(m_monoBuffer.data(), start, n);
+        m_subharmonicEngine.process(m_monoBuffer.data(), m_wetBuffer.data(), m_residualBuffer.data(), n, guide);
+
+        if (m_learnAudio.isListening())
+            m_learnAudio.addTrailPoint(m_subharmonicEngine.getDetector().getFrequency(), m_subharmonicEngine.getSubFrequency(),
+                                       m_subharmonicEngine.isGuided());
 
         // Mix: smoothers advance once per sample, shared by every channel.
         for (int i = 0; i < n; ++i)
@@ -729,9 +817,105 @@ void SubbertoneAudioProcessor::render(juce::AudioBuffer<float>& buffer, bool byp
 
     for (int k = 1; k <= 16; ++k)
         m_harmonicActivity[static_cast<size_t>(k)].store(m_subharmonicEngine.getHarmonicActivity(k), std::memory_order_relaxed);
+    for (int octaves = 2; octaves <= 3; ++octaves)
+        m_subOctaveActivity[static_cast<size_t>(octaves - 2)].store(m_subharmonicEngine.getSubOctaveActivity(octaves), std::memory_order_relaxed);
     m_currentSignalLevelDb.store(m_subharmonicEngine.getInputRms());
 
+    // The pitch's source for the visualiser: the learned curve's confidence where it is followed, else the
+    // tracker's, smoothed over about 100 ms.
+    const bool learned = m_subharmonicEngine.isGuided();
+    m_learnAudio.endBlock(learned);
+
+    const double blockSeconds = static_cast<double>(numSamples) / std::max(1.0, getSampleRate());
+    m_liveConfidence += static_cast<float>(1.0 - std::exp(-blockSeconds / 0.1)) * (m_subharmonicEngine.getDetector().getConfidence() - m_liveConfidence);
+    m_pitchLearned.store(learned, std::memory_order_relaxed);
+    m_pitchConfidence.store(learned ? m_learnAudio.getLearnedConfidence() : m_liveConfidence, std::memory_order_relaxed);
+
     m_wasBypassed = bypassed;
+}
+
+bool SubbertoneAudioProcessor::hasHostTimeline() const
+{
+    // The standalone app's player reports a running sample count, but its transport never plays. Pro Tools'
+    // AudioSuite renders a selection with the transport stopped, its time held at the selection's start.
+    if (isStandaloneApp() || m_inAudioSuite.load(std::memory_order_relaxed))
+        return false;
+
+    return m_hostTimeline.load(std::memory_order_relaxed) != 0;
+}
+
+bool SubbertoneAudioProcessor::isUsableTimeline(const subbertone::learn::Transport& transport, int numSamples)
+{
+    // Audio thread. JUCE's wrappers report a position even where the host has no transport to give: a VST3 host that
+    // sends no process context, time 0 without tempo or musical position; an AU host without the transport callback,
+    // and JUCE's own player, a running count of the samples rendered that never plays. LEARN listens only while the
+    // host plays (or renders offline), so until the host has played once, a time that runs on in real time without
+    // playing, or a bare 0 without tempo, is no timeline. A stopped DAW holds its position, and any host that plays
+    // has one from then on.
+    const bool advancing = m_haveHostTime && transport.hasTime && transport.timeInSamples == m_nextHostTime;
+    m_haveHostTime = transport.hasTime;
+    m_nextHostTime = transport.timeInSamples + numSamples;
+
+    if (! transport.hasTime)
+        return false;
+
+    if (transport.isPlaying)
+        m_hostHasPlayed = true;
+
+    if (m_hostHasPlayed)
+        return true;
+
+    if (advancing && ! isNonRealtime())
+        return false;
+
+    return transport.hasBpm || transport.hasPpq || transport.timeInSamples != 0;
+}
+
+void SubbertoneAudioProcessor::readTransport(subbertone::learn::Transport& transport) const
+{
+    // Valid only inside processBlock (render() is called from there). Every field is optional.
+    auto* playHead = getPlayHead();
+
+    if (playHead == nullptr)
+        return;
+
+    const auto position = playHead->getPosition();
+
+    if (!position.hasValue())
+        return;
+
+    if (const auto samples = position->getTimeInSamples())
+    {
+        transport.hasTime = true;
+        transport.timeInSamples = *samples;
+    }
+    else if (const auto seconds = position->getTimeInSeconds(); seconds.hasValue() && std::abs(*seconds) < 1.0e7)
+    {
+        transport.hasTime = true;
+        transport.timeInSamples = static_cast<std::int64_t>(std::llround(*seconds * getSampleRate()));
+    }
+
+    transport.isPlaying = position->getIsPlaying();
+    transport.isLooping = position->getIsLooping();
+
+    if (const auto loop = position->getLoopPoints())
+    {
+        transport.hasLoopPoints = true;
+        transport.loopStartPpq = loop->ppqStart;
+        transport.loopEndPpq = loop->ppqEnd;
+    }
+
+    if (const auto ppq = position->getPpqPosition())
+    {
+        transport.hasPpq = true;
+        transport.ppq = *ppq;
+    }
+
+    if (const auto bpm = position->getBpm())
+    {
+        transport.hasBpm = true;
+        transport.bpm = *bpm;
+    }
 }
 
 void SubbertoneAudioProcessor::pushVisualSamples(const float* input, const float* output, const float* residual, int numSamples)

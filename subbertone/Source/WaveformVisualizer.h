@@ -20,6 +20,9 @@ public:
     void paint(juce::Graphics&) override;
     void timerCallback() override;
 
+    /** Hidden (LEARN's view shows in its place), it stops animating; its OpenGL context is let go meanwhile. */
+    void visibilityChanged() override;
+
     void mouseDown(const juce::MouseEvent& event) override;
     
     // OpenGL callbacks
@@ -28,6 +31,10 @@ public:
     void openGLContextClosing() override;
     
     void setSignalText(const juce::String& text, bool aboveThreshold);
+
+    /** The editor's LEARN glow, on the scope's own frame (transparent: the plain frame). Nothing the editor paints
+        over the OpenGL view would show, so the scope paints it itself. */
+    void setFrameGlow(juce::Colour colour) { m_frameGlow.store(colour.getARGB(), std::memory_order_relaxed); }
 
     // Visibility toggles
     // Read by the OpenGL thread, written on the message thread; persisted in the plugin state.
@@ -39,6 +46,7 @@ private:
     void drawWaveform3D(const std::vector<std::vector<float>>& history, const juce::Colour& color, float yOffset, bool isInput);
     void drawPerspectiveGrid();
     void drawLegendRow(juce::Graphics& g, int centreY, const juce::String& name, juce::Colour colour, bool on);
+    void drawPitchSource(juce::Graphics& g, float right, float centreY);
     void updateIdleState();
 
     // Idle screen: after a moment of silence the traces fade out and the Sweet
@@ -77,6 +85,7 @@ private:
     juce::String m_signalText { "IN  -inf dB" };
 
     bool m_signalAboveThreshold = false;
+    std::atomic<juce::uint32> m_frameGlow { 0 };   // ARGB; set on the message thread, painted with the GL frame
     
     // Animation
     float m_timeValue = 0.0f;

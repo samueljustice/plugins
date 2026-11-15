@@ -28,10 +28,58 @@ namespace
     {
         const char* name;
         const char* category;                 // menu group ("" = top level)
-        std::map<juce::String, float> values; // real values; anything missing = default
+        std::map<juce::String, float> values; // real values; anything missing: PresetManager::getValueWhenAbsent()
+        bool currentDefaults = false;         // Init: every parameter at its default today, as a new instance starts
     };
 
     using ValueMap = std::map<juce::String, float>;
+
+    // The default each parameter was first given: what it takes wherever a session or preset has no value for it
+    // (PresetManager::getValueWhenAbsent()). Changing a parameter's default then changes new instances, Init and the
+    // host's reset, while every session, preset file and factory preset saved or written without that parameter keeps
+    // the sound it had. So an entry here never changes, and a new parameter is added with the default it starts with.
+    const std::map<juce::String, float>& firstDefaults()
+    {
+        static const std::map<juce::String, float> defaults = []
+        {
+            std::map<juce::String, float> d
+            {
+                { "mix", 50.0f },
+                { "distortion", 50.0f },
+                { "distortionType", 0.0f },
+                { "distortionTone", 1000.0f },
+                { "filterResonance", 0.0f },
+                { "filterMode", 0.0f },
+                { "filterEnvAmount", 0.0f },
+                { "filterEnvRelease", 150.0f },
+                { "postDriveLowpass", 20000.0f },
+                { "outputGain", 0.0f },
+                { "pitchThreshold", -40.0f },
+                { "fundamentalLimit", 250.0f },
+                { "pitchGlide", 12.0f },
+                { "overtoneAmount", 0.0f },
+                { "inflateEffect", 0.0f },
+                { "inflateCurve", 0.0f },
+                { "limiterOn", 0.0f },
+                { "limiterCeiling", -0.3f },
+                { "limiterRelease", 100.0f },
+                { "loCutOn", 0.0f },
+                { "loCutFreq", 30.0f },
+                { "phaseAlign", 0.0f },
+                { "subOctave2", 0.0f },
+                { "subOctave3", 0.0f },
+            };
+
+            // The harmonic bars H1..H16.
+            constexpr float bars[17] { 0.0f, 100.0f, 60.0f, 40.0f, 30.0f, 24.0f, 20.0f };
+            for (int k = 1; k <= 16; ++k)
+                d["harmonic" + juce::String(k)] = bars[k];
+
+            return d;
+        }();
+
+        return defaults;
+    }
 
     // Sets every harmonic bar explicitly (so presets never inherit stray bars):
     // levels lists {k, percent}; H1 (the sub) defaults to 100% unless given.
@@ -50,11 +98,13 @@ namespace
     // Filter modes:       0 Lowpass, 1 Bandpass, 2 Notch
     // Glide: the default is 12 ms (Subbertone 1.1.0's fixed glide). Presets that need a smoother
     // or tighter sub (engines, drones, hum, kicks) set pitchGlide explicitly.
+    // A preset lists what it sets; everything else takes firstDefaults(), so a later change of a
+    // default never changes a preset. Init alone is every parameter at today's default.
     const std::vector<FactoryPreset>& factoryPresets()
     {
         static const std::vector<FactoryPreset> presets
         {
-            { "Init", "", {} },
+            { "Init", "", {}, true },
 
             // MUSIC
             { "Clean Sub", "Music",
@@ -377,6 +427,13 @@ PresetManager::PresetManager(juce::AudioProcessorValueTreeState& parameters, Hos
     for (auto* p : params)
         p->addListener(this);
 
+   #if JUCE_DEBUG
+    // Every parameter needs the default it was first given in firstDefaults() (see there).
+    for (auto* p : params)
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(p))
+            jassert(firstDefaults().count(ranged->getParameterID()) == 1);
+   #endif
+
     const juce::ScopedLock op(m_operationLock);
     refreshLocked();
 }
@@ -426,6 +483,16 @@ int PresetManager::findFactory(const juce::String& name)
 bool PresetManager::isValidPresetName(const juce::String& name)
 {
     return fileStemFor(name).isNotEmpty();
+}
+
+float PresetManager::getValueWhenAbsent(const juce::RangedAudioParameter& parameter)
+{
+    const auto& defaults = firstDefaults();
+
+    if (const auto it = defaults.find(parameter.getParameterID()); it != defaults.end())
+        return it->second;
+
+    return parameter.convertFrom0to1(parameter.getDefaultValue()); // not listed (the constructor asserts it is)
 }
 
 bool PresetManager::isInUserFolder(const juce::File& file)
@@ -638,7 +705,8 @@ bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 
     {
         const ScopedApply applying(*this);
-        applyValues(Values(preset.values.begin(), preset.values.end()));
+        applyValues(Values(preset.values.begin(), preset.values.end()),
+                    preset.currentDefaults ? Absent::currentDefault : Absent::valueWhenAbsent);
 
         const juce::ScopedLock sl(m_lock);
         m_kind = Kind::factory;
@@ -669,7 +737,7 @@ bool PresetManager::applyUserFile(const juce::File& file, Origin origin)
 
     {
         const ScopedApply applying(*this);
-        applyValues(values);
+        applyValues(values, Absent::valueWhenAbsent);
 
         const juce::ScopedLock sl(m_lock);
         m_kind = Kind::user;
@@ -911,7 +979,7 @@ PresetManager::Values PresetManager::captureValues() const
     return values;
 }
 
-void PresetManager::applyValues(const Values& values)
+void PresetManager::applyValues(const Values& values, Absent absent)
 {
     // Gestures let hosts record the change as one undoable step / automation event. They
     // belong on the message thread; elsewhere (a host's program change) the values are set
@@ -924,7 +992,8 @@ void PresetManager::applyValues(const Values& values)
         if (ranged == nullptr)
             continue;
 
-        float normalised = ranged->getDefaultValue();
+        float normalised = absent == Absent::currentDefault ? ranged->getDefaultValue()
+                                                            : ranged->convertTo0to1(getValueWhenAbsent(*ranged));
         for (const auto& [id, value] : values)
         {
             if (id == ranged->getParameterID())
@@ -963,7 +1032,7 @@ bool PresetManager::readPresetFile(const juce::File& file, Values& values, juce:
 
         const auto value = child->getDoubleAttribute(c_valueAttr.toString());
         if (!std::isfinite(value))
-            continue; // a hand-edited "nan" or "inf": that parameter takes its default
+            continue; // a hand-edited "nan" or "inf": that parameter takes getValueWhenAbsent()
 
         values.emplace_back(id, static_cast<float>(value));
     }

@@ -84,18 +84,19 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 Subbertone follows the pitch of your bass, engine or drone and adds a clean sub one octave below. That's only the start: build its harmonics bar by bar, from pure sub reinforcement, to the trick that makes a bass audible on speakers that can't play a sub, to a growling, talking octave-down monster. Saturation, a resonant filter and a mastering stage finish it off, with about 2 ms of latency that your host compensates for.
 
+- 🧠 **LEARN** for passages that are hard to track as they play, such as engine run-ups: loop the passage in your host, press LEARN and play the loop. Subbertone works out the pitch of the whole pass with hindsight, the sub follows what it learned from then on, and what it learned is saved with your session
 - 🧲 **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
-- 🎹 **16-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
+- 🎹 **18-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics, and S2 and S3 add deeper subs two and three octaves down. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
 - 🔥 **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
 - 🧱 **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
-- 🎯 **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a Lo Cut keeps a very low sub from eating your headroom
+- 🎯 **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a steep Lo Cut takes out the lowest sub for systems that can't play it
 - 🚗 **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="787">
+  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="701">
 </p>
 <p align="center">
   <img src="subbertone/docs/output-master.jpg" alt="Subbertone OUTPUT and MASTER sections" width="626">

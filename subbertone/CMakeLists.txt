@@ -65,6 +65,10 @@ juce_add_plugin(Subbertone
     PRODUCT_NAME "SammyJs Subbertone"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "This plugin needs access to your microphone to process real-time audio input"
+    # Pro Tools gets no multi-mono version. That runs one instance per channel, linked only by their parameters, so
+    # each channel would get its own sub and what LEARN learns would stay with one channel. Subbertone makes one sub
+    # from the sum of its channels: a stereo track takes the stereo version.
+    DISABLE_AAX_MULTI_MONO TRUE
 )
 
 # Platform specific settings
@@ -91,6 +95,12 @@ target_sources(Subbertone
     Source/WaveformVisualizer.cpp
     Source/AboutWindow.cpp
     Source/SubbertoneLookAndFeel.cpp
+    Source/OfflinePitchTracker.cpp
+    Source/LearnStore.cpp
+    Source/LearnAudio.cpp
+    Source/LearnWorker.cpp
+    Source/LearnButton.cpp
+    Source/LearnView.cpp
 )
 
 # Plugin unique ID is set in juce_add_plugin above
