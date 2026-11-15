@@ -6,7 +6,7 @@ A VST3/AU modular voice processor by **Samuel Justice**, built for exploration a
 
 It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
-<img src="docs/hero.gif" alt="The Roarschach window with the Kaiju preset, in motion: lit ember-red cloud drifts in the view above the chain of modules; a voice starts and dark ink gathers out of the cloud by flow into a wide mirrored blot whose wings hang low and curl up at their tips, while the meters and the vocoder's band display move; a hit as the roar starts sends a lit swell out through the cloud, and a warm light opens in the rift down the blot's middle; the voice stops and the blot tears back into smoke" width="880">
+<img src="docs/hero.gif" alt="The Roarschach window with the Kaiju preset, in motion: a pale sheet with a warm ember blush, black ink lettering and knobs, and a boxed view at the top where lit ember-red cloud drifts above the two rows of module tiles; a voice starts and dark ink gathers out of the cloud by flow into a mirrored blot with a tall middle and smoky arms reaching up and out, while the meters and the vocoder's band display move; a hit as the roar starts sends a lit swell out through the cloud, and a warm light opens in the rift down the blot's middle; the voice stops and the blot tears back into smoke" width="880">
 
 ## Overview
 
@@ -16,7 +16,7 @@ PITCH shifts the voice from two octaves down to one octave up, with Shift, Snap 
 
 OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
 
-Above the chain is an abstract ink blot drawn in OpenGL. It gathers out of lit cloud when the voice comes in, swirls and tears open with it, ripples on hits and dissolves back into smoke when it stops. Every module leaves its own trace on it, every session grows a different one, it slowly evolves with sustained intensity, and its clouds drift towards a colour that suits your settings.
+Above the chain is an abstract ink blot drawn in OpenGL. It gathers out of lit cloud when the voice comes in, swirls and tears open with it, ripples on hits and dissolves back into smoke when it stops. Every module leaves its own trace on it, every session grows a different one, it slowly evolves with sustained intensity, and its clouds drift towards a colour that suits your settings. The whole window takes that colour with it: the paper behind the controls and their one accent colour follow the cloud, while the text, knobs and marks stay in near-black ink.
 
 There are three kinds of dice: one loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone. There are 51 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility), and SAVE stores your own as plain files that are easy to back up and share. Every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
 
@@ -48,7 +48,7 @@ The default order, and what each module does:
 
 Where a module sits changes the sound. CHAMBER after PITCH puts the pitched voice in the room; after ROAR it is an amp into a cabinet; last, it puts the whole creature in the room. ROAR before GROWL drives the voice and then chops it; ROAR after GROWL distorts the chopped voice. SUB before ROAR sends the octave through the tube, so its rumble gets harmonics locked to the voice. The VOCODER late in the chain vocodes everything before it. The Signal Flow presets each show one of these placements.
 
-The chain is mono up to the first module that makes stereo: ENSEMBLE, SHIMMER in Stereo mode, or CHAMBER with Width above 0%. An **ST** badge on the connector after that module marks the point.
+The chain is mono up to the first module that makes stereo: ENSEMBLE, SHIMMER in Stereo mode, or CHAMBER with WIDE above 0%. An **ST** tag at the end of that module's footer marks the point.
 
 ### Moving modules
 
@@ -60,7 +60,7 @@ The order is saved with the session and with presets, and the host can automate 
 
 <img src="docs/strip-dragging.png" alt="GROWL lifted out of the second row and carried into the first, with the space it will drop into outlined and the other tiles moved aside" width="1744">
 
-<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu with Carrier, Track, Mode and Body, each showing its current choice" width="280">
+<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu under a RING MODES heading: Carrier (Sine), Track (Fixed), Mode (Ring) and Body (Box), each opening its own list" width="280">
 
 ### The output stage
 
@@ -86,7 +86,7 @@ Roarschach runs at the host's sample rate and never resamples the audio. PITCH r
 
 ## Controls
 
-Every control has a tooltip: hover over it to see what it does, and where its useful range is. A knob the current settings do not use is dimmed, and still turns (SHIMMER's Rate at Amount 0, for example, or GROWL's Rate with the Throat shape); one that does only a little is half-dimmed. A module that is Off is dimmed as a whole. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices, and the die beside it rolls the module; the ••• button moves the module.
+Every control has a tooltip: hover over it to see what it does, and where its useful range is. A knob the current settings do not use is dimmed, and still turns (SHIMMER's Rate at Amount 0, for example, or GROWL's Rate with the Throat shape); one that does only a little is half-dimmed. A module that is Off shows a hollow light, open knobs and OFF in its footer. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices, and the die beside it rolls the module; the ••• button moves the module.
 
 <img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks." width="583">
 
@@ -94,25 +94,25 @@ Every control has a tooltip: hover over it to see what it does, and where its us
 
 Three kinds of die roll new settings: one beside the preset name, one after the last module, and one on every module.
 
-<img src="docs/dice-preset-tooltip.png" alt="The preset bar with the pointer on the die after the next-preset arrow and its tooltip: Loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="397">
+<img src="docs/dice-preset-tooltip.png" alt="The preset bar showing Kaiju, with the pointer on the die after the next-preset arrow and its tooltip: Loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="456">
 
-<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, so the level stays safe." width="509">
+<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, so the level stays safe." width="546">
 
 <img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are." width="556">
 
 Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. A preset loaded from the preset bar (the list, the arrows or the preset die) is a step in the same history (see [Presets](#presets)); a preset or session loaded any other way, from the host's program list or a session recall, even the same one again, ends it. The host sees every control a roll changes, so it records the roll and its automation follows.
 
 - **Random preset** (the die beside the preset name): loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again.
-- **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. The preset name shows `*`, as for any edit.
+- **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. A dot appears after the preset name, as for any edit.
 - **A module's die** (beside its mode chip): new settings for that module's knobs and modes only. Its On switch and its place in the chain stay as they are.
 
 <img src="docs/dice-undo-menu.png" alt="The menu from right-clicking RANDOMISE ALL straight after a roll: Undo Roll All, and Redo Roll greyed out" width="200">
 
-One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE are on; after, DETAIL, VOCODER, SWIRL, ROAR and ENSEMBLE are, every module has new settings, the preset name shows `*`, and the ink blot has taken a new shape. The module order, IN and OUTPUT are as they were.
+One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE are on; after, CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are, every module has new settings, a dot follows the preset name, and the ink blot has taken a new shape and the window a new colour. The module order, IN and OUTPUT are as they were.
 
-<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE switched on, and a dark mirrored ink blot with ragged arms in pale blue-grey cloud" width="880">
+<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE switched on, a dark mirrored ink blot with two heavy wings hanging low in pale blue-grey cloud, and the sheet and controls in the same cool grey" width="880">
 
-<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: the preset name reads Big Bad Narrator *, and DETAIL, VOCODER, SWIRL, ROAR and ENSEMBLE are on with new settings while the other modules are off; the cloud has drifted to a cooler blue, and the blot has gathered into a broad shield of ink with marbled wings" width="880">
+<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: a dot follows the name Big Bad Narrator, and CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are on with new settings while the other modules are off; the cloud has drifted to a clear blue lit with straw-yellow light, the sheet and the controls' accent have turned blue with it, and the blot has gathered into a broad mass with wide, smoky wings" width="880">
 
 A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
 
@@ -131,7 +131,7 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 ### PITCH
 
-<img src="docs/panel-pitch.png" alt="The PITCH tile at -9 st with Size 60% and Drive 35%, in Shift and Follow" width="152">
+<img src="docs/panel-pitch.png" alt="The PITCH tile at -9 st with Size 60% and Drive 35%, in Shift and Follow" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -143,7 +143,7 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 ### CLEAN
 
-<img src="docs/panel-clean.png" alt="The CLEAN tile with Contain 22% and Gate 40% and the Voice tone, the gate open" width="152">
+<img src="docs/panel-clean.png" alt="The CLEAN tile with Contain 22% and Gate 40% and the Voice tone, the gate open" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -153,7 +153,7 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 ### DE-ESS
 
-<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 51% in Split" width="152">
+<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 51% in Split" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -162,7 +162,7 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 ### DETAIL
 
-<img src="docs/panel-detail.png" alt="The DETAIL tile with Low 30% and High 25% in Natural, showing the lift" width="152">
+<img src="docs/panel-detail.png" alt="The DETAIL tile with Low 30% and High 25% in Natural, showing the lift" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -174,7 +174,7 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 
 ### VOCODER
 
-<img src="docs/panel-vocoder.png" alt="The VOCODER tile with Gravel 35% at -2 Oct, its footer showing the level of each band" width="152">
+<img src="docs/panel-vocoder.png" alt="The VOCODER tile with Gravel 35% at -2 Oct, its footer showing the level of each band" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -183,7 +183,7 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 
 ### RING
 
-<img src="docs/panel-ring.png" alt="The RING tile with Amount 45% and Freq 150 Hz, Sine carrier, Fixed, Ring mode and the Box body" width="152">
+<img src="docs/panel-ring.png" alt="The RING tile with Amount 45% and Freq 150 Hz, Sine carrier, Fixed, Ring mode and the Box body" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -199,7 +199,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### SHIMMER
 
-<img src="docs/panel-shimmer.png" alt="The SHIMMER tile with Amount 22% and Rate 11 Hz, Up" width="152">
+<img src="docs/panel-shimmer.png" alt="The SHIMMER tile with Amount 22% and Rate 11 Hz, Up" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -209,7 +209,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### GROWL
 
-<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 27 Hz, Rattle and Warm" width="152">
+<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 27 Hz, Rattle and Warm" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -220,7 +220,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### SWIRL
 
-<img src="docs/panel-swirl.png" alt="The SWIRL tile with Amount 21% and Rate 0.35 Hz, Liquid 4 and LFO+Level" width="152">
+<img src="docs/panel-swirl.png" alt="The SWIRL tile with Amount 21% and Rate 0.35 Hz, Liquid 4 and LFO+Level" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -231,7 +231,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### ROAR
 
-<img src="docs/panel-roar.png" alt="The ROAR tile with Drive 61% and Tone Bass 15%, Line" width="152">
+<img src="docs/panel-roar.png" alt="The ROAR tile with Drive 61% and Tone Bass 15%, Line" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -241,7 +241,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### ENSEMBLE
 
-<img src="docs/panel-ensemble.png" alt="The ENSEMBLE tile, Off, with Amount 10% and Width 10%, 3 voices, Medium" width="152">
+<img src="docs/panel-ensemble.png" alt="The ENSEMBLE tile, Off, with Amount 10% and Width 10%, 3 voices, Medium" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -252,7 +252,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### TAME
 
-<img src="docs/panel-tame.png" alt="The TAME tile with Amount 19%" width="152">
+<img src="docs/panel-tame.png" alt="The TAME tile with Amount 19%" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -260,7 +260,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### SUB
 
-<img src="docs/panel-sub.png" alt="The SUB tile with Level 75% and Drive 65%, Follow and Resonant, showing the octave's level and frequency" width="152">
+<img src="docs/panel-sub.png" alt="The SUB tile with Level 75% and Drive 65%, Follow and Resonant, showing the octave's level and frequency" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -271,7 +271,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### OVERTONE
 
-<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 10% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="152">
+<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 10% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -288,23 +288,23 @@ CHAMBER plays the voice through a small speaker into a tight, resonant room, the
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 50% | How much of the voice played into the room is blended under the dry voice. 15–35% adds a subtle edge, 45–65% is a clear chamber; around 80% the two are equal; at 100% the room leads. |
-| **Reson** (Resonance) | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
-| **Edge** | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once Amount is about 60% or more. |
-| **Width** | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any Width. |
+| **AMT** (Chamber) | 0 to 100% | 50% | How much of the voice played into the room is blended under the dry voice. 15–35% adds a subtle edge, 45–65% is a clear chamber; around 80% the two are equal; at 100% the room leads. |
+| **TAIL** (Resonance) | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
+| **EDGE** | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once AMT is about 60% or more. |
+| **WIDE** (Chamber Width) | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any setting. |
 | **Room** | 10 rooms (below) | Concrete Room | The room the speaker plays into. |
 | **Speaker** | Tiny / Small / Horn | Small | The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn. |
 | **Boom** | Off / Light / Medium / Heavy | Light | Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB. |
 
-The mode chip shows the room, the speaker and the Boom, shortened to fit (CONC · SML · LGT is Concrete Room, Small, Light). Click it for a menu with one list for each, the current choice ticked. When CHAMBER is on, its footer shows the room and how long it rings at the current Resonance.
+The mode chip shows the room; click it for a menu with one list each for the room, the speaker and the Boom, the current choice ticked. When CHAMBER is on, its footer shows the room and how long it rings at the current TAIL.
 
-<img src="docs/chamber-off.png" alt="CHAMBER Off, as in Init: dimmed knobs at Amount 50%, Reson 40%, Edge 30% and Width 35%, the chip reading CONC · SML · LGT and the footer OFF" width="152"> <img src="docs/chamber-simple-size.png" alt="CHAMBER in Simple Size: Amount 30%, Reson 30%, Edge 15%, Width 70%, Resonant Chamber with the Small speaker and Medium Boom, the footer showing the room ringing for 0.62 s" width="152"> <img src="docs/chamber-tin-can-drone.png" alt="CHAMBER in Tin Can Drone: Amount 75%, Reson 90%, Edge 40%, Width 30%, Tin Booth with the Tiny speaker and Boom Off, the footer showing 0.82 s" width="152"> <img src="docs/panel-chamber.png" alt="CHAMBER in Iron Tyrant: Amount 60%, Reson 65%, Edge 60%, Width 50%, Steel Box with the Horn speaker and Heavy Boom, the footer showing the room's decay" width="152">
+<img src="docs/chamber-off.png" alt="CHAMBER Off, as in Init: a hollow light, open knobs at AMT 50%, TAIL 40%, EDGE 30% and WIDE 35%, the chip reading CONCRETE and the footer OFF" width="151"> <img src="docs/chamber-simple-size.png" alt="CHAMBER in Simple Size: AMT 30%, TAIL 30%, EDGE 15%, WIDE 70%, the chip reading RESONANT (Resonant Chamber, with the Small speaker and Medium Boom in its menu), the footer showing the room ringing for 0.62 s and the ST tag" width="151"> <img src="docs/chamber-tin-can-drone.png" alt="CHAMBER in Tin Can Drone: AMT 75%, TAIL 90%, EDGE 40%, WIDE 30%, the chip reading TIN BOOTH (with the Tiny speaker and Boom Off), the footer showing 0.82 s and the ST tag" width="151"> <img src="docs/panel-chamber.png" alt="CHAMBER in Iron Tyrant, sixth in the chain: AMT 60%, TAIL 65%, EDGE 60%, WIDE 50%, the chip reading STEEL BOX (with the Horn speaker and Heavy Boom), the footer showing the room's decay and the ST tag" width="151">
 
-<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its Room list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; the main menu lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
+<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its ROOM list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; the main menu, under CHAMBER MODES, lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
 
-<img src="docs/chamber-menu-speaker.png" alt="CHAMBER's Speaker list: Tiny, Small (ticked) and Horn" width="363"> <img src="docs/chamber-menu-boom.png" alt="CHAMBER's Boom list: Off, Light, Medium (ticked) and Heavy" width="369">
+<img src="docs/chamber-menu-speaker.png" alt="CHAMBER's SPEAKER list: Tiny, Small (ticked) and Horn" width="387"> <img src="docs/chamber-menu-boom.png" alt="CHAMBER's BOOM list: Off, Light, Medium (ticked) and Heavy" width="376">
 
-<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's Edge knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once Amount is about 60 % or more." width="461"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="332">
+<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's EDGE knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more." width="591"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="353">
 
 | Room | Character | Decay (about) |
 |---|---|---|
@@ -373,13 +373,13 @@ The view above the chain is drawn live in OpenGL from the audio and the controls
 
 <img src="docs/view-evolution.gif" alt="The same blot seed at four stages of growth in turn, swirling in pale blue-grey cloud with a quiet voice: a compact dense blot, then larger ones with more lobes and with curls of ink reaching out to the sides" width="720">
 
-**Its colour follows your settings.** The clouds lean slowly towards a colour that suits the sound you have set up. Heavier ROAR, GROWL, PITCH Drive, a deeper pitch, SUB Drive, OUTPUT Push and Clip and CHAMBER's Edge warm it towards ember red. The VOCODER, RING, SHIMMER, Snap or Mono pitch, the Radio tone and the metal rooms turn it a clear electric blue. SWIRL, ENSEMBLE and OVERTONE tint it violet. A big CHAMBER room (a high Amount and a long Reson) leans it to a lichen green-grey on its own, and turns the other colours towards stone. Mixed settings mix their colours: heavy drive with the vocoder is a rust, drive with SWIRL a crimson rose, the vocoder with SWIRL an indigo, drive in a big room a warm stone and the vocoder in one a teal. Only the modules that are on and how far their knobs are turned count, not where they sit in the chain. Init and light settings keep the pale blue-grey, and so does Mix at 0%. The dense ink stays near black in every colour; its thin edges and the loose ink in the cloud take a little of the hue, and the light in the rift keeps a warm glow of its own. The colour never jumps: after a preset change, a roll of the dice or a turned knob it drifts to the new colour over several seconds, turning round the colour wheel no faster than a twelfth of the way each second, through soft tones rather than grey.
+**Its colour follows your settings.** The clouds lean slowly towards a colour that suits the sound you have set up. Heavier ROAR, GROWL, PITCH Drive, a deeper pitch, SUB Drive, OUTPUT Push and Clip and CHAMBER's EDGE warm it towards ember red. The VOCODER, RING, SHIMMER, Snap or Mono pitch, the Radio tone and the metal rooms turn it a clear electric blue. SWIRL, ENSEMBLE and OVERTONE tint it violet. A big CHAMBER room (a high AMT and a long TAIL) leans it to a lichen green-grey on its own, and turns the other colours towards stone. Mixed settings mix their colours: heavy drive with the vocoder is a rust, drive with SWIRL a crimson rose, the vocoder with SWIRL an indigo, drive in a big room a warm stone and the vocoder in one a teal. Only the modules that are on and how far their knobs are turned count, not where they sit in the chain. Init and light settings keep the pale blue-grey, and so does Mix at 0%. The dense ink stays near black in every colour; its thin edges and the loose ink in the cloud take a little of the hue, and the light in the rift keeps a warm glow of its own. The colour never jumps: after a preset change, a roll of the dice or a turned knob it drifts to the new colour over several seconds, turning round the colour wheel no faster than a twelfth of the way each second, through soft tones rather than grey. The window follows the cloud too: its paper takes a pale wash of the same colour and the controls one deeper accent of it, always light enough that the near-black ink of the text, knobs and meters stays easy to read.
 
 <img src="docs/colour-moods.gif" alt="One blot seed with three presets in turn, each with its colour settled: Init in the default pale blue-grey, Kaiju in ember red and Iron Tyrant in warm stone; each preset also gives the blot a different shape" width="720">
 
 Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a young blot over a few seconds and grows a new one). Under **Visualiser**, **Full** draws the creature as smoothly as the graphics card allows, **Low** draws it at a lighter quality and at most 15 frames a second, and **Off** shows a still cloud and leaves the graphics card alone (the readouts and the ASLEEP label still follow the sound); the choice is kept on this computer and applies to every instance. The view draws nothing while it is hidden. On macOS it also stops while its window is minimised, and slows to two frames a second while its window is covered or on another desktop.
 
-<img src="docs/creature-menu.jpg" alt="The creature's right-click menu over the pale ember-tinted view: a Creature heading with Evolution: Live (ticked), Evolution: Frozen and Reset creature, then a Visualiser heading with Full (ticked), Low and Off, each with a short description" width="523">
+<img src="docs/creature-menu.jpg" alt="The creature's right-click menu over the ember-tinted view: a CREATURE heading with Evolution: Live (ticked), Evolution: Frozen and Reset creature, then a VISUALISER heading with Full (ticked), Low and Off, each with a short description" width="445">
 
 Whatever form it has taken, every module leaves its own trace on it, each a different kind of change to the shape, the flow or the ink, and each as strong as the module is working (nothing while it is Off). The traces on the shape share one limit, so with many modules on at once they still bend one blot.
 
@@ -414,11 +414,11 @@ Use the arrows either side of the preset name to step through presets, or click 
 
 A preset load from the preset bar can be undone: choose **Undo Load** in the list, or press Cmd+Z (Ctrl+Z on Windows) straight after loading, to get back the sound you had, edits and all. **Redo Load** loads the preset again, so you can compare the two. Loads and dice rolls share one history.
 
-<img src="docs/header.png" alt="The preset bar: the previous and next arrows, the preset name (Kaiju), the random-preset die, SAVE and the About button" width="500">
+<img src="docs/header.png" alt="The preset bar: the previous and next arrows either side of the preset name (Kaiju) on a ruled line, the random-preset die, SAVE and the About button (?)" width="500">
 
 The list opens with Init, then one submenu per group, with the current preset ticked in its group. Your own presets are under USER.
 
-<img src="docs/preset-menu-machines.png" alt="The preset list open from the preset name, with Cyber Commander loaded: FACTORY with Init and the Creatures, Voices, Machines, Signal Flow, Vocoder and Utility groups, then USER, Save As, Delete and Show Presets Folder; the Machines group is open, listing Cyber Commander (ticked), Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone, Angry Pepper Pot and Ball Bearing" width="467">
+<img src="docs/preset-menu-machines.png" alt="The preset list open from the preset name, with Cyber Commander loaded: FACTORY with Init and the Creatures, Voices, Machines, Signal Flow, Vocoder and Utility groups, then USER, Undo Load and Redo Load, Save As, Delete (greyed for a factory preset) and Show Presets Folder; the Machines group is open, listing Cyber Commander (ticked), Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone, Angry Pepper Pot and Ball Bearing" width="474">
 
 <img src="docs/preset-menu-creatures.png" alt="The Creatures group open with Symbiote ticked: Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat, Hoarse Hoarder, Thing Next Door and Stairwell Stalker" width="482"> <img src="docs/preset-menu-voices.png" alt="The Voices group open with Simple Size ticked: Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size, Upside Down and Use Your Words" width="474">
 
@@ -443,12 +443,12 @@ Six character presets are each built around one technique, and each works best w
 - **Angry Pepper Pot** (Machines): a furious voice in a metal shell. A low ring modulator chops the voice into a staccato electronic stutter, and nothing else colours it. Shout, and pitch your delivery up to hector.
 - **Ball Bearing** (Machines): a small, chirpy machine. The voice is raised an octave and stepped to semitones, with a faint synthetic buzz, a quick warble and a tiny speaker. Coo and chirp short syllables rather than speaking.
 
-A few contrasting presets, each playing the same voice, with the colour settled for the preset:
+A few contrasting presets, each playing the same voice, with the colour settled for the preset (the window's paper and the controls take the same colour as the cloud):
 
-<img src="docs/preset-simple-size.gif" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a dark mirrored blot with curling arms in pale blue-grey cloud, light settings keeping the default colour" width="440"> <img src="docs/preset-cyber-commander.gif" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; a wide blot with long marbled wings that reach to the edges, in cold blue cloud" width="440">
-<img src="docs/preset-symbiote.gif" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a compact blot of two heavy lobes with a faint glow in its fold, in rose-violet cloud" width="440"> <img src="docs/preset-iron-tyrant.gif" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a heavy, square blot with ragged lower edges, in warm stone-coloured cloud" width="440">
-<img src="docs/preset-upside-down.gif" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a blot with two broad arched wings, in green-grey cloud" width="440"> <img src="docs/preset-spore-throat.gif" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a blot with spiky, curling arms, in crimson rose cloud" width="440">
-<img src="docs/preset-ball-bearing.gif" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a broad blot with thin streaming plumes of smoke, in teal cloud" width="440"> <img src="docs/preset-stairwell-stalker.gif" alt="Stairwell Stalker: PITCH at -4 st, CLEAN, DE-ESS, DETAIL, SHIMMER, GROWL on Rattle, SWIRL, ROAR, ENSEMBLE, TAME, SUB and CHAMBER last in Tower Block at full width; a low, wide blot with wisps lifting off its top, in slate-blue cloud" width="440">
+<img src="docs/preset-simple-size.gif" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a dark mirrored blot with two thin arms swept up and out, in pale blue-grey cloud, light settings keeping the default colour" width="440"> <img src="docs/preset-cyber-commander.gif" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; a broad, heavy blot with smoky arms at its shoulders, in cold blue cloud on a blue-grey sheet" width="440">
+<img src="docs/preset-symbiote.gif" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a wide blot of two heavy lobes joined low, with curls of ink at their tips, in rose-violet cloud on a mauve sheet" width="440"> <img src="docs/preset-iron-tyrant.gif" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a heavy blot with marbled shoulders and ragged legs, in warm stone-coloured cloud on a stone sheet" width="440">
+<img src="docs/preset-upside-down.gif" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a body between two curling wings, in teal-grey cloud on a sea-green sheet" width="440"> <img src="docs/preset-spore-throat.gif" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a wide blot on long legs that curl at their feet, in crimson rose cloud on a rose sheet" width="440">
+<img src="docs/preset-ball-bearing.gif" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a broad blot with two horned arms swept up, in pale sky-blue cloud" width="440"> <img src="docs/preset-stairwell-stalker.gif" alt="Stairwell Stalker: PITCH at -4 st, CLEAN, DE-ESS, DETAIL, SHIMMER, GROWL on Rattle, SWIRL, ROAR, ENSEMBLE, TAME, SUB and CHAMBER last in Tower Block at full width; a dense blot with feathered wings spread across its top, in slate-blue cloud" width="440">
 
 Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
 
@@ -530,7 +530,7 @@ Options:
 
 Created by Samuel Justice, Creative Sound Supervisor at [Sweet Justice](https://www.sweetjusticesound.com).
 
-- UI font: [Azeret Mono](https://github.com/displaay/Azeret), SIL Open Font License 1.1.
+- UI fonts: [Marcellus](https://github.com/google/fonts/tree/main/ofl/marcellus) and [Source Sans 3](https://github.com/adobe-fonts/source-sans), both under the SIL Open Font License 1.1 (each font's licence is beside it in [Resources/Fonts](Resources/Fonts)).
 - All the signal processing is original, built on [JUCE](https://juce.com).
 
 ## License

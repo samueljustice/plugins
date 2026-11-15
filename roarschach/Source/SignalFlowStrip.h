@@ -39,7 +39,6 @@ public:
     ~SignalFlowStrip() override;
 
     void paint(juce::Graphics&) override;
-    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     bool keyPressed(const juce::KeyPress&) override;
 
@@ -108,6 +107,11 @@ public:
     juce::Component* getModuleTile(int module) const;
     /** A module tile's readout values as the last refresh() set them (all 0 for an unknown module). */
     std::array<float, 34> getReadoutForTests(int module) const;
+    /** A module tile's footer: the extent of its words and of its value as last painted. */
+    std::pair<juce::Rectangle<float>, juce::Rectangle<float>> getFooterTextForTests(int module) const;
+    /** How far the longest module name overruns the room its header gives it (negative: the room to spare). */
+    float nameOverrunForTests() const;
+    float getTitlePointForTests() const noexcept { return m_titlePoint; }
     juce::Component* getInTile() const;
     juce::Component* getOutputTile() const;
     juce::Button* getModeChip(int module) const;   // nullptr for a module without choices
@@ -159,6 +163,7 @@ private:
     Params::Order m_order {};          // the order the parameters ask for (last poll)
     Params::Order m_shown {};          // the order the tiles show (m_order, or the drag preview)
     int m_split = Params::numModules;  // the slot whose module makes the chain stereo
+    Params::Order m_stereoMarkOrder {};  // the order the ST tag was placed for
 
     struct Drag
     {
@@ -187,5 +192,6 @@ private:
     AnimationTimer m_animationTimer { *this };
 
     juce::Component* m_menuParent = nullptr;
+    float m_titlePoint = Theme::Type::tileTitle;   // the module names' size: the largest at which every name fits its tile
     double m_lastTickMs = 0.0;
 };

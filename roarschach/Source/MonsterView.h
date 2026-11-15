@@ -161,7 +161,13 @@ public:
     /** Message thread. Stores into atomics read by the GL thread. */
     void setParams (const Params& params);
 
-    /** Message thread. Radius (component px) of the rounded corners and the colour drawn outside them. */
+    /** Message thread: the cloud's colour as it is on screen now (OkLCh hue in degrees, chroma), for the
+        controls to take their tint from. While no frames are drawn, the tone of the settings' mood (or
+        of the colour kept while Frozen). */
+    roar::CreatureMood::Tone shownTone() const;
+
+    /** Message thread. Radius (component px) of the box's rounded corners and the colour drawn outside
+        them: the sheet's paper. */
     void setCorner (float radius, juce::Colour outside);
 
     void paint (juce::Graphics&) override;
@@ -184,6 +190,14 @@ public:
     bool readsSilenceForTests() const { return m_stale.load (std::memory_order_relaxed); }
     bool isAsleepForTests() const { return m_asleep.load (std::memory_order_relaxed); }
     bool isIdleForTests() const { return m_idle.load (std::memory_order_relaxed); }
+    /** A readout over the picture ("CAPTION value", or a caption alone) on its soft label, at the
+        left or the right end of `row`; returns the label's bounds. Also used by the tests, which
+        measure it over the darkest and the palest picture. */
+    static juce::Rectangle<float> drawReadout (juce::Graphics&, const Theme::Fonts&, const juce::String& text,
+                                               juce::Rectangle<float> row, bool left, bool dim);
+    /** The first-run hint, centred on `row`; returns its label's bounds. */
+    static juce::Rectangle<float> drawHint (juce::Graphics&, const Theme::Fonts&, const juce::String& text, juce::Rectangle<float> row);
+
     /** Tests: the readouts as the last refreshOverlay() wrote them ("F0 ... | DETAIL ..."). Message thread. */
     juce::String getReadoutsForTests() const { return m_f0Text + " | " + m_detailText; }
     /** Tests: the ripples from hits as the last frame stepped them. */
@@ -238,9 +252,14 @@ private:
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodKept {};   // the saved frozen colour
     std::atomic<bool> m_moodHasKept { false };
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodShown {};  // written on the GL thread (only while it draws)
+    std::array<std::atomic<float>, 2> m_toneShown {};   // hue, chroma on screen (GL thread writes, only while it draws)
+    std::atomic<bool> m_toneSeen { false };
     std::atomic<int> m_width { 0 }, m_height { 0 };
     std::atomic<float> m_cornerRadius { 8.0f };
-    std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::background.getARGB() };
+    std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::paper.getARGB() };
+
+    // The sheet's paper and grain outside the box's rounded corners (message thread).
+    void drawCorners (juce::Graphics&, juce::Rectangle<float> bounds, float radius);
 
     // Written on the GL thread, read by the overlay.
     std::atomic<bool> m_shaderFailed { false };

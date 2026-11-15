@@ -73,6 +73,9 @@ public:
         prepared it). */
     static juce::String latencyNote(int latencySamples, double sampleRate);
 
+    /** Pictures only: the preset list opens inside this component (so a snapshot can show it). */
+    void setMenuParentForSnapshots(juce::Component* parent) { m_menuParentForSnapshots = parent; }
+
 private:
     // Everything visible lives in here, at design size; the editor just scales it.
     struct Content : public juce::Component
@@ -85,6 +88,32 @@ private:
 
     void paintContent(juce::Graphics& g);
     void layoutContent();
+    juce::Rectangle<float> wordmarkBounds() const;
+    juce::Rectangle<float> creditLineBounds() const;
+    float creditBaseline() const;
+
+    /** The colour mood: the cloud's shown tone, eased, into the palette (Theme::applyMood) a few times a
+        second, and what uses it repainted when it changed. Only the editor last opened or pointed at
+        drives the (shared) palette. */
+    void followMood();
+    void applyMood(bool force);
+    /** Takes the palette as it is now into everything this window drew with it (the LookAndFeel's
+        colours, the picture's surround, the link, the About window) and repaints. Every open editor
+        does this when the palette's serial moves, whichever editor moved it, so no window is ever drawn
+        half in one mood and half in another. */
+    void refreshPalette();
+
+    struct MoodFocus final : public juce::MouseListener
+    {
+        explicit MoodFocus(RoarschachAudioProcessorEditor& e) : m_editor(e) {}
+        void mouseEnter(const juce::MouseEvent&) override;
+        RoarschachAudioProcessorEditor& m_editor;
+    };
+    MoodFocus m_moodFocus { *this };
+    roar::CreatureMood::Tone m_moodTone { Theme::c_referenceHue, Theme::c_referenceChroma };
+    int m_moodTick = 0;
+    int m_paletteSerialSeen = -1;   // the palette this window was last drawn with (Theme::paletteSerial)
+    juce::Component* m_menuParentForSnapshots = nullptr;
     void showAboutWindow();
     void updateMonsterParams();
 

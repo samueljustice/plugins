@@ -1,6 +1,6 @@
 ## Roarschach 1.2.0
 
-Roarschach 1.2.0 has a new visualiser: an abstract ink creature that forms out of lit cloud, swirls with the voice and tears back into smoke, a different blot in every session. It also fixes a set of sound problems in PITCH, VOCODER, RING, GROWL, ROAR and OUTPUT, and makes the window easier to live with: it opens larger and remembers its size, a preset load can be undone, knobs the settings do not use are dimmed, and the About window has a quick start.
+Roarschach 1.2.0 has a new visualiser: an abstract ink creature that forms out of lit cloud, swirls with the voice and tears back into smoke, a different blot in every session. It also fixes a set of sound problems in PITCH, VOCODER, RING, GROWL, ROAR and OUTPUT, and makes the window easier to live with: it opens larger and remembers its size, a preset load can be undone, knobs the settings do not use are dimmed, and the About window has a quick start. The whole window has a new look too: ink on paper, in the colour of the creature's cloud.
 
 Parameter IDs, their order and their types are unchanged, so sessions, presets and hosts keep finding every control. Latency is unchanged: about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order.
 
@@ -24,13 +24,23 @@ The view above the chain now draws an abstract creature in ink. It is not a face
 
 Saved sessions and presets keep every setting, but they grow a different creature from the one they showed when they were saved.
 
+### New: ink on paper
+
+The window is drawn as one sheet of paper with the creature as its picture.
+
+- **Ink on paper.** The sheet takes the pale tone of the creature's cloud, and text, knobs and marks are near-black ink: flat black knobs with a brushed arc for their value, ruled meters with a solid dark fill, and module tiles as faint washes on the sheet. The view is a box with the same corners and edge as the tiles, the largest one on the sheet.
+- **The colour of the cloud.** As the cloud drifts towards ember red, electric blue, violet or green-grey, the paper takes a pale wash of the same colour and the controls one deeper accent of it. Warm settings give a blushed bone sheet with ember accents. In every colour the text stays easy to read.
+- **One accent, modules by name.** Modules are told apart by their number, name and place in the chain. Names, headings and the wordmark are set in flared roman capitals, and words and values in a clear sans.
+- **Off is shown by shape.** A module that is Off has a hollow light, open knobs and OFF in its footer, and stays readable. Mode chips have a caret, CHAMBER's chip names its room (the speaker and Boom are in its menu), and the ST tag sits at the end of the footer of the module where the chain turns stereo.
+- **Everywhere.** Tooltips, menus and submenus, the preset list, the About window, the update notice, the save dialog, value boxes, scrollbars, focus rings, the readouts and ASLEEP label over the view and the creature's menu all take the same look.
+- **Readable when small.** At the smallest window size (65%) the smallest text is still legible and the On lights, dice, ••• buttons and mode chips are still easy to hit.
+
 ### New: easier to use
 
 - **A bigger window that remembers its size.** A new window opens as large as the display comfortably allows (80% to 100%). The size you last chose is remembered on this computer and used for new instances, and each session keeps its own. The window can now be made as small as 65% (up to 125%, never larger than the screen).
 - **Undo for preset loads.** A preset loaded from the preset bar (the list, the arrows or the die) is one step in the same history as the dice. Choose Undo Load in the preset list, or press Cmd+Z (Ctrl+Z on Windows) straight after loading, to get back the sound you had, edits and all; Redo loads the preset again, so you can compare the two.
 - **A hint line.** Until a new instance first hears sound, the view shows one line of help after a moment of quiet: play a voice through it to wake the creature, and pick a preset or roll a die to change it.
-- **Dimmed knobs.** A knob the current settings do not use is dimmed (it still turns): for example SHIMMER's Rate at Amount 0, SUB's Drive at Level 0, CHAMBER's Reson and Edge with no room blended in, and GROWL's Rate with the Throat shape. A knob that does only a little, such as CHAMBER's Edge at a low Amount, is half-dimmed.
-- **Easier to read.** The knob captions are larger and the small text is brighter.
+- **Dimmed knobs.** A knob the current settings do not use is dimmed (it still turns): for example SHIMMER's Rate at Amount 0, SUB's Drive at Level 0, CHAMBER's TAIL and EDGE with no room blended in, and GROWL's Rate with the Throat shape. A knob that does only a little, such as CHAMBER's EDGE at a low AMT, is half-dimmed.
 - **Quick start and latency in About.** The About window (the **?** at the top right) has a five-step quick start and shows the latency the plug-in reports to the host, in milliseconds and samples. On a short display it is never taller than the screen.
 
 ### Sound fixes
