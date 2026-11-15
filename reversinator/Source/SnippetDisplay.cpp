@@ -19,10 +19,9 @@ SnippetDisplay::SnippetDisplay(ReversinatorAudioProcessor& processor, const Them
     , m_fonts(fonts)
     , m_history(static_cast<size_t>(ReversinatorAudioProcessor::peakHistorySize), 0.0f)
 {
-    setOpaque(true);
     const auto initial = m_processor.getDisplayState();
     m_spanSeconds = targetSpanFor(initial.timeSeconds, initial.mode);
-    startTimerHz(30);
+    startTimerHz(60);
 }
 
 SnippetDisplay::~SnippetDisplay()
@@ -34,7 +33,7 @@ void SnippetDisplay::update()
 {
     const auto state = m_processor.getDisplayState();
     const float target = targetSpanFor(state.timeSeconds, state.mode);
-    m_spanSeconds += (target - m_spanSeconds) * 0.18f;
+    m_spanSeconds += (target - m_spanSeconds) * 0.09f;
 
     // Snapshot just the history the view needs (newest last).
     const double binSeconds = m_processor.getDisplayBinSeconds();
@@ -43,10 +42,116 @@ void SnippetDisplay::update()
         : 0;
     m_processor.copyPeakHistory(m_history.data(), m_historyCount);
 
+    // The scene's frame: the level from NOW back to the span, in equal steps of time.
+    TimeHighway::Frame frame;
+    frame.spanSeconds = m_spanSeconds;
+    frame.reversing = state.reversing;
+    if (binSeconds > 0.0 && m_historyCount > 1)
+    {
+        const double binsPerPeak = m_spanSeconds / binSeconds / (TimeHighway::numPeaks - 1);
+        for (int i = 0; i < TimeHighway::numPeaks; ++i)
+        {
+            const int first = static_cast<int>(i * binsPerPeak);
+            const int last = std::max(first, static_cast<int>((i + 1) * binsPerPeak) - 1);
+            float peak = 0.0f;
+            for (int b = first; b <= last && b < m_historyCount; ++b)
+                peak = std::max(peak, m_history[static_cast<size_t>(m_historyCount - 1 - b)]);
+            frame.peaks[static_cast<size_t>(i)] = std::sqrt(juce::jlimit(0.0f, 1.0f, peak));
+        }
+    }
+    for (int v = 0; v < std::min(2, state.numVoices); ++v)
+    {
+        frame.headAge[static_cast<size_t>(v)] = state.voices[static_cast<size_t>(v)].delaySeconds;
+        frame.headGain[static_cast<size_t>(v)] = juce::jlimit(0.0f, 1.0f, state.voices[static_cast<size_t>(v)].gain);
+    }
+    {
+        const juce::SpinLock::ScopedLockType lock(m_frameLock);
+        m_frame = frame;
+    }
+
     repaint();
 }
 
+TimeHighway::Frame SnippetDisplay::getFrame() const
+{
+    const juce::SpinLock::ScopedLockType lock(m_frameLock);
+    return m_frame;
+}
+
+void SnippetDisplay::setSceneLive(bool live)
+{
+    if (m_sceneLive != live)
+    {
+        m_sceneLive = live;
+        repaint();
+    }
+}
+
 void SnippetDisplay::paint(juce::Graphics& g)
+{
+    if (m_sceneLive)
+        paintOverScene(g);
+    else
+        paintFlat(g);
+}
+
+void SnippetDisplay::paintOverScene(juce::Graphics& g)
+{
+    using namespace Theme::Colours;
+
+    const auto bounds = getLocalBounds().toFloat();
+    const float span = m_spanSeconds;
+    const float floorHeight = bounds.getHeight() * TimeHighway::horizon;
+
+    // A label for every second, at the height the scene draws its grid line.
+    g.setFont(m_fonts.body(9.5f));
+    float lastY = bounds.getBottom() + 20.0f;
+    for (int s = 0; static_cast<float>(s) <= span; ++s)
+    {
+        const float y = bounds.getBottom() - TimeHighway::floorPositionForAge(static_cast<float>(s), span) * floorHeight;
+        if (lastY - y < 11.0f)
+            break;   // too close to the horizon to read
+        lastY = y;
+
+        const juce::String label = s == 0 ? juce::String("NOW") : "-" + juce::String(s) + " s";
+        g.setColour(s == 0 ? sand.withAlpha(0.9f) : textDim.withAlpha(0.8f));
+        g.drawText(label, juce::Rectangle<float>(bounds.getX() + 12.0f, y - 13.0f, 60.0f, 12.0f), juce::Justification::centredLeft, false);
+    }
+
+    paintLabels(g, bounds);
+}
+
+void SnippetDisplay::paintLabels(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    using namespace Theme::Colours;
+
+    const auto state = m_processor.getDisplayState();
+
+    auto top = bounds.reduced(14.0f, 8.0f).removeFromTop(16.0f);
+    g.setFont(m_fonts.label(10.0f));
+    g.setColour(text.withAlpha(0.85f));
+    g.drawText(c_modeNames[juce::jlimit(0, 2, state.mode)], top, juce::Justification::centredLeft, false);
+
+    // Status, with its direction arrow drawn as a path: Azeret Mono has no triangle glyphs, and the
+    // system fallback fonts would draw the two arrows at different sizes.
+    const auto colour = state.reversing ? reverser : textDim;
+    const juce::String status = juce::String(state.reversing ? "REVERSING" : "FORWARDS") + "   " + juce::String(state.timeSeconds, 2) + " s";
+    g.setColour(colour);
+    g.drawText(status, top, juce::Justification::centredRight, false);
+
+    const float statusWidth = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), status);
+    const float arrowRight = top.getRight() - statusWidth - 9.0f;
+    const float cy = top.getCentreY();
+    juce::Path arrow;
+    if (state.reversing) arrow.addTriangle(arrowRight - 6.0f, cy, arrowRight, cy - 3.5f, arrowRight, cy + 3.5f);
+    else                 arrow.addTriangle(arrowRight, cy, arrowRight - 6.0f, cy - 3.5f, arrowRight - 6.0f, cy + 3.5f);
+    g.fillPath(arrow);
+
+    g.setColour(outlineSoft);
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 2.0f, 1.0f);
+}
+
+void SnippetDisplay::paintFlat(juce::Graphics& g)
 {
     using namespace Theme::Colours;
 
@@ -55,7 +160,7 @@ void SnippetDisplay::paint(juce::Graphics& g)
 
     g.fillAll(background);
     g.setColour(scope);
-    g.fillRoundedRectangle(bounds, 8.0f);
+    g.fillRoundedRectangle(bounds, 2.0f);
 
     auto plot = bounds.reduced(14.0f, 10.0f);
     plot.removeFromTop(16.0f);
@@ -142,27 +247,5 @@ void SnippetDisplay::paint(juce::Graphics& g)
     g.setColour(sand.withAlpha(0.8f));
     g.fillRect(juce::Rectangle<float>(plot.getRight() - 1.0f, plot.getY(), 2.0f, plot.getHeight()));
 
-    // Labels
-    auto top = bounds.reduced(14.0f, 8.0f).removeFromTop(16.0f);
-    g.setFont(m_fonts.label(10.0f));
-    g.setColour(text.withAlpha(0.85f));
-    g.drawText(c_modeNames[juce::jlimit(0, 2, state.mode)], top, juce::Justification::centredLeft, false);
-
-    // Status, with its direction arrow drawn as a path: Azeret Mono has no triangle glyphs, and the
-    // system fallback fonts would draw the two arrows at different sizes.
-    const auto colour = state.reversing ? reverser : textDim;
-    const juce::String status = juce::String(state.reversing ? "REVERSING" : "FORWARDS") + "   " + juce::String(state.timeSeconds, 2) + " s";
-    g.setColour(colour);
-    g.drawText(status, top, juce::Justification::centredRight, false);
-
-    const float statusWidth = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), status);
-    const float arrowRight = top.getRight() - statusWidth - 9.0f;
-    const float cy = top.getCentreY();
-    juce::Path arrow;
-    if (state.reversing) arrow.addTriangle(arrowRight - 6.0f, cy, arrowRight, cy - 3.5f, arrowRight, cy + 3.5f);
-    else                 arrow.addTriangle(arrowRight, cy, arrowRight - 6.0f, cy - 3.5f, arrowRight - 6.0f, cy + 3.5f);
-    g.fillPath(arrow);
-
-    g.setColour(outlineSoft);
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f, 1.0f);
+    paintLabels(g, bounds);
 }

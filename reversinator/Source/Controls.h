@@ -103,7 +103,7 @@ namespace Controls
         const Theme::Fonts& m_fonts;
     };
 
-    /** The three effect lamps; a radio group bound to the "mode" choice parameter. */
+    /** The three effect keys; a radio group bound to the "mode" choice parameter. */
     class ModeSelector : public juce::Component
     {
     public:
@@ -115,11 +115,12 @@ namespace Controls
         class Lamp : public juce::Button
         {
         public:
-            Lamp(const juce::String& title, const juce::String& subtitle, const Theme::Fonts& fonts);
+            Lamp(const juce::String& title, const juce::String& subtitle, juce::Colour colour, const Theme::Fonts& fonts);
             void paintButton(juce::Graphics&, bool isMouseOver, bool isButtonDown) override;
 
         private:
             juce::String m_title, m_subtitle;
+            juce::Colour m_colour;
             const Theme::Fonts& m_fonts;
         };
 
@@ -129,7 +130,7 @@ namespace Controls
         juce::ParameterAttachment m_attachment;
     };
 
-    /** Big round REVERSER button: a left-pointing arrow while reversing, right-pointing when not. */
+    /** Big square REVERSER key: a left-pointing arrow while reversing, right-pointing when not. */
     class ReverserButton : public juce::Button
     {
     public:

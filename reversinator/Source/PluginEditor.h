@@ -13,7 +13,7 @@
  * Laid out at a fixed base size and scaled uniformly, so the window can be
  * resized (keeping its aspect ratio) without re-flowing anything.
  */
-class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor
+class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::OpenGLRenderer
 {
 public:
     explicit ReversinatorAudioProcessorEditor(ReversinatorAudioProcessor&);
@@ -26,7 +26,7 @@ public:
     void showUpdatePopup(const sammyj::UpdateInfo&);
 
     static constexpr int baseWidth = 820;
-    static constexpr int baseHeight = 560;
+    static constexpr int baseHeight = 612;
 
 private:
     class Content : public juce::Component, private juce::Value::Listener
@@ -39,6 +39,7 @@ private:
         void resized() override;
 
         void showUpdatePopup(const sammyj::UpdateInfo& info) { m_updatePopup.show(info); }
+        SnippetDisplay& getDisplay() { return m_display; }
 
     private:
         void valueChanged(juce::Value&) override;
@@ -83,12 +84,25 @@ private:
         juce::Rectangle<int> m_reverserLabelBounds;
     };
 
+    // The snippet display's OpenGL scene is drawn here, behind the components: the whole editor is
+    // rendered through one context, so the panels, About and tooltips all sit on top of it.
+    void newOpenGLContextCreated() override;
+    void renderOpenGL() override;
+    void openGLContextClosing() override;
+    void setSceneLive(bool live);
+
     ReversinatorAudioProcessor& m_processor;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
     Controls::LookAndFeel m_lookAndFeel;
     Content m_content;
     juce::TooltipWindow m_tooltipWindow;
     bool m_constructed = false;   // don't record the window size until construction has finished
+
+    juce::OpenGLContext m_openGL;
+    TimeHighway::Renderer m_scene;                       // GL thread only
+    std::atomic<bool> m_sceneReported { false };         // GL thread: has told the message thread it is drawing
+    juce::Rectangle<int> m_sceneArea;                    // the display, in this component's coordinates
+    juce::SpinLock m_sceneAreaLock;
 
     // Last, so it is destroyed first: its destructor stops the check before the popup it calls goes away.
     std::unique_ptr<sammyj::UpdateCheck> m_updateCheck;
