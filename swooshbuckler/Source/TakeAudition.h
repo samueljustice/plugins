@@ -66,8 +66,9 @@ public:
         keep ahead. */
     void topUp();
 
-    /** Audio thread: adds the playback to numSamples samples of every channel of out from sample start. */
-    void process(juce::AudioBuffer<float>& out, int start, int numSamples);
+    /** Audio thread: adds the playback to numSamples samples of every channel of out from sample start. True when
+        a take is playing (something may have been added). */
+    bool process(juce::AudioBuffer<float>& out, int start, int numSamples);
 
 private:
     struct Stream

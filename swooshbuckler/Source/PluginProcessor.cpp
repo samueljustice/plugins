@@ -219,6 +219,7 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     m_hostWasPlaying = false;
     m_keysDown = {};
     m_audition.prepare(sampleRate, room::widthFor(getBusesLayout().getMainOutputChannelSet()).value_or(room::Width::Stereo));
+    m_sumGuard.prepare(sampleRate);
     prepareInternal();
 }
 
@@ -846,8 +847,47 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         handleMidi((*nextEvent).getMessage(), 0, true);
         m_keysMoved = true;
     }
-    // A take being auditioned: on top of the output, after the tape, the meters and the trim.
-    m_audition.process(buffer, 0, n);
+    // A take being auditioned: on top of the output, after the tape, the meters and the trim. The rig and the take
+    // are each under the Ceiling; together they are held under it here (only what you hear: the tape has the rig
+    // alone). With no take playing nothing is touched.
+    if (m_audition.process(buffer, 0, n) || m_sumGuard.isWorking())
+        m_sumGuard.process(buffer, 0, n, juce::Decibels::decibelsToGain(m_raw.ceiling->load()));
+}
+
+SwooshbucklerAudioProcessor::LfeFeed SwooshbucklerAudioProcessor::lfeFeedFor(room::Width width, int lfeMode, bool stowawayOn, int stowawayMode, bool trackOnStowaway)
+{
+    if (! room::hasLfe(width))
+        return LfeFeed::NoLfe;
+    if (lfeMode == RigEngine::LfeMixdown)
+        return LfeFeed::Mixdown;
+    if (lfeMode != RigEngine::LfeDiscrete)
+        return LfeFeed::Off;
+    if (! stowawayOn || stowawayMode != ParamIDs::StowSub)
+        return LfeFeed::NoSub;
+    return trackOnStowaway ? LfeFeed::Sub : LfeFeed::NoSubTrack;
+}
+
+SwooshbucklerAudioProcessor::LfeFeed SwooshbucklerAudioProcessor::getLfeFeedAt(room::Width width) const
+{
+    const int mode = juce::jlimit(0, ParamIDs::numLfeModes - 1, juce::roundToInt(m_raw.roomLfeMode->load()));
+    return lfeFeedFor(width, mode, isStowawayOn(), stowMode(), hasTrackOnStowaway());
+}
+
+bool SwooshbucklerAudioProcessor::hasTrackOnStowaway() const
+{
+    for (int track = 0; track < CargoHold::c_numTracks; ++track)
+        if (m_cargo.getLive(track) != nullptr && m_cargo.getBus(track) == CargoHold::c_stowBus)
+            return true;
+    return false;
+}
+
+juce::String SwooshbucklerAudioProcessor::lfeFeedReason(LfeFeed feed)
+{
+    if (feed == LfeFeed::NoSub)
+        return "Nothing feeds the LFE: Discrete plays Stowaway's Sub, and Stowaway is off or not in Sub. Switch Stowaway on in Sub mode, or choose Mixdown.";
+    if (feed == LfeFeed::NoSubTrack)
+        return "Nothing feeds the LFE: Discrete plays Stowaway's Sub, and no track is on Stowaway. Send a track to Stowaway, or choose Mixdown.";
+    return {};
 }
 
 int SwooshbucklerAudioProcessor::stowMode() const

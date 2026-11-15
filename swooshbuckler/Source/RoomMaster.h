@@ -12,15 +12,21 @@
  *   main channels (every speaker but the LFE) --> MasterProcessor, one gain linked across all of them
  *   LFE                                        --> its own MasterProcessor: Push and the Ceiling as the mains
  *                                                  have them, no Inflate (it would add harmonics above the LFE's
- *                                                  low-pass), its own gain
+ *                                                  low-pass), its own gain, which holds for 60 ms and lets go
+ *                                                  over 300 ms or more, so it never bends a low note (a limiter
+ *                                                  that follows a 45 Hz note cycle by cycle puts its third
+ *                                                  harmonic 37 dB under it, above the low-pass)
  *
  * THE SAME AT EVERY WIDTH. Inflate (a curve) and the limiter depend on level, and in a room one pass is shared
  * between speakers: each carries less of it than a Stereo channel would, so shaping and limiting speaker by
  * speaker would do less the wider the room and the more a pass is spread. In a room (Quad and wider) the mains
  * are therefore worked BY SIDE (MasterProcessor::setSides): the left speakers together are treated as the Stereo
- * left channel they stand in for, the right speakers as the right, the centre speaker half to each. The level
- * that drives Inflate, and the peak the limiter reads, are the side's speakers summed by power, which for a pass
- * shared between them is the pass itself. The room's panner shares power between left and right exactly as a
+ * left channel they stand in for, the right speakers as the right, the centre speaker half to each. The peak the
+ * limiter reads is the side's speakers summed by power, which for a pass shared between them is the pass itself;
+ * the level that drives Inflate in a speaker is the same sum over the speakers that carry the SAME SOUND as it
+ * does (measured: see MasterProcessor::inflateSides), which for a shared pass is again the pass itself, while a
+ * speaker carrying something else (another sound, its own share of the reverb) is shaped by its own level and
+ * is not pulled about by a loud sound in a neighbour. The room's panner shares power between left and right exactly as a
  * stereo pan does, wherever the pass is in depth and height and whatever the Spread, so a pass gets the Inflate,
  * Push and limiting it gets in Stereo. Stereo (and Mono, carried as Stereo) is a channel a side already and runs
  * as it always did.
@@ -29,7 +35,8 @@
  * not when one speaker does, so each speaker's own peak then sits below the Ceiling (6 dB for four equal
  * speakers) and the room is as loud as the Stereo render, not louder. No channel is ever above the Ceiling: a
  * channel's peak is never more than its side's, and the centre speaker's own peak is read as well (a sound in
- * the centre speaker alone is therefore limited 3 dB sooner than the same sound as a phantom centre).
+ * the centre speaker alone is therefore limited 3 dB sooner than the same sound as a phantom centre: one
+ * speaker carries all of it, and a channel cannot go over the Ceiling whatever it stands in for).
  *
  * The main channels share one gain, so a pass that moves from speaker to speaker is never pulled about by the
  * limiter: the room keeps its balance. The LFE has its own, so a loud sub never pulls the room down (and the room
@@ -48,6 +55,10 @@ public:
     static room::Width pipeWidth(room::Width width) noexcept { return width == room::Width::Mono ? room::Width::Stereo : width; }
     /** How many channels that is. */
     static int pipeChannels(room::Width width) noexcept { return room::layout(pipeWidth(width)).numChannels; }
+    /** The LFE's limiter: how long it holds a reduction before letting go, and how slowly it then lets go at
+        the least (see setParameters). */
+    static constexpr double c_lfeHoldSeconds = 0.06;
+    static constexpr float c_lfeReleaseMs = 300.0f;
 
     void prepare(double sampleRate, room::Width width); // allocates
     void reset();

@@ -255,11 +255,11 @@ void TakeAudition::fill(Stream& s)
     }
 }
 
-void TakeAudition::process(juce::AudioBuffer<float>& out, int start, int numSamples)
+bool TakeAudition::process(juce::AudioBuffer<float>& out, int start, int numSamples)
 {
     const juce::SpinLock::ScopedTryLockType live(m_liveLock);
     if (! live.isLocked() || m_live == nullptr || m_live->finished.load(std::memory_order_relaxed))
-        return;
+        return false;
     auto& s = *m_live;
     int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
     s.fifo->prepareToRead(numSamples, start1, size1, start2, size2);
@@ -346,4 +346,5 @@ void TakeAudition::process(juce::AudioBuffer<float>& out, int start, int numSamp
     // Over: the fade out has finished, or the file has been played to its end.
     if (over)
         s.finished.store(true, std::memory_order_relaxed);
+    return true;
 }

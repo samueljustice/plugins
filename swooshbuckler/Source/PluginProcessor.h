@@ -10,6 +10,7 @@
 #include "Parameters.h"
 #include "TapeRecorder.h"
 #include "TakeAudition.h"
+#include "SumGuard.h"
 #include "RigEngine.h"
 #include "Modulators.h"
 #include "MorphWander.h"
@@ -466,6 +467,33 @@ public:
     /** The LFE's own limiter: its deepest reduction in the last block (dB, <= 0; 0 without an LFE). */
     float getLfeGainReductionDb() const { return m_master.getLfeGainReductionDb(); }
 
+    /** What the LFE is fed, for whatever shows it (the room strip, Render Variations).
+          NoLfe       the width has no LFE (Mono, Stereo, Quad)
+          Off         LFE Mode is Off: the LFE is silent because it was asked to be
+          Mixdown     the low end of the whole mix
+          Sub         Discrete, and Stowaway's Sub is there to play: Stowaway is on, in Sub, with a track sent to it
+          NoSub       Discrete, but Stowaway is off or not in Sub: NOTHING FEEDS THE LFE
+          NoSubTrack  Discrete, Stowaway on in Sub, but no loaded track plays on it: NOTHING FEEDS THE LFE
+        Discrete never falls back to anything else (the Sub is the only thing it was asked to play, and the low
+        end of a whole mix arriving in the LFE unasked is worse than silence): it stays silent and says so here. */
+    enum class LfeFeed { NoLfe, Off, Mixdown, Sub, NoSub, NoSubTrack };
+    /** For a rig that is not this one's live state (a batch about to be rendered at another width). */
+    static LfeFeed lfeFeedFor(room::Width width, int lfeMode, bool stowawayOn, int stowawayMode, bool trackOnStowaway);
+    /** This rig's, as its parameters and its Cargo Hold stand. Any thread. */
+    LfeFeed getLfeFeed() const { return getLfeFeedAt(getRoomWidth()); }
+    /** The same at another width (Render Variations renders at the width it is given). Any thread. */
+    LfeFeed getLfeFeedAt(room::Width width) const;
+    /** LFE Mode is Discrete or Mixdown and yet nothing reaches the LFE. */
+    static bool lfeIsUnfed(LfeFeed feed) { return feed == LfeFeed::NoSub || feed == LfeFeed::NoSubTrack; }
+    /** Why nothing reaches the LFE and what to do about it, in a sentence; empty when it is fed, Off, or the width
+        has none. */
+    static juce::String lfeFeedReason(LfeFeed feed);
+    /** A loaded track plays on Stowaway (sent there by hand, or a Rumble on Auto while Stowaway is on in Sub). */
+    bool hasTrackOnStowaway() const;
+    /** The main speakers' low end is being kept in step with the LFE (the LFE carries a copy of what they carry):
+        see RigEngine::lfeCarriesMains. */
+    bool lfeCarriesMains() const { return m_engine.lfeCarriesMains(); }
+
     static constexpr int c_scopeSize = 1 << 13;
     static constexpr int c_maxSection = 512; // the samples between parameter and modulator updates (a multiple of c_quantum)
     static constexpr int c_quantum = 32;     // the rig is rendered this many samples at a time, whatever the host's block size (see processBlock)
@@ -692,6 +720,7 @@ private:
     int m_takesGeneration = 0, m_nextTakeId = 1, m_filesThisTake = 0;
     void updateTapeNaming();   // the name and description the tape gives its next file
     TakeAudition m_audition;
+    SumGuard m_sumGuard; // the rig and an auditioned take together, held under the Ceiling (see SumGuard)
 
     JUCE_DECLARE_WEAK_REFERENCEABLE(SwooshbucklerAudioProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SwooshbucklerAudioProcessor)

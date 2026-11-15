@@ -112,13 +112,15 @@
  *   LFE        (renderLfe; widths with an LFE) LFE Mode: Off (silent); Discrete: Stowaway's Sub, which stays in L
  *              and R as well; Mixdown: half the sum of the main speakers (a sound in the middle of the front pair
  *              reaches it at the level each of the pair carries). Either way through the LFE's own fixed low-pass
- *              (lfe::LowPass, 120 Hz, 48 dB an octave) and LFE Level. The main speakers go through the matching
- *              all-pass (lfe::PhaseMatch), so the LFE and the mains' copy of the same low end are in phase at every
- *              frequency: bass management adds them, never cancels them (every room width's mains go through it,
- *              Quad's too, so a change of width never switches it). With LFE Level at its reference (-10 dB,
- *              which a calibrated room plays as loud as a main speaker) Discrete adds 3.5 dB under 80 Hz to what
- *              the mains' two copies give together: the Sub is weighted, not doubled. The mains are the same
- *              whatever the LFE Mode.
+ *              (lfe::LowPass, 120 Hz, 48 dB an octave) and LFE Level. While the LFE carries a copy of what the
+ *              main speakers carry (Mixdown; Discrete with Stowaway on in Sub) the main speakers go through the
+ *              matching all-pass (lfe::PhaseMatch), so the LFE and the mains' copy of the same low end are in phase
+ *              at every frequency: bass management adds them, never cancels them. Otherwise (LFE Mode Off, Discrete
+ *              without the Sub, a width without an LFE) the mains go straight through, with no delay in their low
+ *              end; the all-pass comes and goes over half a second by moving its frequency, with no click and no
+ *              change of level on the way. With LFE Level at its reference (-10 dB, which a calibrated room plays
+ *              as loud as a main speaker) Discrete adds 3.5 dB under 80 Hz to what the mains' two copies give
+ *              together: the Sub is weighted, not doubled. Nothing is ever taken from the mains.
  *
  * Every continuous control is chased by a damped spring (rubber banding).
  * No allocation, locks or I/O on the audio thread.
@@ -137,6 +139,8 @@ public:
     enum LfeMode { LfeOff = 0, LfeDiscrete, LfeMixdown, c_lfeModes };
     static constexpr float c_lfeReferenceDb = -10.0f;
     static constexpr float c_lfeMinDb = -40.0f, c_lfeMaxDb = 0.0f;
+    /** How long the mains' phase match takes to come in or go out (see renderLfe). */
+    static constexpr double c_lfeMatchSeconds = 0.5;
 
     /** Stowaway: what the extra bus is, and its five knobs (the same names in every mode). */
     enum StowMode { StowSub = 0, StowWake, StowFly, StowDry, c_stowModes };
@@ -339,6 +343,10 @@ public:
         own copy, which goes on through those as L and R do: see renderLfe.) Silent in every other
         mode and at Mono and Stereo. Valid for the samples of the last process() call (up to c_stemSamples). */
     const float* getSubStem() const { return m_subStem.data(); }
+    /** The LFE is carrying a copy of what the main speakers carry (Mixdown, or Discrete with Stowaway on in Sub,
+        in a width with an LFE), so the mains' low end is being kept in step with it (lfe::PhaseMatch). False: the
+        mains go straight through. As of the last chunk rendered; any thread. */
+    bool lfeCarriesMains() const { return m_lfeCarries.load(std::memory_order_relaxed); }
     static constexpr int c_stemSamples = 8192;
     float getLatencySamples() const;
 
@@ -598,7 +606,8 @@ private:
     float stepSpaceGains(float s, bool wasOn);
     /** The room's reverb taps this chunk: each speaker's share (see the class comment), glided. */
     void roomReverbTaps(int frames, RoomReverb::Taps& taps);
-    /** A room: the mains through the phase match, and (a width with an LFE) the LFE channel from LFE Mode. */
+    /** A room: (a width with an LFE) the LFE channel from LFE Mode, and the mains through the phase match while
+        the LFE carries a copy of them. */
     void renderLfe(int frames);
 
     /** What Low End adds under a low band: a note an octave below it and its overtones. The buses feed it their
@@ -1120,6 +1129,9 @@ private:
     std::array<lfe::PhaseMatch, room::c_maxChannels> m_lfePhase;
     float m_lfeDiscrete = 0.0f, m_lfeMixdown = 0.0f; // each source's gain into the LFE, glided
     bool m_lfeSnap = true;
+    double m_lfeMatch = 0.0;         // how much of the mains' phase match is in (0 a plain wire .. 1 the match)
+    bool m_lfeMatchSnap = true;      // the next chunk starts with the match where it belongs, without the glide
+    std::atomic<bool> m_lfeCarries { false };
     int m_lfeChannel = -1;           // the channel the LFE is fed into (kept while leaving for a width without one)
     std::array<float, c_chunk> m_stem {}; // Stowaway's Sub as L and R each carry it, this chunk (Discrete's source)
     float m_echoDriftL = 0.0f, m_echoDriftR = 0.5f; // phases (-1..1) of the slow drift of the two echo times

@@ -27,6 +27,8 @@
 #include "RoomMaster.h"
 #include "MasterProcessor.h"
 #include "TakeAudition.h"
+#include "SumGuard.h"
+#include "LfeFilter.h"
 #include "TestClock.h"
 
 #include <cmath>
@@ -80,28 +82,38 @@ namespace
         return p;
     }
 
-    /** The peak between the samples as well: four points a sample from a long windowed sinc (64 samples; the
-        limiter's own detector reads 48). */
+    /** The reference true peak: sixteen points a sample, each from 256 samples with a Kaiser-windowed sinc (flat
+        to 0.49 of the sample rate): much sharper than the limiter's own detector (four points from 64 samples and
+        the crest of the curve through them) and than a standard true-peak meter (four points from 12). */
     float truePeakOf(const Signal& x)
     {
-        constexpr int half = 32, over = 4;
+        constexpr int half = 128, over = 16;
         static std::vector<float> table;
         if (table.empty())
         {
+            auto bessel = [](double v) { double sum = 1.0, term = 1.0; for (int k = 1; k < 60; ++k) { term *= (0.5 * v / k) * (0.5 * v / k); sum += term; } return sum; };
             table.resize(static_cast<size_t>(over * 2 * half));
             for (int p = 0; p < over; ++p)
+            {
+                double total = 0.0;
                 for (int j = 0; j < 2 * half; ++j)
                 {
                     const double d = static_cast<double>(j - half + 1) - static_cast<double>(p) / over;
-                    const double w = 0.5 + 0.5 * std::cos(c_twoPi * 0.5 * d / half);
-                    table[static_cast<size_t>(p * 2 * half + j)] = static_cast<float>(std::abs(d) < 1.0e-9 ? 1.0 : std::sin(0.5 * c_twoPi * d) / (0.5 * c_twoPi * d) * w);
+                    const double r = d / half;
+                    const double w = std::abs(r) < 1.0 ? bessel(8.0 * std::sqrt(1.0 - r * r)) / bessel(8.0) : 0.0;
+                    const double v = (std::abs(d) < 1.0e-9 ? 1.0 : std::sin(0.5 * c_twoPi * d) / (0.5 * c_twoPi * d)) * w;
+                    table[static_cast<size_t>(p * 2 * half + j)] = static_cast<float>(v);
+                    total += v;
                 }
+                for (int j = 0; j < 2 * half; ++j)
+                    table[static_cast<size_t>(p * 2 * half + j)] /= static_cast<float>(total);
+            }
         }
         float peak = 0.0f;
         for (size_t n = half; n + half < x.size(); ++n)
         {
-            if (std::abs(x[n]) < 0.5f * peak && std::abs(x[n + 1]) < 0.5f * peak)
-                continue; // a peak between two samples is never more than a few dB over them
+            if (std::abs(x[n]) < 0.35f * peak && std::abs(x[n + 1]) < 0.35f * peak)
+                continue; // a peak between two samples that are both far under the loudest so far is not the loudest
             for (int p = 0; p < over; ++p)
             {
                 float sum = 0.0f;
@@ -669,6 +681,56 @@ int main(int argc, char* argv[])
                       << num(apart, 3) << " dB (no limiting: " << num(deepest, 2) << " dB)" << std::endl;
             check(apart < 0.05 && deepest > -0.01, "below the limiter a sound in the centre speaker gets exactly the Inflate its phantom gets (within 0.05 dB)");
         }
+
+        // Sounds that have nothing to do with each other do not shape each other from speaker to speaker: a loud
+        // low tone in L, and a quiet 1 kHz tone in another speaker of the same side. (Shaped by the side's summed
+        // level, the quiet tone's gain followed the loud one's waveform: sidebands at 800 and 1200 Hz 26.8 dB under
+        // it at Inflate 30%, and the tone 0.81 dB quieter on the left than the same tone on the right.)
+        {
+            const int length = static_cast<int>(c_fs * 3.0);
+            const size_t from = static_cast<size_t>(c_fs);
+            const auto& lay = room::layout(room::Width::Surround51);
+            int frontLeft = -1, ls = -1, rs = -1, centre = lay.centre;
+            for (int c = 0; c < lay.numChannels; ++c)
+            {
+                const auto& info = room::info(lay.speakers[static_cast<size_t>(c)]);
+                if (c == lay.lfe || c == lay.centre)
+                    continue;
+                if (info.x < 0.0f && info.y > 0.0f) frontLeft = c;
+                if (info.x < 0.0f && info.y <= 0.0f) ls = c;
+                if (info.x > 0.0f && info.y <= 0.0f) rs = c;
+            }
+            double worstBeside = -300.0, worstBalance = 0.0, inOne = 0.0;
+            for (float turned : { 0.3f, 0.7f, 1.0f })
+            {
+                auto quietTone = [&](int where)
+                {
+                    Take take;
+                    take.resize(static_cast<size_t>(length));
+                    for (int i = 0; i < length; ++i)
+                    {
+                        take.ch[static_cast<size_t>(frontLeft)][static_cast<size_t>(i)] += 0.7f * static_cast<float>(std::sin(c_twoPi * 100.0 * i / c_fs));
+                        take.ch[static_cast<size_t>(where)][static_cast<size_t>(i)] += 0.01f * static_cast<float>(std::sin(c_twoPi * 1000.0 * i / c_fs));
+                    }
+                    runStage(take, room::Width::Surround51, stageParams(0.0f, std::min(1.0f, turned / 0.7f), std::max(0.0f, (turned - 0.7f) / 0.3f)));
+                    const auto& x = take.ch[static_cast<size_t>(where)];
+                    const double toneLevel = toneIn(x, 1000.0, from);
+                    const double beside = std::max({ toneIn(x, 800.0, from), toneIn(x, 1200.0, from), toneIn(x, 900.0, from), toneIn(x, 1100.0, from) });
+                    return std::pair<double, double> { db(toneLevel), db(beside / toneLevel) };
+                };
+                const auto inLs = quietTone(ls), inRs = quietTone(rs), inC = quietTone(centre), inL = quietTone(frontLeft);
+                worstBeside = std::max({ worstBeside, inLs.second, inC.second });
+                worstBalance = std::max(worstBalance, std::abs(inLs.first - inRs.first));
+                if (turned < 0.5f)
+                    inOne = inL.second;
+            }
+            std::cout << "         a loud 100 Hz tone in L, a quiet 1 kHz tone in Ls or C (Inflate 30, 70, 100%): sidebands on the quiet tone at most "
+                      << num(worstBeside, 1) << " dB under it, its level in Ls and in Rs within " << num(worstBalance, 3)
+                      << " dB (both tones in L, as one Stereo channel carries them: " << num(inOne, 1) << " dB at 30%)" << std::endl;
+            check(frontLeft >= 0 && ls >= 0 && rs >= 0 && centre >= 0 && worstBeside < -80.0 && worstBalance < 0.01,
+                  "a loud sound in one speaker does not modulate a quiet, unrelated one in another speaker of its side, or move its left / right balance");
+            check(inOne > -20.0 && inOne < -15.0, "in one speaker they shape each other as in a Stereo channel (the measure can see it)");
+        }
     }
 
     //==================================================================================================================
@@ -763,7 +825,8 @@ int main(int argc, char* argv[])
         std::cout << "The Ceiling on every channel, the LFE's own limiter, one latency" << std::endl;
         const float ceiling = juce::Decibels::decibelsToGain(c_ceilingDb);
         const int n = static_cast<int>(c_fs * 3.0);
-        float worstSample = 0.0f, worstTrue = 0.0f;
+        float worstSample = 0.0f, worstTrue = 0.0f, worstTrueBand = 0.0f;
+        juce::String worstAt, worstBandAt;
         std::uint64_t clamps = 0;
         bool latencySame = true;
         int latency = -1;
@@ -771,26 +834,42 @@ int main(int argc, char* argv[])
         {
             const auto& lay = room::layout(RoomMaster::pipeWidth(w));
             // Every speaker its own loud noise, a loud low tone as well in the surrounds, pushed hard.
-            for (int kind = 0; kind < 3; ++kind)
+            // (Kinds 3 and 4: the same noise with nothing at the very top, where no real sound has its power: each
+            // sample averaged with the one before, which is 3 dB down at a quarter of the sample rate and silent
+            // at half of it.)
+            for (int kind = 0; kind < 5; ++kind)
             {
                 Take take;
                 take.resize(static_cast<size_t>(n));
                 for (int c = 0; c < lay.numChannels; ++c)
                 {
-                    if (kind == 0)
+                    if (kind == 0 || kind == 3)
                         take.ch[static_cast<size_t>(c)] = noise(n, 40 + c, 2.0f);
-                    else if (kind == 1) // the same sound in every speaker, in phase
+                    else if (kind == 1 || kind == 4) // the same sound in every speaker, in phase
                         take.ch[static_cast<size_t>(c)] = noise(n, 7, 1.5f);
                     else // one speaker at a time, loud, the others quiet
                         for (int i = 0; i < n; ++i)
                             take.ch[static_cast<size_t>(c)][static_cast<size_t>(i)] = ((i * lay.numChannels / n) == c ? 3.0f : 0.05f)
                                 * static_cast<float>(std::sin(c_twoPi * (997.0 + 31.0 * c) * i / c_fs));
                 }
-                clamps += runStage(take, w, stageParams(kind == 0 ? 12.0f : 6.0f, 1.0f)).clamps;
+                if (kind >= 3)
+                    for (int c = 0; c < lay.numChannels; ++c)
+                    {
+                        auto& x = take.ch[static_cast<size_t>(c)];
+                        for (size_t i = x.size() - 1; i > 0; --i)
+                            x[i] = 0.5f * (x[i] + x[i - 1]);
+                    }
+                clamps += runStage(take, w, stageParams(kind == 0 || kind == 3 ? 12.0f : 6.0f, 1.0f)).clamps;
                 for (int c = 0; c < lay.numChannels; ++c)
                 {
                     worstSample = std::max(worstSample, peakOf(take.ch[static_cast<size_t>(c)]));
-                    worstTrue = std::max(worstTrue, truePeakOf(take.ch[static_cast<size_t>(c)]));
+                    const float truePeak = truePeakOf(take.ch[static_cast<size_t>(c)]);
+                    auto& worst = kind == 0 || kind == 1 ? worstTrue : worstTrueBand;
+                    if (truePeak > worst)
+                    {
+                        worst = truePeak;
+                        (kind == 0 || kind == 1 ? worstAt : worstBandAt) = nameOf(w);
+                    }
                 }
             }
             RoomMaster m;
@@ -812,10 +891,13 @@ int main(int argc, char* argv[])
                 latencySame = latencySame && static_cast<int>(at) - 100 == latency;
             }
         }
-        std::cout << "         loudest sample " << num(juce::Decibels::gainToDecibels(worstSample), 3) << " dB, loudest point between samples "
-                  << num(juce::Decibels::gainToDecibels(worstTrue), 3) << " dB (Ceiling " << num(c_ceilingDb, 1) << " dB); latency " << latency << " samples" << std::endl;
+        std::cout << "         loudest sample " << num(juce::Decibels::gainToDecibels(worstSample), 3) << " dB (Ceiling " << num(c_ceilingDb, 1)
+                  << " dB); the true peak, sixteen points a sample: white noise to half the sample rate " << num(juce::Decibels::gainToDecibels(worstTrue), 3)
+                  << " dB (" << worstAt << "), tones and noise with nothing at the very top " << num(juce::Decibels::gainToDecibels(worstTrueBand), 3)
+                  << " dB (" << worstBandAt << "); latency " << latency << " samples" << std::endl;
         check(worstSample <= ceiling, "no sample of any channel at any width is over the Ceiling (every speaker loud, in phase, and one at a time)");
-        check(juce::Decibels::gainToDecibels(worstTrue) <= c_ceilingDb + 0.25f, "nor is the waveform between the samples (within 0.25 dB: full-scale white noise pushed 12 dB, the hardest there is)");
+        check(juce::Decibels::gainToDecibels(worstTrueBand) <= c_ceilingDb + 0.1f, "nor is the waveform between the samples, at Mono, Stereo and every room (true peak within 0.1 dB of the Ceiling)");
+        check(juce::Decibels::gainToDecibels(worstTrue) <= c_ceilingDb + 0.4f, "white noise with full power right up to half the sample rate, pushed 12 dB, is the hardest there is: within 0.4 dB");
         check(clamps == 0, "the limiter's gain did that on its own: the safety clamp after it never acted");
         check(latencySame, "every channel of every width comes out the same number of samples later");
 
@@ -880,6 +962,67 @@ int main(int argc, char* argv[])
             const double mainUp = db(energy(pushed.ch[0], 4800) / energy(quietLfeFlat.ch[0], 4800));
             check(std::abs(lfeUp - 6.0) < 0.01 && std::abs(mainUp - 6.0) < 0.01, "Push drives the LFE as it drives the mains (" + num(lfeUp, 2) + " and " + num(mainUp, 2) + " dB)");
         }
+
+        // The LFE's limiter working hard puts next to nothing above the LFE's low-pass: it holds its gain through a
+        // low note (60 ms) and lets go slowly, where a limiter following the note cycle by cycle bends it (a 45 Hz
+        // tone 6 dB over had its third harmonic, 135 Hz, 37 dB under it; a rumble swelling 6 dB over had 41 dB
+        // under it above 300 Hz, against 61 dB going in).
+        {
+            const auto w = room::Width::Surround51;
+            const size_t lfe = static_cast<size_t>(room::layout(w).lfe);
+            const float ceilingGain = juce::Decibels::decibelsToGain(c_ceilingDb);
+            double worstThird = -300.0;
+            float tonePeak = 0.0f;
+            for (double hz : { 30.0, 45.0, 60.0, 90.0 })
+                for (float overDb : { 0.8f, 6.0f, 12.0f })
+                {
+                    Take take;
+                    take.resize(static_cast<size_t>(c_fs * 4.0));
+                    lfe::LowPass lp;
+                    lp.prepare(c_fs);
+                    const double a = juce::Decibels::decibelsToGain(overDb);
+                    for (size_t i = 0; i < take.samples(); ++i)
+                        take.ch[lfe][i] = lp.process(static_cast<float>(a * std::sin(c_twoPi * hz * static_cast<double>(i) / c_fs)));
+                    runStage(take, w, stageParams(0.0f, 1.0f));
+                    const size_t from = static_cast<size_t>(c_fs * 2.0);
+                    const double tone = toneIn(take.ch[lfe], hz, from);
+                    for (int h : { 3, 5, 7 })
+                        worstThird = std::max(worstThird, db(toneIn(take.ch[lfe], h * hz, from) / tone));
+                    tonePeak = std::max(tonePeak, peakOf(take.ch[lfe]));
+                }
+            double worstAbove = -300.0, aboveIn = 0.0, above120 = 0.0;
+            float swellPeak = 0.0f;
+            for (float peakDb : { 2.0f, 6.0f, 12.0f })
+            {
+                Take take;
+                take.resize(static_cast<size_t>(c_fs * 1.5));
+                lfe::LowPass lp;
+                lp.prepare(c_fs);
+                juce::Random r(11);
+                float most = 0.0f;
+                for (size_t i = 0; i < take.samples(); ++i)
+                {
+                    const double e = std::sin(0.5 * c_twoPi * static_cast<double>(i) / static_cast<double>(take.samples()));
+                    take.ch[lfe][i] = lp.process(static_cast<float>(e * e) * (r.nextFloat() * 2.0f - 1.0f));
+                    most = std::max(most, std::abs(take.ch[lfe][i]));
+                }
+                for (auto& v : take.ch[lfe])
+                    v *= juce::Decibels::decibelsToGain(peakDb) / most;
+                const auto in = spectrum(take.ch[lfe]);
+                aboveIn = db(band(in, 300.0, 20000.0) / band(in, 10.0, 20000.0));
+                runStage(take, w, stageParams(0.0f, 1.0f));
+                const auto out = spectrum(take.ch[lfe]);
+                worstAbove = std::max(worstAbove, db(band(out, 300.0, 20000.0) / band(out, 10.0, 20000.0)));
+                above120 = std::max(above120, db(band(out, 120.0, 20000.0) / band(out, 10.0, 20000.0)) - db(band(in, 120.0, 20000.0) / band(in, 10.0, 20000.0)));
+                swellPeak = std::max(swellPeak, peakOf(take.ch[lfe]));
+            }
+            std::cout << "         the LFE's limiter working (0.8 to 12 dB): tones of 30 to 90 Hz, harmonics at most " << num(worstThird, 1)
+                      << " dB under the tone; a rumble swelling up to 12 dB over, above 300 Hz " << num(worstAbove, 1) << " dB of the whole (going in "
+                      << num(aboveIn, 1) << " dB), above 120 Hz up by " << num(above120, 1) << " dB; peaks " << num(juce::Decibels::gainToDecibels(std::max(tonePeak, swellPeak)), 2) << " dB" << std::endl;
+            check(worstThird < -100.0, "the LFE's limiter adds no harmonics to a low note it is holding down (under -100 dB; it was -32 to -46 dB)");
+            check(worstAbove < -42.0 && above120 < 2.0, "and little above the LFE's low-pass to a swelling rumble (above 300 Hz under -42 dB of the whole, 12 dB into the limiter)");
+            check(std::max(tonePeak, swellPeak) <= ceilingGain, "the LFE is still held at the Ceiling, sample for sample");
+        }
     }
 
     //==================================================================================================================
@@ -920,6 +1063,70 @@ int main(int argc, char* argv[])
                   << num(juce::Decibels::gainToDecibels(quietest), 1) << " dB" << std::endl;
         check(worst <= ceiling, "no channel of any room is over the Ceiling, pushed 12 dB with every speaker and the LFE sounding");
         check(quietest > 0.01f, "every channel sounded (the check is not of silent channels)");
+
+        // The true peak of what the plug-in gives, at every width, Mono and Stereo too: loud noise pushed 12 dB and
+        // as a session opens. And what a host's own stereo fold of a room does with it (each speaker that is not L
+        // or R added at -3 dB, the LFE left out): the Ceiling holds each speaker and each side's sum, not a fold
+        // made outside the plug-in.
+        {
+            float worstTrue = 0.0f;
+            juce::String worstAt;
+            double foldMost = -100.0, foldAsOpened = -100.0;
+            for (int hard = 0; hard < 2; ++hard)
+                for (auto w : c_widths)
+                {
+                    Plug plug(src, w, [&](Plug& p)
+                    {
+                        p.setPlain(ParamIDs::ceiling, c_ceilingDb);
+                        if (hard != 0)
+                        {
+                            p.setPlain(ParamIDs::push, 12.0f);
+                            p.setPlain(ParamIDs::inflate, 1.0f);
+                            p.setPlain(ParamIDs::space, 1.0f);
+                            p.setPlain(ParamIDs::roomSpread, 0.5f);
+                            p.setPlain(ParamIDs::roomCentre, 1.0f);
+                        }
+                    });
+                    const auto out = plug.run(6.0);
+                    for (int c = 0; c < out.getNumChannels(); ++c)
+                    {
+                        const float truePeak = truePeakOf(Signal(out.getReadPointer(c), out.getReadPointer(c) + out.getNumSamples()));
+                        if (truePeak > worstTrue)
+                        {
+                            worstTrue = truePeak;
+                            worstAt = nameOf(w) + (hard != 0 ? ", pushed" : ", as it opens");
+                        }
+                    }
+                    if (w >= room::Width::Quad)
+                    {
+                        const auto& lay = room::layout(w);
+                        float foldPeak = 0.0f;
+                        for (int i = 0; i < out.getNumSamples(); ++i)
+                        {
+                            float l = 0.0f, r = 0.0f;
+                            for (int c = 0; c < lay.numChannels; ++c)
+                            {
+                                if (c == lay.lfe)
+                                    continue;
+                                const auto& info = room::info(lay.speakers[static_cast<size_t>(c)]);
+                                const float x = out.getSample(c, i);
+                                const bool front = juce::String(info.name) == "L" || juce::String(info.name) == "R";
+                                const float g = front ? 1.0f : 0.70710678f;
+                                if (info.x <= 0.0f) l += g * x;
+                                if (info.x >= 0.0f) r += g * x;
+                            }
+                            foldPeak = std::max({ foldPeak, std::abs(l), std::abs(r) });
+                        }
+                        auto& most = hard != 0 ? foldMost : foldAsOpened;
+                        most = std::max(most, static_cast<double>(juce::Decibels::gainToDecibels(foldPeak)));
+                    }
+                }
+            std::cout << "         true peak of the loudest channel at any width " << num(juce::Decibels::gainToDecibels(worstTrue), 3) << " dB (" << worstAt
+                      << "; Ceiling " << num(c_ceilingDb, 1) << " dB); a host's own stereo fold of a room render peaks at " << num(foldAsOpened, 2)
+                      << " dBFS as a session opens, " << num(foldMost, 2) << " dBFS pushed with Spread 50% and the Centre Speaker on" << std::endl;
+            check(juce::Decibels::gainToDecibels(worstTrue) <= c_ceilingDb + 0.1f, "the true peak of every channel at every width, Mono and Stereo too, is within 0.1 dB of the Ceiling");
+            check(foldAsOpened > 0.0 && foldMost < 6.5, "a stereo fold made outside the plug-in is not held: it peaks over full scale (the manual says so, and by how much: about 2 dB as a session opens, up to about 6 dB driven hard)");
+        }
     }
 
     //==================================================================================================================
@@ -994,7 +1201,10 @@ int main(int argc, char* argv[])
         // which BS.1770 counts 1.5 dB up (Ls / Rs, the sides). Around is held at every Doppler: a pass going
         // Around holds the level and the brightness a crossing pass has on average over its swell (it was 1.9 dB
         // over Stereo with Doppler at 100%, held as near and as bright as a crossing pass is for a moment).
-        check(worstPlain < 0.5, "every room carries the Stereo render's power at the same settings (within 0.5 dB)");
+        // (Space's reverb is a different sound in every speaker, so in a room each speaker's share of it is lifted
+        // by Inflate at its own level, not at the level of everything on its side: with Inflate full and Push up
+        // the room then carries about half a dB more than Stereo.)
+        check(worstPlain < 0.75, "every room carries the Stereo render's power at the same settings (within 0.75 dB; within 0.4 dB with Inflate where a session opens)");
         check(worst < 1.5, "and reads within 1.5 dB of its loudness (the surrounds count 1.5 dB up in a loudness reading)");
     }
 
@@ -1236,6 +1446,88 @@ int main(int argc, char* argv[])
             check(! TakeAudition::needsLimiter(TakeAudition::mixFor(6, room::Width::Surround714)) && ! TakeAudition::needsLimiter(TakeAudition::mixFor(1, room::Width::Stereo))
                   && TakeAudition::needsLimiter(TakeAudition::mixFor(12, room::Width::Stereo)),
                   "only a mix that can come out louder than the take is limited (a narrower take on a wider output is not)");
+        }
+
+        // The rig playing at the Ceiling and a full-scale take auditioned on top of it: each is under the Ceiling,
+        // the two together were up to 6 dB over it. What you hear is held under it (by SumGuard, with no delay).
+        {
+            const float ceilingDb = -1.0f;
+            const float ceiling = juce::Decibels::decibelsToGain(ceilingDb);
+            juce::AudioBuffer<float> take(2, n);
+            for (int i = 0; i < n; ++i)
+                for (int c = 0; c < 2; ++c)
+                    take.setSample(c, i, 0.89f * static_cast<float>(std::sin(c_twoPi * 220.0 * i / c_fs)));
+            const auto file = folder.getChildFile("loudStereo.wav");
+            writeWav(file, take);
+            float together = 0.0f, alone = 0.0f;
+            double toneHeard = 0.0;
+            bool played = false;
+            for (int withTake = 0; withTake < 2; ++withTake)
+            {
+                Plug plug(src, room::Width::Stereo, [&](Plug& p)
+                {
+                    p.setPlain(ParamIDs::push, 12.0f);
+                    p.setPlain(ParamIDs::ceiling, ceilingDb);
+                });
+                plug.run(1.0); // the rig is up and at the Ceiling
+                if (withTake != 0)
+                {
+                    plug.proc.registerTake(file, "Tape");
+                    juce::String why;
+                    const auto takes = plug.proc.getTakes();
+                    played = ! takes.empty() && plug.proc.auditionTake(takes[0].id, why);
+                }
+                juce::AudioBuffer<float> block(2, 512);
+                juce::MidiBuffer midi;
+                Signal left;
+                for (int b = 0; b < static_cast<int>(c_fs * 1.5 / 512); ++b)
+                {
+                    plug.proc.topUpAudition();
+                    block.clear();
+                    plug.proc.processBlock(block, midi);
+                    (withTake != 0 ? together : alone) = std::max(withTake != 0 ? together : alone, block.getMagnitude(0, 512));
+                    left.insert(left.end(), block.getReadPointer(0), block.getReadPointer(0) + 512);
+                }
+                if (withTake != 0)
+                    toneHeard = db(toneIn(left, 220.0, 4800));
+                plug.proc.stopAudition();
+            }
+            std::cout << "         the rig at the Ceiling (" << num(juce::Decibels::gainToDecibels(alone), 2) << " dB) and a take at "
+                      << num(juce::Decibels::gainToDecibels(0.89f), 1) << " dB auditioned over it: together " << num(juce::Decibels::gainToDecibels(together), 2)
+                      << " dB (Ceiling " << num(ceilingDb, 1) << "); the take's tone heard at " << num(toneHeard, 1) << " dB" << std::endl;
+            check(played && together <= ceiling * 1.0001f && alone <= ceiling, "the rig and an auditioned take together stay under the Ceiling (they added up to 6 dB over it)");
+            check(toneHeard > -12.0, "and the take is heard over the rig");
+        }
+        // The guard itself: under the Ceiling nothing is touched, bit for bit; over it every sample is held, and it
+        // lets go again.
+        {
+            SumGuard guard;
+            guard.prepare(c_fs);
+            juce::AudioBuffer<float> x(2, static_cast<int>(c_fs));
+            juce::Random r(5);
+            for (int i = 0; i < x.getNumSamples(); ++i)
+            {
+                x.setSample(0, i, 0.9f * (r.nextFloat() * 2.0f - 1.0f));
+                x.setSample(1, i, 0.9f * static_cast<float>(std::sin(c_twoPi * 50.0 * i / c_fs)));
+            }
+            auto under = x;
+            guard.process(under, 0, under.getNumSamples(), 0.95f);
+            bool same = ! guard.isWorking();
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < x.getNumSamples(); ++i)
+                    same = same && juce::exactlyEqual(under.getSample(c, i), x.getSample(c, i));
+            auto over = x;
+            over.applyGain(0, 0, 12000, 2.0f); // the first quarter second is 6 dB hotter
+            over.applyGain(1, 0, 12000, 2.0f);
+            guard.process(over, 0, over.getNumSamples(), 0.95f);
+            const float held = over.getMagnitude(0, 12000);
+            bool back = ! guard.isWorking();
+            for (int c = 0; c < 2; ++c)
+                for (int i = 36000; i < x.getNumSamples(); ++i)
+                    back = back && juce::exactlyEqual(over.getSample(c, i), x.getSample(c, i));
+            check(same, "the guard leaves a sum that is under the Ceiling exactly as it is");
+            std::cout << "         the guard on a sum 6 dB over a Ceiling of 0.95: held at " << held << ", " << (back ? "untouched again" : "still working") << " half a second later" << std::endl;
+            check(held <= 0.95f && held > 0.9f && back, "over the Ceiling it holds every sample at it, both channels together, and has let go half a second later");
         }
     }
 

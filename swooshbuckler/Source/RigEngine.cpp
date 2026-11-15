@@ -2,6 +2,7 @@
 #include "Parameters.h"
 
 #include <algorithm>
+#include <functional>
 
 namespace
 {
@@ -422,6 +423,7 @@ void RigEngine::reset()
     for (auto& f : m_lfePhase)
         f.reset();
     m_lfeSnap = true;
+    m_lfeMatchSnap = true;
     m_lfeChannel = room::layout(m_width).lfe;
     m_stem.fill(0.0f);
     m_echoDriftL = 0.0f; m_echoDriftR = 0.5f; // the same start every time, so a bounce repeats
@@ -3725,21 +3727,54 @@ void RigEngine::renderLfe(int frames)
     if (m_lfeMixdown < 1.0e-6f && mixdownTo <= 0.0f) m_lfeMixdown = 0.0f;
     const bool sounds = into >= 0 && into < m_liveChannels && (discrete0 > 0.0f || mixdown0 > 0.0f || m_lfeDiscrete > 0.0f || m_lfeMixdown > 0.0f);
 
+    // The mains' phase match (lfe::PhaseMatch): in only while the LFE carries a copy of what the mains carry,
+    // which is Mixdown, or Discrete with Stowaway on in Sub (its Sub is in L and R as well). Otherwise the mains
+    // go straight through. It comes and goes over half a second by moving the all-pass's frequency, never by
+    // fading it against the plain signal: no level changes on the way and nothing cancels. A render that starts
+    // with the LFE already set starts with it in place.
+    const bool carries = fed && level > 0.0f
+                         && (m_params.lfeMode == LfeMixdown || (m_params.lfeMode == LfeDiscrete && m_params.stow.on && m_params.stow.mode == StowSub));
+    m_lfeCarries.store(carries, std::memory_order_relaxed);
+    if (m_lfeMatchSnap)
+    {
+        m_lfeMatchSnap = false;
+        m_lfeMatch = carries ? 1.0 : 0.0;
+        for (auto& f : m_lfePhase)
+        {
+            f.reset();
+            if (carries)
+                f.setAmount(1.0);
+        }
+    }
+    const double matchTo = carries ? 1.0 : 0.0;
+    const double matchStep = 1.0 / (c_lfeMatchSeconds * static_cast<double>(m_fs));
+
     const float step = 1.0f / static_cast<float>(frames);
     for (int i = 0; i < frames; ++i)
     {
         const auto ii = static_cast<size_t>(i);
-        // Every channel through the phase match (in every mode and every room width, so the mains are the same
-        // whatever the mode, and in step with the LFE whenever it sounds; the LFE's own channel holds nothing
-        // here but a speaker gliding out after a change of width). The mains' sum for Mixdown before it.
+        // The mains' sum for Mixdown, taken before the phase match; then every channel through the match while
+        // any of it is in (the LFE's own channel holds nothing here but a speaker gliding out after a change of
+        // width).
         float sum = 0.0f;
         for (int ch = 0; ch < m_liveChannels; ++ch)
-        {
-            auto& x = m_mix[static_cast<size_t>(ch)][ii];
             if (ch != into)
-                sum += x;
-            x = m_lfePhase[static_cast<size_t>(ch)].process(x);
-        }
+                sum += m_mix[static_cast<size_t>(ch)][ii];
+        const bool moving = ! std::equal_to<double>()(m_lfeMatch, matchTo);
+        const bool wasOut = m_lfeMatch <= 0.0;
+        if (moving)
+            m_lfeMatch = matchTo > m_lfeMatch ? std::min(matchTo, m_lfeMatch + matchStep) : std::max(matchTo, m_lfeMatch - matchStep);
+        if (m_lfeMatch > 0.0)
+            for (int ch = 0; ch < m_liveChannels; ++ch)
+            {
+                auto& x = m_mix[static_cast<size_t>(ch)][ii];
+                auto& f = m_lfePhase[static_cast<size_t>(ch)];
+                if (wasOut)
+                    f.startAsWire(x); // coming in from a plain wire: as if it had been one all along
+                if (moving)
+                    f.setAmount(m_lfeMatch);
+                x = f.process(x);
+            }
         if (! sounds)
             continue;
         const float t = static_cast<float>(i + 1) * step;
@@ -4513,6 +4548,7 @@ void RigEngine::stepWidth(int frames, float& fade0, float& fade1)
             for (auto& f : m_lfePhase)
                 f.reset();
             m_lfeSnap = true;
+            m_lfeMatchSnap = true;
             m_lfeChannel = room::layout(m_width).lfe;
             m_widthFade = std::min(1.0f, step);
         }

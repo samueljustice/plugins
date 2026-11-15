@@ -841,11 +841,21 @@ int main(int argc, char* argv[])
             const Take mixdown = subScene(w, RigEngine::LfeMixdown, -10.0f);
             check(peakOf(off.ch[lfe]) == 0.0f && peakOf(off.ch[0]) > 0.05f, nameOf(w) + " Off: the LFE is silent (with the Sub sounding in L and R)");
 
-            // The mains are the same whatever the mode.
+            // The mains: nothing is taken from them in any mode. While the LFE carries a copy of them (Discrete with
+            // the Sub, Mixdown) they go through the phase match, the same in both; with the LFE Off they go
+            // straight through, so they are the Off render's mains through the phase match and nothing else.
             bool same = true;
+            float matched = 0.0f;
             for (int c : mainsOf(w))
-                same = same && off.ch[static_cast<size_t>(c)] == discrete.ch[static_cast<size_t>(c)] && off.ch[static_cast<size_t>(c)] == mixdown.ch[static_cast<size_t>(c)];
-            check(same, nameOf(w) + ": the main speakers are exactly the same in Off, Discrete and Mixdown (nothing is taken from them)");
+            {
+                same = same && discrete.ch[static_cast<size_t>(c)] == mixdown.ch[static_cast<size_t>(c)];
+                lfe::PhaseMatch pm;
+                pm.prepare(c_fs);
+                for (size_t i = 0; i < off.samples(); ++i)
+                    matched = std::max(matched, std::abs(pm.process(off.ch[static_cast<size_t>(c)][i]) - discrete.ch[static_cast<size_t>(c)][i]));
+            }
+            std::cout << "         " << nameOf(w) << ": the mains in Discrete against the Off render's through the phase match: apart by " << matched << std::endl;
+            check(same && matched < 2.0e-5f, nameOf(w) + ": the main speakers lose nothing in any mode: the same in Discrete and Mixdown, and with the LFE Off the same again without the phase match");
 
             // Discrete: exactly the Sub stem through the LFE's low-pass, at LFE Level, then the last DC blocker.
             {
@@ -979,6 +989,82 @@ int main(int argc, char* argv[])
             std::cout << "         5.1, LFE Mode and Level changing: largest change of step " << num(100.0 * worst / std::max(1.0e-9f, peakOf(x)), 3) << "% of the peak" << std::endl;
             check(peakOf(x) > 0.02f && worst < 0.002f * peakOf(x), "LFE Mode and LFE Level glide (no step in the LFE)");
         }
+        // The mains' phase match comes and goes with what the LFE carries, without a click, a dip or a notch on the
+        // way: the all-pass's frequency is moved, it is never faded against the plain signal. Under a steady 60 Hz
+        // tone (where a fade between the two would dip most): no step, the level steady throughout, and once it
+        // has gone the mains are the LFE-Off render again, bit for bit; once it is in, the Mixdown render.
+        {
+            const double seconds = 6.0;
+            const int blocksIn = static_cast<int>(2.0 * c_fs / c_block), blocksOut = static_cast<int>(4.0 * c_fs / c_block);
+            auto scene = [&](int startMode, bool switches)
+            {
+                Scene sc;
+                sc.load(0, src.tone60, 0);
+                sc.p.lfeMode = startMode;
+                sc.p.lfeLevelDb = 0.0f;
+                sc.p.buses[0].path = static_cast<int>(room::Path::Through);
+                sc.start(room::Width::Surround51);
+                return sc.run(seconds, [&](int b)
+                {
+                    if (switches && b == blocksIn)
+                        sc.p.lfeMode = RigEngine::LfeMixdown;
+                    if (switches && b == blocksOut)
+                        sc.p.lfeMode = RigEngine::LfeOff;
+                });
+            };
+            const Take off = scene(RigEngine::LfeOff, false), mixdown = scene(RigEngine::LfeMixdown, false), moved = scene(RigEngine::LfeOff, true);
+            const size_t in = static_cast<size_t>(blocksIn) * c_block, out = static_cast<size_t>(blocksOut) * c_block;
+            const size_t settled = static_cast<size_t>((RigEngine::c_lfeMatchSeconds + 0.3) * c_fs);
+            float worstStep = 0.0f, steadyStep = 0.0f, peak = 0.0f, afterOut = 0.0f, afterIn = 0.0f, before = 0.0f;
+            double levelLo = 1.0e9, levelHi = -1.0e9;
+            for (int c : mainsOf(room::Width::Surround51))
+            {
+                const auto& x = moved.ch[static_cast<size_t>(c)];
+                const auto& plain = off.ch[static_cast<size_t>(c)];
+                const auto& matched = mixdown.ch[static_cast<size_t>(c)];
+                peak = std::max(peak, peakOf(x));
+                for (size_t i = 4800; i < x.size(); ++i)
+                {
+                    const float d = std::abs(x[i] - 2.0f * x[i - 1] + x[i - 2]);
+                    (i < in ? steadyStep : worstStep) = std::max(i < in ? steadyStep : worstStep, d);
+                }
+                for (size_t i = 0; i < in; ++i)
+                    before = std::max(before, std::abs(x[i] - plain[i]));
+                for (size_t i = in + settled; i < out; ++i)
+                    afterIn = std::max(afterIn, std::abs(x[i] - matched[i]));
+                for (size_t i = out + settled; i < x.size(); ++i)
+                    afterOut = std::max(afterOut, std::abs(x[i] - plain[i]));
+                // The level of this speaker, 50 ms at a time, against the same stretch of the plain render and of
+                // the matched one (the pass moves, so the two differ by what the low end's delay makes of that; on
+                // the way the sound is between them): an all-pass on the move changes no level.
+                const size_t window = static_cast<size_t>(0.05 * c_fs);
+                for (size_t w = in; w + window <= out + settled; w += window)
+                {
+                    double a = 0.0, b = 0.0, m = 0.0;
+                    for (size_t i = w; i < w + window; ++i)
+                    {
+                        a += static_cast<double>(x[i]) * x[i];
+                        b += static_cast<double>(plain[i]) * plain[i];
+                        m += static_cast<double>(matched[i]) * matched[i];
+                    }
+                    if (b > 1.0e-6 && m > 1.0e-6)
+                    {
+                        const double toPlain = db(a / b), toMatched = db(a / m);
+                        const double nearer = std::abs(toPlain) < std::abs(toMatched) ? toPlain : toMatched;
+                        levelLo = std::min(levelLo, nearer);
+                        levelHi = std::max(levelHi, nearer);
+                    }
+                }
+            }
+            std::cout << "         5.1, LFE Mode Off -> Mixdown -> Off under a 60 Hz tone: largest change of step " << num(100.0 * worstStep / peak, 3)
+                      << "% of the peak (steady " << num(100.0 * steadyStep / peak, 3) << "%); each speaker's level against the nearer of the plain and the matched render, 50 ms at a time, "
+                      << num(levelLo, 2) << " .. " << num(levelHi, 2) << " dB; in: apart from the Mixdown render by " << afterIn << "; out again: apart from the Off render by "
+                      << afterOut << std::endl;
+            check(before == 0.0f && worstStep < 3.0f * steadyStep + 1.0e-5f * peak, "the mains' phase match comes in and goes out without a step");
+            check(levelLo > -0.5 && levelHi < 0.5, "and without a dip: every speaker's level stays within 0.5 dB on the way (a fade between the two would dip 12 dB at 60 Hz, half way)");
+            check(afterIn < 1.0e-3f * peak, "0.8 s after the LFE starts carrying the mix, the mains are in step with it (the Mixdown render)");
+            check(afterOut == 0.0f, "0.8 s after the LFE stops, the mains go straight through again: the Off render, bit for bit");
+        }
         // The LFE's copy of the Sub takes what the mains' copy takes on its way out, so the two keep their balance
         // (and stay in step for bass management) with the Everything tremolo shaking and with Space up.
         {
@@ -1095,7 +1181,13 @@ int main(int argc, char* argv[])
                 p.setPlain(ParamIDs::roomLfeLevel, 0.0f);
                 p.setPlain(ParamIDs::push, 12.0f);
             }; };
-            Plug offPlug(src, w, loud(RigEngine::LfeOff));
+            // (Against the same render with the LFE far too quiet to reach its limiter: the mains go through the
+            // phase match in both.)
+            Plug offPlug(src, w, [&](Plug& p)
+            {
+                loud(RigEngine::LfeDiscrete)(p);
+                p.setPlain(ParamIDs::roomLfeLevel, -40.0f);
+            });
             const auto off = offPlug.run(4.0);
             float gr = 0.0f;
             Plug onPlug(src, w, loud(RigEngine::LfeDiscrete));
@@ -1108,9 +1200,9 @@ int main(int argc, char* argv[])
                                                                      onPlug.proc.getState().getParameter(ParamIDs::ceiling)->getValue()));
             std::cout << "         " << nameOf(w) << ", LFE Discrete at 0 dB, Push +12 dB: the LFE limiter's deepest reduction " << num(gr, 1)
                       << " dB, LFE peak " << num(db(static_cast<double>(lfePeak) * lfePeak), 2) << " dB (Ceiling " << num(db(static_cast<double>(ceiling) * ceiling), 2)
-                      << "), the mains against LFE Off " << mainsApart << std::endl;
+                      << "), the mains against the same render with the LFE at -40 dB " << mainsApart << std::endl;
             check(gr < -1.0f && lfePeak <= ceiling * 1.001f, nameOf(w) + ": a loud LFE is held at the Ceiling by its own limiter");
-            check(mainsApart == 0.0f, nameOf(w) + ": the LFE's limiter does not duck the mains (exactly the same as with the LFE off)");
+            check(mainsApart == 0.0f, nameOf(w) + ": the LFE's limiter does not duck the mains (exactly the same as with the LFE too quiet to be limited)");
         }
         // No Inflate on the LFE: Inflate full changes the mains and leaves the LFE as it was.
         {
@@ -1145,6 +1237,49 @@ int main(int argc, char* argv[])
             check(Presets::isSessionParameter(ParamIDs::roomLfeMode) && Presets::isSessionParameter(ParamIDs::roomLfeLevel),
                   "LFE Mode and Level belong to the session (no preset or Randomise moves them)");
         }
+        // What feeds the LFE, for the interface to show: Discrete with no Sub is silent and says so (it never falls
+        // back to anything it was not asked to play).
+        {
+            using Feed = Proc::LfeFeed;
+            bool ok = true;
+            ok = ok && Proc::lfeFeedFor(room::Width::Stereo, RigEngine::LfeMixdown, true, ParamIDs::StowSub, true) == Feed::NoLfe;
+            ok = ok && Proc::lfeFeedFor(room::Width::Quad, RigEngine::LfeDiscrete, true, ParamIDs::StowSub, true) == Feed::NoLfe;
+            ok = ok && Proc::lfeFeedFor(room::Width::Surround51, RigEngine::LfeOff, true, ParamIDs::StowSub, true) == Feed::Off;
+            ok = ok && Proc::lfeFeedFor(room::Width::Surround51, RigEngine::LfeMixdown, false, ParamIDs::StowDry, false) == Feed::Mixdown;
+            ok = ok && Proc::lfeFeedFor(room::Width::Surround714, RigEngine::LfeDiscrete, true, ParamIDs::StowSub, true) == Feed::Sub;
+            ok = ok && Proc::lfeFeedFor(room::Width::Surround714, RigEngine::LfeDiscrete, false, ParamIDs::StowSub, true) == Feed::NoSub;
+            ok = ok && Proc::lfeFeedFor(room::Width::Surround71, RigEngine::LfeDiscrete, true, ParamIDs::StowFly, true) == Feed::NoSub;
+            ok = ok && Proc::lfeFeedFor(room::Width::Surround71, RigEngine::LfeDiscrete, true, ParamIDs::StowSub, false) == Feed::NoSubTrack;
+            ok = ok && Proc::lfeIsUnfed(Feed::NoSub) && Proc::lfeIsUnfed(Feed::NoSubTrack) && ! Proc::lfeIsUnfed(Feed::Sub) && ! Proc::lfeIsUnfed(Feed::Off)
+                 && ! Proc::lfeIsUnfed(Feed::Mixdown) && ! Proc::lfeIsUnfed(Feed::NoLfe);
+            ok = ok && Proc::lfeFeedReason(Feed::NoSub).contains("Stowaway is off or not in Sub") && Proc::lfeFeedReason(Feed::NoSubTrack).contains("no track is on Stowaway")
+                 && Proc::lfeFeedReason(Feed::Sub).isEmpty() && Proc::lfeFeedReason(Feed::Off).isEmpty();
+            check(ok, "what feeds the LFE is told apart: no LFE, Off, Mixdown, the Sub, and the two ways Discrete has nothing to play");
+
+            // The rig's own: a new session set to Discrete has nothing feeding its LFE until Stowaway is on in Sub
+            // with a track on it; then the LFE sounds. And it is silent, exactly, while it says it is unfed.
+            Plug unfed(src, room::Width::Surround51, [](Plug& p)
+            {
+                p.setPlain(ParamIDs::roomLfeMode, static_cast<float>(RigEngine::LfeDiscrete));
+                p.setPlain(ParamIDs::stowOn, 0.0f);
+            });
+            const auto silent = unfed.run(2.0);
+            const bool saysUnfed = unfed.proc.getLfeFeed() == Feed::NoSub && unfed.proc.getLfeFeedAt(room::Width::Stereo) == Feed::NoLfe && ! unfed.proc.lfeCarriesMains();
+            Plug fed(src, room::Width::Surround51, [](Plug& p)
+            {
+                p.setPlain(ParamIDs::roomLfeMode, static_cast<float>(RigEngine::LfeDiscrete));
+                p.setPlain(ParamIDs::stowOn, 1.0f);
+                p.setPlain(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowSub));
+            });
+            const auto sounding = fed.run(2.0);
+            const bool saysFed = fed.proc.getLfeFeed() == Feed::Sub && fed.proc.hasTrackOnStowaway() && fed.proc.lfeCarriesMains();
+            std::cout << "         5.1 Discrete: Stowaway off, the LFE peaks at " << silent.getMagnitude(3, 0, silent.getNumSamples()) << " and the rig says "
+                      << (saysUnfed ? "nothing feeds it" : "something else") << "; Stowaway on in Sub, " << num(sounding.getMagnitude(3, 0, sounding.getNumSamples()), 3)
+                      << " and it says " << (saysFed ? "the Sub feeds it" : "something else") << std::endl;
+            check(saysUnfed && juce::exactlyEqual(silent.getMagnitude(3, 0, silent.getNumSamples()), 0.0f),
+                  "Discrete with Stowaway off: the LFE is silent, the rig says nothing feeds it, and the mains are not delayed to match it");
+            check(saysFed && sounding.getMagnitude(3, 0, sounding.getNumSamples()) > 0.01f, "Discrete with Stowaway on in Sub and a track on it: the Sub feeds the LFE, and the rig says so");
+        }
         // Which widths have an LFE (the room strip dims the LFE controls where there is none).
         {
             bool ok = true;
@@ -1158,7 +1293,8 @@ int main(int argc, char* argv[])
             check(ok, "has an LFE: 5.1, 7.1, 7.1.2 and 7.1.4; not Mono, Stereo or Quad");
         }
         // Folds drop the LFE: in Discrete and Mixdown the mains carry that low end already, so a fold of either
-        // is the fold of the same render with the LFE off; folding the LFE in as well would count it twice.
+        // is the fold of the same render with the LFE off (through the phase match the mains then have); folding
+        // the LFE in as well would count it twice.
         {
             Scene a, b;
             for (auto* s : { &a, &b })
@@ -1177,8 +1313,17 @@ int main(int argc, char* argv[])
                 for (size_t i = 0; i < doubled.size(); ++i)
                     doubled[i] += m.gain[0][static_cast<size_t>(c)] * on.ch[static_cast<size_t>(c)][i];
             const double extra = db(band(spectrum(doubled), 30.0, 60.0)) - db(band(spectrum(f1[0]), 30.0, 60.0));
-            std::cout << "         5.1 Discrete folded to Stereo: the same as with the LFE off; with the LFE folded in too, +" << num(extra, 1) << " dB at 30 - 60 Hz" << std::endl;
-            check(f0[0] == f1[0] && f0[1] == f1[1] && extra > 1.0, "a fold drops the LFE: a Discrete render folds to exactly what LFE Off does (folding it in would add its low end twice)");
+            float apart = 0.0f;
+            for (size_t side = 0; side < 2; ++side)
+            {
+                lfe::PhaseMatch pm;
+                pm.prepare(c_fs);
+                for (size_t i = 0; i < f0[side].size(); ++i)
+                    apart = std::max(apart, std::abs(pm.process(f0[side][i]) - f1[side][i]));
+            }
+            std::cout << "         5.1 Discrete folded to Stereo: the LFE Off fold through the phase match, apart by " << apart << "; with the LFE folded in too, +"
+                      << num(extra, 1) << " dB at 30 - 60 Hz" << std::endl;
+            check(apart < 2.0e-5f && extra > 1.0, "a fold drops the LFE: a Discrete render folds to what LFE Off does (folding it in would add its low end twice)");
         }
     }
 

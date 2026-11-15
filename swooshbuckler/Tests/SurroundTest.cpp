@@ -25,7 +25,6 @@
 #include "RigEngine.h"
 #include "Room.h"
 #include "DspUtils.h"
-#include "LfeFilter.h"
 
 #include <functional>
 
@@ -935,14 +934,12 @@ int main(int argc, char* argv[])
             const auto& l = take.ch[static_cast<size_t>(left)];
             const auto& r = take.ch[static_cast<size_t>(right)];
             float apart = 0.0f, stemApart = 0.0f;
-            sj::DcBlock dc; // the engine's last stages, which the stem is taken before: every main speaker of a room
-            dc.set(8.0f, static_cast<float>(c_fs)); // goes through the LFE's phase match, then the DC blocker
-            lfe::PhaseMatch phase;
-            phase.prepare(c_fs);
+            sj::DcBlock dc; // the engine's last stage, which the stem is taken before (LFE Mode is Off here, so the
+            dc.set(8.0f, static_cast<float>(c_fs)); // main speakers do not go through the LFE's phase match)
             for (size_t i = 0; i < l.size(); ++i)
             {
                 apart = std::max(apart, std::abs(l[i] - r[i]));
-                stemApart = std::max(stemApart, std::abs(dc.process(phase.process(take.stem[i])) - l[i]));
+                stemApart = std::max(stemApart, std::abs(dc.process(take.stem[i]) - l[i]));
             }
             std::cout << "         " << nameOf(width) << " Sub: L peak " << num(peakOf(l), 3) << ", L against R " << num(apart, 7) << ", the stem against L "
                       << num(stemApart, 7) << ", every other channel " << num(othersPeak(take), 7) << std::endl;
@@ -1242,13 +1239,22 @@ int main(int argc, char* argv[])
         // Which side it took at its loudest: -1 left, +1 right (Around: -1 loudest in front, +1 loudest behind).
         const auto sideOf = [&](const Take& take, const Speakers& spk, int path)
         {
+            // (Over every block within 1 dB of the loudest, by its power: one block alone can be a near tie between
+            // two moments of the pass.)
             const auto blocks = heard(take);
-            int loudest = 0;
+            double most = 0.0;
             for (int b : blocks)
-                if (take.blocks[static_cast<size_t>(b)].total > take.blocks[static_cast<size_t>(loudest)].total)
-                    loudest = b;
-            const auto& block = take.blocks[static_cast<size_t>(loudest)];
-            const double lean = path == static_cast<int>(room::Path::Around) ? spk.share(block, isBehind) - spk.share(block, isAhead) : 1.0 - 2.0 * spk.share(block, isLeft);
+                most = std::max(most, take.blocks[static_cast<size_t>(b)].total);
+            double lean = 0.0, weight = 0.0;
+            for (int b : blocks)
+            {
+                const auto& block = take.blocks[static_cast<size_t>(b)];
+                if (block.total < 0.8 * most)
+                    continue;
+                lean += block.total * (path == static_cast<int>(room::Path::Around) ? spk.share(block, isBehind) - spk.share(block, isAhead) : 1.0 - 2.0 * spk.share(block, isLeft));
+                weight += block.total;
+            }
+            lean = weight > 0.0 ? lean / weight : 0.0;
             // (An Overhead pass flies only a little to one side: it goes over the listener.)
             const double clear = path == static_cast<int>(room::Path::Overhead) ? 0.04 : 0.2;
             return lean > clear ? 1 : lean < -clear ? -1 : 0;

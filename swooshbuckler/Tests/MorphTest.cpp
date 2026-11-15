@@ -7,16 +7,20 @@
 // Glide puts the partials of two sawtooths at the in-between frequencies; a hit in Glide has no pre-echo;
 // switching the morph in and out fades against a sample-aligned copy of the dry sound (a null test against the
 // delayed input), leaves the buses untouched while it is out, and leaves no old sound inside the morph.
-// Prints how fast the morph runs at 48 and 192 kHz. Writes no files.
+// Prints how fast the morph runs at 48 and 192 kHz. At 176.4 and 192 kHz a frame's work is spread over the half
+// hop after the frame: no small buffer holds more than one stage of it (counted in transforms, and timed with a
+// wide margin), and what comes out is the frame done in one go, the half hop later. Writes no files.
 
 #include <juce_dsp/juce_dsp.h>
 #include "TestClock.h"
 
 #include "SpectralMorph.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <numeric>
 #include <vector>
 
 namespace
@@ -400,6 +404,113 @@ namespace
             }
         }
     }
+
+    // A frame's work a little at a time at 176.4 / 192 kHz (a frame of 8192 samples: about forty transforms in
+    // Glide), all at once up to 96 kHz as it always was.
+    void testSpread()
+    {
+        std::cout << "a frame's work, a buffer at a time" << std::endl;
+        auto sources = [](double rate, double seconds, Signal& a, Signal& b)
+        {
+            juce::Random r(33);
+            a.resize(static_cast<size_t>(rate * seconds));
+            b.resize(a.size());
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                a[i] = 0.2f * (r.nextFloat() * 2.0f - 1.0f) + 0.2f * static_cast<float>(std::sin(c_twoPi * 110.0 * static_cast<double>(i) / rate));
+                b[i] = 0.2f * (r.nextFloat() * 2.0f - 1.0f);
+            }
+        };
+
+        // Latency: one frame; from 176.4 kHz one frame and half a hop.
+        bool latencyOk = true;
+        for (const double rate : { 44100.0, 48000.0, 88200.0, 96000.0, 176400.0, 192000.0 })
+        {
+            SpectralMorph m;
+            m.prepare(rate, 64);
+            const bool spread = rate > 100000.0;
+            latencyOk = latencyOk && m.getSpreadSamples() == (spread ? m.getFftSize() / 8 : 0) && m.getLatencySamples() == m.getFftSize() + m.getSpreadSamples()
+                     && m.getFftSize() == (rate < 60000.0 ? 2048 : rate < 100000.0 ? 4096 : 8192);
+        }
+        check(latencyOk, "up to 96 kHz the morph is one frame late and works a frame in one go; at 176.4 and 192 kHz it is half a hop (1024 samples) later and works in stages");
+
+        // The most work in one buffer, counted in transforms (not timed: it cannot be upset by a busy machine).
+        for (int mode = 0; mode < SpectralMorph::NumModes; ++mode)
+        {
+            int most[3] {}; // 192 kHz in buffers of 64, of 128, and 48 kHz in buffers of 64
+            for (int which = 0; which < 3; ++which)
+            {
+                const double rate = which == 2 ? 48000.0 : 192000.0;
+                const int block = which == 1 ? 128 : 64;
+                Signal a, b;
+                sources(rate, 1.0, a, b);
+                SpectralMorph m;
+                m.prepare(rate, block);
+                SpectralMorph::Params p;
+                p.mode = mode;
+                p.x = 0.4f;
+                p.y = 0.6f;
+                m.setParams(p);
+                Signal out(static_cast<size_t>(block));
+                for (size_t i = 0; i + static_cast<size_t>(block) <= a.size(); i += static_cast<size_t>(block))
+                {
+                    // (The mode changes half way, so the frames that carry two modes at once are in the count.)
+                    p.mode = i > a.size() / 2 ? (mode + 1) % SpectralMorph::NumModes : mode;
+                    m.setParams(p);
+                    m.process(a.data() + i, b.data() + i, out.data(), block);
+                }
+                most[which] = m.getMostWorkInOneCall();
+            }
+            std::cout << "  " << SpectralMorph::modeName(mode) << ": the most work in one buffer, in transforms: 192 kHz / 64 samples " << most[0]
+                      << ", 192 kHz / 128 samples " << most[1] << "; a whole frame at once (48 kHz) " << most[2] << std::endl;
+            check(most[0] <= 4 && most[1] <= 8 && most[2] >= 16,
+                  juce::String(SpectralMorph::modeName(mode)) + " at 192 kHz: a buffer of 64 samples never holds more than two stages of a frame (four transforms), where a whole frame is "
+                  + juce::String(most[2]));
+        }
+
+        // Timed as well, with a wide margin: the processor time of each 64-sample buffer at 192 kHz in Glide (the
+        // heaviest mode) against the buffer's own length. With a frame done in one go, one buffer in every 32
+        // took the whole frame: twice the buffer's length on a fast machine.
+        {
+            const double rate = 192000.0;
+            Signal a, b;
+            sources(rate, 6.0, a, b);
+            MorphInsert m;
+            m.prepare(rate, 64);
+            SpectralMorph::Params p;
+            p.mode = SpectralMorph::Glide;
+            p.x = 0.4f;
+            p.y = 0.6f;
+            m.setParams(p);
+            m.reset(true);
+            Signal wa(64), wb(64);
+            std::vector<double> times;
+            times.reserve(a.size() / 64);
+            for (size_t i = 0; i + 64 <= a.size(); i += 64)
+            {
+                std::copy(a.begin() + static_cast<long>(i), a.begin() + static_cast<long>(i + 64), wa.begin());
+                std::copy(b.begin() + static_cast<long>(i), b.begin() + static_cast<long>(i + 64), wb.begin());
+                const double t0 = TestClock::cpuMs();
+                m.process(wa.data(), wb.data(), 64, 1.0f);
+                times.push_back(TestClock::cpuMs() - t0);
+            }
+            times.erase(times.begin(), times.begin() + static_cast<long>(times.size() / 6)); // (after the first second)
+            std::sort(times.begin(), times.end());
+            const double blockMs = 64.0 / rate * 1000.0;
+            const double median = times[times.size() / 2], heavy = times[times.size() * 99 / 100];
+            const double total = std::accumulate(times.begin(), times.end(), 0.0);
+            // The heaviest 1% of the buffers against the mean: a frame in one go put the whole frame (32 times the
+            // mean) into one buffer in 32; in stages no buffer holds more than about a tenth of a frame.
+            const double mean = total / static_cast<double>(times.size());
+            std::cout << "  Glide at 192 kHz in buffers of 64 samples (" << blockMs << " ms each): a buffer takes " << mean << " ms on average, "
+                      << median << " ms in the middle, " << heavy << " ms for the heaviest 1% (" << 100.0 * heavy / blockMs << "% of the buffer's length, "
+                      << heavy / mean << " times the average)" << std::endl;
+            check(heavy < 8.0 * mean, "the heaviest buffers hold a small share of a frame (the heaviest 1% under 8 times the average; a frame in one go is 32 times)");
+            check(heavy < blockMs, "and take less than the buffer's own length");
+            const double worst = times.back();
+            std::cout << "  the single heaviest buffer: " << worst << " ms (" << 100.0 * worst / blockMs << "% of its length)" << std::endl;
+        }
+    }
 }
 
 int main()
@@ -408,6 +519,7 @@ int main()
     testGlide();
     testSwitch();
     testSpeed();
+    testSpread();
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;
     return g_failures == 0 ? 0 : 1;
