@@ -110,6 +110,7 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
 
     m_aboutButton.setButtonText("?");
     RoarschachLookAndFeel::setQuiet(m_aboutButton);
+    RoarschachLookAndFeel::setCircled(m_aboutButton);
     m_aboutButton.setTooltip("About Roarschach, and a quick start");
     m_aboutButton.onClick = [this] { showAboutWindow(); };
     m_content.addAndMakeVisible(m_aboutButton);
@@ -289,13 +290,18 @@ void RoarschachAudioProcessorEditor::applyMood(bool force)
 {
     if (!Theme::applyMood(m_moodTone.hue, m_moodTone.chroma) && !force)
         return;
+    refreshPalette();
+}
 
+void RoarschachAudioProcessorEditor::refreshPalette()
+{
+    m_paletteSerialSeen = Theme::paletteSerial();
     m_lookAndFeel.refreshColours();
     m_monsterView.setCorner(c_viewRadius, Theme::Colours::paper);
     m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::inkDim);
     repaint();
     if (m_aboutWindow != nullptr)
-        m_aboutWindow->repaint();
+        m_aboutWindow->refreshColours();
 }
 
 void RoarschachAudioProcessorEditor::layoutContent()
@@ -305,20 +311,26 @@ void RoarschachAudioProcessorEditor::layoutContent()
     auto header = bounds.removeFromTop(c_headerHeight).reduced(c_margin, 0);
     m_aboutButton.setBounds(header.removeFromRight(28).withSizeKeepingCentre(28, 28));
 
-    // The credit line's link sits after the wordmark and the tagline, on the wordmark's baseline
-    // (widths and positions match paintContent()).
+    // The credit line's link sits after the tagline, one separator's spacing after its last slash (the
+    // same two spaces as round the others), its text drawn on the tagline's exact baseline: the button's
+    // whole-pixel bounds only take the clicks (paintContent() draws the tagline the same way).
     {
+        const auto font = m_fonts->caption(Theme::Type::credit);
         const auto r = creditLineBounds();
-        const float taglineWidth = juce::GlyphArrangement::getStringWidth(m_fonts->caption(Theme::Type::credit), c_taglineText);
-        const int linkWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_fonts->caption(Theme::Type::credit), "SWEETJUSTICESOUND.COM")) + 6;
-        m_websiteLink.setBounds(juce::roundToInt(r.getX() + taglineWidth + 8.0f), juce::roundToInt(r.getY()), linkWidth, juce::roundToInt(r.getHeight()));
+        const float baseline = creditBaseline();
+        const float x = r.getX() + juce::GlyphArrangement::getStringWidth(font, c_taglineText + "  X") - juce::GlyphArrangement::getStringWidth(font, "X");
+        const int linkWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, "SWEETJUSTICESOUND.COM")) + 6;
+        const auto linkBounds = juce::Rectangle<int>(static_cast<int>(std::floor(x)) - 1, static_cast<int>(std::floor(baseline - font.getAscent())) - 3,
+                                                     linkWidth, juce::roundToInt(font.getHeight()) + 6);
+        m_websiteLink.setBounds(linkBounds);
+        m_websiteLink.setTextOrigin({ x - static_cast<float>(linkBounds.getX()), baseline - static_cast<float>(linkBounds.getY()) });
     }
 
     // Preset bar, right-aligned next to the About button: < name > die SAVE. The name is the
     // picture's title: set in the display face on a ruled line, no box.
     header.removeFromRight(14);
     auto presetRow = header.removeFromRight(430).withSizeKeepingCentre(430, 28);
-    m_presetSaveButton.setBounds(presetRow.removeFromRight(64).withSizeKeepingCentre(64, 26));
+    m_presetSaveButton.setBounds(presetRow.removeFromRight(64).withSizeKeepingCentre(64, 26));   // (drawn as an outlined tag)
     presetRow.removeFromRight(10);
     m_presetDice.setBounds(presetRow.removeFromRight(28));
     presetRow.removeFromRight(6);
@@ -344,13 +356,20 @@ juce::Rectangle<float> RoarschachAudioProcessorEditor::wordmarkBounds() const
     return header.withWidth(w + 4.0f);
 }
 
+float RoarschachAudioProcessorEditor::creditBaseline() const
+{
+    // The wordmark's baseline.
+    const auto mark = wordmarkBounds();
+    const auto display = m_fonts->display(Theme::Type::wordmark);
+    return std::round(mark.getCentreY() + (display.getAscent() - display.getDescent()) * 0.5f) + 1.0f;
+}
+
 juce::Rectangle<float> RoarschachAudioProcessorEditor::creditLineBounds() const
 {
     // On the wordmark's baseline, after it.
     const auto mark = wordmarkBounds();
-    const auto display = m_fonts->display(Theme::Type::wordmark);
     const auto credit = m_fonts->caption(Theme::Type::credit);
-    const float baseline = std::round(mark.getCentreY() + (display.getAscent() - display.getDescent()) * 0.5f) + 1.0f;
+    const float baseline = creditBaseline();
     const float h = credit.getHeight();
     return { mark.getRight() + 16.0f, baseline - credit.getAscent() - (h - credit.getAscent() - credit.getDescent()) * 0.5f,
              900.0f, h };
@@ -373,14 +392,19 @@ void RoarschachAudioProcessorEditor::paintContent(juce::Graphics& g)
     g.setColour(ink);
     g.drawText(c_title, wordmarkBounds(), juce::Justification::centredLeft, false);
 
-    g.setFont(m_fonts->caption(Theme::Type::credit));
-    g.setColour(inkDim);
-    g.drawText(c_taglineText, creditLineBounds(), juce::Justification::centredLeft, false);
+    {
+        // (on the wordmark's exact baseline, as the link after it)
+        juce::GlyphArrangement credit;
+        credit.addLineOfText(m_fonts->caption(Theme::Type::credit), c_taglineText, creditLineBounds().getX(), creditBaseline());
+        g.setColour(inkDim);
+        credit.draw(g);
+    }
 
-    // The preset's name sits on a ruled line, as a title under a plate.
+    // The preset bar is one ruled field: a line under the name running from the left chevron to the right.
+    const auto from = m_presetPrevButton.getBounds().toFloat(), to = m_presetNextButton.getBounds().toFloat();
     const auto name = m_presetNameButton.getBounds().toFloat();
     g.setColour(rule);
-    g.fillRect(juce::Rectangle<float>(name.getX() + 6.0f, name.getBottom() + 1.0f, name.getWidth() - 12.0f, 1.0f));
+    g.fillRect(juce::Rectangle<float>(from.getX() + 4.0f, name.getBottom() + 1.0f, to.getRight() - 4.0f - (from.getX() + 4.0f), 1.0f));
 }
 
 void RoarschachAudioProcessorEditor::timerCallback()
@@ -392,6 +416,10 @@ void RoarschachAudioProcessorEditor::timerCallback()
         m_moodTick = 0;
         followMood();
     }
+    // The palette is shared by every open instance: another editor may have moved it. Then this
+    // window takes the whole of it at once (never a few tiles in the new mood on a sheet in the previous one).
+    if (Theme::paletteSerial() != m_paletteSerialSeen)
+        refreshPalette();
 
     if (m_scaleToRemember > 0.0f && juce::Time::getMillisecondCounterHiRes() >= m_rememberAtMs)
         rememberSizeNow();
@@ -584,6 +612,7 @@ void RoarschachAudioProcessorEditor::setupPresetBar()
     RoarschachLookAndFeel::setQuiet(m_presetNextButton);
 
     m_presetSaveButton.setButtonText("SAVE");
+    RoarschachLookAndFeel::setTag(m_presetSaveButton);   // filled with the dye while the preset is edited
     m_presetSaveButton.setTooltip("Save the current settings as a preset");
     m_presetSaveButton.onClick = [this]
     {
@@ -713,6 +742,8 @@ void RoarschachAudioProcessorEditor::updatePresetDisplay()
 
     if (m_presetNameButton.getButtonText() != text)
         m_presetNameButton.setButtonText(text);
+    if (m_presetSaveButton.getToggleState() != pm.isModified())
+        m_presetSaveButton.setToggleState(pm.isModified(), juce::dontSendNotification);
 }
 
 void RoarschachAudioProcessorEditor::showPresetMenu()
@@ -982,6 +1013,7 @@ void RoarschachAudioProcessorEditor::showAlert(std::unique_ptr<juce::AlertWindow
     // window so it is always destroyed before the LookAndFeel it uses.
     m_alert = std::move(alert);
     m_alert->setLookAndFeel(&m_lookAndFeel); // already set by makeAlert(); kept for any alert made elsewhere
+    RoarschachLookAndFeel::arrangeDialog(*m_alert);
 
     m_alert->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this), onResult](int result)

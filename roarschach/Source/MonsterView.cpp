@@ -497,32 +497,60 @@ void MonsterView::drawFeather (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     // The picture has no frame: its edges dissolve into the paper. Narrow at the top and the sides, a
     // little deeper at the foot, where the picture meets the controls; the creature's body keeps clear of
-    // it (it never reaches the outer 3 % of the picture).
+    // it (it never reaches the outer 3 % of the picture). The outer c_solid px on every side are solid
+    // paper and the fade starts inside them, so at a fractional window scale the device pixel that the
+    // edge cuts through is paper on both sides and no line of the picture shows along it.
     const int w = juce::roundToInt (bounds.getWidth()), h = juce::roundToInt (bounds.getHeight());
     if (w <= 0 || h <= 0)
         return;
     const auto paperColour = juce::Colour (m_outsideArgb.load (std::memory_order_relaxed));
-    if (m_feather.getWidth() != w || m_feather.getHeight() != h || m_featherArgb != paperColour.getARGB())
+    // The paper round the picture carries the sheet's grain, tiled from the parent's origin (as the parent
+    // draws it), so the feather meets the sheet with no step in tone.
+    const bool grained = Theme::variant() == Theme::Variant::paper;
+    const auto grainOrigin = grained ? getPosition() : juce::Point<int>();
+    if (m_feather.getWidth() != w || m_feather.getHeight() != h || m_featherArgb != paperColour.getARGB() || m_featherGrainAt != grainOrigin)
     {
         m_featherArgb = paperColour.getARGB();
+        m_featherGrainAt = grainOrigin;
+        const auto& grain = Theme::paperGrain();
+        const int gw = grain.getWidth(), gh = grain.getHeight();
+        const auto wrap = [] (int v, int n) { return ((v % n) + n) % n; };
         m_feather = juce::Image (juce::Image::ARGB, w, h, true, juce::SoftwareImageType());
-        constexpr float side = 22.0f, top = 18.0f, foot = 34.0f;
-        const auto ease = [] (float t) { t = juce::jlimit (0.0f, 1.0f, t); return t * t * (3.0f - 2.0f * t); };
+        constexpr float side = 22.0f, top = 18.0f, foot = 34.0f, c_solid = c_featherRim;
+        // (distance from the edge in px, past the solid rim, over the fade's depth)
+        const auto ease = [] (float d, float depth) { const float t = juce::jlimit (0.0f, 1.0f, (d - c_solid) / depth); return t * t * (3.0f - 2.0f * t); };
         juce::Image::BitmapData px (m_feather, juce::Image::BitmapData::readWrite);
         for (int y = 0; y < h; ++y)
         {
-            const float fy = std::min (ease (static_cast<float> (y) / top), ease (static_cast<float> (h - 1 - y) / foot));
+            const float fy = std::min (ease (static_cast<float> (y), top), ease (static_cast<float> (h - 1 - y), foot));
             for (int x = 0; x < w; ++x)
             {
                 // (the corners round off: the two fades multiply)
-                const float fx = ease (std::min (static_cast<float> (x), static_cast<float> (w - 1 - x)) / side);
+                const float fx = ease (std::min (static_cast<float> (x), static_cast<float> (w - 1 - x)), side);
                 const float keep = fx * fy;
                 if (keep < 0.999f)
-                    px.setPixelColour (x, y, paperColour.withAlpha (1.0f - keep));
+                {
+                    const float dark = grained ? grain.getPixelAt (wrap (x + grainOrigin.x, gw), wrap (y + grainOrigin.y, gh)).getFloatAlpha() : 0.0f;
+                    const auto c = Theme::grained (paperColour, dark);
+                    px.setPixelColour (x, y, c.withAlpha (1.0f - keep));
+                }
             }
         }
     }
     g.drawImageAt (m_feather, juce::roundToInt (bounds.getX()), juce::roundToInt (bounds.getY()));
+
+    // The solid rim again as filled rectangles: a scaled image fades to nothing over its last pixel,
+    // which would let the picture through right at the edge.
+    constexpr float rim = c_featherRim;
+    juce::RectangleList<float> rims;
+    rims.add (bounds.withHeight (rim));
+    rims.add (bounds.withTop (bounds.getBottom() - rim));
+    rims.add (bounds.reduced (0.0f, rim).withWidth (rim));   // (the sides between them: no corner grained twice)
+    rims.add (bounds.reduced (0.0f, rim).withLeft (bounds.getRight() - rim));
+    g.setColour (paperColour);
+    g.fillRectList (rims);
+    for (const auto& r : rims)
+        Theme::fillPaperGrain (g, r, 0.0f, -grainOrigin);
 }
 
 void MonsterView::paint (juce::Graphics& g)
@@ -537,12 +565,16 @@ void MonsterView::paint (juce::Graphics& g)
         // No GL: a still cloud in the creature view's own tones (lit above, shaded below, a few soft
         // banks, mirrored as the cloud folds round the creature), with a line saying why nothing
         // moves where OpenGL could not run (none when the visualiser is simply off).
+        // (inside the feather's solid rim: at a fractional scale the rim's edge pixel is only partly
+        // covered, and layers of partial cover would let the cloud through it as a line)
         juce::Graphics::ScopedSaveState state (g);
         juce::Path shape;
-        shape.addRoundedRectangle (bounds, radius);
+        shape.addRoundedRectangle (bounds.reduced (c_featherRim), radius);
         g.reduceClipRegion (shape);
-        const auto cloudLit = juce::Colour (Theme::Picture::cloudLit);
-        const auto cloudTone = juce::Colour (Theme::Picture::cloudTone);   // the cloud's tone
+        // (in the mood the palette was made from: the reference cloud's lightnesses, the mood's hue and
+        // chroma, so the still cloud is the same pigment as the sheet around it; it is redrawn with the
+        // editor whenever the palette changes)
+        const auto [cloudLit, cloudTone] = Theme::stillCloud (Theme::moodHue(), Theme::moodChroma());
         g.setGradientFill (juce::ColourGradient (cloudLit, 0.0f, bounds.getY(), cloudTone, 0.0f, bounds.getBottom(), false));
         g.fillRect (bounds);
         const float h = bounds.getHeight(), cx = bounds.getCentreX();

@@ -107,7 +107,8 @@ namespace Theme
 
         // State
         juce::Colour warn;         ///< clipping and warnings, always with a shape and a word too
-        juce::Colour focus;        ///< keyboard focus rings
+        juce::Colour warnTag;      ///< the fill of a warning tag: the warning ink, or plain ink in a mood whose dye is near it
+        juce::Colour focus;        ///< keyboard focus rings (the plain ink: never the same dye as the arc it rings)
 
         // Over the picture
         juce::Colour readout;      ///< the soft label behind a readout
@@ -150,7 +151,8 @@ namespace Theme
             r.meterFill = r.accent;
             r.selection = r.accent.withAlpha(0.22f);
             r.warn = lch(0.720f, 0.140f, 30.0f);
-            r.focus = r.accent;
+            r.warnTag = r.warn;
+            r.focus = r.ink;
             r.readout = lch(0.080f, gc * 0.5f, hue).withAlpha(0.86f);
             r.readoutText = r.ink;
             r.readoutCaption = r.inkDim;
@@ -160,19 +162,20 @@ namespace Theme
 
         // Paper: the cloud's own tone, greyed to a fifth of the mood's chroma (never above 0.017; a
         // little more in warm moods), so the mood washes through without colouring the sheet. Warm moods
-        // lean the paper towards parchment (an ember cloud gives a warm parchment, not a pink), and the
-        // dye keeps the mood's own hue. `warm` weighs the lean: 1 at an ember cloud, 0 from 70 degrees away.
+        // lean the paper a little towards bone (an ember cloud gives a warm bone with a blush: the same
+        // pigment as the cloud, never a plaster pink nor a tan), and the dye keeps the mood's own hue.
+        // `warm` weighs the lean: 1 at an ember cloud, 0 from 70 degrees away.
         const float warm = std::max(0.0f, 1.0f - std::abs(std::remainder(hue - 28.0f, 360.0f)) / 70.0f);
-        const float paperHue = hue + 40.0f * warm;   // an ember cloud's paper is parchment (hue ~70), never pink
-        const float pc = std::min(0.017f + 0.005f * warm, (0.2f + 0.06f * warm) * chroma);
+        const float paperHue = hue + 21.0f * warm;   // an ember cloud's paper sits at hue ~50: bone, blushed
+        const float pc = std::min(0.017f + 0.006f * warm, (0.2f + 0.12f * warm) * chroma);
         const float ac = juce::jlimit(0.060f, 0.130f, chroma * 1.45f);
         const float ic = juce::jlimit(0.050f, 0.110f, chroma * 1.20f);
 
         // A pale paper (lighter than the cloud's shade, darker than its lights), so the picture's
         // whites stay the brightest thing in the window.
         r.paper = lch(0.800f, pc, paperHue);
-        r.wash = lch(0.818f, pc * 0.8f, paperHue);   // barely lighter than the paper: a wash, not a card
-        r.sheet = lch(0.905f, pc * 0.55f, paperHue);
+        r.wash = lch(0.818f, pc * (0.8f + 0.1f * warm), paperHue + 4.0f * warm);   // barely lighter than the paper: a wash, not a card
+        r.sheet = lch(0.905f, pc * 0.5f, paperHue + 8.0f * warm);
         r.groove = lch(0.725f, pc * 0.9f, paperHue);
 
         // Ink carries a trace of the mood (barely: chroma .008 to .012).
@@ -188,7 +191,12 @@ namespace Theme
         r.selection = r.accent.withAlpha(0.20f);
 
         r.warn = lch(0.420f, 0.160f, 27.0f);   // a deep vermilion
-        r.focus = r.accentInk;
+        // Where the mood's dye is a red itself (within 40 degrees of the warning's), a warning tag is
+        // solid ink, so the warning still stands apart from the dye: its word, its end block and its value
+        // keep the warning ink.
+        r.warnTag = std::abs(std::remainder(hue - 27.0f, 360.0f)) < 40.0f ? r.ink : r.warn;
+        // Focus is shape and plain ink, never the dye: a knob's ring would sit against its value arc.
+        r.focus = r.ink;
 
         // The readouts over the creature: a soft label of raised paper, ink letters.
         r.readout = r.sheet.withAlpha(0.80f);
@@ -220,6 +228,7 @@ namespace Theme
         inline const juce::Colour& meterFill = liveRoles.meterFill;
         inline const juce::Colour& selection = liveRoles.selection;
         inline const juce::Colour& warn = liveRoles.warn;
+        inline const juce::Colour& warnTag = liveRoles.warnTag;
         inline const juce::Colour& focus = liveRoles.focus;
         inline const juce::Colour& readout = liveRoles.readout;
         inline const juce::Colour& readoutText = liveRoles.readoutText;
@@ -288,7 +297,6 @@ namespace Theme
     {
         inline constexpr juce::uint32 markTop = 0xffff7a45;    // ember, at the brow
         inline constexpr juce::uint32 markChin = 0xffef6f8e;   // rose, at the chin
-        inline constexpr juce::uint32 markBleed = 0xffa992ff;  // a violet bleed round the edge
         inline constexpr juce::uint32 markFangs = 0xffd9485e;  // the fangs, biting back in a deeper rose
     }
 
@@ -316,11 +324,28 @@ namespace Theme
     }
 
     /** The picture's own tones for its still cloud (when the visualiser is Off or OpenGL is not
-        available): part of the visualiser's look, like c_glClear, not roles. */
+        available): part of the visualiser's look, like c_glClear, not roles. These are the tones of no
+        mood; the still cloud takes the mood's hue and chroma at their two lightnesses (stillCloud()). */
     namespace Picture
     {
         inline constexpr juce::uint32 cloudLit = 0xffd9e3eb;
         inline constexpr juce::uint32 cloudTone = 0xff94b0c1;
+
+        /** OkLCh of the two (lightness, and the lit tone's chroma as a share of the shade's). */
+        inline constexpr float litL = 0.9106f, toneL = 0.7418f, litChromaShare = 0.39f;
+    }
+
+    /** The mood tone the palette was last made from (OkLCh hue in degrees, chroma). */
+    inline float moodHue() { return detail::moodState().hue; }
+    inline float moodChroma() { return detail::moodState().chroma; }
+
+    /** The still cloud's lit and shaded tones in a mood: the reference cloud's lightnesses, the mood's
+        hue and chroma (at the reference tone they are Picture::cloudLit and cloudTone). */
+    inline std::pair<juce::Colour, juce::Colour> stillCloud(float hue, float chroma)
+    {
+        hue = std::isfinite(hue) ? hue : c_referenceHue;
+        chroma = std::isfinite(chroma) ? juce::jlimit(0.0f, 0.12f, chroma) : c_referenceChroma;
+        return { Ok::lch(Picture::litL, chroma * Picture::litChromaShare, hue), Ok::lch(Picture::toneL, chroma, hue) };
     }
 
     //==============================================================================
@@ -355,11 +380,20 @@ namespace Theme
         return grain;
     }
 
-    inline void fillPaperGrain(juce::Graphics& g, juce::Rectangle<float> area, float cornerRadius = 0.0f)
+    /** The paper's colour under one pixel of the grain (the grain is ink at this alpha), for paper that is
+        drawn pixel by pixel and must match a grained sheet. */
+    inline juce::Colour grained(juce::Colour paper, float grainAlpha)
+    {
+        return paper.overlaidWith(juce::Colours::black.withAlpha(juce::jlimit(0.0f, 1.0f, grainAlpha)));
+    }
+
+    /** origin: where the grain's tiling starts in g's coordinates (a child drawing paper that must match
+        its parent's grain passes minus its position in the parent). */
+    inline void fillPaperGrain(juce::Graphics& g, juce::Rectangle<float> area, float cornerRadius = 0.0f, juce::Point<int> origin = {})
     {
         if (variant() == Variant::dark)
             return;
-        g.setTiledImageFill(paperGrain(), 0, 0, 1.0f);
+        g.setTiledImageFill(paperGrain(), origin.x, origin.y, 1.0f);
         if (cornerRadius > 0.0f)
             g.fillRoundedRectangle(area, cornerRadius);
         else
@@ -384,7 +418,7 @@ namespace Theme
         inline constexpr float menu = 14.0f;       ///< menu items
         inline constexpr float button = 13.0f;     ///< button labels (capitals)
         inline constexpr float chip = 13.0f;       ///< a mode chip's choices (capitals, untracked: they are long)
-        inline constexpr float value = 13.0f;      ///< values under knobs and in footers
+        inline constexpr float value = 13.5f;      ///< values under knobs and in footers, and slot numbers (figures: a little over 5.5 px at 65 %)
         inline constexpr float caption = 13.0f;    ///< captions, footer labels, slot numbers, badges (the floor)
         inline constexpr float credit = 11.5f;     ///< the header's credit line (has room to grow, never needed to read)
     }

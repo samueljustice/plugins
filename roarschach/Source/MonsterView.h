@@ -169,6 +169,9 @@ public:
     /** Message thread. Radius (component px) of the rounded corners and the colour drawn outside them:
         the paper, which the picture's edges also dissolve into. */
     void setCorner (float radius, juce::Colour outside);
+    /** The picture's outer edge that is solid paper on every side (design px): the feather starts inside it,
+        and nothing of the picture is drawn under it. */
+    static constexpr float c_featherRim = 2.0f;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -262,6 +265,7 @@ private:
     // for a size and a paper colour, so paint() costs one image draw (never a blur).
     juce::Image m_feather;
     juce::uint32 m_featherArgb = 0;
+    juce::Point<int> m_featherGrainAt { -1, -1 };
     void drawFeather (juce::Graphics&, juce::Rectangle<float> bounds);
 
     // Written on the GL thread, read by the overlay.

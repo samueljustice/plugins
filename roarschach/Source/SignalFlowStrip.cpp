@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 #include <string_view>
+#include <unordered_map>
 
 namespace
 {
@@ -24,6 +25,8 @@ namespace
     constexpr int c_footerHeight = 16;
     constexpr int c_chipHeight = Theme::Metrics::chipHeight;   // drawn; the chip's button is c_hit high
     constexpr int c_hit = Theme::Metrics::hitTarget;
+    constexpr int c_controlHit = c_hit - 1;   // the chip's and the die's band (16 px and more at 65 %): ends 1 px above the footer
+    constexpr float c_footerClearance = 4.0f; // the least room between a footer's words and its value
     constexpr int c_pad = 8;
     constexpr int c_captionHeight = 15;    // the caption's capitals (Type::caption) and a little room
     constexpr float c_radius = Theme::Metrics::radius;
@@ -113,10 +116,10 @@ namespace
         { Params::outRelease, "RELEASE", "How fast the limiter recovers. With Auto off: 2-10 ms crunch, 25-60 ms grit, 200 ms and up clean." },
         { Params::outAuto, "AUTO", "Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes." },
         { Params::mix, "MIX", "Blends the processed voice with the dry voice at the same loudness, so only the character changes." },
-        { Params::chamber, "AMT", "How much of the voice played into the room is blended under the dry voice. 15-35 % adds a subtle edge, 45-65 % is a clear chamber; around 80 % the two are equal; at 100 % the room leads." },
-        { Params::chamberResonance, "TAIL", "How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
-        { Params::chamberDrive, "EDGE", "Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once Amount is about 60 % or more." },
-        { Params::chamberWidth, "WIDTH", "How far the room spreads to the sides. 0 % keeps it centred; 100 % is the room's full stereo. Summed to mono it sounds the same at any Width." },
+        { Params::chamber, "AMT", "AMT (Chamber in the host): how much of the voice played into the room is blended under the dry voice. 15-35 % adds a subtle edge, 45-65 % is a clear chamber; around 80 % the two are equal; at 100 % the room leads." },
+        { Params::chamberResonance, "TAIL", "TAIL (Resonance in the host): how much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
+        { Params::chamberDrive, "EDGE", "Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more." },
+        { Params::chamberWidth, "WIDE", "WIDE (Chamber Width in the host): how far the room spreads to the sides. 0 % keeps it centred; 100 % is the room's full stereo. Summed to mono it sounds the same at any setting." },
         { Params::chamberRoom, "ROOM", "The room the speaker plays into. Steel Box: bright and metallic. Resonant Chamber: long and ringing. Concrete Room: hard and dense. Tin Booth: thin, with a sharp ring. Padded Cell: dark and short. Wood Chamber: warm. Timber Room: sparse and soft. Soft Bloom: a diffuse swell. Party Wall: a big concrete room through the wall, dark and booming. Tower Block: further down the hall, darker still." },
         { Params::chamberSpeaker, "SPEAKER", "The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn." },
         { Params::chamberBoom, "BOOM", "Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB." },
@@ -171,9 +174,42 @@ namespace
         return shortName;
     }
 
-    float textWidth(const juce::Font& font, const juce::String& text)
+    float measureText(const juce::Font& font, const juce::String& text)
     {
         return juce::GlyphArrangement::getStringWidth(font, text + " ") - juce::GlyphArrangement::getStringWidth(font, " ");
+    }
+
+    /** A text's width, remembered (message thread): the footers repaint 30 times a second and their
+        words and values repeat, so each is shaped for measuring once. */
+    float textWidth(const juce::Font& font, const juce::String& text)
+    {
+        struct Key
+        {
+            const void* face;
+            float height, kerning;
+            juce::String text;
+            bool operator==(const Key& o) const
+            {
+                return face == o.face && juce::exactlyEqual(height, o.height) && juce::exactlyEqual(kerning, o.kerning) && text == o.text;
+            }
+        };
+        struct Hash
+        {
+            size_t operator()(const Key& k) const
+            {
+                return std::hash<const void*>()(k.face) ^ (std::hash<float>()(k.height) * 31u) ^ (std::hash<float>()(k.kerning) * 131u)
+                     ^ static_cast<size_t>(k.text.hashCode64());
+            }
+        };
+        static std::unordered_map<Key, float, Hash> widths;
+        Key key { font.getTypefacePtr().get(), font.getHeight(), font.getExtraKerningFactor(), text };
+        if (const auto it = widths.find(key); it != widths.end())
+            return it->second;
+        if (widths.size() > 8192)
+            widths.clear();
+        const float w = measureText(font, text);
+        widths.emplace(std::move(key), w);
+        return w;
     }
 
     float load(const std::atomic<float>& a)
@@ -252,7 +288,7 @@ namespace
         g.fillRect(juce::Rectangle<float>(x0 - 0.5f, r.getY() - 2.0f, 1.0f, r.getHeight() + 2.0f));
     }
 
-    /** A small ink tag with paper letters (the ST badge, OVERTONE's R, a latched CLIP). */
+    /** A small solid tag with paper letters (a latched CLIP). */
     void drawTag(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& text, const juce::Font& font, juce::Colour fill)
     {
         g.setColour(fill);
@@ -261,6 +297,18 @@ namespace
         g.setColour(sheet);
         g.drawText(text, r.translated(0.0f, 0.5f), juce::Justification::centred, false);
     }
+
+    /** A small ink tag drawn as an outline: an ink hairline, ink letters, no fill (the ST mark, OVERTONE's
+        R). A label, not a control: nothing in the strip is a solid black block but the knobs. */
+    void drawOutlineTag(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& text, const juce::Font& font)
+    {
+        g.setColour(ink);
+        g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, Theme::Metrics::hairline);
+        g.setFont(font);
+        g.drawText(text, r.translated(0.0f, 0.5f), juce::Justification::centred, false);
+    }
+
+    constexpr const char* c_stereoTag = "ST";
 }
 
 //==============================================================================
@@ -464,16 +512,21 @@ public:
     void paintPanel(juce::Graphics& g, bool lifted, bool withTitle)
     {
         const auto r = getLocalBounds().toFloat();
-        g.setColour(lifted ? sheet : wash);
-        g.fillRoundedRectangle(r, c_radius);
-        Theme::fillPaperGrain(g, r, c_radius);
         if (lifted)
         {
+            // (a lifted tile is drawn live: it is moving, and it is only ever one)
+            g.setColour(sheet);
+            g.fillRoundedRectangle(r, c_radius);
+            Theme::fillPaperGrain(g, r, c_radius);
             g.setColour(ink.withAlpha(0.7f));
             g.drawRoundedRectangle(r.reduced(0.5f), c_radius, 1.2f);
         }
+        else
+        {
+            drawWash(g);
+        }
 
-        if (withTitle)
+        if (withTitle && g.clipRegionIntersects(getLocalBounds().withHeight(c_headerHeight)))
         {
             const auto header = r.withHeight(static_cast<float>(c_headerHeight)).reduced(12.0f, 0.0f);
             g.setFont(m_owner.m_fonts.title(Type::tileTitle));
@@ -482,10 +535,39 @@ public:
         }
     }
 
+    /** The tile's wash and grain: made once per size, device scale and palette, and drawn as an image, so
+        the footers' and meters' 30 Hz repaints never refill the grain or the rounded wash. (The text is
+        drawn live: an image of it would blur at a fractional window scale.) */
+    void drawWash(juce::Graphics& g)
+    {
+        const float scale = std::max(0.25f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        const int serial = Theme::paletteSerial();
+        if (m_wash.isNull() || !juce::exactlyEqual(m_washScale, scale) || m_washSerial != serial || m_washSize != getLocalBounds().getBottomRight())
+        {
+            m_washScale = scale;
+            m_washSerial = serial;
+            m_washSize = getLocalBounds().getBottomRight();
+            const int w = std::max(1, static_cast<int>(std::ceil(static_cast<float>(getWidth()) * scale)));
+            const int h = std::max(1, static_cast<int>(std::ceil(static_cast<float>(getHeight()) * scale)));
+            m_wash = juce::Image(juce::Image::ARGB, w, h, true);
+            juce::Graphics ig(m_wash);
+            ig.addTransform(juce::AffineTransform::scale(scale));
+            const auto r = getLocalBounds().toFloat();
+            ig.setColour(wash);
+            ig.fillRoundedRectangle(r, c_radius);
+            Theme::fillPaperGrain(ig, r, c_radius);
+        }
+        g.drawImageTransformed(m_wash, juce::AffineTransform::scale(1.0f / scale));
+    }
+
     SignalFlowStrip& m_owner;
     const juce::String m_title;
     std::vector<std::unique_ptr<Knob>> m_knobs;
     std::array<KnobUse, 8> m_knobUse {};
+    juce::Image m_wash;
+    float m_washScale = 0.0f;
+    int m_washSerial = -1;
+    juce::Point<int> m_washSize;
 };
 
 //==============================================================================
@@ -563,14 +645,14 @@ public:
             case Params::ModuleId::detail:   return "LIFT: how far the quiet parts are lifted (+) and the loud parts held under the ceiling (-) right now.";
             case Params::ModuleId::vocoder:  return "The level of each vocoder band right now.";
             case Params::ModuleId::ring:     return "CARRIER: the ring carrier's frequency (with its ratio to the voice when Track is Follow). The dot blinks with the carrier, slowed until you can see it.";
-            case Params::ModuleId::shimmer:  return "WOBBLE: where the shimmer's movement is in its cycle.";
+            case Params::ModuleId::shimmer:  return "WOBBLE: where the shimmer's movement is in its cycle. ST: the chain is stereo from here on.";
             case Params::ModuleId::growl:    return "CHOP: how deep the growl is cutting into the voice right now.";
             case Params::ModuleId::swirl:    return "NOTCH: where the swirl's sweep is right now, from low to high.";
             case Params::ModuleId::roar:     return "HEAT: how hard the drive is working right now.";
-            case Params::ModuleId::ensemble: return "WIDTH: how wide the ensemble makes the sound right now.";
+            case Params::ModuleId::ensemble: return "WIDTH: how wide the ensemble makes the sound right now. ST: the chain is stereo from here on.";
             case Params::ModuleId::sub:      return "SUB: the level and frequency of the octave below right now.";
             case Params::ModuleId::overtone: return "BANDS: the centre and level of the two overtone bands right now (TRACK when they follow the voice). R: Replace, the original low end is taken out.";
-            case Params::ModuleId::chamber:  return "The room in use and how long it rings (its decay with Resonance). The bar shows how strongly it is ringing right now.";
+            case Params::ModuleId::chamber:  return "The room in use and how long it rings (its decay with TAIL). The bar shows how strongly it is ringing right now. ST: the chain is stereo from here on.";
         }
         return {};
     }
@@ -634,11 +716,27 @@ public:
         }
     }
 
+    /** The ST tag at the end of the footer: the chain is stereo from this module on. */
+    void setStereoMark(bool stereo)
+    {
+        if (stereo != m_stereo)
+        {
+            m_stereo = stereo;
+            repaint(footerBounds());
+        }
+    }
+
     juce::Rectangle<int> footerBounds() const { return { 8, getHeight() - 6 - c_footerHeight, getWidth() - 16, c_footerHeight }; }
-    /** The header between the On lamp and the move chip: the slot number, then the name. */
+    /** The header between the On lamp and the move chip: the slot number, then the name, which ends a
+        clear 6 px before the move chip's hit area. */
     juce::Rectangle<float> titleArea() const
     {
-        return getLocalBounds().removeFromTop(c_headerHeight).withTrimmedLeft(c_hit + 2).withTrimmedRight(c_pad + 26).toFloat();
+        return getLocalBounds().removeFromTop(c_headerHeight).withTrimmedLeft(c_hit + 2).withRight(moveChipBounds().getX() - 6).toFloat();
+    }
+    /** The move chip's button (its hit area): the header's height, at its right end. */
+    juce::Rectangle<int> moveChipBounds() const
+    {
+        return getLocalBounds().removeFromTop(c_headerHeight).withTrimmedRight(c_pad - 4).removeFromRight(30);
     }
     /** The room the name has after the widest slot number. */
     float titleRoom() const
@@ -652,11 +750,26 @@ public:
         return footerBounds().translated(0, -(c_chipHeight + 4)).withHeight(c_chipHeight);
     }
     juce::Rectangle<int> chipBounds() const { return chipRowBounds().withTrimmedRight(c_diceSize + c_diceGap); }
-    /** The chip's button: its drawn row, taller so it is an easy target (it overlaps the margins above
-        and below, never a control). */
-    juce::Rectangle<int> chipHitBounds() const { return chipBounds().withSizeKeepingCentre(chipBounds().getWidth(), c_hit); }
+    /** The band the chip and the die click in: from just under the knobs' value boxes to 1 px above the
+        footer (c_controlHit high), so the footer's 30 Hz repaint never reaches them and they never reach a
+        value box. */
+    juce::Rectangle<int> controlHitBand() const
+    {
+        const int bottom = footerBounds().getY() - 1;
+        return { 0, bottom - c_controlHit, getWidth(), c_controlHit };
+    }
+    /** The chip's button: its drawn row in a taller band, so it is an easy target. */
+    juce::Rectangle<int> chipHitBounds() const
+    {
+        const auto band = controlHitBand();
+        return chipBounds().withY(band.getY()).withHeight(band.getHeight());
+    }
     /** The die's clickable area: its pill at the right end of the chip row, and a margin around it. */
-    juce::Rectangle<int> diceBounds() const { return chipRowBounds().removeFromRight(c_diceSize).withSizeKeepingCentre(c_diceHit, c_diceHit); }
+    juce::Rectangle<int> diceBounds() const
+    {
+        const auto band = controlHitBand();
+        return chipRowBounds().removeFromRight(c_diceSize).withSizeKeepingCentre(c_diceHit, c_diceHit).withY(band.getY()).withHeight(band.getHeight());
+    }
 
     void resized() override
     {
@@ -669,13 +782,14 @@ public:
         // The On lamp and the move chip click in the whole header height (Theme::Metrics::hitTarget).
         auto header = getLocalBounds().removeFromTop(c_headerHeight);
         m_onButton.setBounds(header.withX(2).withWidth(c_hit));
-        m_moveChip.setBounds(header.withTrimmedRight(c_pad - 4).removeFromRight(30));
+        m_moveChip.setBounds(moveChipBounds());
 
         const auto chip = chipBounds();
         m_modeChip.setBounds(chipHitBounds());
         m_dice.setBounds(diceBounds());
 
-        auto body = getLocalBounds().withTop(c_headerHeight + 4).withBottom(chip.getY() - 2).reduced(6, 0);
+        auto body = getLocalBounds().withTop(c_headerHeight + 4).withBottom(controlHitBand().getY()).reduced(6, 0);
+        juce::ignoreUnused(chip);
         const int count = isRing() ? 2 : static_cast<int>(m_knobs.size());
         if (count == 1)
         {
@@ -685,29 +799,16 @@ public:
 
         if (count == 4)
         {
-            // CHAMBER: four knobs side by side, each centred where its caption (at the caption size)
-            // clears its neighbours: the space left over is shared out evenly between the captions.
+            // CHAMBER: four equal columns, the knob, its caption and its value centred in each (captions
+            // short enough to fit a column at the caption size: AMT, TAIL, EDGE, WIDE).
             body = getLocalBounds().withTop(body.getY()).withBottom(body.getBottom()).reduced(2, 0);
-            std::array<float, 4> half {};
-            float need = 0.0f;
+            const float column = static_cast<float>(body.getWidth()) / 4.0f;
             for (size_t k = 0; k < 4; ++k)
             {
-                half[k] = (textWidth(m_owner.m_fonts.caption(c_captionFont), m_knobs[k]->caption.getText()) + 2.0f) * 0.5f;
-                need += 2.0f * half[k];
+                const int x0 = body.getX() + juce::roundToInt(column * static_cast<float>(k));
+                const int x1 = body.getX() + juce::roundToInt(column * static_cast<float>(k + 1));
+                placeKnob(*m_knobs[k], body.withX(x0).withWidth(x1 - x0));
             }
-            const float spare = std::max(0.0f, static_cast<float>(body.getWidth()) - need) / 4.0f;
-            std::array<float, 4> centre {};
-            float x = static_cast<float>(body.getX()) + spare * 0.5f;
-            for (size_t k = 0; k < 4; ++k)
-            {
-                centre[k] = x + half[k];
-                x += 2.0f * half[k] + spare;
-            }
-            // (each knob's cell is at least 36 px, so its knob is at least 28: neighbouring cells may
-            // overlap by a few pixels at their edges, the knobs drawn in them never do)
-            const int cell = std::max(36, body.getWidth() / 4);
-            for (size_t k = 0; k < 4; ++k)
-                placeKnob(*m_knobs[k], body.withWidth(cell).withX(juce::roundToInt(centre[k] - static_cast<float>(cell) * 0.5f)));
             return;
         }
 
@@ -722,6 +823,8 @@ public:
             return;
         }
 
+        // (two knobs: their cells reach nearer the tile's sides, so the longest values have room)
+        body = body.expanded(count == 2 ? 4 : 0, 0);
         const int w = body.getWidth() / count;
         for (int k = 0; k < static_cast<int>(m_knobs.size()); ++k)
         {
@@ -734,19 +837,23 @@ public:
     {
         paintPanel(g, m_lifted, false);
 
-        // The slot number (the chain order), then the name in the display face: ink when On, the faint
-        // ink when Off (with the hollow lamp, the outlined knobs and the OFF footer, never tone alone).
-        auto header = titleArea();
-        const auto numberFont = m_owner.m_fonts.value(c_smallFont);
-        const auto number = juce::String(m_slot + 1).paddedLeft('0', 2);
-        g.setFont(numberFont);
-        g.setColour(inkFaint);
-        g.drawText(number, header.removeFromLeft(textWidth(numberFont, number) + 5.0f), juce::Justification::centredLeft, false);
-        g.setFont(m_owner.m_fonts.title(m_owner.m_titlePoint));
-        g.setColour(m_on ? ink : inkFaint);
-        g.drawText(m_title, header.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
+        // (only what the repaint reaches is laid out: a footer's 30 Hz repaint shapes no other text)
+        if (g.clipRegionIntersects(getLocalBounds().withHeight(c_headerHeight)))
+        {
+            // The slot number (the chain order), then the name in the display face: ink when On, the
+            // faint ink when Off (with the hollow lamp, the outlined knobs and the OFF footer, never tone alone).
+            auto header = titleArea();
+            const auto numberFont = m_owner.m_fonts.value(Type::value);
+            const auto number = juce::String(m_slot + 1).paddedLeft('0', 2);
+            g.setFont(numberFont);
+            g.setColour(inkFaint);
+            g.drawText(number, header.removeFromLeft(textWidth(numberFont, number) + 5.0f), juce::Justification::centredLeft, false);
+            g.setFont(m_owner.m_fonts.title(m_owner.m_titlePoint));
+            g.setColour(m_on ? ink : inkFaint);
+            g.drawText(m_title, header.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
+        }
 
-        if (m_spec.chipIds[0] == nullptr)
+        if (m_spec.chipIds[0] == nullptr && g.clipRegionIntersects(chipBounds()))
         {
             // No modes: a quiet note where the chip would be, so the tiles line up.
             g.setFont(m_owner.m_fonts.caption(c_smallFont));
@@ -754,7 +861,8 @@ public:
             g.drawText("NO MODES", chipBounds().toFloat(), juce::Justification::centred, false);
         }
 
-        paintFooter(g, footerBounds().toFloat());
+        if (g.clipRegionIntersects(footerBounds()))
+            paintFooter(g, footerBounds().toFloat());
     }
 
     void paintFooter(juce::Graphics& g, juce::Rectangle<float> area)
@@ -776,18 +884,36 @@ public:
             return;
         }
 
+        if (m_stereo)
+        {
+            // The chain is stereo from here on: an outlined ink tag at the footer's end.
+            const auto tagFont = m_owner.m_fonts.label(Type::caption);
+            const float w = std::ceil(textWidth(tagFont, c_stereoTag)) + 9.0f;
+            drawOutlineTag(g, area.removeFromRight(w).withSizeKeepingCentre(w, 15.0f), c_stereoTag, tagFont);
+            area.removeFromRight(6.0f);
+        }
+
+        // (the words' and the values' extents are kept for the tests: they never come within
+        // c_footerClearance of each other)
+        m_footerLabel = {};
+        m_footerValue = {};
         const auto caption = [&](const juce::String& t)
         {
             g.setFont(captionFont);
             g.setColour(inkDim);
-            g.drawText(t, area.removeFromLeft(std::max(30.0f, textWidth(captionFont, t) + 6.0f)), juce::Justification::centredLeft, false);
+            const float w = textWidth(captionFont, t);
+            const auto r = area.removeFromLeft(std::max(30.0f, w + 6.0f));
+            g.drawText(t, r, juce::Justification::centredLeft, false);
+            m_footerLabel = r.withWidth(w);
         };
         const auto value = [&](const juce::String& t, juce::Colour c = ink)
         {
             g.setFont(valueFont);
             g.setColour(c);
             const float w = textWidth(valueFont, t) + 2.0f;
-            g.drawText(t, area.removeFromRight(w), juce::Justification::centredRight, false);
+            const auto r = area.removeFromRight(w);
+            g.drawText(t, r, juce::Justification::centredRight, false);
+            m_footerValue = m_footerValue.isEmpty() ? r : m_footerValue.getUnion(r);
             area.removeFromRight(6.0f);
         };
         // (the groove sits a little above the middle: its ruling hangs under it)
@@ -846,14 +972,24 @@ public:
             }
             case Params::ModuleId::ring:
             {
-                caption("CARRIER");
+                // CARRIER, 6 px, the blinking dot, then the value at the right: the frequency, with the
+                // ratio before it when Track is Follow and there is room (the ratio is also on its knob).
+                const auto label = juce::String("CARRIER");
+                const float labelWidth = textWidth(captionFont, label);
+                g.setFont(captionFont);
+                g.setColour(inkDim);
+                g.drawText(label, area.withWidth(labelWidth + 2.0f), juce::Justification::centredLeft, false);
+                m_footerLabel = area.withWidth(labelWidth);
+                const float d = 6.0f;
+                const float dotLeft = area.getX() + labelWidth + 6.0f;
                 const bool follow = v[2] > 0.5f;
                 const auto hz = v[0] > 0.0f ? hzText(v[0]) : juce::String("--");
-                value(follow ? "x" + juce::String(v[3], 2) + " " + hz : hz);
+                const auto withRatio = "x" + juce::String(v[3], 2) + " " + hz;
+                const float room = area.getRight() - (dotLeft + d + c_footerClearance);
+                value(follow && textWidth(valueFont, withRatio) + 2.0f <= room ? withRatio : hz);
                 // The dot blinks at a slowed copy of the carrier (the rate halved until it is visible):
                 // a hollow ink ring, filled while lit.
-                const float d = 6.0f;
-                const auto dot = juce::Rectangle<float>(d, d).withCentre({ area.getRight() - d * 0.5f, area.getCentreY() });
+                const auto dot = juce::Rectangle<float>(d, d).withPosition(dotLeft, area.getCentreY() - d * 0.5f);
                 if (v[1] > 0.5f)
                 {
                     g.setColour(accent.withAlpha(0.3f));
@@ -923,9 +1059,9 @@ public:
                 caption(v[4] > 0.5f ? "TRACK" : "BANDS");
                 if (v[5] > 0.5f)
                 {
-                    // Replace: a small "R" badge, the dry low end is gone.
+                    // Replace: a small outlined "R" tag, the dry low end is gone.
                     const auto badge = area.removeFromRight(15.0f).withSizeKeepingCentre(15.0f, 15.0f);
-                    drawTag(g, badge, "R", m_owner.m_fonts.label(Type::caption), ink);
+                    drawOutlineTag(g, badge, "R", m_owner.m_fonts.label(Type::caption));
                     area.removeFromRight(4.0f);
                 }
                 juce::String centres = v[0] > 0.0f ? juce::String(juce::roundToInt(v[0])) : juce::String("--");
@@ -957,6 +1093,8 @@ public:
     }
 
     const std::array<float, 34>& getValues() const noexcept { return m_values; }
+    /** The footer's words and its value as last painted (empty where it has none). */
+    std::pair<juce::Rectangle<float>, juce::Rectangle<float>> getFooterText() const { return { m_footerLabel, m_footerValue }; }
 
     /** New readout values (from the timer); repaints the footer when they changed. */
     void setValues(const std::array<float, 34>& values)
@@ -964,7 +1102,7 @@ public:
         if (values != m_values)
         {
             m_values = values;
-            repaint(footerBounds().expanded(2));
+            repaint(footerBounds());
         }
     }
 
@@ -1013,7 +1151,7 @@ public:
     const int m_module;
     const Params::ModuleSpec& m_spec;
     int m_slot = -1;
-    bool m_on = true, m_lifted = false, m_pressInHeader = false;
+    bool m_on = true, m_lifted = false, m_pressInHeader = false, m_stereo = false;
     juce::String m_dragTip, m_footerTip;
     float m_blinkPhase = 0.0f;
 
@@ -1023,6 +1161,9 @@ public:
     MoveChip m_moveChip;
     DiceButton m_dice { "Randomise" };
     std::array<float, 34> m_values {};
+    juce::Rectangle<float> m_footerLabel, m_footerValue;
+    std::array<int, 4> m_chipChoices { -2, -2, -2, -2 };   // the choices and the width the chip's label was made for
+    int m_chipWidth = -1;
 };
 
 //==============================================================================
@@ -1035,6 +1176,7 @@ public:
 
         m_auto.setButtonText("AUTO");
         m_auto.setClickingTogglesState(true);
+        RoarschachLookAndFeel::setSwitch(m_auto);
         m_auto.setTooltip(tooltipFor(Params::inAuto));
         m_auto.setTitle("Auto Level");
         addAndMakeVisible(m_auto);
@@ -1049,7 +1191,7 @@ public:
     void resized() override
     {
         placeKnob(*m_knobs[0], { 6, c_headerHeight + 6, getWidth() - 12, c_captionHeight + 92 });
-        m_auto.setBounds(juce::Rectangle<int>(getWidth() / 2 - 32, c_headerHeight + 6 + c_captionHeight + 92 + 4, 64, c_hit));
+        m_auto.setBounds(juce::Rectangle<int>(getWidth() / 2 - 36, c_headerHeight + 6 + c_captionHeight + 92 + 4, 72, c_hit));
         fitCaptions();
     }
 
@@ -1060,8 +1202,12 @@ public:
         // Input meter, -48..0 dBFS: a groove ruled with a scale on its left, a solid fill.
         const auto m = meterBounds();
         g.setFont(m_owner.m_fonts.value(c_smallFont));
+        // (the scale is laid out only when the repaint reaches it: the meter's own repaint does not)
+        const bool scaleShown = g.clipRegionIntersects(m.withLeft(m.getX() - 36.0f).withRight(m.getX() - 2.0f).expanded(0.0f, 8.0f).toNearestInt());
         for (const int db : { 0, -12, -24, -36, -48 })
         {
+            if (!scaleShown)
+                break;
             const float y = m.getY() + m.getHeight() * static_cast<float>(-db) / 48.0f;
             g.setColour(inkFaint);
             g.drawText(juce::String(db), juce::Rectangle<float>(m.getX() - 36.0f, y - 8.0f, 28.0f, 16.0f), juce::Justification::centredRight, false);
@@ -1080,6 +1226,8 @@ public:
 
         // F0 readout.
         auto f0 = juce::Rectangle<float>(10.0f, static_cast<float>(getHeight()) - 46.0f, static_cast<float>(getWidth()) - 20.0f, 36.0f);
+        if (!g.clipRegionIntersects(f0.toNearestInt()))
+            return;
         g.setColour(ruleSoft);
         g.fillRect(f0.removeFromTop(1.0f));
         g.setFont(m_owner.m_fonts.caption(c_smallFont));
@@ -1131,33 +1279,48 @@ public:
 
         m_auto.setButtonText("AUTO");
         m_auto.setClickingTogglesState(true);
+        RoarschachLookAndFeel::setSwitch(m_auto, true);   // reads ON / OFF under its caption
         m_auto.setTooltip(tooltipFor(Params::outAuto));
         m_auto.setTitle("Auto Release");
         addAndMakeVisible(m_auto);
+
+        // Its caption, as a knob's: the second row reads as four columns.
+        m_autoCaption.setText(captionFor(Params::outAuto), juce::dontSendNotification);
+        m_autoCaption.setFont(m_owner.m_fonts.caption(c_captionFont));
+        m_autoCaption.setJustificationType(juce::Justification::centred);
+        RoarschachLookAndFeel::setCaptionLive(m_autoCaption, true);
+        m_autoCaption.setInterceptsMouseClicks(false, false);
+        m_autoCaption.setMinimumHorizontalScale(1.0f);
+        m_autoCaption.setBorderSize({ 0, 0, 0, 0 });
+        addAndMakeVisible(m_autoCaption);
         m_autoAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::outAuto, m_auto);
     }
 
-    static constexpr int c_rowHeight = c_captionHeight + 86;
+    static constexpr int c_rowHeight = c_captionHeight + 80;
+    static constexpr int c_rowGap = 14;   // between row 1's values and row 2's captions: the rows read apart
 
     juce::Rectangle<int> meterArea() const
     {
-        return { 14, c_headerHeight + 8 + 2 * c_rowHeight + 14, getWidth() - 28, 3 * 24 };
+        return { 14, c_headerHeight + 8 + 2 * c_rowHeight + c_rowGap + 14, getWidth() - 28, 3 * 24 };
     }
 
     void resized() override
     {
-        auto knobs = juce::Rectangle<int>(8, c_headerHeight + 6, getWidth() - 16, 2 * c_rowHeight + 4);
+        auto knobs = juce::Rectangle<int>(8, c_headerHeight + 6, getWidth() - 16, 2 * c_rowHeight + c_rowGap);
         const int w = knobs.getWidth() / 4;
-        // Row 1: Push, Ceiling, Clip, Shape. Row 2: Attack, Release, the Auto switch, Mix.
+        // Row 1: Push, Ceiling, Clip, Shape. Row 2: Attack, Release, the Auto switch (with its caption, on
+        // the knob centre line), Mix.
         for (int k = 0; k < 4; ++k)
             placeKnob(*m_knobs[static_cast<size_t>(k)], { knobs.getX() + k * w, knobs.getY(), w, c_rowHeight });
-        const int y2 = knobs.getY() + c_rowHeight + 4;
+        const int y2 = knobs.getY() + c_rowHeight + c_rowGap;
         placeKnob(*m_knobs[4], { knobs.getX(), y2, w, c_rowHeight });
         placeKnob(*m_knobs[5], { knobs.getX() + w, y2, w, c_rowHeight });
         placeKnob(*m_knobs[6], { knobs.getX() + 3 * w, y2, w, c_rowHeight });
-        const int knobCentreY = y2 + c_captionHeight + (c_rowHeight - c_captionHeight - 20) / 2;
-        m_auto.setBounds(juce::Rectangle<int>(knobs.getX() + 2 * w + (w - 58) / 2, knobCentreY - c_hit / 2, 58, c_hit));
+        const int knobCentreY = m_knobs[4]->slider.getY() + (m_knobs[4]->slider.getHeight() - 20) / 2;
+        m_auto.setBounds(juce::Rectangle<int>(knobs.getX() + 2 * w + (w - 64) / 2, knobCentreY - c_hit / 2, 64, c_hit));
         fitCaptions();
+        const int captionWidth = static_cast<int>(std::ceil(textWidth(m_owner.m_fonts.caption(c_captionFont), m_autoCaption.getText()) + 2.0f));
+        m_autoCaption.setBounds(m_auto.getBounds().getCentreX() - captionWidth / 2, y2, captionWidth, c_captionHeight);
     }
 
     void paint(juce::Graphics& g) override
@@ -1176,7 +1339,7 @@ public:
             const auto captionArea = r.removeFromLeft(44.0f);
             if (tagged)
                 drawTag(g, captionArea.withWidth(std::ceil(textWidth(captionFont, caption)) + 10.0f).withSizeKeepingCentre(std::ceil(textWidth(captionFont, caption)) + 10.0f, 17.0f)
-                                      .translated(-5.0f, 0.0f), caption, captionFont, warn);
+                                      .translated(-5.0f, 0.0f), caption, captionFont, warnTag);
             else
             {
                 g.setFont(captionFont);
@@ -1233,13 +1396,22 @@ public:
             m_heldGr = gr;
             m_holdStartMs = nowMs;
         }
+        // The held value is the most clipped of the last clipLatchMs: a larger peak holds that long, then
+        // the value falls back to what is clipping now (it never sticks while clipping carries on).
         clip = std::max(0.0f, clip);
-        if (clip >= 0.05f && (clip >= m_clipHeld || nowMs > m_clipUntilMs))
-            m_clipHeld = std::max(clip, nowMs > m_clipUntilMs ? 0.0f : m_clipHeld);
         if (clip >= 0.05f)
+        {
+            if (clip >= m_clipHeld || nowMs - m_clipPeakMs > Theme::Metrics::clipLatchMs)
+            {
+                m_clipHeld = clip;
+                m_clipPeakMs = nowMs;
+            }
             m_clipUntilMs = nowMs + Theme::Metrics::clipLatchMs;
+        }
         else if (nowMs > m_clipUntilMs)
+        {
             m_clipHeld = 0.0f;
+        }
         const std::array<float, 6> v { out, gr, clip, ceiling, m_heldGr, m_clipHeld };
         if (v != m_last)
         {
@@ -1248,14 +1420,15 @@ public:
             m_gr = gr;
             m_clip = clip;
             m_ceiling = ceiling;
-            repaint(meterArea().expanded(4));
+            repaint(meterArea().expanded(6));   // (the latched CLIP tag reaches 5 px left of the meters)
         }
     }
 
     juce::TextButton m_auto;
+    juce::Label m_autoCaption;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_autoAttachment;
     float m_out = 0.0f, m_gr = 0.0f, m_heldGr = 0.0f, m_clip = 0.0f, m_ceiling = -1.0f, m_clipHeld = 0.0f;
-    double m_holdStartMs = 0.0, m_clipUntilMs = 0.0;
+    double m_holdStartMs = 0.0, m_clipUntilMs = 0.0, m_clipPeakMs = 0.0;
     std::array<float, 6> m_last {};
 };
 
@@ -1340,6 +1513,12 @@ void SignalFlowStrip::setParameter(const char* id, float plainValue)
 juce::Component* SignalFlowStrip::getModuleTile(int module) const
 {
     return juce::isPositiveAndBelow(module, Params::numModules) ? m_tiles[static_cast<size_t>(module)].get() : nullptr;
+}
+
+std::pair<juce::Rectangle<float>, juce::Rectangle<float>> SignalFlowStrip::getFooterTextForTests(int module) const
+{
+    return juce::isPositiveAndBelow(module, Params::numModules) ? m_tiles[static_cast<size_t>(module)]->getFooterText()
+                                                                 : std::pair<juce::Rectangle<float>, juce::Rectangle<float>> {};
 }
 
 std::array<float, 34> SignalFlowStrip::getReadoutForTests(int module) const
@@ -1505,6 +1684,9 @@ juce::PopupMenu SignalFlowStrip::buildModeMenu(int module, std::vector<std::pair
 
     juce::PopupMenu menu;
     menu.setLookAndFeel(&getLookAndFeel());
+    // Several choice parameters: the menu opens under the module's name (one: under the parameter's, below).
+    if (numChoices > 1)
+        menu.addSectionHeader(juce::String(spec.uiName) + " MODES");
 
     for (const char* id : spec.chipIds)
     {
@@ -1557,6 +1739,9 @@ juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const
             continue;
         if (std::string_view(id) == Params::ringTrack)
             continue;
+        // CHAMBER's chip names the room alone; its speaker and Boom are in its menu.
+        if (std::string_view(id) == Params::chamberSpeaker || std::string_view(id) == Params::chamberBoom)
+            continue;
         full.add(name);
         shortened.add(shortChoice(name));
         compact.add(compactChoice(shortChoice(name)));
@@ -1567,10 +1752,12 @@ juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const
     // Full names, then short ones, then short ones packed tight, then shorter ones packed tight (the
     // button cuts anything longer).
     const auto tight = juce::String::fromUTF8("\xc2\xb7");
-    for (const auto& candidate : { full.joinIntoString(separator), shortened.joinIntoString(separator), shortened.joinIntoString(tight) })
+    for (const auto& candidate : { full.joinIntoString(separator), shortened.joinIntoString(separator), shortened.joinIntoString(tight),
+                                   compact.joinIntoString(tight) })
         if (textWidth(font, candidate) <= maxWidth)
             return candidate;
-    return compact.joinIntoString(tight);
+    // Still too long: the first choice alone (the others are named in the chip's menu and tooltip).
+    return shortened.isEmpty() ? juce::String() : textWidth(font, shortened[0]) <= maxWidth ? shortened[0] : compact[0];
 }
 
 juce::PopupMenu::Options SignalFlowStrip::menuOptions(juce::Component& target) const
@@ -1969,29 +2156,6 @@ void SignalFlowStrip::paint(juce::Graphics& g)
     }
 }
 
-void SignalFlowStrip::paintOverChildren(juce::Graphics& g)
-{
-    // The ST badge on the connector out of the module that makes the chain stereo.
-    if (m_split >= Params::numModules || isDragging())
-        return;
-
-    const auto r = getSlotBounds(m_split).toFloat();
-    juce::Point<float> at;
-    if (m_split == Params::numModules - 1)
-        at = { r.getRight() + static_cast<float>(c_endGap) * 0.5f, r.getCentreY() + 16.0f };
-    else if (m_split % c_columns == c_columns - 1)
-        at = { r.getRight() + static_cast<float>(c_endGap) * 0.5f, r.getBottom() + static_cast<float>(c_rowGap) * 0.5f };
-    else
-        at = { r.getRight() + static_cast<float>(c_gap) * 0.5f, r.getCentreY() + 16.0f };
-
-    // An ink tag with paper letters, at the caption size.
-    const auto font = m_fonts.label(Type::caption);
-    const auto badge = juce::Rectangle<float>(std::ceil(textWidth(font, "ST")) + 9.0f, 16.0f).withCentre(at);
-    g.setColour(paper);
-    g.fillRoundedRectangle(badge.expanded(1.5f), 4.0f);
-    drawTag(g, badge, "ST", font, ink);
-}
-
 //==============================================================================
 void SignalFlowStrip::updateKnobUse(int module)
 {
@@ -2069,10 +2233,13 @@ void SignalFlowStrip::timerCallback()
         layoutTiles(true, c_settleMs);
         repaint();
     }
-    if (split != m_split)
+    if (split != m_split || order != m_stereoMarkOrder)
     {
+        // The ST tag sits in the footer of the module that makes the chain stereo.
         m_split = split;
-        repaint();
+        m_stereoMarkOrder = order;
+        for (int k = 0; k < Params::numModules; ++k)
+            m_tiles[static_cast<size_t>(order[static_cast<size_t>(k)])]->setStereoMark(k == split);
     }
 
     const auto& f = m_features;
@@ -2089,10 +2256,20 @@ void SignalFlowStrip::timerCallback()
 
         if (tile.m_modeChip.isVisible())
         {
-            // The LookAndFeel narrows its padding for a label that needs the room: keep 5 px each side.
-            const auto t = modeChipText(m, static_cast<float>(tile.m_modeChip.getWidth() - 6 - 11));   // (and the caret)
-            if (t != tile.m_modeChip.getButtonText())
-                tile.m_modeChip.setButtonText(t);
+            // The label in the room the LookAndFeel gives it (the caret's zone kept clear), worked out
+            // again only when a choice or the chip's width changed.
+            std::array<int, 4> choices { -1, -1, -1, -1 };
+            for (size_t c = 0; c < choices.size(); ++c)
+                if (const char* id = Params::modules[static_cast<size_t>(m)].chipIds[c])
+                    choices[c] = juce::roundToInt(rawValue(id));
+            if (choices != tile.m_chipChoices || tile.m_modeChip.getWidth() != tile.m_chipWidth)
+            {
+                tile.m_chipChoices = choices;
+                tile.m_chipWidth = tile.m_modeChip.getWidth();
+                const auto t = modeChipText(m, RoarschachLookAndFeel::menuChipTextWidth(tile.m_chipWidth));
+                if (t != tile.m_modeChip.getButtonText())
+                    tile.m_modeChip.setButtonText(t);
+            }
         }
 
         std::array<float, 34> v {};

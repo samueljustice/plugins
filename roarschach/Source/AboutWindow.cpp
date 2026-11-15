@@ -13,7 +13,7 @@ namespace
     constexpr int c_margin = 16;
     constexpr int c_headerBlockHeight = 66;  // mark + name, tagline, version
     constexpr int c_panelGap = 10;
-    constexpr int c_panelHeaderHeight = 32;  // as the editor's sections
+    constexpr int c_panelHeaderHeight = 32;  // a section's ruled heading
     constexpr int c_creditsHeight = 88;      // the header row, the name, the links
     constexpr int c_textInset = 14;          // body text lines up with the panel title
     constexpr int c_linkHeight = 22;
@@ -101,6 +101,12 @@ std::unique_ptr<juce::Component> AboutWindow::createContent(RoarschachLookAndFee
     return content;
 }
 
+void AboutWindow::refreshColours()
+{
+    setBackgroundColour(Theme::Colours::paper);
+    m_content.refreshColours();
+}
+
 void AboutWindow::closeButtonPressed()
 {
     // The owner deletes the window, and with it m_onClose: call a copy.
@@ -176,7 +182,7 @@ void AboutWindow::UpdateCheck::run()
         return;
 
     auto result = connected ? interpret(response, m_currentVersion)
-                            : Result { "Failed to check for updates", Theme::Colours::warn };
+                            : Result { "Failed to check for updates", Tone::warning };
     {
         const juce::ScopedLock sl(m_lock);
         m_result = std::move(result);
@@ -199,13 +205,14 @@ void AboutWindow::UpdateCheck::handleAsyncUpdate()
 
 AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce::String& response, const juce::String& currentVersion)
 {
-    // Status colours as in the editor: a failure in the warning ink, a result in the dyed ink, anything
-    // else (no Roarschach release listed) the dim ink. (The words carry the meaning; colour only adds.)
+    // Status tones (coloured on the message thread, as in the editor): a failure in the warning ink, a
+    // result in the dyed ink, anything else (no Roarschach release listed) the dim ink. (The words carry
+    // the meaning; colour only adds. This runs on the worker thread: it never reads the palette.)
     const juce::var releases = juce::JSON::parse(response);
     const juce::Array<juce::var>* releasesArray = releases.getArray();
 
     if (releasesArray == nullptr)
-        return { "Invalid response from server", Theme::Colours::warn };
+        return { "Invalid response from server", Tone::warning };
 
     // Releases are listed newest first; the first one tagged for Roarschach is the latest.
     juce::String latestVersion;
@@ -223,7 +230,7 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce:
     }
 
     if (latestVersion.isEmpty())
-        return { "No releases found", Theme::Colours::inkDim };
+        return { "No releases found", Tone::neutral };
 
     // Parse version numbers for proper comparison
     auto parseVersion = [](const juce::String& version) -> int
@@ -239,9 +246,14 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce:
     };
 
     if (parseVersion(latestVersion) > parseVersion(currentVersion))
-        return { "New version " + latestVersion + " available!", Theme::Colours::accentInk };
+        return { "New version " + latestVersion + " available!", Tone::result };
 
-    return { "You have the latest version", Theme::Colours::accentInk };
+    return { "You have the latest version", Tone::result };
+}
+
+juce::Colour AboutWindow::UpdateCheck::colourOf(Tone tone)
+{
+    return tone == Tone::warning ? Theme::Colours::warn : tone == Tone::result ? Theme::Colours::accentInk : Theme::Colours::inkDim;
 }
 
 
@@ -254,7 +266,9 @@ AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel
     , m_updateCheck(juce::URL(c_releasesUrl), JucePlugin_VersionString, [this](const UpdateCheck::Result& result)
       {
           m_updateStatusLabel.setText(result.text, juce::dontSendNotification);
-          m_updateStatusLabel.setColour(juce::Label::textColourId, result.colour);
+          m_statusTone = result.tone;
+          repaint();   // (the heading's rule makes room for it)
+          m_updateStatusLabel.setColour(juce::Label::textColourId, UpdateCheck::colourOf(result.tone));
           m_checkUpdatesButton.setEnabled(true);
       })
 {
@@ -290,7 +304,7 @@ AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel
     m_checkUpdatesButton.onClick = [this] { checkForUpdates(); };
     addAndMakeVisible(m_checkUpdatesButton);
 
-    // The result, in the header row next to the button (like a readout in an editor section header).
+    // The result, in the heading's row before the button.
     m_updateStatusLabel.setText("", juce::dontSendNotification);
     m_updateStatusLabel.setJustificationType(juce::Justification::centredRight);
     m_updateStatusLabel.setColour(juce::Label::textColourId, Theme::Colours::inkDim);
@@ -335,6 +349,19 @@ AboutWindow::AboutContent::~AboutContent()
     setLookAndFeel(nullptr);
 }
 
+void AboutWindow::AboutContent::refreshColours()
+{
+    // The colours children keep (set once), taken from the palette as it is now; the quick start's
+    // laid-out lines are made again in the new inks.
+    for (auto* link : { &m_websiteButton, &m_emailButton })
+        link->setColour(juce::TextButton::textColourOffId, Theme::Colours::inkDim);
+    m_updateStatusLabel.setColour(juce::Label::textColourId, UpdateCheck::colourOf(m_statusTone));
+    m_licenseText.setColour(juce::TextEditor::textColourId, Theme::Colours::inkDim);
+    m_licenseText.applyColourToAllText(Theme::Colours::inkDim, true);
+    resized();
+    repaint();
+}
+
 void AboutWindow::AboutContent::paint(juce::Graphics& g)
 {
     using namespace Theme::Colours;
@@ -368,10 +395,17 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
     versionLayout.createLayout(version, width);
     versionLayout.draw(g, juce::Rectangle<float>(textX, titleRow.getBottom() + 19.0f, width, 16.0f));
 
-    // Panels: washes on the paper, titled in the display face.
+    // Sections on the plain sheet, each under a ruled heading in the display face (as a menu's).
     m_lookAndFeel.drawPanel(g, m_creditsPanel.toFloat(), "CREATED BY");
     m_lookAndFeel.drawPanel(g, m_quickStartPanel.toFloat(), "QUICK START");
-    m_lookAndFeel.drawPanel(g, m_updatesPanel.toFloat(), "UPDATES", static_cast<float>(m_updatesPanel.getHeight()));
+    {
+        // (the rule stops before the result, or before the button while there is none)
+        const auto status = m_updateStatusLabel.getText();
+        const float statusWidth = status.isEmpty() ? 0.0f
+                                : juce::GlyphArrangement::getStringWidth(m_updateStatusLabel.getFont(), status) + 12.0f;
+        m_lookAndFeel.drawPanel(g, m_updatesPanel.toFloat(), "UPDATES", static_cast<float>(c_panelHeaderHeight),
+                                static_cast<float>(m_updateStatusLabel.getRight()) - statusWidth - 2.0f);
+    }
     m_lookAndFeel.drawPanel(g, m_licencePanel.toFloat(), "LICENSE");
 
     // Credits: the name, then the links separated as in the editor header.
@@ -396,9 +430,10 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
             const auto& layout = m_quickStart[static_cast<size_t>(i)];
             if (i < steps)
             {
-                g.setFont(m_fonts->title(Theme::Type::menuHeader));
+                // (the sans' figures: the display face's 1 reads as a capital I)
+                g.setFont(m_fonts->label(Theme::Type::prose));
                 g.setColour(accentInk);
-                g.drawText(juce::String(i + 1), juce::Rectangle<float>(left, y - 1.0f, static_cast<float>(c_quickNumberWidth), 17.0f),
+                g.drawText(juce::String(i + 1), juce::Rectangle<float>(left, y + 1.0f, static_cast<float>(c_quickNumberWidth), 17.0f),
                            juce::Justification::topLeft, false);
             }
             else
@@ -470,8 +505,9 @@ void AboutWindow::AboutContent::resized()
     linkRow.removeFromLeft(20);
     m_emailButton.setBounds(linkRow.removeFromLeft(linkWidth(m_emailButton)));
 
-    // UPDATES header row: the title, the status, the button (as a switch in an editor section header).
-    auto header = m_updatesPanel.reduced(8, 5);
+    // UPDATES: the heading with the button at the end of its row (inset as far from the right as the
+    // text is from the left), the result just before the button; the heading's rule stops short of it.
+    auto header = m_updatesPanel.withTrimmedRight(c_textInset).reduced(0, 3);
     const int buttonWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_lookAndFeel.getTextButtonFont(m_checkUpdatesButton, header.getHeight()),
                                                                                     "CHECK FOR UPDATES")) + 30;
     m_checkUpdatesButton.setBounds(header.removeFromRight(buttonWidth));
@@ -492,5 +528,7 @@ void AboutWindow::AboutContent::checkForUpdates()
 
     m_checkUpdatesButton.setEnabled(false);
     m_updateStatusLabel.setText("Checking for updates...", juce::dontSendNotification);
-    m_updateStatusLabel.setColour(juce::Label::textColourId, Theme::Colours::inkDim);
+    m_statusTone = UpdateCheck::Tone::neutral;
+    repaint();
+    m_updateStatusLabel.setColour(juce::Label::textColourId, UpdateCheck::colourOf(m_statusTone));
 }

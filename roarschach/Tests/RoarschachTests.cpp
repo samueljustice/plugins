@@ -92,6 +92,8 @@ struct RoarschachEditorInspector
     static juce::AlertWindow* alert(RoarschachAudioProcessorEditor& e) { return e.m_alert.get(); }
     static void closeAlert(RoarschachAudioProcessorEditor& e) { if (e.m_alert != nullptr) e.m_alert->exitModalState(0); e.m_alert.reset(); }
     static juce::Button& presetName(RoarschachAudioProcessorEditor& e) { return e.m_presetNameButton; }
+    static void tick(RoarschachAudioProcessorEditor& e) { e.timerCallback(); }
+    static int paletteSeen(RoarschachAudioProcessorEditor& e) { return e.m_paletteSerialSeen; }
 };
 
 namespace
@@ -3767,7 +3769,7 @@ namespace
 
                 // Every combination of choices: the chip text names them and fits the chip.
                 // (the chip's label is set untracked at the chip size; its caret takes 11 px, the ends 3 px each)
-                const float room = static_cast<float>(chip->getWidth() - 6 - 11);
+                const float room = RoarschachLookAndFeel::menuChipTextWidth(chip->getWidth());
                 const auto font = Theme::Fonts().value(Theme::Type::chip);
                 std::vector<const char*> ids;
                 for (const char* id : spec.chipIds)
@@ -3942,7 +3944,9 @@ namespace
                 for (const float c : { 0.0f, 0.085f, 0.2f })
                 {
                     const auto roles = Theme::makeRoles(variant, static_cast<float>(h), c);
-                    for (const auto behind : { juce::Colours::black, juce::Colours::white, juce::Colour(0xff94b0c1) })
+                    // (the still cloud of that mood too: shown when the visualiser is Off)
+                    const auto [lit, shade] = Theme::stillCloud(static_cast<float>(h), c);
+                    for (const auto behind : { juce::Colours::black, juce::Colours::white, juce::Colour(0xff94b0c1), lit, shade })
                         readoutWorst = std::min(readoutWorst, contrastRatio(roles.readoutText, behind.overlaidWith(roles.readout)));
                 }
             if (variant == Theme::Variant::paper)
@@ -4012,6 +4016,118 @@ namespace
         view.setMoodForTests({ -1.0f, -1.0f, -1.0f, -1.0f });
         editorBase.reset();
         Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+    }
+
+    /** The palette is one for every open instance: when one editor moves it, every other open editor
+        takes the whole of it on its next tick (its LookAndFeel's colours, not only what repaints). */
+    void testPaletteInEveryWindow()
+    {
+        auto p1 = makeProcessor(48000.0, 512);
+        auto p2 = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> first(p1->createEditor());
+        std::unique_ptr<juce::AudioProcessorEditor> second(p2->createEditor());   // opened last: it drives the palette
+        auto& a = *dynamic_cast<RoarschachAudioProcessorEditor*>(first.get());
+        auto& b = *dynamic_cast<RoarschachAudioProcessorEditor*>(second.get());
+        auto& view = RoarschachEditorInspector::monster(b);
+        view.setMoodForTests({ 1.0f, 0.0f, 0.0f, 0.0f });
+        for (int i = 0; i < 40; ++i)
+            RoarschachEditorInspector::followMood(b);
+        const bool moved = RoarschachEditorInspector::paletteSeen(a) != Theme::paletteSerial();
+        RoarschachEditorInspector::tick(a);
+        const auto tick = RoarschachEditorInspector::lookAndFeel(a).findColour(juce::ToggleButton::tickColourId);
+        check(moved && RoarschachEditorInspector::paletteSeen(a) == Theme::paletteSerial() && tick == Theme::Colours::accent,
+              "a second open editor takes the whole palette another editor moved, on its next tick");
+        view.setMoodForTests({ -1.0f, -1.0f, -1.0f, -1.0f });
+        second.reset();
+        first.reset();
+        Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+    }
+
+    /** No module footer's words come within 4 px of its value, in any factory preset, with wide readouts
+        (RING's ratio and a kHz carrier, two OVERTONE bands, a long CHAMBER decay). */
+    void testFooterClearance()
+    {
+        auto p = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+        auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+        editor.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+        auto& strip = RoarschachEditorInspector::strip(editor);
+        auto& f = const_cast<roar::MonsterFeatures&>(p->getMonsterFeatures());
+        f.ringHz.store(1234.0f);
+        f.subHz.store(110.0f);
+        f.overtoneBandHz[0].store(1234.0f);
+        f.overtoneBandHz[1].store(2345.0f);
+        f.chamberDecay.store(2.55f);
+        f.detailBoostDb.store(12.3f);
+        f.detailCutDb.store(-12.3f);
+        f.pitchSt.store(-12.34f);
+        int bad = 0, seen = 0;
+        for (int i = 0; i < PresetManager::getNumFactory(); ++i)
+        {
+            p->getPresetManager().loadPreset(i);
+            strip.refresh();
+            for (int m = 0; m < Params::numModules; ++m)
+            {
+                auto* tile = strip.getModuleTile(m);
+                juce::ignoreUnused(tile->createComponentSnapshot(tile->getLocalBounds(), true, 1.0f));   // (paints the footer)
+                const auto [label, value] = strip.getFooterTextForTests(m);
+                if (label.isEmpty() || value.isEmpty())
+                    continue;
+                ++seen;
+                if (value.getX() - label.getRight() < 4.0f - 0.01f)
+                {
+                    ++bad;
+                    std::printf("    preset %d, %s: the footer's words end %.1f px from its value\n", i,
+                                Params::modules[static_cast<size_t>(m)].uiName, value.getX() - label.getRight());
+                }
+            }
+        }
+        check(seen > 100, "the footers' words and values were found");
+        check(bad == 0, juce::String(bad) + " footers whose words come within 4 px of their value");
+    }
+
+    /** The picture has no frame at any window scale: at 65 % and 80 % (fractional device pixels) the rows
+        around its foot change by no more than 2 % in luminance from one to the next (averaged across the
+        width, so the paper's grain does not count), with the visualiser Off (the still cloud). */
+    void testPictureEdge()
+    {
+        auto p = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+        auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+        auto& view = RoarschachEditorInspector::monster(editor);
+        view.setVisualiser(MonsterView::Visualiser::off);
+        view.refreshOverlay(0.1f);
+        int worstRows = 0;
+        for (const float scale : { 0.65f, 0.8f })
+            for (const float pixels : { 1.0f, 2.0f })
+            {
+                editor.setSize(juce::roundToInt(RoarschachAudioProcessorEditor::c_baseWidth * scale),
+                               juce::roundToInt(RoarschachAudioProcessorEditor::c_baseHeight * scale));
+                const auto img = editor.createComponentSnapshot(editor.getLocalBounds(), true, pixels);
+                const auto picture = editor.getLocalArea(&view, view.getLocalBounds().toFloat()) * pixels;
+                const int x0 = juce::roundToInt(picture.getX() + picture.getWidth() * 0.2f);
+                const int x1 = juce::roundToInt(picture.getX() + picture.getWidth() * 0.8f);
+                const auto rowLuminance = [&](int y)
+                {
+                    double sum = 0.0;
+                    for (int x = x0; x < x1; ++x)
+                        sum += Theme::luminance(img.getPixelAt(x, y));
+                    return sum / static_cast<double>(x1 - x0);
+                };
+                const int foot = juce::roundToInt(picture.getBottom());
+                double worst = 0.0;
+                for (int y = foot - 6; y < foot + 6; ++y)
+                {
+                    const double a = rowLuminance(y), b = rowLuminance(y + 1);
+                    if (std::getenv("ROARSCHACH_DEBUG_FOOT") != nullptr)
+                        std::printf("    row %d (foot %d): %.4f\n", y, foot, a);
+                    worst = std::max(worst, std::abs(a - b) / std::max(1.0e-6, std::max(a, b)));
+                }
+                std::printf("  the picture's foot at %.0f %% (%.0fx): rows change by %.2f %% at most\n", scale * 100.0f, pixels, worst * 100.0);
+                worstRows += worst > 0.02 ? 1 : 0;
+            }
+        check(worstRows == 0, "no line along the picture's foot at 65 % or 80 %");
+        view.setVisualiser(MonsterView::Visualiser::full);
     }
 
     double contrastRatio(juce::Colour a, juce::Colour b)
@@ -4165,10 +4281,13 @@ namespace
         //    text, 3 to 1 for marks that are not text).
         testThemeContrast();
         testMoodTintsControls();
+        testPaletteInEveryWindow();
+        testFooterClearance();
+        testPictureEdge();
 
         // 5. Captions: every one at the caption size (Theme::Type::caption, point height: 5.5 px capitals
-        //    at 65 %), each whole word shown, clear of the captions beside it and of the sides of its tile.
-        //    (CHAMBER's four narrow knobs are placed by their captions to fit.)
+        //    at 65 %), CHAMBER's four included, each whole word shown, clear of the captions beside it and
+        //    of the sides of its tile.
         {
             auto p = makeProcessor(48000.0, 512);
             std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
@@ -4176,12 +4295,11 @@ namespace
             editor.setSize(baseW, baseH);
             auto& strip = RoarschachEditorInspector::strip(editor);
             strip.refresh();
-            int captions = 0, small = 0, tiny = 0, cut = 0, outside = 0, touching = 0;
+            int captions = 0, small = 0, cut = 0, outside = 0, touching = 0;
             float smallest = 100.0f;
             std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
             for (int m = 0; m < Params::numModules; ++m)
                 tiles.push_back(strip.getModuleTile(m));
-            const auto* chamberTile = strip.getModuleTile(static_cast<int>(Params::ModuleId::chamber));
             for (auto* tile : tiles)
             {
                 std::vector<juce::Label*> labels;
@@ -4193,8 +4311,7 @@ namespace
                     ++captions;
                     const float height = label->getFont().getHeightInPoints();
                     smallest = std::min(smallest, height);
-                    tiny += height < 8.25f - 0.01f ? 1 : 0;
-                    small += tile != chamberTile && height < Theme::Type::caption - 0.01f ? 1 : 0;
+                    small += std::abs(height - Theme::Type::caption) > 0.01f ? 1 : 0;
                     cut += juce::GlyphArrangement::getStringWidth(label->getFont(), label->getText()) > static_cast<float>(label->getWidth()) ? 1 : 0;
                     // (the capitals and their room: ascent above the baseline, no descenders in capitals)
                     cut += label->getFont().getAscent() > static_cast<float>(label->getHeight()) ? 1 : 0;
@@ -4215,8 +4332,7 @@ namespace
             }
             std::printf("  %d knob captions, the smallest %.2f pt (capitals %.1f px at 65 %%)\n", captions, smallest, smallest * 0.66f * 0.65f);
             check(captions >= 30, "the knob captions were found");
-            check(small == 0, juce::String(small) + " captions under the caption size outside CHAMBER");
-            check(tiny == 0, juce::String(tiny) + " captions under 8.25 pt");
+            check(small == 0, juce::String(small) + " captions not at the caption size (CHAMBER's included)");
             check(cut == 0, juce::String(cut) + " captions cut short");
             check(outside == 0 && touching == 0, "captions overlap each other or leave their tile");
         }
@@ -4956,7 +5072,12 @@ namespace
                     savePng(frame.rescaled(frame.getWidth() / 2, frame.getHeight() / 2), juce::File(raw));
                 juce::Graphics g(image);
                 const auto area = stage.getLocalArea(&monster, monster.getLocalBounds()).toFloat() * scale;
-                g.drawImage(frame, area);
+                {
+                    // (inside the view's solid paper rim, which covers the GL frame there in a host)
+                    juce::Graphics::ScopedSaveState clip(g);
+                    g.reduceClipRegion(area.reduced(MonsterView::c_featherRim * area.getWidth() / static_cast<float>(monster.getWidth())).toNearestInt());
+                    g.drawImage(frame, area);
+                }
                 // The overlay (readouts, outline) is painted over the GL frame by the component.
                 g.addTransform(juce::AffineTransform::scale(area.getWidth() / static_cast<float>(monster.getWidth())).translated(area.getX(), area.getY()));
                 monster.paintEntireComponent(g, false);

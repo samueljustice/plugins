@@ -31,6 +31,7 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
 
     juce::Rectangle<int> getCardBounds() const;
+    int buttonWidth() const;
 
 private:
     /** A chip like the alerts' buttons; the primary one is filled with the dyed ink. */

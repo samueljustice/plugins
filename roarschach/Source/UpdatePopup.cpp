@@ -83,7 +83,7 @@ UpdatePopup::UpdatePopup(RoarschachLookAndFeel& lookAndFeel, sammyj::UpdateInfo 
     m_laterButton.onClick = [this] { later(); };
     m_skipButton.onClick = [this] { skip(); };
 
-    // Tab order: Download, Later, Skip this version (left to right).
+    // Tab order: Download (the primary, rightmost), Later, Skip this version.
     int order = 1;
     for (auto* b : { &m_downloadButton, &m_laterButton, &m_skipButton })
     {
@@ -97,14 +97,19 @@ UpdatePopup::~UpdatePopup()
     setLookAndFeel(nullptr);
 }
 
-juce::Rectangle<int> UpdatePopup::getCardBounds() const
+int UpdatePopup::buttonWidth() const
 {
     // One width for every button, so the row reads as a set (as the alerts do).
     const auto font = m_fonts->label(Type::button);
-    int buttonWidth = c_buttonMinWidth;
+    int width = c_buttonMinWidth;
     for (const auto* b : { &m_downloadButton, &m_laterButton, &m_skipButton })
-        buttonWidth = std::max(buttonWidth, juce::roundToInt(lineWidth(font, b->getButtonText().toUpperCase())) + 44);
+        width = std::max(width, juce::roundToInt(lineWidth(font, b->getButtonText().toUpperCase())) + 44);
+    return width;
+}
 
+juce::Rectangle<int> UpdatePopup::getCardBounds() const
+{
+    const int buttonWidth = this->buttonWidth();
     const auto titleWidth = juce::roundToInt(lineWidth(m_fonts->title(Type::heading), getTitle())) + 2 * 16 + 14;
     const int width = std::max({ c_minCardWidth, 3 * buttonWidth + 2 * c_buttonGap + 2 * c_sidePad, titleWidth });
     const int height = juce::roundToInt(c_headerHeight) + c_messageHeight + c_buttonHeight + c_bottomPad;
@@ -115,18 +120,16 @@ juce::Rectangle<int> UpdatePopup::getCardBounds() const
 void UpdatePopup::resized()
 {
     const auto card = getCardBounds();
-    auto row = card.withTrimmedLeft(c_sidePad).withTrimmedRight(c_sidePad)
+    auto row = card.withTrimmedLeft(16).withTrimmedRight(16)
                    .removeFromBottom(c_bottomPad + c_buttonHeight).withTrimmedBottom(c_bottomPad);
 
-    const int buttonWidth = (row.getWidth() - 2 * c_buttonGap) / 3;
-    const int used = 3 * buttonWidth + 2 * c_buttonGap;
-    row = row.withSizeKeepingCentre(used, row.getHeight());
-
-    m_downloadButton.setBounds(row.removeFromLeft(buttonWidth));
-    row.removeFromLeft(c_buttonGap);
-    m_laterButton.setBounds(row.removeFromLeft(buttonWidth));
-    row.removeFromLeft(c_buttonGap);
-    m_skipButton.setBounds(row.removeFromLeft(buttonWidth));
+    // As the editor's dialogs: the buttons at the right, the primary one (Download) rightmost.
+    const int width = std::min(buttonWidth(), (row.getWidth() - 2 * c_buttonGap) / 3);
+    m_downloadButton.setBounds(row.removeFromRight(width));
+    row.removeFromRight(c_buttonGap);
+    m_laterButton.setBounds(row.removeFromRight(width));
+    row.removeFromRight(c_buttonGap);
+    m_skipButton.setBounds(row.removeFromRight(width));
 }
 
 void UpdatePopup::paint(juce::Graphics& g)
@@ -154,11 +157,11 @@ void UpdatePopup::paint(juce::Graphics& g)
     g.setColour(accent);
     g.fillRect(juce::Rectangle<float>(card.getX() + 16.0f, card.getY() + c_headerHeight - 3.0f, 24.0f, 1.5f));
 
-    // The message, centred between the header and the buttons.
-    const auto message = card.withTrimmedTop(c_headerHeight).withHeight(static_cast<float>(c_messageHeight));
+    // The message, from the title's left edge, between the header and the buttons.
+    const auto message = card.withTrimmedTop(c_headerHeight).withHeight(static_cast<float>(c_messageHeight)).reduced(16.0f, 0.0f);
     g.setFont(m_fonts->body(Type::body));
     g.setColour(ink);
-    g.drawText(getDescription(), message, juce::Justification::centred, false);
+    g.drawText(getDescription(), message, juce::Justification::centredLeft, false);
 }
 
 bool UpdatePopup::keyPressed(const juce::KeyPress& key)

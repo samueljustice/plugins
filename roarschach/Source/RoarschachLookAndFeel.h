@@ -1,6 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
+
+#include <optional>
 #include "Theme.h"
 
 /**
@@ -46,6 +48,13 @@ public:
     /** 0: not a menu chip, 1: a menu chip, 2: ... of an Off module. */
     static int getMenuChip(const juce::Button&);
 
+    /** A switch (IN's and OUTPUT's AUTO): an ink outline with a lamp; it reads its own name, or ON and OFF
+        where a caption names it (wordsOnOff). */
+    static void setSwitch(juce::Button&, bool wordsOnOff = false);
+    /** A tag (SAVE): an outlined ink tag, no raised fill, filled with the dyed ink while toggled on. */
+    static void setTag(juce::Button&);
+    /** A glyph button drawn in an outlined ink circle (the header's ?). */
+    static void setCircled(juce::Button&);
     /** A header button drawn as a quiet glyph: no chip until the mouse is over it. */
     static void setQuiet(juce::Button&);
     /** A text button whose label is set in the display face (the preset name). */
@@ -74,16 +83,24 @@ public:
     /** The accent of a dialog of this kind: its Return-key button (the warning ink for a warning). */
     static juce::Colour accentFor(juce::MessageBoxIconType);
 
+    /** The room a menu chip of this width gives its label (between its left end and its caret's zone). */
+    static float menuChipTextWidth(int buttonWidth);
+
+    /** Lays a dialog out as the house does (after JUCE's layout): fields from the title's left edge, the
+        buttons at the right, the primary one rightmost. */
+    static void arrangeDialog(juce::AlertWindow&);
+
     /** The Roarschach mark: a small mirror-symmetric ink-blot maw, horned, with an open jaw, fangs top and
         bottom and slit eyes, designed at 30 x 22 and scaled to the area. drawMark is one ink with nothing
         behind it (the editor header); drawColourMark is the mark in colour (the About window only). */
     static void drawMark(juce::Graphics&, juce::Rectangle<float> area);
     static void drawColourMark(juce::Graphics&, juce::Rectangle<float> area);
 
-    /** A panel (the About window's sections): a wash, the title in the display face, a short dye rule under
-        it; returns its header row. */
+    /** A section on the plain sheet (the About window's): no card, its title in the display face and a
+        hairline running on from it to ruleEnd (the section's right edge when 0), as a menu's section header.
+        Returns its header row. */
     juce::Rectangle<float> drawPanel(juce::Graphics&, juce::Rectangle<float> bounds, const juce::String& title,
-                                     float headerHeight = 32.0f) const;
+                                     float headerHeight = 32.0f, float ruleEnd = 0.0f) const;
 
     const Theme::Fonts& getFonts() const noexcept { return m_fonts; }
 
@@ -195,6 +212,10 @@ public:
     void setFont(const juce::Font& newFont, bool resizeToMatchComponentHeight,
                  juce::Justification newJustification = juce::Justification::horizontallyCentred);
 
+    /** Draws the text with its baseline's left end at this point (local, fractional), so it can sit
+        exactly on another line's baseline whatever whole-pixel bounds the button has. */
+    void setTextOrigin(juce::Point<float> baselineStart) { m_origin = baselineStart; repaint(); }
+
 protected:
     void paintButton(juce::Graphics&, bool isMouseOverButton, bool isButtonDown) override;
 
@@ -202,6 +223,7 @@ private:
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
     juce::Font m_font { m_fonts->caption(Theme::Type::credit) };
     juce::Justification m_justification { juce::Justification::horizontallyCentred };
+    std::optional<juce::Point<float>> m_origin;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ThemeLink)
 };

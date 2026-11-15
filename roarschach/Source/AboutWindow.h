@@ -40,6 +40,9 @@ public:
 
     void closeButtonPressed() override;
 
+    /** Takes a changed palette (the editor's mood) into the window's colours and repaints it. */
+    void refreshColours();
+
     /**
      * Looks up the latest Roarschach release on a worker thread.
      *
@@ -50,11 +53,18 @@ public:
     class UpdateCheck final : private juce::Thread, private juce::AsyncUpdater
     {
     public:
+        /** What a result means, for its colour (resolved on the message thread, from the palette as it
+            is when the result is shown: the worker thread never reads the palette). */
+        enum class Tone { neutral, result, warning };
+
         struct Result
         {
             juce::String text;
-            juce::Colour colour;
+            Tone tone = Tone::neutral;
         };
+
+        /** The colour of a result's tone in the current palette. Message thread only. */
+        static juce::Colour colourOf(Tone tone);
 
         UpdateCheck(juce::URL releasesUrl, juce::String currentVersion, std::function<void(const Result&)> onResult);
         ~UpdateCheck() override;
@@ -96,6 +106,8 @@ private:
         void resized() override;
 
         void stopUpdateCheck() { m_updateCheck.cancel(); }
+        /** Takes the palette as it is now (colours some children keep) and repaints. */
+        void refreshColours();
 
     private:
         void checkForUpdates();
@@ -103,7 +115,7 @@ private:
         int layoutQuickStart(int width);
 
         RoarschachLookAndFeel& m_lookAndFeel;
-        juce::Rectangle<int> m_creditsPanel, m_quickStartPanel, m_updatesPanel, m_licencePanel; // panels like the editor's sections
+        juce::Rectangle<int> m_creditsPanel, m_quickStartPanel, m_updatesPanel, m_licencePanel; // the sections, each under a ruled heading
         const juce::String m_latencyLine;
         std::vector<juce::TextLayout> m_quickStart;   // one per line, then the latency line
 
@@ -111,6 +123,7 @@ private:
         juce::TextButton m_emailButton;
         juce::TextButton m_checkUpdatesButton;
         juce::Label m_updateStatusLabel;
+        UpdateCheck::Tone m_statusTone = UpdateCheck::Tone::neutral;
         juce::TextEditor m_licenseText;
         juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 

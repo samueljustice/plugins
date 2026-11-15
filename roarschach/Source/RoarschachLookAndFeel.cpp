@@ -22,6 +22,7 @@ namespace
     constexpr int c_dialogButtonSlot = 40;        // JUCE lays out this height; the chip is c_dialogButtonHeight
     constexpr float c_dialogButtonHeight = 28.0f;
     constexpr int c_dialogButtonMinWidth = 96;
+    constexpr float c_dialogTextInset = 16.0f;    // the title's, the message's, the field's and the buttons' edge
 
     constexpr float c_tipRadius = Metrics::radius;
     constexpr float c_tipPadX = 11.0f, c_tipPadY = 7.0f;
@@ -35,8 +36,16 @@ namespace
     const juce::Identifier c_displayFaceProperty { "roarschachDisplayFace" };
     const juce::Identifier c_captionLiveProperty { "roarschachCaptionLive" };
     const juce::Identifier c_menuChipProperty { "roarschachMenuChip" };   // 1: a chip with a caret, 2: ... of an Off module
+    const juce::Identifier c_switchProperty { "roarschachSwitch" };       // 1: a switch with its name, 2: ... reading ON / OFF
+    const juce::Identifier c_tagProperty { "roarschachTag" };             // an outlined ink tag (filled in the dye while toggled)
+    const juce::Identifier c_circledProperty { "roarschachCircled" };     // a glyph in an outlined ink circle (the header's ?)
+
+    int switchStyle(const juce::Button& b) { return static_cast<int>(b.getProperties().getWithDefault(c_switchProperty, 0)); }
+    bool isTag(const juce::Button& b) { return static_cast<bool>(b.getProperties().getWithDefault(c_tagProperty, false)); }
 
     constexpr float c_caretColumn = 11.0f;   // a menu chip's caret, at its right end
+    constexpr float c_caretGap = 6.0f;       // ... and the clear space before it
+    constexpr float c_chipTextInset = 4.0f;  // a menu chip's label from its left end
 
     // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded corners
     // show what is behind them. The body itself is drawn with full alpha.
@@ -289,6 +298,24 @@ void RoarschachLookAndFeel::setMenuChip(juce::Button& b, bool off)
     b.repaint();
 }
 
+void RoarschachLookAndFeel::setSwitch(juce::Button& b, bool wordsOnOff)
+{
+    b.getProperties().set(c_switchProperty, wordsOnOff ? 2 : 1);
+    b.repaint();
+}
+
+void RoarschachLookAndFeel::setCircled(juce::Button& b)
+{
+    b.getProperties().set(c_circledProperty, true);
+    b.repaint();
+}
+
+void RoarschachLookAndFeel::setTag(juce::Button& b)
+{
+    b.getProperties().set(c_tagProperty, true);
+    b.repaint();
+}
+
 void RoarschachLookAndFeel::setQuiet(juce::Button& b)
 {
     b.getProperties().set(c_quietProperty, true);
@@ -362,6 +389,13 @@ void RoarschachLookAndFeel::setLabelDrawnInCapitals(juce::Button& button)
 {
     button.getProperties().set(c_capitalsProperty, true);
     button.repaint();
+}
+
+float RoarschachLookAndFeel::menuChipTextWidth(int buttonWidth)
+{
+    // As drawButtonText lays a menu chip out: its pill (0.5 px in at each end), the label's inset, the
+    // caret's zone, and fitToWidth's pixel of slack.
+    return static_cast<float>(buttonWidth) - 1.0f - c_chipTextInset - (c_caretColumn + c_caretGap) - 1.0f;
 }
 
 juce::Colour RoarschachLookAndFeel::accentFor(juce::MessageBoxIconType type)
@@ -465,13 +499,9 @@ void RoarschachLookAndFeel::drawMark(juce::Graphics& g, juce::Rectangle<float> a
 
 void RoarschachLookAndFeel::drawColourMark(juce::Graphics& g, juce::Rectangle<float> area)
 {
-    // The mark in colour (the About window only): ember fading to rose at the chin, a soft violet bleed
-    // round its edge, the maw and the eyes cut through, the fangs in pale ink.
+    // The mark in colour (the About window only): ember fading to rose at the chin, fully opaque with
+    // crisp edges (no bleed, no transparency), the maw and the eyes cut through, the fangs in a deeper rose.
     const MarkShapes m(area);
-    const juce::PathStrokeType bleed(1.6f * m.stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-    g.setColour(juce::Colour(Theme::Brand::markBleed).withAlpha(0.35f));
-    g.strokePath(m.horns, bleed);
-    g.strokePath(m.blot, bleed);
     g.setGradientFill(juce::ColourGradient(juce::Colour(Theme::Brand::markTop), area.getCentreX(), area.getY(),
                                            juce::Colour(Theme::Brand::markChin), area.getCentreX(), area.getBottom(), false));
     g.fillPath(m.horns);
@@ -483,21 +513,22 @@ void RoarschachLookAndFeel::drawColourMark(juce::Graphics& g, juce::Rectangle<fl
 }
 
 juce::Rectangle<float> RoarschachLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title,
-                                                        float headerHeight) const
+                                                        float headerHeight, float ruleEnd) const
 {
-    // A wash on the paper: no outline; the title in the display face with a short ink rule under it.
-    g.setColour(wash);
-    g.fillRoundedRectangle(r, Metrics::radius);
-
+    // On the plain sheet: the title in the display face, and a hairline running on from it (the same
+    // ruled header as a menu's sections). No card behind it.
     auto headerRow = r.withHeight(headerHeight).reduced(14.0f, 0.0f);
-    g.setFont(m_fonts.title(Type::menuHeader));
+    const auto font = m_fonts.title(Type::menuHeader);
+    g.setFont(font);
     g.setColour(ink);
     g.drawText(title, headerRow.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
 
-    if (headerHeight < r.getHeight() - 1.0f) // a panel that is only a header row has no rule
+    const float ruleX = headerRow.getX() + lineWidth(font, title) + 10.0f;
+    const float right = ruleEnd > 0.0f ? ruleEnd : headerRow.getRight();
+    if (ruleX < right - 8.0f)
     {
-        g.setColour(accent);
-        g.fillRect(juce::Rectangle<float>(r.getX() + 14.0f, std::round(r.getY() + headerHeight - 5.0f), 24.0f, 1.5f));
+        g.setColour(rule);
+        g.fillRect(juce::Rectangle<float>(ruleX, std::round(headerRow.getCentreY() + 1.0f), right - ruleX, 1.0f));
     }
     return headerRow;
 }
@@ -575,8 +606,9 @@ void RoarschachLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, in
 
     if (shouldShowFocusRing(slider))
     {
+        // In plain ink (never the arc's dye), 2 px clear of the arc's outer edge.
         g.setColour(focus);
-        g.drawEllipse(juce::Rectangle<float>(diameter + 2.0f, diameter + 2.0f).withCentre(centre), Metrics::focusRing);
+        g.drawEllipse(juce::Rectangle<float>(diameter + 6.0f, diameter + 6.0f).withCentre(centre), Metrics::focusRing);
     }
 }
 
@@ -794,10 +826,55 @@ void RoarschachLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button
     const float corner = std::min(Metrics::radius, std::min(r.getWidth(), r.getHeight()) * 0.5f);
     const bool enabled = button.isEnabled();
     const bool quiet = static_cast<bool>(button.getProperties().getWithDefault(c_quietProperty, false));
-    const bool filled = (button.getToggleState() && button.getClickingTogglesState()) || isPrimaryDialogButton(button);
+    const bool filled = (button.getToggleState() && button.getClickingTogglesState() && switchStyle(button) == 0) || isPrimaryDialogButton(button);
     const int menuChip = static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0));
 
-    if (menuChip != 0)
+    if (static_cast<bool>(button.getProperties().getWithDefault(c_circledProperty, false)))
+    {
+        // A glyph in an ink circle, 26 px across (the header's ?, beside the die): a hairline at rest, ink
+        // and a wash of raised paper under the mouse.
+        const float d = std::min(26.0f, std::min(r.getWidth(), r.getHeight()));
+        const auto circle = r.withSizeKeepingCentre(d, d).reduced(1.0f);
+        if (enabled && (isMouseOverButton || isButtonDown))
+        {
+            g.setColour(isButtonDown ? selection : sheet);
+            g.fillEllipse(circle);
+        }
+        g.setColour(!enabled ? ruleSoft : isMouseOverButton ? ink : inkDim);
+        g.drawEllipse(circle, isMouseOverButton ? 1.3f : 1.1f);
+        if (shouldShowFocusRing(button))
+        {
+            g.setColour(focus);
+            g.drawEllipse(circle.expanded(2.5f), Metrics::focusRing);
+        }
+        return;
+    }
+
+    if (switchStyle(button) != 0 || isTag(button))
+    {
+        // A switch (AUTO) or a tag (SAVE): an ink outline on the paper, no raised fill. A switch shows its
+        // state with a lamp (drawButtonText) and a heavier outline when on; a tag fills with the dyed ink
+        // while it is toggled (SAVE, when the preset has been edited). Under the mouse, a wash of raised paper.
+        const bool on = button.getToggleState();
+        const bool dyed = isTag(button) && on;
+        if (dyed)
+        {
+            g.setColour(isButtonDown ? accentInk.withAlpha(0.8f) : accentInk);
+            g.fillRoundedRectangle(r, corner);
+        }
+        else if (enabled && (isMouseOverButton || isButtonDown))
+        {
+            g.setColour(isButtonDown ? selection : sheet);
+            g.fillRoundedRectangle(r, corner);
+        }
+        if (!dyed)
+        {
+            const bool strong = (switchStyle(button) != 0 && on) || isMouseOverButton;
+            g.setColour(!enabled ? ruleSoft : strong ? ink : rule);
+            g.drawRoundedRectangle(r.reduced(0.25f), corner, strong ? 1.2f : Metrics::hairline);
+        }
+    }
+    else if (menuChip != 0)
     {
         // A mode chip: its choices on a ruled line, a caret at its end (no box). Under the mouse a wash
         // of raised paper. A chip of an Off module stands on a dotted line instead (its state by shape).
@@ -877,7 +954,35 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
         return;
     }
 
-    const bool filled = (button.getToggleState() && button.getClickingTogglesState()) || isPrimaryDialogButton(button);
+    if (const int sw = switchStyle(button); sw != 0)
+    {
+        // A switch: a lamp at its left (on: a dye blot in an ink ring; off: the ring alone, hollow), then
+        // its name, or ON / OFF where a caption over it names it. State by shape and word, not tone alone.
+        const bool on = button.getToggleState();
+        auto r = pillBounds(button).reduced(8.0f, 0.0f);
+        const float d = 9.0f;
+        const auto lamp = r.removeFromLeft(d).withSizeKeepingCentre(d, d);
+        if (on)
+        {
+            g.setColour(accentInk);
+            g.fillEllipse(lamp);
+            g.setColour(ink);
+            g.drawEllipse(lamp.reduced(0.5f), 1.2f);
+        }
+        else
+        {
+            g.setColour(isMouseOverButton ? ink : inkFaint);
+            g.drawEllipse(lamp.reduced(0.6f), 1.3f);
+        }
+        r.removeFromLeft(5.0f);
+        const auto word = sw == 2 ? juce::String(on ? "ON" : "OFF") : button.getButtonText().toUpperCase();
+        g.setFont(font);
+        g.setColour(!button.isEnabled() ? inkFaint : on || isMouseOverButton ? ink : inkDim);
+        g.drawText(fitToWidth(font, word, r.getWidth()), r, juce::Justification::centred, false);
+        return;
+    }
+
+    const bool filled = (button.getToggleState() && button.getClickingTogglesState()) || isPrimaryDialogButton(button) || (isTag(button) && button.getToggleState());
     const int menuChip = static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0));
     auto colour = filled ? sheet : isMouseOverButton || isButtonDown ? ink : button.findColour(juce::TextButton::textColourOffId);
     if (!button.isEnabled() || menuChip == 2)
@@ -898,15 +1003,22 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
     auto r = pillBounds(button);
     if (menuChip != 0)
     {
-        // The caret: this chip opens a menu.
-        const auto caret = r.removeFromRight(c_caretColumn).translated(-2.0f, 0.0f);
-        const auto c = caret.getCentre();
+        // The caret: this chip opens a menu. It has a zone of its own (the caret and 6 px), and the label is
+        // centred in what is left: a long label is shortened before it, never run into it.
+        const auto caretZone = r.removeFromRight(c_caretColumn + c_caretGap);
+        const auto c = caretZone.withTrimmedLeft(c_caretGap).getCentre().translated(-1.0f, 0.0f);
         juce::Path p;
         p.startNewSubPath(c.x - 3.5f, c.y - 1.75f);
         p.lineTo(c.x, c.y + 1.75f);
         p.lineTo(c.x + 3.5f, c.y - 1.75f);
         g.setColour(menuChip == 2 ? inkFaint : isMouseOverButton ? ink : inkDim);
         g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        const auto area = r.withTrimmedLeft(c_chipTextInset);
+        g.setFont(font);
+        g.setColour(colour);
+        g.drawText(fitToWidth(font, label, area.getWidth()), area, juce::Justification::centred, false);
+        return;
     }
     // The preset's name: an edited preset is marked with a drop of the dye after its name (its text
     // keeps the " *" for screen readers and the tests).
@@ -1080,9 +1192,10 @@ void RoarschachLookAndFeel::drawPopupMenuSectionHeaderWithOptions(juce::Graphics
     // on from it to the menu's edge. (JUCE already insets a header by the menu border.)
     const float s = menuScale(options);
     const auto r = area.toFloat().withTrimmedTop(8.0f * s).withTrimmedBottom(2.0f * s);
+    // (every section header in capitals, whatever its text: CREATURE, FACTORY, RING MODES)
     const auto font = m_fonts.title(Type::menuHeader * s);
     const auto textArea = r.withTrimmedLeft(c_menuTextInset * s).withTrimmedRight(10.0f * s);
-    const auto shown = fitToWidth(font, sectionName, textArea.getWidth());
+    const auto shown = fitToWidth(font, sectionName.toUpperCase(), textArea.getWidth());
     g.setFont(font);
     g.setColour(findColour(juce::PopupMenu::headerTextColourId));
     g.drawText(shown, textArea, juce::Justification::centredLeft, false);
@@ -1118,7 +1231,7 @@ void RoarschachLookAndFeel::getIdealPopupMenuSectionHeaderSizeWithOptions(const 
 {
     const float s = menuScale(options);
     idealHeight = juce::roundToInt(c_menuHeaderHeight * s);
-    idealWidth = juce::roundToInt(lineWidth(m_fonts.title(Type::menuHeader * s), headerText) + (c_menuTextInset + 40.0f) * s);
+    idealWidth = juce::roundToInt(lineWidth(m_fonts.title(Type::menuHeader * s), headerText.toUpperCase()) + (c_menuTextInset + 40.0f) * s);
 }
 
 void RoarschachLookAndFeel::drawPopupMenuUpDownArrowWithOptions(juce::Graphics& g, int width, int height,
@@ -1163,7 +1276,34 @@ juce::AlertWindow* RoarschachLookAndFeel::createAlertWindow(const juce::String& 
     auto* alert = juce::LookAndFeel_V2::createAlertWindow(title, message, button1, button2, button3,
                                                           iconType, numButtons, associatedComponent);
     alert->setOpaque(false);
+    arrangeDialog(*alert);
     return alert;
+}
+
+void RoarschachLookAndFeel::arrangeDialog(juce::AlertWindow& alert)
+{
+    // After JUCE's layout: fields span the dialog from the title's left edge, and the buttons sit at the
+    // right in a row, the primary (Return) one rightmost.
+    const int edge = static_cast<int>(c_dialogTextInset);
+    std::vector<juce::Button*> buttons;
+    for (auto* child : alert.getChildren())
+    {
+        if (auto* field = dynamic_cast<juce::TextEditor*>(child))
+            field->setBounds(edge, field->getY(), alert.getWidth() - 2 * edge, field->getHeight());
+        else if (auto* button = dynamic_cast<juce::Button*>(child); button != nullptr && button->isVisible())
+            buttons.push_back(button);
+    }
+    std::stable_sort(buttons.begin(), buttons.end(), [](const juce::Button* a, const juce::Button* b)
+    {
+        return !isPrimaryDialogButton(*a) && isPrimaryDialogButton(*b);
+    });
+    int x = alert.getWidth() - edge;
+    for (auto it = buttons.rbegin(); it != buttons.rend(); ++it)
+    {
+        x -= (*it)->getWidth();
+        (*it)->setTopLeftPosition(x, (*it)->getY());
+        x -= 10;
+    }
 }
 
 void RoarschachLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& alert,
@@ -1181,16 +1321,16 @@ void RoarschachLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& a
     g.drawRoundedRectangle(bounds.reduced(0.5f), c_dialogRadius, Metrics::hairline);
 
     // Header row: the title in the display face, a short rule under it (the warning ink for a warning).
-    auto header = bounds.withHeight(c_dialogHeaderHeight).reduced(16.0f, 0.0f);
+    auto header = bounds.withHeight(c_dialogHeaderHeight).reduced(c_dialogTextInset, 0.0f);
     const auto titleFont = getAlertWindowTitleFont();
     g.setFont(titleFont);
     g.setColour(ink);
     g.drawText(fitToWidth(titleFont, alert.getName(), header.getWidth()), header.translated(0.0f, 2.0f), juce::Justification::centredLeft, false);
     g.setColour(alert.getAlertType() == juce::MessageBoxIconType::WarningIcon ? warn : accent);
-    g.fillRect(juce::Rectangle<float>(16.0f, c_dialogHeaderHeight - 3.0f, 24.0f, 1.5f));
+    g.fillRect(juce::Rectangle<float>(c_dialogTextInset, c_dialogHeaderHeight - 3.0f, 24.0f, 1.5f));
 
     // JUCE lays the title and the message out as one TextLayout. The title is drawn above, so its runs are
-    // hidden; the message lines are centred across the dialog, between the header and the first control.
+    // hidden; the message lines start at the title's left edge, between the header and the first control.
     const auto messageColour = alert.findColour(juce::AlertWindow::textColourId);
     juce::Range<float> messageY;
     bool hasMessage = false;
@@ -1211,7 +1351,7 @@ void RoarschachLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& a
             continue;
 
         const auto x = line.getLineBoundsX();
-        line.lineOrigin.x += (bounds.getWidth() - x.getLength()) * 0.5f - x.getStart();
+        line.lineOrigin.x += c_dialogTextInset - x.getStart();
         const auto y = line.getLineBoundsY();
         messageY = hasMessage ? messageY.getUnionWith(y) : y;
         hasMessage = true;
@@ -1438,6 +1578,18 @@ void ThemeLink::paintButton(juce::Graphics& g, bool isMouseOverButton, bool isBu
     const auto area = getLocalBounds().reduced(1, 0).toFloat();
     g.setColour(colour);
     g.setFont(m_font);
+    if (m_origin.has_value())
+    {
+        juce::GlyphArrangement text;
+        text.addLineOfText(m_font, getButtonText(), m_origin->x, m_origin->y);
+        text.draw(g);
+        if (RoarschachLookAndFeel::shouldShowFocusRing(*this) || (isMouseOverButton && isEnabled()))
+        {
+            g.setColour(RoarschachLookAndFeel::shouldShowFocusRing(*this) ? Theme::Colours::focus : colour);
+            g.fillRect(juce::Rectangle<float>(m_origin->x, std::round(m_origin->y + 2.0f), lineWidth(m_font, getButtonText()), 1.0f));
+        }
+        return;
+    }
     g.drawText(getButtonText(), area, m_justification.getOnlyHorizontalFlags() | juce::Justification::verticallyCentred, true);
 
     if (RoarschachLookAndFeel::shouldShowFocusRing(*this) || (isMouseOverButton && isEnabled()))
