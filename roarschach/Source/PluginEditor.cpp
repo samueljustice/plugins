@@ -14,10 +14,9 @@ namespace
     constexpr int c_headerHeight = 56;
     constexpr int c_stripHeight = 336;
     constexpr int c_sectionGap = 12;
-    // The picture's corner radius. Its edges dissolve into the paper (MonsterView), so the corner is
-    // all but square; but the view's corner mask needs a radius of a few pixels, or it veils the whole
-    // picture (its distance is zero everywhere inside a square corner).
-    constexpr float c_viewRadius = 3.0f;
+    // The picture's corner radius: the module tiles' own, so the picture reads as the largest tile on
+    // the sheet (a clean rounded box, the grid's width, a section gap above the strip).
+    constexpr float c_viewRadius = Theme::Metrics::radius;
     constexpr int c_markWidth = 34, c_markHeight = 25;   // the ink mark in the header (designed at 30 x 22)
     constexpr int c_moodEveryTicks = 6;       // the palette follows the cloud about 5 times a second (30 Hz timer)
     constexpr float c_moodSmoothing = 0.35f;  // ... each step a third of the way (no jump when the visualiser is Off)

@@ -4089,9 +4089,11 @@ namespace
         check(bad == 0, juce::String(bad) + " footers whose words come within 4 px of their value");
     }
 
-    /** The picture has no frame at any window scale: at 65 % and 80 % (fractional device pixels) the rows
-        around its foot change by no more than 2 % in luminance from one to the next (averaged across the
-        width, so the paper's grain does not count), with the visualiser Off (the still cloud). */
+    /** The picture is a clean box at any window scale: at 65 % and 80 % (fractional device pixels) its foot
+        is one step from the picture to the paper (rows averaged across the width, so the paper's grain does
+        not count), with the visualiser Off (the still cloud): no gradient leading up to it or away from it
+        (rows on each side within 2 % of their side), the step itself at most 2 device rows deep, and no row
+        of it paler or darker than both sides (no fringe). */
     void testPictureEdge()
     {
         auto p = makeProcessor(48000.0, 512);
@@ -4118,18 +4120,32 @@ namespace
                     return sum / static_cast<double>(x1 - x0);
                 };
                 const int foot = juce::roundToInt(picture.getBottom());
-                double worst = 0.0;
-                for (int y = foot - 6; y < foot + 6; ++y)
+                const double inside = rowLuminance(foot - 3), outside = rowLuminance(foot + 2);
+                const double lo = std::min(inside, outside), hi = std::max(inside, outside);
+                const auto near = [](double a, double b) { return std::abs(a - b) / std::max(1.0e-6, std::max(a, b)) <= 0.02; };
+                bool clean = !near(inside, outside);   // (there is a step to see: the picture is not the paper)
+                int between = 0;
+                for (int y = foot - 8; y <= foot + 7; ++y)
                 {
-                    const double a = rowLuminance(y), b = rowLuminance(y + 1);
+                    const double a = rowLuminance(y);
                     if (std::getenv("ROARSCHACH_DEBUG_FOOT") != nullptr)
                         std::printf("    row %d (foot %d): %.4f\n", y, foot, a);
-                    worst = std::max(worst, std::abs(a - b) / std::max(1.0e-6, std::max(a, b)));
+                    if (y <= foot - 3)
+                        clean = clean && near(a, inside);
+                    else if (y >= foot + 2)
+                        clean = clean && near(a, outside);
+                    else
+                    {
+                        clean = clean && a >= lo * 0.99 && a <= hi * 1.01;
+                        between += near(a, inside) || near(a, outside) ? 0 : 1;
+                    }
                 }
-                std::printf("  the picture's foot at %.0f %% (%.0fx): rows change by %.2f %% at most\n", scale * 100.0f, pixels, worst * 100.0);
-                worstRows += worst > 0.02 ? 1 : 0;
+                clean = clean && between <= 2;
+                std::printf("  the picture's foot at %.0f %% (%.0fx): %.3f inside, %.3f outside, %d rows between: %s\n", scale * 100.0f, pixels, inside, outside,
+                            between, clean ? "one clean step" : "not clean");
+                worstRows += clean ? 0 : 1;
             }
-        check(worstRows == 0, "no line along the picture's foot at 65 % or 80 %");
+        check(worstRows == 0, "the picture's foot is one clean step to the paper at 65 % and 80 %");
         view.setVisualiser(MonsterView::Visualiser::full);
     }
 
@@ -5075,12 +5091,7 @@ namespace
                     savePng(frame.rescaled(frame.getWidth() / 2, frame.getHeight() / 2), juce::File(raw));
                 juce::Graphics g(image);
                 const auto area = stage.getLocalArea(&monster, monster.getLocalBounds()).toFloat() * scale;
-                {
-                    // (inside the view's solid paper rim, which covers the GL frame there in a host)
-                    juce::Graphics::ScopedSaveState clip(g);
-                    g.reduceClipRegion(area.reduced(MonsterView::c_featherRim * area.getWidth() / static_cast<float>(monster.getWidth())).toNearestInt());
-                    g.drawImage(frame, area);
-                }
+                g.drawImage(frame, area);
                 // The overlay (readouts, outline) is painted over the GL frame by the component.
                 g.addTransform(juce::AffineTransform::scale(area.getWidth() / static_cast<float>(monster.getWidth())).translated(area.getX(), area.getY()));
                 monster.paintEntireComponent(g, false);

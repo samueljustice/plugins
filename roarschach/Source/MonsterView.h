@@ -166,12 +166,9 @@ public:
         of the colour kept while Frozen). */
     roar::CreatureMood::Tone shownTone() const;
 
-    /** Message thread. Radius (component px) of the rounded corners and the colour drawn outside them:
-        the paper, which the picture's edges also dissolve into. */
+    /** Message thread. Radius (component px) of the box's rounded corners and the colour drawn outside
+        them: the sheet's paper. */
     void setCorner (float radius, juce::Colour outside);
-    /** The picture's outer edge that is solid paper on every side (design px): the feather starts inside it,
-        and nothing of the picture is drawn under it. */
-    static constexpr float c_featherRim = 2.0f;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -261,12 +258,8 @@ private:
     std::atomic<float> m_cornerRadius { 8.0f };
     std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::paper.getARGB() };
 
-    // The feathered edge (message thread): an image of the paper fading in from every side, made once
-    // for a size and a paper colour, so paint() costs one image draw (never a blur).
-    juce::Image m_feather;
-    juce::uint32 m_featherArgb = 0;
-    juce::Point<int> m_featherGrainAt { -1, -1 };
-    void drawFeather (juce::Graphics&, juce::Rectangle<float> bounds);
+    // The sheet's paper and grain outside the box's rounded corners (message thread).
+    void drawCorners (juce::Graphics&, juce::Rectangle<float> bounds, float radius);
 
     // Written on the GL thread, read by the overlay.
     std::atomic<bool> m_shaderFailed { false };
