@@ -3,7 +3,7 @@
 
     build.py <README rendered to HTML by GitHub's markdown API> <out dir> <owner/repo>
 
-The README is rendered by GitHub itself (gh api markdown, mode gfm), so the page looks as it does on the
+The README is rendered by GitHub itself (gh api markdown, mode markdown: how GitHub renders a README; gfm mode would turn every newline into a line break), so the page looks as it does on the
 repository. This wraps it in a page and fixes what only works on github.com: relative image paths become
 raw.githubusercontent.com URLs, relative links to other files point at the file on github.com, and heading
 ids lose GitHub's "user-content-" prefix so the README's #anchors work.
