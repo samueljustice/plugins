@@ -78,7 +78,7 @@ def entry(number: int, name: str, body: str, group_wip: bool) -> str:
     if m:
         shots = re.findall(r'<img[^>]*\bsrc="([^"]+)"[^>]*\balt="([^"]*)"', m.group(0))
         gallery = "".join(
-            f'<a href="{html.escape(absolute(src))}"><img loading="lazy" src="{html.escape(absolute(src))}" alt="{alt}"></a>'
+            f'<a class="shot" href="{html.escape(absolute(src))}" data-caption="{alt}"><img loading="lazy" src="{html.escape(absolute(src))}" alt="{alt}"></a>'
             for src, alt in shots)
         body = body.replace(m.group(0), "")
     paragraphs = re.findall(r"<p([^>]*)>(.*?)</p>", body, re.S)
@@ -116,7 +116,7 @@ def entry(number: int, name: str, body: str, group_wip: bool) -> str:
     <p class="links"><a href="#get">Get it</a>{links}</p>
   </header>
   <div class="body">
-    <a class="hero" href="{html.escape(hero)}"><img src="{html.escape(hero)}" alt="{html.escape(name)}"></a>
+    <a class="hero shot" href="{html.escape(hero)}" data-caption="{html.escape(name)}"><img src="{html.escape(hero)}" alt="{html.escape(name)}"></a>
     <div class="prose">{''.join(prose)}</div>
     {f'<div class="gallery">{gallery}</div>' if gallery else ''}
   </div>
@@ -139,7 +139,11 @@ win = first(r'href="([^"]+Windows-Installer\.exe)"', f"https://github.com/{repo}
 inside = [v.strip() for v in first(r"every plug-in: (.*?)\.\s*<br").split("·") if v.strip()]
 built = first(r"Built ([^<]*?)\. Older")
 donate = first(r'href="(https://www\.paypal\.com/donate/[^"]+)"')
-tagline = first(r"<p[^>]*>\s*<strong>(Toys[^<]*)</strong>", "Toys and utilities I've made for sound designers.")
+# The bold line under the README's title, kept as HTML so its link survives; the meta description gets the text.
+m = re.search(r"<p[^>]*>\s*<strong>(.*?)</strong>\s*</p>", doc, re.S)
+tagline_html = m.group(1).strip() if m else "Some of the toys and utilities I've made for us at Sweet Justice Sound, given for free."
+tagline_html = re.sub(r'<a ([^>]*)>', lambda a: '<a ' + re.sub(r'\s*(target|rel)="[^"]*"', '', a.group(1)) + ' target="_blank" rel="noopener">', tagline_html)
+tagline = html.unescape(re.sub(r"<[^>]+>", "", tagline_html))
 inside_html = "".join(f"<li>{html.escape(v)}</li>" for v in inside)
 
 # A drawn waveform for the rule under the title: a few decaying bursts, the same every build.
@@ -176,11 +180,15 @@ page = f"""<!doctype html>
 
   .top {{ padding: 72px 0 36px; }}
   .top .label {{ color: var(--dim); margin: 0 0 18px; }}
+  .top .label a {{ color: var(--paper); text-decoration: none; border-bottom: 1px solid var(--red); }}
+  .top .label a:hover {{ color: var(--red); }}
   h1 {{ font: 800 clamp(54px, 11vw, 148px)/.88 var(--display); letter-spacing: -.045em; margin: 0; }}
   h1 em {{ font-style: normal; color: var(--red); }}
   .wave {{ display: block; width: 100%; height: 60px; margin: 26px 0 22px; }}
   .wave polyline {{ fill: none; stroke: var(--paper); stroke-width: 1.4; vector-effect: non-scaling-stroke; }}
   .tagline {{ font-size: clamp(22px, 2.6vw, 30px); line-height: 1.25; margin: 0; max-width: 20em; }}
+  .tagline a {{ color: inherit; text-decoration: none; border-bottom: 2px solid var(--red); }}
+  .tagline a:hover {{ color: var(--red); }}
 
   .get {{ display: grid; grid-template-columns: auto 1fr; gap: 28px 56px; align-items: start; padding: 40px 0 48px; border-top: 1px solid var(--rule); margin-top: 44px; }}
   .buttons {{ display: flex; flex-wrap: wrap; gap: 12px; }}
@@ -226,7 +234,24 @@ page = f"""<!doctype html>
   footer .small {{ color: var(--dim); margin-top: 28px; }}
   footer .small a {{ color: var(--paper); }}
 
+  .shot {{ cursor: zoom-in; }}
+  .viewer {{ position: fixed; inset: 0; z-index: 20; display: none; background: rgba(8, 8, 7, .94); }}
+  .viewer.open {{ display: grid; grid-template-rows: 1fr auto; }}
+  .viewer figure {{ margin: 0; min-height: 0; display: grid; place-items: center; padding: 56px 72px 12px; }}
+  .viewer img {{ max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid var(--rule); border-radius: 3px; }}
+  .viewer .bar {{ display: flex; justify-content: space-between; gap: 24px; padding: 14px 28px 22px; font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }}
+  .viewer .bar span:first-child {{ color: var(--paper); }}
+  .viewer button {{ position: absolute; background: none; border: 0; color: var(--paper); font: 400 30px/1 var(--display); cursor: pointer; padding: 18px; opacity: .75; }}
+  .viewer button:hover {{ opacity: 1; color: var(--red); }}
+  .viewer .close {{ top: 6px; right: 12px; }}
+  .viewer .prev, .viewer .next {{ top: 50%; transform: translateY(-50%); }}
+  .viewer .prev {{ left: 8px; }}
+  .viewer .next {{ right: 8px; }}
+  .viewer.single .prev, .viewer.single .next {{ display: none; }}
+
   @media (max-width: 860px) {{
+    .viewer figure {{ padding: 52px 12px 8px; }}
+    .viewer .prev, .viewer .next {{ top: auto; bottom: 58px; transform: none; }}
     body {{ font-size: 17px; }}
     .wrap {{ padding: 0 20px; }}
     .top {{ padding-top: 44px; }}
@@ -241,16 +266,16 @@ page = f"""<!doctype html>
 <body>
 <div class="wrap">
   <div class="top">
-    <p class="label">Samuel Justice · audio plug-ins</p>
+    <p class="label">Samuel Justice · audio plug-ins · <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a></p>
     <h1>Sammy J's<br><em>Plugins</em></h1>
     {wave}
-    <p class="tagline">{html.escape(tagline)}</p>
+    <p class="tagline">{tagline_html}</p>
   </div>
 
   <div class="get" id="get">
     <div class="buttons">
-      <a class="button fill" href="{html.escape(mac)}"><small>Get them all</small>Download for macOS</a>
-      <a class="button" href="{html.escape(win)}"><small>Get them all</small>Download for Windows</a>
+      <a class="button fill" id="get-mac" href="{html.escape(mac)}"><small>Get them all</small>Download for macOS</a>
+      <a class="button" id="get-win" href="{html.escape(win)}"><small>Get them all</small>Download for Windows</a>
     </div>
     <div>
       <ul class="inside">{inside_html}</ul>
@@ -273,6 +298,82 @@ page = f"""<!doctype html>
     </div>
   </footer>
 </div>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Pictures">
+  <button class="close" aria-label="Close">&times;</button>
+  <button class="prev" aria-label="Previous picture">&larr;</button>
+  <button class="next" aria-label="Next picture">&rarr;</button>
+  <figure><img alt=""></figure>
+  <div class="bar"><span class="caption"></span><span class="count"></span></div>
+</div>
+<script>
+// The download buttons carry the installer that was newest when this page was built. A new installer replaces
+// the old release, so ask GitHub for the newest one now and point the buttons at it (a page left open, or a
+// cached copy, would otherwise link to files that are gone). If the lookup fails the built-in links stay.
+(function () {{
+  if (!window.fetch) return;
+  fetch('https://api.github.com/repos/{repo}/releases/latest', {{ headers: {{ Accept: 'application/vnd.github+json' }} }})
+    .then(function (r) {{ return r.ok ? r.json() : null; }})
+    .then(function (release) {{
+      if (!release || !/^bundle-v/.test(release.tag_name || '')) return;
+      (release.assets || []).forEach(function (a) {{
+        if (/macOS\\.dmg$/.test(a.name)) document.getElementById('get-mac').href = a.browser_download_url;
+        if (/Windows-Installer\\.exe$/.test(a.name)) document.getElementById('get-win').href = a.browser_download_url;
+      }});
+    }})
+    .catch(function () {{}});
+}})();
+</script>
+<script>
+// Clicking a picture opens it here, with the rest of that plug-in's pictures to step through.
+(function () {{
+  var viewer = document.getElementById('viewer'), img = viewer.querySelector('img');
+  var caption = viewer.querySelector('.caption'), count = viewer.querySelector('.count');
+  var shots = [], at = 0, opener = null;
+  function show(i) {{
+    at = (i + shots.length) % shots.length;
+    img.src = shots[at].href;
+    img.alt = shots[at].dataset.caption || '';
+    caption.textContent = shots[at].dataset.caption || '';
+    count.textContent = shots.length > 1 ? (at + 1) + ' / ' + shots.length : '';
+  }}
+  function close() {{
+    viewer.classList.remove('open');
+    document.documentElement.style.overflow = '';
+    img.removeAttribute('src');
+    if (opener) opener.focus();
+  }}
+  document.addEventListener('click', function (e) {{
+    var link = e.target.closest && e.target.closest('a.shot');
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // modified clicks still open the file
+    e.preventDefault();
+    opener = link;
+    shots = Array.prototype.slice.call(link.closest('.entry').querySelectorAll('a.shot'));
+    viewer.classList.toggle('single', shots.length < 2);
+    viewer.classList.add('open');
+    document.documentElement.style.overflow = 'hidden';
+    show(shots.indexOf(link));
+    viewer.querySelector('.close').focus();
+  }});
+  viewer.querySelector('.close').addEventListener('click', close);
+  viewer.querySelector('.prev').addEventListener('click', function () {{ show(at - 1); }});
+  viewer.querySelector('.next').addEventListener('click', function () {{ show(at + 1); }});
+  viewer.addEventListener('click', function (e) {{ if (e.target === viewer || e.target.tagName === 'FIGURE') close(); }});
+  document.addEventListener('keydown', function (e) {{
+    if (!viewer.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(at - 1);
+    else if (e.key === 'ArrowRight') show(at + 1);
+  }});
+  var x0 = null;
+  viewer.addEventListener('touchstart', function (e) {{ x0 = e.touches[0].clientX; }}, {{ passive: true }});
+  viewer.addEventListener('touchend', function (e) {{
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) show(at + (dx < 0 ? 1 : -1));
+  }});
+}})();
+</script>
 </body>
 </html>
 """

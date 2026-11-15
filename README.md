@@ -2,7 +2,7 @@
 
 # Sammy J's Plugins
 
-**Toys and utilities I've made for sound designers.**
+**Some of the toys and utilities I've made for us at [Sweet Justice Sound](https://www.sweetjusticesound.com), given for free.**
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
@@ -14,12 +14,12 @@
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
 ### Get them all
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.150/SammyJ-Plugins-2026-11-14-1503-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.150/SammyJ-Plugins-2026-11-14-1503-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.15.158/SammyJ-Plugins-2026-11-15-1441-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.15.158/SammyJ-Plugins-2026-11-15-1441-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.2.0.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 3.0.0 · Reversinator 2.1.0 · Roarschach 1.3.0 · Tonal Recall 0.2.2.<br>
 Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
-Built 14 Nov 2026, 15:03 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
+Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
 <!-- get-them-all:end -->
 
 <sub>If these get some use in your work and you'd like to chip in, you can <a href="https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins">toss a coin in the jar</a> on PayPal. Every bit goes towards more of them.</sub>
@@ -29,24 +29,22 @@ Built 14 Nov 2026, 15:03 UTC. Older versions are on the <a href="https://github.
 | [Roarschach](#roarschach) | [Swooshbuckler](#swooshbuckler) | [Tonal Recall](#tonal-recall) |
 |:---:|:---:|:---:|
 | [<img src="roarschach/docs/hero.gif" width="250" alt="Roarschach">](#roarschach) | [<img src="swooshbuckler/docs/screenshot.png" width="250" alt="Swooshbuckler">](#swooshbuckler) | [<img src="tonalrecall/docs/screenshot.png" width="250" alt="Tonal Recall">](#tonal-recall) |
-| <sub>A modular voice processor for exploration and fun<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Generates whooshes from up to ten sounds</sub> | <sub>Pitch-matches sound effects to music in Pro Tools AudioSuite<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| <sub>A modular voice processor for exploration and fun</sub> | <sub>Generates whooshes from up to ten sounds</sub> | <sub>Pitch-matches sound effects to music in Pro Tools AudioSuite</sub> |
 
-| [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) | [Pitch Flattener](#pitch-flattener) |
+| [Pitch Flattener](#pitch-flattener) | [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) |
 |:---:|:---:|:---:|:---:|
-| [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) | [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) |
-| <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Learns a sound and plays it back with its pitch flat<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) |
+| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
 
 </div>
 
 ## Roarschach
 
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
 <p align="center">
   <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
 </p>
 
-A voice processor for making creature and machine voices, or just a bigger voice. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
+A modular voice processor. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
 
 The picture above the chain is an ink blot that forms out of cloud and moves with the voice. It does nothing to the sound.
 
@@ -73,9 +71,11 @@ The picture above the chain is an ink blot that forms out of cloud and moves wit
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
 </p>
 
-A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buses and a hits layer, then moves every fader by itself so the layers swell, pass and fall away. Hold Swell (or the space bar, or a MIDI note) to push it harder. A tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
+A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buses and a hits layer, then moves every fader by itself so the layers swell, pass and fall away. Hold Swell (or the space bar, or a MIDI note) to push it harder.
 
-There is more in it: a spectral morph between the two buses, a third bus called Stowaway, modulators you patch with cables, and batch rendering of variations. The manual covers all of it. It runs as an app as well as a plug-in.
+The quickest way to work is the renderer. Dial in a sound you like, then ask for a hundred variations of it, or a thousand. It renders them in the background, much faster than real time, as separate files or as one long file with a marker on each. You can also record by hand: a tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
+
+There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in. Surround output, up to 7.1.4, is nearly finished and will come in a later version.
 
 <details>
 <summary>More screenshots</summary>
@@ -93,8 +93,6 @@ There is more in it: a spectral morph between the two buses, a third bus called 
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](swooshbuckler/README.md)
 
 ## Tonal Recall
-
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 <p align="center">
   <img src="tonalrecall/docs/screenshot.png" alt="Tonal Recall" width="820">
@@ -121,6 +119,33 @@ It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and 
 **AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](tonalrecall/README.md)
 
+## Pitch Flattener
+
+<p align="center">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
+</p>
+
+Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound three ways, for voices, engines and tones, uses the reading that flattens it best, and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends. You can let the length change with the speed, or have the sound stretched back to its own timing and length, with a character for tone, hits or voices. Play the same sound again and you hear the flat version, from wherever you start.
+
+It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type, and a recording of several sounds with short silences between them gets each one flattened to its own pitch. Where a reading goes wrong you can pull the line into place by hand, zoomed in as far as you need. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="pitchflattener/docs/editor.png" alt="Pitch Flattener SCOPE with a corrected line" width="820">
+</p>
+<p align="center">
+  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
+</p>
+<p align="center">
+  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT, SOURCE, LENGTH and CHARACTER" width="820">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
+
 ## Reversinator
 
 <p align="center">
@@ -128,15 +153,6 @@ It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and 
 </p>
 
 A real-time reverser. It recreates the three effects of Backwards Machine (Reverse Playback, Forward Backwards and Reverse Repeat), rebuilt from a study of the original's signal flow and checked against the original's own renders, which it matches at better than 0.999 correlation. What's different is a resizable window, a display that shows the read heads sweeping back along a road into the past, and no clicks when you change a setting.
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="reversinator/docs/guide/display-reverse-playback.png" alt="Reversinator display in Reverse Playback" width="400">
-  <img src="reversinator/docs/guide/display-reverse-repeat.png" alt="Reversinator display in Reverse Repeat" width="400">
-</p>
-</details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](reversinator/README.md)
@@ -158,7 +174,7 @@ Audio passes straight through it, so it can sit on a mix bus, or run as an app o
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-These two work, but I'm still changing them, so expect differences between releases.
+This one works, but I'm still changing it, so expect differences between releases.
 
 ### Subbertone
 
@@ -185,35 +201,6 @@ Follows the pitch of a bass, engine or drone and adds a sub an octave below. You
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](subbertone/README.md)
-
----
-
-### Pitch Flattener
-
-<p align="center">
-  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
-</p>
-
-Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound three ways, for voices, engines and tones, uses the reading that flattens it best, and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends. You can let the length change with the speed, or have the sound stretched back to its own timing and length, with a character for tone, hits or voices. Play the same sound again and you hear the flat version, from wherever you start.
-
-It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type, and a recording of several sounds with short silences between them gets each one flattened to its own pitch. Where a reading goes wrong you can pull the line into place by hand, zoomed in as far as you need. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="pitchflattener/docs/editor.png" alt="Pitch Flattener SCOPE with a corrected line" width="820">
-</p>
-<p align="center">
-  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
-</p>
-<p align="center">
-  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT, SOURCE, LENGTH and CHARACTER" width="820">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
 
 ## For developers
 

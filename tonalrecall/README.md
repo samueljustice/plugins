@@ -1,7 +1,5 @@
 # Tonal Recall
 
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
 An offline pitch matcher for Pro Tools AudioSuite by **Samuel Justice**, made for trailer sound design. Play it the music, play it a sound effect, and it works out the shift that puts the effect on one of the music's notes, shows it, and stamps it onto the clip when you render. The clip keeps its length and the timing of its hits.
 
 It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
