@@ -64,9 +64,9 @@ The order is saved with the session and with presets, and the host can automate 
 
 OUTPUT always ends the chain. In order, it:
 
-1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. The matching never drives the voice into the ceiling by itself: that is Push's job.
+1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. It learns what the modules do to the level of the voice and then holds that one gain: it does not ride the level, does not duck after a loud sound and leaves what CLEAN's leveller and the other dynamics do. After a settings change it follows only once the voice has shown a clear difference. **Level Match** (on by default, in the host's parameter list) switches it off. The matching never drives the voice into the ceiling by itself: that is Push's job.
 2. **Pushes** the voice by up to +24 dB. Push is measured against the ceiling, so lowering the Ceiling lowers the output without driving the limiter harder.
-3. **Mixes** in the dry voice at the same loudness as the processed one (the dry is pushed too, and the two are blended at equal power), so the limiter and the clipper hold the ceiling at any Mix and Mix changes the character, not the level.
+3. **Mixes** in the dry voice at the same loudness as the processed one (the dry is pushed too, and the blend follows how alike the two are, so a processed voice close to the dry adds no level at mid Mix), so the limiter and the clipper hold the ceiling at any Mix and Mix changes the character, not the level.
 4. **Limits** at the **Ceiling** with a look-ahead limiter. More Push is louder and denser; the peaks never pass the ceiling, which is true-peak safe.
 5. **Clips** what the limiter leaves for it. **Clip** sets how many dB of each peak above the ceiling are clipped instead of limited (Off by default), and **Shape** sets the clipper from Soft (rounded peaks) to Hard (flat peaks, brighter and more aggressive). The clipper is oversampled, so it does not add aliasing.
 
@@ -75,6 +75,8 @@ OUTPUT always ends the chain. In order, it:
 - **Release** sets how much crunch there is. Very short releases (2 to 10 ms) let the gain follow the bass and crunch clearly; 25 to 60 ms is gritty; from about 200 ms up it is clean.
 - **Attack** sets which frequencies can crunch. The limiter starts turning down this long before each peak, and only notes whose waveform peaks are further apart than that can crunch: roughly everything below 1 / (2 × Attack). At 2 ms (the default) that is everything below about 250 Hz, the whole low end of a creature voice; at 5 ms only the lowest notes; at 10 ms almost nothing. 0.3 to 3 ms is the crunchy range. Shorter attacks are also punchier on transients.
 - **Auto** (on by default) adapts the release to the material and holds the gain steady between bass peaks, so the low end stays clean whatever the Attack. Release still sets how quickly Auto breathes, across its whole range. Turn Auto off to use Release directly.
+
+**The learnt levels are kept.** What IN and the level match have learnt is kept when playback stops and saved with the session, so a region plays the same from wherever playback starts and a bounce matches what you heard. They are learnt on the first play of a take: play it through once before bouncing. A preset starts from a match measured on dialogue, so the first play is already close.
 
 For crunch, turn Auto off, set Release to a few milliseconds, and raise Push until you hear it. Lower Mix to blend the crunched voice with the clean one. The Utility presets Crunch Lift and Smashed are starting points.
 
@@ -123,7 +125,7 @@ The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Co
 | Control | Range | Default | Description |
 |---|---|---|---|
 | **Input** | −24 to +24 dB | 0 dB | Level into the plug-in, before everything else. With Auto on, it raises or lowers the levelled voice by half as much. |
-| **Auto** | on / off | On | Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take. |
+| **Auto** | on / off | On | Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take. It learns one gain per take from the performance itself (not from room tone, hum or noise before it) and holds it, so a whisper stays a whisper and a roar a roar; OUTPUT takes the same gain back. Turn it off and on again to learn a new take. |
 
 The meter shows the input level and the readout the voice's pitch. A stereo input is summed to mono here.
 
@@ -332,7 +334,7 @@ Every room has headroom at every setting: each was measured at the extremes of e
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Push** | 0 to +24 dB | +8 dB | Drives the voice into the ceiling. Push 8–12 is clean and dense; for loud, Push 14–18 with Clip 6–9. The peaks never pass the ceiling. |
+| **Push** | 0 to +24 dB | +6.5 dB | Drives the voice into the ceiling. Push 8–12 is clean and dense; for loud, Push 14–18 with Clip 6–9. The peaks never pass the ceiling. |
 | **Ceiling** | −12 to 0 dB | −1 dB | The highest level the output can reach, true-peak safe. It sets the output level only: Push decides how hard the limiter works. |
 | **Clip** | Off to 18 dB | Off | How many dB of each peak above the ceiling are clipped instead of limited. Raise Push to drive into it. |
 | **Shape** | Soft to Hard | Soft | Clip shape. Soft rounds the peaks gently; Hard clips them flat, which is brighter and more aggressive. |
