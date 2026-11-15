@@ -78,7 +78,7 @@ def entry(number: int, name: str, body: str, group_wip: bool) -> str:
     if m:
         shots = re.findall(r'<img[^>]*\bsrc="([^"]+)"[^>]*\balt="([^"]*)"', m.group(0))
         gallery = "".join(
-            f'<a href="{html.escape(absolute(src))}"><img loading="lazy" src="{html.escape(absolute(src))}" alt="{alt}"></a>'
+            f'<a class="shot" href="{html.escape(absolute(src))}" data-caption="{alt}"><img loading="lazy" src="{html.escape(absolute(src))}" alt="{alt}"></a>'
             for src, alt in shots)
         body = body.replace(m.group(0), "")
     paragraphs = re.findall(r"<p([^>]*)>(.*?)</p>", body, re.S)
@@ -116,7 +116,7 @@ def entry(number: int, name: str, body: str, group_wip: bool) -> str:
     <p class="links"><a href="#get">Get it</a>{links}</p>
   </header>
   <div class="body">
-    <a class="hero" href="{html.escape(hero)}"><img src="{html.escape(hero)}" alt="{html.escape(name)}"></a>
+    <a class="hero shot" href="{html.escape(hero)}" data-caption="{html.escape(name)}"><img src="{html.escape(hero)}" alt="{html.escape(name)}"></a>
     <div class="prose">{''.join(prose)}</div>
     {f'<div class="gallery">{gallery}</div>' if gallery else ''}
   </div>
@@ -226,7 +226,24 @@ page = f"""<!doctype html>
   footer .small {{ color: var(--dim); margin-top: 28px; }}
   footer .small a {{ color: var(--paper); }}
 
+  .shot {{ cursor: zoom-in; }}
+  .viewer {{ position: fixed; inset: 0; z-index: 20; display: none; background: rgba(8, 8, 7, .94); }}
+  .viewer.open {{ display: grid; grid-template-rows: 1fr auto; }}
+  .viewer figure {{ margin: 0; min-height: 0; display: grid; place-items: center; padding: 56px 72px 12px; }}
+  .viewer img {{ max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid var(--rule); border-radius: 3px; }}
+  .viewer .bar {{ display: flex; justify-content: space-between; gap: 24px; padding: 14px 28px 22px; font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }}
+  .viewer .bar span:first-child {{ color: var(--paper); }}
+  .viewer button {{ position: absolute; background: none; border: 0; color: var(--paper); font: 400 30px/1 var(--display); cursor: pointer; padding: 18px; opacity: .75; }}
+  .viewer button:hover {{ opacity: 1; color: var(--red); }}
+  .viewer .close {{ top: 6px; right: 12px; }}
+  .viewer .prev, .viewer .next {{ top: 50%; transform: translateY(-50%); }}
+  .viewer .prev {{ left: 8px; }}
+  .viewer .next {{ right: 8px; }}
+  .viewer.single .prev, .viewer.single .next {{ display: none; }}
+
   @media (max-width: 860px) {{
+    .viewer figure {{ padding: 52px 12px 8px; }}
+    .viewer .prev, .viewer .next {{ top: auto; bottom: 58px; transform: none; }}
     body {{ font-size: 17px; }}
     .wrap {{ padding: 0 20px; }}
     .top {{ padding-top: 44px; }}
@@ -273,6 +290,64 @@ page = f"""<!doctype html>
     </div>
   </footer>
 </div>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Pictures">
+  <button class="close" aria-label="Close">&times;</button>
+  <button class="prev" aria-label="Previous picture">&larr;</button>
+  <button class="next" aria-label="Next picture">&rarr;</button>
+  <figure><img alt=""></figure>
+  <div class="bar"><span class="caption"></span><span class="count"></span></div>
+</div>
+<script>
+// Clicking a picture opens it here, with the rest of that plug-in's pictures to step through.
+(function () {{
+  var viewer = document.getElementById('viewer'), img = viewer.querySelector('img');
+  var caption = viewer.querySelector('.caption'), count = viewer.querySelector('.count');
+  var shots = [], at = 0, opener = null;
+  function show(i) {{
+    at = (i + shots.length) % shots.length;
+    img.src = shots[at].href;
+    img.alt = shots[at].dataset.caption || '';
+    caption.textContent = shots[at].dataset.caption || '';
+    count.textContent = shots.length > 1 ? (at + 1) + ' / ' + shots.length : '';
+  }}
+  function close() {{
+    viewer.classList.remove('open');
+    document.documentElement.style.overflow = '';
+    img.removeAttribute('src');
+    if (opener) opener.focus();
+  }}
+  document.addEventListener('click', function (e) {{
+    var link = e.target.closest && e.target.closest('a.shot');
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // modified clicks still open the file
+    e.preventDefault();
+    opener = link;
+    shots = Array.prototype.slice.call(link.closest('.entry').querySelectorAll('a.shot'));
+    viewer.classList.toggle('single', shots.length < 2);
+    viewer.classList.add('open');
+    document.documentElement.style.overflow = 'hidden';
+    show(shots.indexOf(link));
+    viewer.querySelector('.close').focus();
+  }});
+  viewer.querySelector('.close').addEventListener('click', close);
+  viewer.querySelector('.prev').addEventListener('click', function () {{ show(at - 1); }});
+  viewer.querySelector('.next').addEventListener('click', function () {{ show(at + 1); }});
+  viewer.addEventListener('click', function (e) {{ if (e.target === viewer || e.target.tagName === 'FIGURE') close(); }});
+  document.addEventListener('keydown', function (e) {{
+    if (!viewer.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(at - 1);
+    else if (e.key === 'ArrowRight') show(at + 1);
+  }});
+  var x0 = null;
+  viewer.addEventListener('touchstart', function (e) {{ x0 = e.touches[0].clientX; }}, {{ passive: true }});
+  viewer.addEventListener('touchend', function (e) {{
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) show(at + (dx < 0 ? 1 : -1));
+  }});
+}})();
+</script>
 </body>
 </html>
 """
