@@ -29,7 +29,7 @@ bool sameOptions(const core::Options& a, const core::Options& b) noexcept
 {
     // Values closer than this render the same (a parameter read back can differ in its last bits).
     const auto same = [](double x, double y) { return std::abs(x - y) < 1.0e-9; };
-    if (a.line != b.line || a.target != b.target || ! same(a.amount, b.amount) || a.edits.size() != b.edits.size())
+    if (a.line != b.line || a.target != b.target || a.keepLength != b.keepLength || a.character != b.character || ! same(a.amount, b.amount) || a.edits.size() != b.edits.size())
         return false;
     if (a.target == core::Target::Note && ! same(a.noteMidi, b.noteMidi))
         return false;

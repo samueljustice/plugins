@@ -29,9 +29,41 @@ jobs:
         cd JUCE
         git checkout 8.0.8
     
+    - name: Setup Python and Meson
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.x'
+    
+    - name: Install Meson and Ninja
+      run: pip install meson ninja
+    
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v3
     
+    - name: Download and Build Rubberband
+      shell: pwsh
+      run: |
+        cd SDK
+        git clone https://github.com/breakfastquay/rubberband.git rubberband-4.0.0
+        cd rubberband-4.0.0
+        git checkout v4.0.0
+
+        # --vsenv makes Meson locate and activate MSVC itself (no hard-coded vcvars path,
+        # which breaks whenever the runner image's Visual Studio edition/version changes)
+        # Force MSVC even though the runner has MinGW gcc (Strawberry) on PATH
+        $env:CC = "cl"; $env:CXX = "cl"
+        meson setup build --vsenv --buildtype=release --default-library=static -Db_vscrt=mt
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        meson compile -C build
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        # The static library name differs between Meson versions; find it instead of guessing
+        $lib = Get-ChildItem build -Recurse -File | Where-Object { $_.Name -match '^(lib)?rubberband(-static)?\.(lib|a)$' } | Select-Object -First 1
+        if (-not $lib) { Write-Error "Rubber Band static library not found"; Get-ChildItem build -Recurse -File | Select-Object FullName; exit 1 }
+        Write-Host "Using $($lib.FullName)"
+        New-Item -ItemType Directory -Force -Path lib | Out-Null
+        Copy-Item $lib.FullName lib\librubberband.a
+
     - name: Get the AAX SDK
       id: aax
       uses: ./.github/actions/aax-sdk
@@ -167,6 +199,27 @@ jobs:
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
         git checkout 8.0.8
+    
+    - name: Install Dependencies
+      run: |
+        brew install meson ninja
+    
+    - name: Download and Build Rubberband
+      run: |
+        cd SDK
+        curl -L https://breakfastquay.com/files/releases/rubberband-4.0.0.tar.bz2 -o rubberband.tar.bz2
+        tar xjf rubberband.tar.bz2
+        cd rubberband-4.0.0
+        
+        # Build with Meson
+        meson setup build --buildtype=release --default-library=static \
+          -Dcpp_args="-arch x86_64 -arch arm64" \
+          -Dcpp_link_args="-arch x86_64 -arch arm64"
+        meson compile -C build
+        
+        # Copy library to expected location
+        mkdir lib
+        cp build/librubberband.a lib/
     
     - name: Check for Certificates
       id: check_certs

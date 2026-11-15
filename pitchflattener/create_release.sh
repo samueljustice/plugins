@@ -6,7 +6,7 @@
 set -e  # Exit on error
 
 # Configuration
-VERSION="3.0.0"
+VERSION="3.1.0"
 PLUGIN_NAME="PitchFlattener"
 TAG_NAME="pitchflattener-v${VERSION}"
 

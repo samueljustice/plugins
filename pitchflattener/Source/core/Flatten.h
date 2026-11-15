@@ -10,11 +10,10 @@
 // line is right, however fast the pitch bends, with nothing smeared and no warble. The length
 // changes with it, and Flattened carries the map from the sound's own time to the result's.
 //
-// Two lines. No one tracker reads every sound: the harmonic tracker reads voices, engines and
-// whines up to about 1 kHz, the ridge tracker follows the strongest partial of anything
-// (sirens and whistles above that, a whine in a burst of noise). Both are kept. analyse() says
-// which one flattens the sound better (it flattens with each and reads the results back), and
-// the user can overrule it, because that judgement is sometimes wrong and the ear is not.
+// Three lines. No one way of reading pitch suits every sound (see Tracker), so the sound is read
+// all three ways and every line is kept. analyse() says which one flattens the sound best (it
+// flattens with each and reads the results back), and the user can overrule it by naming the
+// kind of sound, because that judgement is sometimes wrong and the ear is not.
 //
 // Plain C++20, no JUCE, no global state. Everything here allocates and can take seconds on a
 // long sound: for a background thread, never the audio thread. Results depend only on the
@@ -30,20 +29,29 @@ namespace pitchflattener::core
 using Channels = std::vector<std::vector<float>>;   // every channel the same length
 using Cancel = std::function<bool()>;               // asked now and then; true stops the work
 
-enum class Tracker : int { Harmonic = 0, Ridge = 1 };
-inline constexpr int kNumTrackers = 2;
+// The ways of reading a sound's pitch. Each suits a kind of sound, and each gives its own line.
+enum class Tracker : int
+{
+    Voice = 0,    // one clear pitch: voices, animal calls, single tones and whines, up to about 1 kHz
+    Engine = 1,   // many partials rising and falling together: engines, props, rich drones
+    Tone = 2      // the strongest partial of anything: sirens, whistles and feedback at any height, a whine in noise
+};
+inline constexpr int kNumTrackers = 3;
+/** "VOICE", "ENGINE", "TONE". */
+const char* trackerName(Tracker tracker) noexcept;
 
 /** One reading of a sound's pitch over its length. */
 struct PitchLine
 {
     bool usable = false;              // enough of the sound has a pitch to flatten by this line
-    Tracker tracker = Tracker::Harmonic;
+    Tracker tracker = Tracker::Voice;
     double hopSeconds = 0.005;        // frame f is the sound around (f + 0.5) * hopSeconds
 
     std::vector<float> trackedHz;     // as the tracker read it; 0 where it found no pitch
     // The line the flattener uses, as MIDI note numbers: the tracked line with its leaps taken
     // out, its gaps bridged and its jitter smoothed. One value per frame, never 0.
     std::vector<float> midi;
+    std::vector<float> level;         // how loud the sound is at each frame (linear)
 
     double coverage = 0.0;            // share of the audible sound the tracker found a pitch in
     int leaps = 0;                    // leaps taken out of the line (the tracker stepping between partials)
@@ -56,7 +64,7 @@ struct PitchLine
     double startMidi = 0.0;           // the first 0.3 s that has a pitch
 
     // How far the sound's pitch still travels after flattening by this line, in semitones (two
-    // trackers' readings of the result added together). -1 = not measured.
+    // readings of the result added together). -1 = not measured.
     double residual = -1.0;
 };
 
@@ -66,15 +74,23 @@ struct Analysis
     double sampleRate = 0.0;
     double durationSeconds = 0.0;
     std::array<PitchLine, kNumTrackers> lines;
+    // The separate sounds in what was learned: stretches of sound with a quarter of a second or
+    // more of silence between them (a file of several calls, hits or passes). One entry when it
+    // is a single sound. Each is flattened to its own pitch.
+    struct Event
+    {
+        double startSeconds = 0.0, endSeconds = 0.0;
+    };
+    std::vector<Event> events;
     int pick = -1;                    // the line that flattens it better; -1 = no steady pitch found
 
     const PitchLine* picked() const noexcept { return pick >= 0 ? &lines[static_cast<std::size_t>(pick)] : nullptr; }
 };
 
 /**
- * Reads the sound's pitch with both trackers. With score set, each usable line is also tried
+ * Reads the sound's pitch with every tracker. With score set, each usable line is also tried
  * (the sound flattened by it and read back) to choose between them; without, the pick is the
- * harmonic line if usable, else the ridge line.
+ * first usable line in the order Voice, Engine, Tone.
  */
 Analysis analyse(const Channels& sound, double sampleRate, bool score = true, const Cancel& cancelled = {});
 
@@ -86,6 +102,15 @@ enum class Target : int
     LowPoint,
     Start,        // the pitch it opens on
     Note          // a chosen pitch
+};
+
+// How the sound is brought back to its own timing when its length is kept. Each suits a kind
+// of sound.
+enum class Character : int
+{
+    Harmonic = 0,     // mostly tone: sirens, drones, engines, pads
+    Transients = 1,   // hits in it: ricochets, impacts. Each hit is carried through unstretched, sharp and in place
+    Voice = 2         // voices, creatures, animal calls: the voice keeps its own size (its formants are put back)
 };
 
 /** A hand correction to the line: at this moment of the sound its pitch is this much off what was read. */
@@ -101,15 +126,25 @@ struct Options
     Target target = Target::HighPoint;
     double noteMidi = 69.0;           // for Target::Note
     double amount = 1.0;              // 1 = flat, 0.5 = half the movement left in, 0 = untouched
+    // false: the speed changes and the length with it (the cleanest result). true: the result
+    // is brought back to the sound's own timing afterwards, so it keeps its length and every
+    // moment stays where it was.
+    bool keepLength = false;
+    Character character = Character::Harmonic;   // how the length is kept (keepLength only)
     // Hand corrections, added to the line. Between points they run in straight lines; they
-    // ease to nothing over 50 ms beyond the first and last.
+    // ease to nothing over a quarter of a second beyond the first and last.
     std::vector<CurvePoint> edits;
 };
 
 /** The line these options use (null if none is usable). */
 const PitchLine* lineFor(const Analysis& analysis, const Options& options) noexcept;
-/** The pitch the sound is flattened to. */
+/** The pitch the sound is flattened to (over the whole of what was learned). */
 double targetMidi(const PitchLine& line, const Options& options) noexcept;
+/**
+ * The same for one stretch of it (seconds): each separate sound has its own high point, centre,
+ * low point and start. Falls back to the whole when the line reads nothing in that stretch.
+ */
+double targetMidi(const PitchLine& line, const Options& options, double fromSeconds, double toSeconds) noexcept;
 /** What the hand corrections add at one moment. */
 double editAt(const std::vector<CurvePoint>& edits, double seconds) noexcept;
 
@@ -118,7 +153,8 @@ struct Flattened
     bool valid = false;               // false: no usable line, or cancelled
     double sampleRate = 0.0;
     Channels channels;
-    double targetMidi = 0.0;
+    double targetMidi = 0.0;          // the first sound's target
+    std::vector<double> eventTargets; // the target of each of Analysis::events, in order
     float gain = 1.0f;                // what the whole result was turned down by to stay under full scale (1 = nothing)
 
     // The time map: outputAtSource[k] is the result's sample position where source sample

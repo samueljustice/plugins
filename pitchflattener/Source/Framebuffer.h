@@ -34,10 +34,16 @@ public:
     /** Draws `region` of the host afresh: paintHost draws the host's own content; its visible
         children are drawn over it, then the region is finished. */
     void render (juce::Component& host, juce::Rectangle<int> region, const std::function<void (juce::Graphics&)>& paintHost);
+    /** An area widened to whole 2 x 2 blocks. A repaint with an odd edge redraws the blocks across
+        that edge, so the screen outside it must be redrawn too (see the editor's paint()). */
+    static juce::Rectangle<int> blockAligned (juce::Rectangle<int>) noexcept;
+
     /** Draws the finished region, scaled with no smoothing. */
     void draw (juce::Graphics&, juce::Rectangle<int> region) const;
 
     double lastMilliseconds() const noexcept { return m_lastMs; }
+    /** The finished picture (for the tests). */
+    const juce::Image& output() const noexcept { return m_output; }
 
     /** An image ordered-dithered to 5 bits a channel in place (tooltips, which are windows of their own). */
     static void dither (juce::Image&);

@@ -45,7 +45,7 @@ int main(int argc, char** argv)
     std::printf("%s\n", name.c_str());
 
     const auto analysis = analyse(in.channels, in.rate);
-    const char* names[kNumTrackers] { "harmonic", "ridge" };
+    const char* names[kNumTrackers] { "voice", "engine", "tone" };
     if (std::getenv("PF_LINES") != nullptr)
     {
         std::ofstream csv(folder + "/" + name + ".lines.csv");
@@ -81,9 +81,13 @@ int main(int argc, char** argv)
         return 0;
     }
     const double seconds = static_cast<double>(in.channels[0].size()) / in.rate;
-    for (int which = 0; which < 2; ++which)
+    // The pick first, then every other usable line, so the choice can be judged by ear.
+    int number = 2;
+    for (int which = -1; which < kNumTrackers; ++which)
     {
-        const int k = which == 0 ? analysis.pick : 1 - analysis.pick;
+        const int k = which < 0 ? analysis.pick : which;
+        if (which == analysis.pick || ! analysis.lines[static_cast<std::size_t>(k)].usable)
+            continue;
         Options options;
         options.line = k;
         const auto result = flatten(in.channels, in.rate, analysis, options);
@@ -92,8 +96,26 @@ int main(int argc, char** argv)
         Wav out;
         out.rate = in.rate;
         out.channels = result.channels;
-        save24(folder + "/" + name + " - " + (which == 0 ? "2 flat (pick, " : "3 flat (other, ") + names[k] + " line).wav", out);
-        std::printf("    %s: %s line, flat at %s, length %.2f -> %.2f s\n", which == 0 ? "pick" : "other", names[k], noteName(result.targetMidi).c_str(), seconds,
+        save24(folder + "/" + name + " - " + std::to_string(number++) + " flat (" + (which < 0 ? "pick, " : "other, ") + names[k] + " line).wav", out);
+        if (which < 0)
+        {
+            // The pick again with its length kept, in each character, to compare by ear.
+            const char* characters[3] { "harmonic", "transients", "voice" };
+            for (int c = 0; c < 3; ++c)
+            {
+                options.keepLength = true;
+                options.character = static_cast<Character>(c);
+                const auto kept = flatten(in.channels, in.rate, analysis, options);
+                if (! kept.valid)
+                    continue;
+                Wav k2;
+                k2.rate = in.rate;
+                k2.channels = kept.channels;
+                save24(folder + "/" + name + " - " + std::to_string(number++) + " flat, length kept, " + characters[c] + " (pick, " + names[k] + " line).wav", k2);
+            }
+            options.keepLength = false;
+        }
+        std::printf("    %s: %s line, flat at %s, length %.2f -> %.2f s\n", which < 0 ? "pick" : "other", names[k], noteName(result.targetMidi).c_str(), seconds,
                     static_cast<double>(out.channels[0].size()) / in.rate);
     }
     return 0;

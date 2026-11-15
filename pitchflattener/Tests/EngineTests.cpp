@@ -469,7 +469,7 @@ void engineLearnAndPlay()
     const auto learnedStart = soundStartInLearned(rig.engine);
     std::printf("    -> learned %.3f s (sound %.3f s), flattened %.3f s, %s line\n", static_cast<double>(r->learned->locator.length()) / rate,
                 static_cast<double>(sound.size()) / rate, static_cast<double>(r->flattened.channels[0].size()) / rate,
-                r->options.line == 0 ? "harmonic" : "ridge");
+                r->options.line >= 0 ? pitchflattener::core::trackerName((pitchflattener::core::Tracker) r->options.line) : "no");
     // The capture starts 50 ms before the first block with sound in it (the block itself may begin
     // before the sound does).
     const auto before = learnedStart - static_cast<std::int64_t>(0.05 * rate);

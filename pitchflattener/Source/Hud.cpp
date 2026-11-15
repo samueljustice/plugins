@@ -89,12 +89,23 @@ juce::Rectangle<float> heading (juce::Graphics& g, juce::Rectangle<float> row, c
 {
     if (! g.clipRegionIntersects (row.getSmallestIntegerContainer()))
         return row;
+    // In a narrow panel: two stripes instead of three, then the title a little smaller, so the
+    // whole word always fits.
     const float stripeHeight = std::round (font.getHeight() * 0.8f);
-    const float used = speedStripes (g, row.withSizeKeepingCentre (row.getWidth(), stripeHeight).withX (row.getX()), colour, 3);
+    const auto stripeRow = row.withSizeKeepingCentre (row.getWidth(), stripeHeight).withX (row.getX());
+    const auto stripesWidth = [&stripeRow] (int count)
+    {
+        const float h = stripeRow.getHeight(), bar = 2.0f * std::max (2.0f, std::round (h * 0.14f));
+        return (float) count * bar * 2.0f - bar + 2.0f * std::round (h * kShear * 0.8f);
+    };
+    const int count = shearedWidth (font, title) + 2.0f <= row.getWidth() - stripesWidth (3) - 7.0f ? 3 : 2;
+    const float used = speedStripes (g, stripeRow, colour, count);
     auto rest = row.withTrimmedLeft (used + 7.0f);
-    const float w = shearedWidth (font, title) + 2.0f;
+    const float h = fitHeight ([&font] (float fh) { return font.withHeight (fh); }, title, rest.getWidth() - 2.0f, font.getHeight(), 10.0f);
+    const auto fitted = font.withHeight (h);
+    const float w = shearedWidth (fitted, title) + 2.0f;
     const auto box = rest.withWidth (std::min (w, rest.getWidth()));
-    drawSheared (g, title, box, font, colour);
+    drawSheared (g, title, box, fitted, colour);
     return row.withRight (box.getRight());
 }
 

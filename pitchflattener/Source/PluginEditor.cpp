@@ -26,11 +26,26 @@ namespace
         "Start: flattens the sound to the pitch it opens on.",
         "Note: flattens the sound to the pitch set with the Note control."
     };
-    const char* const c_lineLabels[] = { "AUTO", "HARMONIC", "RIDGE" };
-    const char* const c_lineTip =
-        "Line: which reading of the sound's pitch it is flattened by. Auto takes the one that flattens it better. "
-        "Harmonic suits voices, engines and whines; Ridge suits sirens, whistles and higher sounds. "
-        "Clicking a line in the display picks it too.";
+    const char* const c_sourceLabels[] = { "AUTO", "VOICE", "ENGINE", "TONE" };
+    const char* const c_sourceTips[] = {
+        "Source, Auto: reads the sound all three ways and uses the reading that flattens it best. Choose a kind of sound when it gets it wrong.",
+        "Source, Voice: a sound with one clear pitch: voices, animal calls, single tones and whines.",
+        "Source, Engine: engines, props and rich drones, where many partials rise and fall together.",
+        "Source, Tone: sirens, whistles and feedback, or a whine inside noise: follows the strongest partial at any height."
+    };
+    const char* const c_lengthLabels[] = { "VARISPEED", "KEEP LENGTH" };
+    const char* const c_lengthTips[] = {
+        "Varispeed: flattens by changing the speed, like slowing and speeding a tape. The cleanest result; the sound's length changes.",
+        "Keep length: flattens the pitch and keeps the sound's own timing and length. Choose a character to suit the sound."
+    };
+    const char* const c_characterLabels[] = { "HARMONIC", "TRANSIENTS", "VOICE" };
+    const char* const c_characterTips[] = {
+        "Character, Harmonic: for sounds that are mostly tone: sirens, drones, engines, pads.",
+        "Character, Transients: for sounds with hits in them: ricochets, impacts, anything percussive. Keeps each hit sharp and in place.",
+        "Character, Voice: for voices, creatures and animal calls. Keeps the voice's own size and character while its pitch is flattened."
+    };
+    const char* const c_pullHelp = "DRAG THE LINE TO CORRECT IT. DOUBLE-CLICK A POINT TO REMOVE IT.";
+    const char* const c_drawHelp = "DRAW ALONG THE GRAPH TO REDRAW THE LINE. ALT WHILE DRAGGING LETS GO OF THE SNAP.";
 
     juce::String seconds (double s) { return juce::String (s, 2) + " S"; }
 }
@@ -79,19 +94,65 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
                "Amount: how much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in.",
                m_amountAttachment);
 
-    for (size_t i = 0; i < m_lines.size(); ++i)
+    for (size_t i = 0; i < m_sources.size(); ++i)
     {
-        auto& b = m_lines[i];
-        b = std::make_unique<HudButton> (c_lineLabels[i], HudButton::Style::Segment);
-        b->setTooltip (c_lineTip);
+        auto& b = m_sources[i];
+        b = std::make_unique<HudButton> (c_sourceLabels[i], HudButton::Style::Segment);
+        b->setTooltip (c_sourceTips[i]);
         b->onClick = [this, i]
         {
-            m_processor.setParameterFromEditor (Processor::lineId, (float) i);
+            m_processor.setParameterFromEditor (Processor::sourceId, (float) i);
             m_processor.syncOptions();
             refreshNow();
         };
         addAndMakeVisible (*b);
     }
+    for (size_t i = 0; i < m_lengthModes.size(); ++i)
+    {
+        auto& b = m_lengthModes[i];
+        b = std::make_unique<HudButton> (c_lengthLabels[i], HudButton::Style::Segment);
+        b->setTooltip (c_lengthTips[i]);
+        b->onClick = [this, i]
+        {
+            m_processor.setParameterFromEditor (Processor::keepLengthId, (float) i);
+            m_processor.syncOptions();
+            refreshNow();
+        };
+        addAndMakeVisible (*b);
+    }
+    for (size_t i = 0; i < m_characters.size(); ++i)
+    {
+        auto& b = m_characters[i];
+        b = std::make_unique<HudButton> (c_characterLabels[i], HudButton::Style::Segment);
+        b->setTooltip (c_characterTips[i]);
+        b->onClick = [this, i]
+        {
+            m_processor.setParameterFromEditor (Processor::characterId, (float) i);
+            m_processor.syncOptions();
+            refreshNow();
+        };
+        addAndMakeVisible (*b);
+    }
+
+    // The curve editor's tools.
+    m_drawTool.setTooltip ("Draw: drag across the graph to redraw the line freehand. Off, a drag pulls the line at one point.");
+    m_drawTool.onClick = [this] { m_display.setDrawMode (! m_display.drawMode()); refreshNow(); };
+    m_snapTool.setTooltip ("Snap: corrections put the pitch on the nearest semitone. Hold Alt while dragging to let go of it.");
+    m_snapTool.onClick = [this] { m_display.setSnap (! m_display.snap()); refreshNow(); };
+    m_undo.setTooltip ("Undo the last correction (Cmd or Ctrl and Z, once the graph has been clicked).");
+    m_undo.onClick = [this] { undoEdit(); };
+    m_redo.setTooltip ("Redo the correction last undone (Shift, Cmd or Ctrl and Z).");
+    m_redo.onClick = [this] { redoEdit(); };
+    m_resetCurve.setTooltip ("Reset curve: takes every correction off this reading, so the sound is flattened by the line as it was read.");
+    m_resetCurve.onClick = [this] { resetCurve(); };
+    m_zoomOut.setTooltip ("Zoom out. Scrolling over the graph zooms time about the pointer; with Alt, the pitch.");
+    m_zoomOut.onClick = [this] { m_display.zoomTime (0.5 * (m_display.viewFrom() + m_display.viewTo()), 2.0); };
+    m_zoomIn.setTooltip ("Zoom in. Scrolling over the graph zooms time about the pointer; with Alt, the pitch.");
+    m_zoomIn.onClick = [this] { m_display.zoomTime (0.5 * (m_display.viewFrom() + m_display.viewTo()), 0.5); };
+    m_fit.setTooltip ("Fit: shows the whole sound, with the pitch range set to suit it.");
+    m_fit.onClick = [this] { m_display.fit(); };
+    for (auto* b : { &m_drawTool, &m_snapTool, &m_undo, &m_redo, &m_resetCurve, &m_zoomOut, &m_zoomIn, &m_fit })
+        addChildComponent (*b);
 
     m_scopeTab.setTooltip ("Scope: the learned sound as an exact graph of its pitch over time, the target and the play head.");
     m_flightTab.setTooltip ("Flight: the learned sound flown as a course, its pitch as a track that rises and falls beside the "
@@ -103,10 +164,30 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
 
     m_display.onLineClicked = [this] (int line)
     {
-        m_processor.setParameterFromEditor (Processor::lineId, (float) (line + 1));
+        m_processor.setParameterFromEditor (Processor::sourceId, (float) (line + 1));
         m_processor.syncOptions();
         refreshNow();
     };
+    // While a line is dragged the engine renders a few times a second; the finished edit at once.
+    m_display.onEditsChanging = [this] (const PitchDisplay::CurvePoints& points)
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (now - m_lastLivePush >= kLivePushSeconds)
+        {
+            m_lastLivePush = now;
+            m_processor.setEdits (m_processor.lineInUse(), points);
+        }
+        refreshNow();
+    };
+    m_display.onEdited = [this] (const PitchDisplay::CurvePoints& before, const PitchDisplay::CurvePoints& after)
+    {
+        const int line = m_processor.lineInUse();
+        m_undoSteps.push_back ({ line, before });
+        m_redoSteps.clear();
+        applyEdits (line, after);
+    };
+    m_display.onUndoKey = [this] (bool redo) { redo ? redoEdit() : undoEdit(); };
+    m_display.onViewChanged = [this] { refreshNow(); };
     addChildComponent (m_display);
     addChildComponent (m_flight);
     addAndMakeVisible (m_banner);   // over both views, never taking a click
@@ -289,7 +370,9 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
         const double rate = result->learned->sampleRate;
         before = seconds ((double) result->learned->locator.length() / rate);
         after = seconds ((double) result->flattened.channels[0].size() / rate);
-        flatText = PitchFlattenerAudioProcessor::noteText (result->flattened.targetMidi);
+        const auto events = result->learned->analysis.events.size();
+        flatText = events > 1 && result->flattened.eventTargets.size() == events ? "SEVERAL " + juce::String ((int) events)
+                                                                                : PitchFlattenerAudioProcessor::noteText (result->flattened.targetMidi);
     }
     else if (result != nullptr)
         before = seconds ((double) result->learned->locator.length() / result->learned->sampleRate);
@@ -303,10 +386,34 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
             m_targets[i]->setToggleState ((int) i == chosen, juce::dontSendNotification);
     m_note.setEnabled (chosen == 4);
 
-    const int line = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::lineId)->load());
-    for (size_t i = 0; i < m_lines.size(); ++i)
-        if (m_lines[i]->getToggleState() != ((int) i == line))
-            m_lines[i]->setToggleState ((int) i == line, juce::dontSendNotification);
+    const int source = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::sourceId)->load());
+    for (size_t i = 0; i < m_sources.size(); ++i)
+        if (m_sources[i]->getToggleState() != ((int) i == source))
+            m_sources[i]->setToggleState ((int) i == source, juce::dontSendNotification);
+    const int keep = m_processor.parameters.getRawParameterValue (Processor::keepLengthId)->load() > 0.5f ? 1 : 0;
+    for (size_t i = 0; i < m_lengthModes.size(); ++i)
+        if (m_lengthModes[i]->getToggleState() != ((int) i == keep))
+            m_lengthModes[i]->setToggleState ((int) i == keep, juce::dontSendNotification);
+    // Character only shapes Keep length: dimmed (and keeping its value) under Varispeed.
+    const int character = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::characterId)->load());
+    for (size_t i = 0; i < m_characters.size(); ++i)
+    {
+        if (m_characters[i]->getToggleState() != ((int) i == character))
+            m_characters[i]->setToggleState ((int) i == character, juce::dontSendNotification);
+        if (m_characters[i]->isEnabled() != (keep == 1))
+        {
+            m_characters[i]->setEnabled (keep == 1);
+            repaint (m_characterCell);
+        }
+    }
+
+    // Undo belongs to the sound it was made on.
+    if (const auto id = result != nullptr && result->learned != nullptr ? result->learned->id : 0; id != m_stepsFor)
+    {
+        m_stepsFor = id;
+        m_undoSteps.clear();
+        m_redoSteps.clear();
+    }
 
     // The two views: only the one shown is fed and drawn.
     const int view = shownView();
@@ -322,8 +429,18 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
     displayView.playPosition = playing ? engine.playPosition() : -1;
     displayView.playGeneration = engine.playGeneration();
     displayView.rendering = engine.isRendering();
-    displayView.autoLine = line == 0;
+    displayView.autoSource = source == 0;
+    displayView.lineInUse = m_processor.lineInUse();
+    displayView.edits = m_processor.getEdits (displayView.lineInUse);
     m_display.setView (displayView);
+    updateTools();
+
+    // Editing on the graph: the guidance says how.
+    if (view == Processor::kViewScope && state == State::Ready && (m_display.isEditing() || m_display.isHoveringEditable()))
+    {
+        status = m_display.drawMode() ? c_drawHelp : c_pullHelp;
+        statusColour = orange;
+    }
 
     if (view == Processor::kViewFlight)
     {
@@ -388,6 +505,27 @@ void PitchFlattenerAudioProcessorEditor::resized()
         m_flightTab.setBounds (tabs.removeFromRight (80));
         tabs.removeFromRight (6);
         m_scopeTab.setBounds (tabs.removeFromRight (76));
+
+        // The curve tools, between the heading and the FLAT tag: the editing tools from the left,
+        // the zoom by the tabs.
+        auto tools = header.withTrimmedLeft (112).withTrimmedRight (80 + 6 + 76 + 14 + 86 + 12);
+        const auto place = [&tools] (HudButton& b, int w)
+        {
+            b.setBounds (tools.removeFromLeft (w));
+            tools.removeFromLeft (6);
+        };
+        place (m_drawTool, 58);
+        place (m_snapTool, 58);
+        tools.removeFromLeft (8);
+        place (m_undo, 58);
+        place (m_redo, 58);
+        place (m_resetCurve, 112);
+        auto zoom = juce::Rectangle<int> (m_scopeTab.getX() - 14 - 86 - 12 - 112, header.getY(), 112, header.getHeight());
+        m_zoomOut.setBounds (zoom.removeFromLeft (28));
+        zoom.removeFromLeft (4);
+        m_zoomIn.setBounds (zoom.removeFromLeft (28));
+        zoom.removeFromLeft (4);
+        m_fit.setBounds (zoom);
         m_viewArea = m_displayPanel.withTrimmedTop (30).reduced (3, 0).withTrimmedBottom (3);
     }
     m_display.setBounds (m_viewArea);
@@ -400,39 +538,62 @@ void PitchFlattenerAudioProcessorEditor::resized()
     area.removeFromTop (8);
 
     auto controls = area;
-    m_targetCell = controls.removeFromLeft (380);
+    m_targetCell = controls.removeFromLeft (270);
     controls.removeFromLeft (c_gap);
-    m_noteCell = controls.removeFromLeft (140);
+    m_noteCell = controls.removeFromLeft (104);
     controls.removeFromLeft (c_gap);
-    m_amountCell = controls.removeFromLeft (140);
+    m_amountCell = controls.removeFromLeft (104);
     controls.removeFromLeft (c_gap);
-    m_lineCell = controls;
+    m_sourceCell = controls.removeFromLeft (170);
+    controls.removeFromLeft (c_gap);
+    m_lengthCell = controls.removeFromLeft (130);
+    controls.removeFromLeft (c_gap);
+    m_characterCell = controls;
 
     {
+        // The two long names on top, the three short ones below, so every name fits its segment.
         auto cell = m_targetCell.withTrimmedTop (40).reduced (14, 0);
         auto top = cell.removeFromTop (38);
         cell.removeFromTop (8);
         auto bottom = cell.removeFromTop (38);
-        const int w = (top.getWidth() - 2 * 8) / 3;
-        for (int i = 0; i < 3; ++i)
-        {
-            m_targets[(size_t) i]->setBounds (top.removeFromLeft (w));
-            top.removeFromLeft (8);
-        }
-        const int w2 = (bottom.getWidth() - 8) / 2;
-        m_targets[3]->setBounds (bottom.removeFromLeft (w2));
+        const int w2 = (top.getWidth() - 8) / 2;
+        m_targets[0]->setBounds (top.removeFromLeft (w2));   // HIGH POINT
+        top.removeFromLeft (8);
+        m_targets[2]->setBounds (top);                       // LOW POINT
+        const int w3 = (bottom.getWidth() - 2 * 8) / 3;
+        m_targets[1]->setBounds (bottom.removeFromLeft (w3)); // CENTRE
         bottom.removeFromLeft (8);
-        m_targets[4]->setBounds (bottom);
+        m_targets[3]->setBounds (bottom.removeFromLeft (w3)); // START
+        bottom.removeFromLeft (8);
+        m_targets[4]->setBounds (bottom);                    // NOTE
     }
     m_note.setBounds (m_noteCell.withTrimmedTop (34).reduced (14, 6));
     m_amount.setBounds (m_amountCell.withTrimmedTop (34).reduced (14, 6));
     {
-        auto row = m_lineCell.withTrimmedTop (40).reduced (14, 0).withHeight (38);
-        const int w = (row.getWidth() - 2 * 6) / 3;
-        for (size_t i = 0; i < m_lines.size(); ++i)
+        auto cell = m_sourceCell.withTrimmedTop (40).reduced (14, 0);
+        auto top = cell.removeFromTop (38);
+        cell.removeFromTop (8);
+        auto bottom = cell.removeFromTop (38);
+        const int w = (top.getWidth() - 8) / 2;
+        m_sources[0]->setBounds (top.removeFromLeft (w));
+        top.removeFromLeft (8);
+        m_sources[1]->setBounds (top);
+        m_sources[2]->setBounds (bottom.removeFromLeft (w));
+        bottom.removeFromLeft (8);
+        m_sources[3]->setBounds (bottom);
+    }
+    {
+        auto cell = m_lengthCell.withTrimmedTop (40).reduced (14, 0);
+        m_lengthModes[0]->setBounds (cell.removeFromTop (38));
+        cell.removeFromTop (8);
+        m_lengthModes[1]->setBounds (cell.removeFromTop (38));
+    }
+    {
+        auto cell = m_characterCell.withTrimmedTop (40).reduced (14, 0);
+        for (size_t i = 0; i < m_characters.size(); ++i)
         {
-            m_lines[i]->setBounds (i + 1 < m_lines.size() ? row.removeFromLeft (w) : row);
-            row.removeFromLeft (6);
+            m_characters[i]->setBounds (cell.removeFromTop (32));
+            cell.removeFromTop (6);
         }
     }
 
@@ -528,7 +689,8 @@ void PitchFlattenerAudioProcessorEditor::paintReadout (juce::Graphics& g)
         }
     }
 
-    // The pitch it is flattened to: the user's target, orange.
+    // The pitch it is flattened to: the user's target, orange (several sounds: how many).
+    m_flatRow = inner.toNearestInt();
     auto bottom = row (inner, "FLAT ON");
     Hud::drawSheared (g, m_flatText.isEmpty() ? juce::String ("--") : m_flatText,
                       bottom.withWidth (std::min (bottom.getWidth(), Hud::shearedWidth (valueFont, m_flatText.isEmpty() ? juce::String ("--") : m_flatText) + 2.0f)),
@@ -560,6 +722,22 @@ void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
     const auto region = g.getClipBounds().getIntersection (getLocalBounds());
     m_framebuffer.render (*this, region, [this] (juce::Graphics& fb) { paintContent (fb); });
     m_framebuffer.draw (g, region);
+
+    // A repaint area with an odd edge cuts through blocks: the blocks were finished afresh on both
+    // sides of it, but the screen only took the inside. The outside pixels are shown at once by a
+    // repaint of the whole blocks, so no stale strip is ever left along the edge.
+    if (const auto aligned = followUpRepaint (region); ! aligned.isEmpty())
+        juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<PitchFlattenerAudioProcessorEditor> (this), aligned]
+        {
+            if (safeThis != nullptr)
+                safeThis->repaint (aligned);
+        });
+}
+
+juce::Rectangle<int> PitchFlattenerAudioProcessorEditor::followUpRepaint (juce::Rectangle<int> region) const
+{
+    const auto aligned = Framebuffer::blockAligned (region).getIntersection (getLocalBounds());
+    return aligned == region ? juce::Rectangle<int>() : aligned;
 }
 
 void PitchFlattenerAudioProcessorEditor::paintContent (juce::Graphics& g)
@@ -580,8 +758,9 @@ void PitchFlattenerAudioProcessorEditor::paintContent (juce::Graphics& g)
         const auto r = m_displayPanel.toFloat();
         Hud::frame (g, r, 12.0f, space, panelEdge);
         const bool scope = shownView() == PitchFlattenerAudioProcessor::kViewScope;
-        Hud::heading (g, juce::Rectangle<float> (r.getX() + 16.0f, r.getY() + 6.0f, 420.0f, 18.0f),
-                      scope ? "SCOPE  /  PITCH OVER TIME" : "FLIGHT  /  THE SOUND AS A COURSE", m_fonts->display (12.0f), orange);
+        // (SCOPE's tools take the header's middle, so its heading is the one word.)
+        Hud::heading (g, juce::Rectangle<float> (r.getX() + 16.0f, r.getY() + 6.0f, scope ? 90.0f : 420.0f, 18.0f),
+                      scope ? "SCOPE" : "FLIGHT  /  THE SOUND AS A COURSE", m_fonts->display (12.0f), orange);
 
         // FLAT: the flattened sound is playing (a tag at the display's corner, beside the tabs).
         if (m_flatTagShown)
@@ -606,13 +785,90 @@ void PitchFlattenerAudioProcessorEditor::paintContent (juce::Graphics& g)
         m_lookAndFeel.drawPanel (g, m_noteCell.toFloat(), "NOTE", orange, 32.0f);
     if (in (m_amountCell))
         m_lookAndFeel.drawPanel (g, m_amountCell.toFloat(), "AMOUNT", orange, 32.0f);
-    if (in (m_lineCell))
-        m_lookAndFeel.drawPanel (g, m_lineCell.toFloat(), "LINE", orange, 32.0f);
+    if (in (m_sourceCell))
+        m_lookAndFeel.drawPanel (g, m_sourceCell.toFloat(), "SOURCE", orange, 32.0f);
+    if (in (m_lengthCell))
+        m_lookAndFeel.drawPanel (g, m_lengthCell.toFloat(), "LENGTH", orange, 32.0f);
+    if (in (m_characterCell))
+        m_lookAndFeel.drawPanel (g, m_characterCell.toFloat(), "CHARACTER",
+                                 m_characters[0]->isEnabled() ? orange : orange.withAlpha (0.4f), 32.0f);
+}
 
-    const auto caption = m_lineCell.toFloat().withTrimmedTop (90.0f).reduced (14.0f, 0.0f);
-    const auto small = m_fonts->body (11.0f);
-    Hud::drawText (g, "THE PITCH READING", caption.withHeight (15.0f), small, textDim);
-    Hud::drawText (g, "IT IS FLATTENED BY", caption.withTrimmedTop (16.0f).withHeight (15.0f), small, textDim);
+juce::String PitchFlattenerAudioProcessorEditor::getTooltip()
+{
+    if (m_flatText.startsWith ("SEVERAL") && m_flatRow.contains (getMouseXYRelative()))
+        return "Each separate sound in the recording is flattened to its own pitch.";
+    return {};
+}
+
+//==============================================================================
+// The curve editor's undo, redo and reset, and its tools' state.
+
+void PitchFlattenerAudioProcessorEditor::applyEdits (int line, PitchDisplay::CurvePoints points)
+{
+    m_lastLivePush = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    m_processor.setEdits (line, std::move (points));
+    refreshNow();
+}
+
+void PitchFlattenerAudioProcessorEditor::undoEdit()
+{
+    if (m_undoSteps.empty())
+        return;
+    auto step = std::move (m_undoSteps.back());
+    m_undoSteps.pop_back();
+    m_redoSteps.push_back ({ step.line, m_processor.getEdits (step.line) });
+    applyEdits (step.line, std::move (step.points));
+}
+
+void PitchFlattenerAudioProcessorEditor::redoEdit()
+{
+    if (m_redoSteps.empty())
+        return;
+    auto step = std::move (m_redoSteps.back());
+    m_redoSteps.pop_back();
+    m_undoSteps.push_back ({ step.line, m_processor.getEdits (step.line) });
+    applyEdits (step.line, std::move (step.points));
+}
+
+void PitchFlattenerAudioProcessorEditor::resetCurve()
+{
+    const int line = m_processor.lineInUse();
+    auto before = m_processor.getEdits (line);
+    if (before.empty())
+        return;
+    m_undoSteps.push_back ({ line, std::move (before) });
+    m_redoSteps.clear();
+    applyEdits (line, {});
+}
+
+void PitchFlattenerAudioProcessorEditor::updateTools()
+{
+    const auto result = m_processor.getEngine().result();
+    const bool scope = shownView() == Processor::kViewScope && result != nullptr && result->learned != nullptr;
+    const bool editable = scope && result->playable() && m_processor.lineInUse() >= 0;
+    const bool edited = editable && (! m_processor.getEdits (m_processor.lineInUse()).empty() || ! m_undoSteps.empty() || ! m_redoSteps.empty());
+    const auto show = [] (juce::Component& c, bool visible)
+    {
+        if (c.isVisible() != visible)
+            c.setVisible (visible);
+    };
+    show (m_drawTool, editable);
+    show (m_snapTool, editable);
+    show (m_undo, edited);
+    show (m_redo, edited);
+    show (m_resetCurve, edited);
+    show (m_zoomOut, scope);
+    show (m_zoomIn, scope);
+    show (m_fit, scope);
+    m_undo.setEnabled (! m_undoSteps.empty());
+    m_redo.setEnabled (! m_redoSteps.empty());
+    m_resetCurve.setEnabled (! m_processor.getEdits (m_processor.lineInUse()).empty());
+    m_drawTool.setToggleState (m_display.drawMode(), juce::dontSendNotification);
+    m_snapTool.setToggleState (m_display.snap(), juce::dontSendNotification);
+    m_fit.setEnabled (m_display.isZoomed());
+    m_zoomIn.setEnabled (scope && m_display.viewTo() - m_display.viewFrom() > PitchDisplay::kMinSpanSeconds + 1.0e-6);
+    m_zoomOut.setEnabled (scope && m_display.isZoomed());
 }
 
 //==============================================================================

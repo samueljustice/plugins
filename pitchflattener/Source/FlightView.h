@@ -6,6 +6,7 @@
 #include "Hud.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -83,6 +84,10 @@ struct Course
  * back towards the line by (1 - amount). Heights are relative to the middle of the range.
  */
 Course buildCourse (const pitchflattener::core::PitchLine&, bool flattened, double targetMidi, double amount,
+                    double stepSeconds = kStepSeconds);
+/** The same, for a recording of several sounds each flattened to its own pitch: the target at
+    each moment comes from targetAt (seconds -> MIDI). */
+Course buildCourse (const pitchflattener::core::PitchLine&, bool flattened, const std::function<double (double)>& targetAt, double amount,
                     double stepSeconds = kStepSeconds);
 
 /** A gently undulating course with a level lane, flown while nothing is learned. */
