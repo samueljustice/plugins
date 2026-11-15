@@ -127,7 +127,7 @@ It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and 
   <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="820">
 </p>
 
-A real-time reverser. It recreates the three effects of Backwards Machine (Reverse Playback, Forward Backwards and Reverse Repeat), rebuilt from a study of the original's signal flow and checked against the original's own renders, which it matches at better than 0.999 correlation. What's different is a resizable window, a display of the read heads moving backwards through the audio, and no clicks when you change a setting.
+A real-time reverser. It recreates the three effects of Backwards Machine (Reverse Playback, Forward Backwards and Reverse Repeat), rebuilt from a study of the original's signal flow and checked against the original's own renders, which it matches at better than 0.999 correlation. What's different is a resizable window, a display that shows the read heads sweeping back along a road into the past, and no clicks when you change a setting.
 
 <details>
 <summary>More screenshots</summary>
