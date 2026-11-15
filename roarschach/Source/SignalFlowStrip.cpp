@@ -11,6 +11,7 @@
 namespace
 {
     using namespace Theme::Colours;
+    namespace Type = Theme::Type;
 
     // Design-size layout of the strip (1728 x 336 in the editor): IN, two rows of eight module
     // slots (the last one an empty end-of-row drop target), OUTPUT.
@@ -23,15 +24,14 @@ namespace
     constexpr int c_footerHeight = 16;
     constexpr int c_chipHeight = 18;
     constexpr int c_pad = 8;
-    constexpr int c_captionHeight = 13;
-    constexpr float c_radius = 8.0f;
-    constexpr float c_offAlpha = 0.45f;       // an Off tile, and a knob the current settings do not use
-    constexpr float c_weakAlpha = 0.7f;       // a knob that does little at the current settings
-    constexpr float c_tileValueFont = 11.0f;
-    // Type sizes (design px; the window opens at 80-100 % of them). Captions are 11 where the tile
-    // has the room and never under c_minCaptionFont; the small readout labels are 10.
-    constexpr float c_captionFont = 11.0f, c_minCaptionFont = 9.0f;
-    constexpr float c_smallFont = 10.0f;
+    constexpr int c_captionHeight = 15;    // the caption's capitals (Type::caption) and a little room
+    constexpr float c_radius = Theme::Metrics::radius;
+    // Type sizes (Theme::Type, point heights). Captions are at the caption size where the tile has the
+    // room and never under c_minCaptionFont (only CHAMBER's four narrow knobs need less).
+    constexpr float c_captionFont = Type::caption, c_minCaptionFont = 8.25f;
+    constexpr float c_smallFont = Type::caption;
+    // A mode chip's label: the LookAndFeel's button font at the chip's height.
+    constexpr float modeChipFontSize() { return std::min(Type::button, static_cast<float>(c_chipHeight) * 0.6f); }
     constexpr float c_chamberEdgeFrom = 60.0f;   // CHAMBER Amount (%) from which Edge is clearly heard
     constexpr int c_diceSize = 18;    // a module's die (its pill, as large as the On button), at the right end of its chip row
     constexpr int c_diceHit = 22;     // ... and its clickable area, a little larger than the pill
@@ -161,6 +161,8 @@ namespace
             { "RESONANT", "RESO" }, { "CONCRETE", "CONC" }, { "PADDED", "PAD" }, { "TIMBER", "TIMB" },
             { "SMALL", "SML" }, { "LIGHT", "LGT" }, { "BLOOM", "BLM" }, { "STEEL", "STL" },
             { "PARTY", "PRTY" }, { "TOWER", "TOWR" },
+            { "SINE", "SIN" }, { "RING", "RNG" }, { "HORN", "HRN" }, { "LIQUID 4", "LIQ 4" }, { "RANDOM", "RND" },
+            { "TALKY 4", "TLK 4" },
         };
         for (const auto& [from, to] : table)
             if (shortName == from)
@@ -205,35 +207,38 @@ namespace
         return juce::String(juce::roundToInt(hz)) + " Hz";
     }
 
+    /** A meter's groove pressed into the paper, ruled with an ink hairline along its foot. */
     void drawTrack(juce::Graphics& g, juce::Rectangle<float> r)
     {
-        g.setColour(outline);
-        g.fillRoundedRectangle(r, std::min(2.0f, r.getHeight() * 0.5f));
+        g.setColour(groove);
+        g.fillRoundedRectangle(r, std::min(1.5f, r.getHeight() * 0.5f));
+        g.setColour(rule);
+        g.fillRect(juce::Rectangle<float>(r.getX(), r.getBottom(), r.getWidth(), 1.0f));
     }
 
-    /** A horizontal bar, 0..1, filled from the left. */
-    void drawBar(juce::Graphics& g, juce::Rectangle<float> r, float fraction, juce::Colour colour)
+    /** A horizontal bar, 0..1, a solid fill (the meter fill: 3:1 or more against its groove) from the left. */
+    void drawBar(juce::Graphics& g, juce::Rectangle<float> r, float fraction, juce::Colour colour = meterFill)
     {
         drawTrack(g, r);
         const float f = juce::jlimit(0.0f, 1.0f, fraction);
         if (f > 0.0f)
         {
             g.setColour(colour);
-            g.fillRoundedRectangle(r.withWidth(std::max(r.getHeight(), r.getWidth() * f)), std::min(2.0f, r.getHeight() * 0.5f));
+            g.fillRoundedRectangle(r.withWidth(std::max(r.getHeight(), r.getWidth() * f)), std::min(1.5f, r.getHeight() * 0.5f));
         }
     }
 
-    /** A horizontal bar, -1..1, filled from the centre. */
-    void drawCentredBar(juce::Graphics& g, juce::Rectangle<float> r, float value, juce::Colour colour)
+    /** A horizontal bar, -1..1, filled from the centre (an ink tick marks the centre). */
+    void drawCentredBar(juce::Graphics& g, juce::Rectangle<float> r, float value)
     {
         drawTrack(g, r);
         const float v = juce::jlimit(-1.0f, 1.0f, value);
         const float half = r.getWidth() * 0.5f;
         const float x0 = r.getCentreX(), x1 = x0 + v * half;
-        g.setColour(colour);
+        g.setColour(meterFill);
         g.fillRect(juce::Rectangle<float>(std::min(x0, x1), r.getY(), std::max(1.0f, std::abs(x1 - x0)), r.getHeight()));
-        g.setColour(mark);
-        g.fillRect(juce::Rectangle<float>(x0 - 0.5f, r.getY() - 1.5f, 1.0f, r.getHeight() + 3.0f));
+        g.setColour(ink);
+        g.fillRect(juce::Rectangle<float>(x0 - 0.5f, r.getY() - 2.0f, 1.0f, r.getHeight() + 4.0f));
     }
 }
 
@@ -247,7 +252,7 @@ struct SignalFlowStrip::Knob
 };
 
 //==============================================================================
-/** The move chip: three dots in a pill, the house's chip look (no glyphs). */
+/** The move chip: three ink drops; a raised-paper chip and a hairline only under the mouse. */
 class SignalFlowStrip::MoveChip : public juce::Button
 {
 public:
@@ -256,24 +261,26 @@ public:
     void paintButton(juce::Graphics& g, bool isMouseOver, bool isDown) override
     {
         const auto r = getLocalBounds().toFloat().reduced(0.5f);
-        const float corner = r.getHeight() * 0.5f;
-        g.setColour(panelRaised.brighter(isDown ? 0.2f : isMouseOver ? 0.1f : 0.0f));
-        g.fillRoundedRectangle(r, corner);
+        const float corner = Theme::Metrics::radius;
+        if (isMouseOver || isDown)
+        {
+            g.setColour(isDown ? sheet.darker(0.06f) : sheet);
+            g.fillRoundedRectangle(r, corner);
+            g.setColour(ink.withAlpha(0.55f));
+            g.drawRoundedRectangle(r, corner, Theme::Metrics::hairline);
+        }
         if (RoarschachLookAndFeel::shouldShowFocusRing(*this))
         {
-            g.setColour(output);
-            g.drawRoundedRectangle(r.reduced(0.25f), corner, 1.5f);
-        }
-        else
-        {
-            g.setColour(isMouseOver ? textDim : outline);
-            g.drawRoundedRectangle(r, corner, 1.0f);
+            g.setColour(focus);
+            g.drawRoundedRectangle(r.reduced(0.25f), corner, Theme::Metrics::focusRing);
         }
 
-        g.setColour(isMouseOver || isDown ? Theme::Colours::text : textDim);
-        const float d = 2.4f;
+        g.setColour(isMouseOver || isDown ? ink : inkDim);
         for (int k = -1; k <= 1; ++k)
-            g.fillEllipse(juce::Rectangle<float>(d, d).withCentre(r.getCentre().translated(static_cast<float>(k) * 4.6f, 0.0f)));
+        {
+            const float d = k == 0 ? 3.2f : 2.6f;   // the middle drop a little fuller, as dropped from a pen
+            g.fillEllipse(juce::Rectangle<float>(d, d).withCentre(r.getCentre().translated(static_cast<float>(k) * 5.0f, 0.0f)));
+        }
     }
 };
 
@@ -294,7 +301,7 @@ public:
         const auto inner = getLocalBounds().reduced(c_margin);
         juce::Path p;
         p.addRoundedRectangle(inner.toFloat().translated(0.0f, 8.0f), c_radius);
-        juce::DropShadow(juce::Colours::black.withAlpha(0.95f), 24, { 0, 0 }).drawForPath(g, p);
+        juce::DropShadow(shadow, 24, { 0, 0 }).drawForPath(g, p);
     }
 };
 
@@ -303,8 +310,8 @@ public:
 class SignalFlowStrip::Tile : public juce::Component
 {
 public:
-    Tile(SignalFlowStrip& owner, juce::String title, juce::Colour accent)
-        : m_owner(owner), m_title(std::move(title)), m_accent(accent)
+    Tile(SignalFlowStrip& owner, juce::String title)
+        : m_owner(owner), m_title(std::move(title))
     {
         setTitle(m_title);
     }
@@ -317,10 +324,9 @@ public:
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 18);
         slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
-        slider.setColour(juce::Slider::rotarySliderFillColourId, m_accent);
         slider.setTooltip(tooltipFor(id));
         slider.setTitle(Params::spec(id).name);
-        RoarschachLookAndFeel::setValueFontHeight(slider, c_tileValueFont);
+        RoarschachLookAndFeel::setValueFontHeight(slider, Type::value);
         knob->attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_owner.m_parameters, id, slider);
 
         if (auto* param = m_owner.m_parameters.getParameter(id))
@@ -341,9 +347,9 @@ public:
         slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
 
         knob->caption.setText(captionFor(id), juce::dontSendNotification);
-        knob->caption.setFont(m_owner.m_fonts.label(c_captionFont));
+        knob->caption.setFont(m_owner.m_fonts.caption(c_captionFont));
         knob->caption.setJustificationType(juce::Justification::centred);
-        knob->caption.setColour(juce::Label::textColourId, textDim);
+        RoarschachLookAndFeel::setCaptionLive(knob->caption, true);
         knob->caption.setInterceptsMouseClicks(false, false);
         knob->caption.setMinimumHorizontalScale(1.0f);
         knob->caption.setBorderSize({ 0, 0, 0, 0 });
@@ -366,7 +372,7 @@ public:
     {
         const auto widthAt = [this](const Knob& knob, float height)
         {
-            return juce::GlyphArrangement::getStringWidth(m_owner.m_fonts.label(height), knob.caption.getText()) + 2.0f;
+            return juce::GlyphArrangement::getStringWidth(m_owner.m_fonts.caption(height), knob.caption.getText()) + 2.0f;
         };
         const auto fits = [&](float height)
         {
@@ -389,18 +395,18 @@ public:
 
         float height = c_captionFont;
         while (height > c_minCaptionFont && !fits(height))
-            height -= 0.25f;
+            height = std::max(c_minCaptionFont, height - 0.25f);
 
         for (auto& knob : m_knobs)
         {
             const int w = static_cast<int>(std::ceil(widthAt(*knob, height))) + 2;
-            knob->caption.setFont(m_owner.m_fonts.label(height));
+            knob->caption.setFont(m_owner.m_fonts.caption(height));
             knob->caption.setBounds(knob->slider.getBounds().getCentreX() - w / 2, knob->caption.getY(), w, c_captionHeight);
         }
     }
 
-    /** How much the current settings use a knob: fully, a little (it is half-dimmed), not at all
-        (dimmed like an Off tile). A dimmed knob still turns. */
+    /** How much the current settings use a knob: fully, a little (its arc is lighter), not at all (drawn
+        as an outline, like the knobs of an Off tile). Every knob still turns. */
     enum class KnobUse { full, weak, none };
 
     void setKnobUse(const char* paramId, KnobUse use)
@@ -409,51 +415,52 @@ public:
             if (std::string_view(m_knobs[k]->paramId) == paramId && m_knobUse[k] != use)
             {
                 m_knobUse[k] = use;
-                applyAlpha();
+                applyKnobStyles();
             }
     }
 
-    /** The tile's own alpha (an Off module tile is dimmed as a whole). */
-    virtual float tileAlpha() const { return 1.0f; }
+    /** False for a module tile that is Off. */
+    virtual bool isLive() const { return true; }
 
-    virtual void applyAlpha()
+    /** Shows each knob's state by its shape (LookAndFeel::KnobStyle) and its caption's ink rank. Nothing
+        is faded: faded text would fail contrast on paper. */
+    virtual void applyKnobStyles()
     {
-        const float alpha = tileAlpha();
+        using Style = RoarschachLookAndFeel::KnobStyle;
         for (size_t i = 0; i < m_knobs.size(); ++i)
         {
             const auto use = i < m_knobUse.size() ? m_knobUse[i] : KnobUse::full;
-            const float a = std::min(alpha, use == KnobUse::none ? c_offAlpha : use == KnobUse::weak ? c_weakAlpha : 1.0f);
-            m_knobs[i]->slider.setAlpha(a);
-            m_knobs[i]->caption.setAlpha(a);
+            const auto style = !isLive() ? Style::off : use == KnobUse::none ? Style::unused : use == KnobUse::weak ? Style::weak : Style::full;
+            RoarschachLookAndFeel::setKnobStyle(m_knobs[i]->slider, style);
+            RoarschachLookAndFeel::setCaptionLive(m_knobs[i]->caption, style == Style::full || style == Style::weak);
         }
     }
 
-    void paintPanel(juce::Graphics& g, bool lifted, float titleAlpha, bool dot)
+    /** The tile: a faint wash on the paper with its grain (no outline; a lifted tile gets an ink one),
+        and for IN and OUTPUT the name in the display face. */
+    void paintPanel(juce::Graphics& g, bool lifted, bool withTitle)
     {
         const auto r = getLocalBounds().toFloat();
-        g.setColour(lifted ? panel.brighter(0.06f) : panel);
+        g.setColour(lifted ? sheet : wash);
         g.fillRoundedRectangle(r, c_radius);
-        g.setColour(lifted ? m_accent.withAlpha(0.8f) : outlineSoft);
-        g.drawRoundedRectangle(r.reduced(0.5f), c_radius, lifted ? 1.5f : 1.0f);
-
-        g.setColour(outlineSoft);
-        g.fillRect(juce::Rectangle<float>(12.0f, static_cast<float>(c_headerHeight), r.getWidth() - 24.0f, 1.0f));
-
-        if (dot)
+        Theme::fillPaperGrain(g, r, c_radius);
+        if (lifted)
         {
-            auto header = r.withHeight(static_cast<float>(c_headerHeight)).reduced(12.0f, 0.0f);
-            g.setColour(m_accent);
-            g.fillEllipse(header.removeFromLeft(6.0f).withSizeKeepingCentre(6.0f, 6.0f));
-            header.removeFromLeft(8.0f);
-            g.setFont(m_owner.m_fonts.heading(11.0f));
-            g.setColour(m_accent.withMultipliedAlpha(titleAlpha));
-            g.drawText(m_title, header, juce::Justification::centredLeft, false);
+            g.setColour(ink.withAlpha(0.7f));
+            g.drawRoundedRectangle(r.reduced(0.5f), c_radius, 1.2f);
+        }
+
+        if (withTitle)
+        {
+            const auto header = r.withHeight(static_cast<float>(c_headerHeight)).reduced(12.0f, 0.0f);
+            g.setFont(m_owner.m_fonts.title(Type::tileTitle));
+            g.setColour(ink);
+            g.drawText(m_title, header.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
         }
     }
 
     SignalFlowStrip& m_owner;
     const juce::String m_title;
-    const juce::Colour m_accent;
     std::vector<std::unique_ptr<Knob>> m_knobs;
     std::array<KnobUse, 8> m_knobUse {};
 };
@@ -463,7 +470,7 @@ class SignalFlowStrip::ModuleTile : public Tile, public juce::SettableTooltipCli
 {
 public:
     ModuleTile(SignalFlowStrip& owner, int module)
-        : Tile(owner, Params::modules[static_cast<size_t>(module)].uiName, juce::Colour(Params::modules[static_cast<size_t>(module)].accent))
+        : Tile(owner, Params::modules[static_cast<size_t>(module)].uiName)
         , m_module(module)
         , m_spec(Params::modules[static_cast<size_t>(module)])
     {
@@ -471,7 +478,6 @@ public:
 
         m_onButton.setTooltip("Turns " + name + " on or off. Off passes the voice through unchanged.");
         m_onButton.setTitle(name + " On");
-        m_onButton.setColour(juce::ToggleButton::tickColourId, m_accent);
         addAndMakeVisible(m_onButton);
         m_onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, m_spec.onId, m_onButton);
 
@@ -487,8 +493,7 @@ public:
                     tips.add(juce::String(Params::spec(id).name) + ": " + tooltipFor(id));
             m_modeChip.setTooltip(tips.joinIntoString("\n"));
             m_modeChip.setTitle(name + " Modes");
-            m_modeChip.setColour(juce::PopupMenu::highlightedBackgroundColourId, m_accent); // the menu's accent
-            m_modeChip.setColour(juce::TextButton::textColourOffId, text.withAlpha(0.85f));
+            RoarschachLookAndFeel::setMenuChip(m_modeChip);
             m_modeChip.onClick = [this] { m_owner.showModeMenu(m_module); };
             addAndMakeVisible(m_modeChip);
         }
@@ -497,14 +502,12 @@ public:
                               "or press Alt+Left or Alt+Right. The tile numbers count all fifteen modules; a host's "
                               "position parameters count the fourteen other than CHAMBER, so after CHAMBER they read one lower.");
         m_moveChip.setTitle("Move " + name);
-        m_moveChip.setColour(juce::PopupMenu::highlightedBackgroundColourId, m_accent);
         m_moveChip.onClick = [this] { m_owner.showMoveMenu(m_module); };
         addAndMakeVisible(m_moveChip);
 
         m_dice.setTooltip("Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
                           "Its On switch and its place in the chain stay as they are. " + diceUndoHint());
         m_dice.setTitle("Randomise " + name);
-        m_dice.setAccent(m_accent);
         m_dice.setPillSize(c_diceSize);
         m_dice.onClick = [this] { if (m_owner.onRollModule) m_owner.onRollModule(m_module); };
         m_dice.onSecondaryClick = [this] { if (m_owner.onDiceMenu) m_owner.onDiceMenu(m_dice); };
@@ -575,17 +578,19 @@ public:
         if (on == m_on)
             return;
         m_on = on;
-        applyAlpha();
+        applyKnobStyles();
         repaint();
     }
 
-    float tileAlpha() const override { return m_on ? 1.0f : c_offAlpha; }
+    bool isLive() const override { return m_on; }
 
-    void applyAlpha() override
+    void applyKnobStyles() override
     {
-        Tile::applyAlpha();
-        m_modeChip.setAlpha(tileAlpha());
-        m_dice.setAlpha(tileAlpha());   // still clickable, like the chip
+        Tile::applyKnobStyles();
+        // An Off module's chip and die stay readable and clickable: the chip loses its fill, the die
+        // and the chip's label take the faint ink.
+        RoarschachLookAndFeel::setMenuChip(m_modeChip, !m_on);
+        m_dice.setMuted(!m_on);
     }
 
     void setSlot(int slot)
@@ -671,22 +676,25 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        paintPanel(g, m_lifted, 1.0f, false);
+        paintPanel(g, m_lifted, false);
 
+        // The slot number (the chain order), then the name in the display face: ink when On, the faint
+        // ink when Off (with the hollow lamp, the outlined knobs and the OFF footer, never tone alone).
         auto header = getLocalBounds().removeFromTop(c_headerHeight).withTrimmedLeft(29).withTrimmedRight(c_pad + 30).toFloat();
-        g.setFont(m_owner.m_fonts.label(c_smallFont));
-        g.setColour(textFaint);
-        g.drawText(juce::String(m_slot + 1).paddedLeft('0', 2), header.removeFromLeft(18.0f), juce::Justification::centredLeft, false);
-        header.removeFromLeft(2.0f);
-        g.setFont(m_owner.m_fonts.heading(11.0f));
-        g.setColour(m_on ? m_accent : textDim);
-        g.drawText(m_title, header, juce::Justification::centredLeft, false);
+        const auto numberFont = m_owner.m_fonts.value(c_smallFont);
+        const auto number = juce::String(m_slot + 1).paddedLeft('0', 2);
+        g.setFont(numberFont);
+        g.setColour(inkFaint);
+        g.drawText(number, header.removeFromLeft(textWidth(numberFont, number) + 5.0f), juce::Justification::centredLeft, false);
+        g.setFont(m_owner.m_fonts.title(Type::tileTitle));
+        g.setColour(m_on ? ink : inkFaint);
+        g.drawText(m_title, header.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
 
         if (m_spec.chipIds[0] == nullptr)
         {
             // No modes: a quiet note where the chip would be, so the tiles line up.
-            g.setFont(m_owner.m_fonts.label(c_smallFont));
-            g.setColour(textFaint.withMultipliedAlpha(m_on ? 1.0f : c_offAlpha));
+            g.setFont(m_owner.m_fonts.caption(c_smallFont));
+            g.setColour(inkFaint);
             g.drawText("NO MODES", chipBounds().toFloat(), juce::Justification::centred, false);
         }
 
@@ -695,25 +703,30 @@ public:
 
     void paintFooter(juce::Graphics& g, juce::Rectangle<float> area)
     {
-        const auto captionFont = m_owner.m_fonts.label(c_smallFont);
-        const auto valueFont = m_owner.m_fonts.body(c_smallFont);
+        const auto captionFont = m_owner.m_fonts.caption(c_smallFont);
+        const auto valueFont = m_owner.m_fonts.value(Type::value);
         const auto& v = m_values;
 
         if (!m_on)
         {
+            // OFF in words, between two short ink rules.
             g.setFont(captionFont);
-            g.setColour(textFaint);
+            g.setColour(inkFaint);
             g.drawText("OFF", area, juce::Justification::centred, false);
+            g.setColour(rule);
+            const float w = textWidth(captionFont, "OFF") * 0.5f + 8.0f;
+            g.fillRect(juce::Rectangle<float>(area.getCentreX() - w - 18.0f, std::round(area.getCentreY()), 18.0f, 1.0f));
+            g.fillRect(juce::Rectangle<float>(area.getCentreX() + w, std::round(area.getCentreY()), 18.0f, 1.0f));
             return;
         }
 
         const auto caption = [&](const juce::String& t)
         {
             g.setFont(captionFont);
-            g.setColour(textFaint);
+            g.setColour(inkDim);
             g.drawText(t, area.removeFromLeft(std::max(30.0f, textWidth(captionFont, t) + 6.0f)), juce::Justification::centredLeft, false);
         };
-        const auto value = [&](const juce::String& t, juce::Colour c = textDim)
+        const auto value = [&](const juce::String& t, juce::Colour c = ink)
         {
             g.setFont(valueFont);
             g.setColour(c);
@@ -729,7 +742,7 @@ public:
             {
                 caption("SHIFT");
                 value(signedReadout(v[0], 2) + " st");
-                drawCentredBar(g, bar(), v[0] / 24.0f, m_accent);
+                drawCentredBar(g, bar(), v[0] / 24.0f);
                 break;
             }
             case Params::ModuleId::clean:
@@ -737,11 +750,11 @@ public:
                 caption("GATE");
                 const bool open = v[0] > 0.5f;
                 value(grText(v[1]));
-                value(open ? "OPEN" : "SHUT", open ? textDim : textFaint);
+                value(open ? "OPEN" : "SHUT", open ? ink : inkFaint);
                 // The gate's opening, and under it Contain's gain reduction (0..-12 dB).
                 const auto top = area.withSizeKeepingCentre(area.getWidth(), 9.0f);
-                drawBar(g, top.withHeight(3.5f), v[0], m_accent);
-                drawBar(g, top.withTrimmedTop(5.5f), -v[1] / 12.0f, m_accent.withAlpha(0.55f));
+                drawBar(g, top.withHeight(3.5f), v[0]);
+                drawBar(g, top.withTrimmedTop(5.5f), -v[1] / 12.0f);
                 break;
             }
             case Params::ModuleId::deess:
@@ -749,7 +762,7 @@ public:
             {
                 caption("GR");
                 value(grText(v[0]));
-                drawBar(g, bar(), -v[0] / 12.0f, m_accent);
+                drawBar(g, bar(), -v[0] / 12.0f);
                 break;
             }
             case Params::ModuleId::detail:
@@ -758,8 +771,8 @@ public:
                 caption("LIFT");
                 value(signedReadout(std::min(std::abs(v[0]), 99.9f), 1, "+") + " / " + signedReadout(std::min(std::abs(v[1]), 99.9f), 1, "-") + " dB");
                 const auto top = area.withSizeKeepingCentre(area.getWidth(), 9.0f);
-                drawBar(g, top.withHeight(3.5f), std::abs(v[0]) / 24.0f, m_accent);
-                drawBar(g, top.withTrimmedTop(5.5f), std::abs(v[1]) / 18.0f, m_accent.withAlpha(0.55f));
+                drawBar(g, top.withHeight(3.5f), std::abs(v[0]) / 24.0f);
+                drawBar(g, top.withTrimmedTop(5.5f), std::abs(v[1]) / 18.0f);
                 break;
             }
             case Params::ModuleId::vocoder:
@@ -769,7 +782,7 @@ public:
                 for (int b = 0; b < n; ++b)
                 {
                     const float h = std::max(1.0f, area.getHeight() * juce::jlimit(0.0f, 1.0f, v[static_cast<size_t>(b)]));
-                    g.setColour(b % 2 == 0 ? m_accent : m_accent.withAlpha(0.75f));
+                    g.setColour(meterFill);
                     g.fillRect(juce::Rectangle<float>(area.getX() + w * static_cast<float>(b) + 0.5f, area.getBottom() - h, std::max(1.0f, w - 1.5f), h));
                 }
                 break;
@@ -779,18 +792,22 @@ public:
                 caption("CARRIER");
                 const bool follow = v[2] > 0.5f;
                 const auto hz = v[0] > 0.0f ? hzText(v[0]) : juce::String("--");
-                value(follow ? "x" + juce::String(v[3], 2) + " " + hz : hz, textDim);
-                // The dot blinks at a slowed copy of the carrier (the rate halved until it is visible).
+                value(follow ? "x" + juce::String(v[3], 2) + " " + hz : hz);
+                // The dot blinks at a slowed copy of the carrier (the rate halved until it is visible):
+                // a hollow ink ring, filled while lit.
                 const float d = 6.0f;
                 const auto dot = juce::Rectangle<float>(d, d).withCentre({ area.getRight() - d * 0.5f, area.getCentreY() });
-                g.setColour(outline);
-                g.fillEllipse(dot);
                 if (v[1] > 0.5f)
                 {
-                    g.setColour(m_accent);
+                    g.setColour(accent.withAlpha(0.3f));
+                    g.fillEllipse(dot.expanded(2.0f));
+                    g.setColour(ink);
                     g.fillEllipse(dot);
-                    g.setColour(m_accent.withAlpha(0.25f));
-                    g.fillEllipse(dot.expanded(2.5f));
+                }
+                else
+                {
+                    g.setColour(inkFaint);
+                    g.drawEllipse(dot.reduced(0.5f), 1.0f);
                 }
                 break;
             }
@@ -800,15 +817,17 @@ public:
                 auto track = bar();
                 drawTrack(g, track.withSizeKeepingCentre(track.getWidth(), 2.0f));
                 const float x = track.getCentreX() + std::sin(v[0] * juce::MathConstants<float>::twoPi) * (track.getWidth() * 0.5f - 4.0f);
-                g.setColour(m_accent);
-                g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre({ x, track.getCentreY() }));
+                g.setColour(accent.withAlpha(0.35f));
+                g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre({ x, track.getCentreY() }));
+                g.setColour(ink);
+                g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre({ x, track.getCentreY() }));
                 break;
             }
             case Params::ModuleId::growl:
             {
                 caption("CHOP");
                 value(juce::String(juce::roundToInt(std::abs(v[0]) * 100.0f)) + "%");
-                drawCentredBar(g, bar(), v[0], m_accent);
+                drawCentredBar(g, bar(), v[0]);
                 break;
             }
             case Params::ModuleId::swirl:
@@ -817,29 +836,29 @@ public:
                 auto track = bar();
                 drawTrack(g, track);
                 const float x = track.getX() + juce::jlimit(0.0f, 1.0f, v[0]) * track.getWidth();
-                g.setColour(m_accent);
-                g.fillRoundedRectangle(juce::Rectangle<float>(3.0f, 10.0f).withCentre({ x, track.getCentreY() }), 1.5f);
+                g.setColour(ink);
+                g.fillRoundedRectangle(juce::Rectangle<float>(2.5f, 11.0f).withCentre({ x, track.getCentreY() }), 1.2f);
                 break;
             }
             case Params::ModuleId::roar:
             {
                 caption("HEAT");
                 value(juce::String(juce::roundToInt(v[0] * 100.0f)) + "%");
-                drawBar(g, bar(), v[0], m_accent);
+                drawBar(g, bar(), v[0]);
                 break;
             }
             case Params::ModuleId::ensemble:
             {
                 caption("WIDTH");
                 value(juce::String(juce::roundToInt(v[0] * 100.0f)) + "%");
-                drawBar(g, bar(), v[0], m_accent);
+                drawBar(g, bar(), v[0]);
                 break;
             }
             case Params::ModuleId::sub:
             {
                 caption("SUB");
                 value(v[1] > 0.0f ? hzText(v[1]) : juce::String("--"));
-                drawBar(g, bar(), v[0], m_accent);
+                drawBar(g, bar(), v[0]);
                 break;
             }
             case Params::ModuleId::overtone:
@@ -849,10 +868,10 @@ public:
                 {
                     // Replace: a small "R" badge, the dry low end is gone.
                     const auto badge = area.removeFromRight(13.0f).withSizeKeepingCentre(13.0f, 12.0f);
-                    g.setColour(m_accent.withAlpha(0.25f));
+                    g.setColour(ink);
                     g.fillRoundedRectangle(badge, 3.0f);
-                    g.setColour(m_accent);
-                    g.setFont(m_owner.m_fonts.heading(8.5f));
+                    g.setColour(sheet);
+                    g.setFont(m_owner.m_fonts.label(Type::caption * 0.85f));
                     g.drawText("R", badge, juce::Justification::centred, false);
                     area.removeFromRight(4.0f);
                 }
@@ -864,10 +883,10 @@ public:
                 {
                     const auto r = area.removeFromLeft(5.0f).withSizeKeepingCentre(5.0f, 12.0f);
                     area.removeFromLeft(3.0f);
-                    g.setColour(outline);
+                    g.setColour(groove);
                     g.fillRect(r);
                     const float h = r.getHeight() * juce::jlimit(0.0f, 1.0f, v[static_cast<size_t>(2 + b)]);
-                    g.setColour(b == 1 && v[1] <= 0.0f ? outline : m_accent);
+                    g.setColour(b == 1 && v[1] <= 0.0f ? groove : meterFill);
                     g.fillRect(r.withTop(r.getBottom() - h));
                 }
                 break;
@@ -878,7 +897,7 @@ public:
                 const int room = juce::jlimit(0, static_cast<int>(Params::chamberRoomNames.size()) - 1, juce::roundToInt(v[2]));
                 caption(juce::String(Params::chamberRoomNames[static_cast<size_t>(room)]).upToFirstOccurrenceOf(" ", false, false).toUpperCase());
                 value(juce::String(v[1], 2) + " s");
-                drawBar(g, bar(), v[0], m_accent);
+                drawBar(g, bar(), v[0]);
                 break;
             }
         }
@@ -957,7 +976,7 @@ public:
 class SignalFlowStrip::InTile : public Tile
 {
 public:
-    explicit InTile(SignalFlowStrip& owner) : Tile(owner, "IN", juce::Colour(Params::accentIn))
+    explicit InTile(SignalFlowStrip& owner) : Tile(owner, "IN")
     {
         addKnob(Params::inTrim);
 
@@ -965,8 +984,6 @@ public:
         m_auto.setClickingTogglesState(true);
         m_auto.setTooltip(tooltipFor(Params::inAuto));
         m_auto.setTitle("Auto Level");
-        m_auto.setColour(juce::TextButton::buttonOnColourId, m_accent.withAlpha(0.28f));
-        m_auto.setColour(juce::TextButton::textColourOnId, text);
         addAndMakeVisible(m_auto);
         m_autoAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::inAuto, m_auto);
     }
@@ -985,42 +1002,51 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        paintPanel(g, false, 1.0f, true);
+        paintPanel(g, false, true);
 
-        // Input meter, -48..0 dBFS, with a scale on its left.
+        // Input meter, -48..0 dBFS: a groove ruled with a scale on its left, a solid fill.
         const auto m = meterBounds();
-        g.setFont(m_owner.m_fonts.label(c_smallFont));
+        g.setFont(m_owner.m_fonts.value(c_smallFont));
         for (const int db : { 0, -12, -24, -36, -48 })
         {
             const float y = m.getY() + m.getHeight() * static_cast<float>(-db) / 48.0f;
-            g.setColour(textFaint);
-            g.drawText(juce::String(db), juce::Rectangle<float>(m.getX() - 34.0f, y - 6.0f, 28.0f, 12.0f), juce::Justification::centredRight, false);
-            g.setColour(outlineSoft);
-            g.fillRect(juce::Rectangle<float>(m.getX() - 4.0f, y - 0.5f, 3.0f, 1.0f));
+            g.setColour(inkFaint);
+            g.drawText(juce::String(db), juce::Rectangle<float>(m.getX() - 36.0f, y - 8.0f, 28.0f, 16.0f), juce::Justification::centredRight, false);
+            g.setColour(rule);
+            g.fillRect(juce::Rectangle<float>(m.getX() - 6.0f, y - 0.5f, 4.0f, 1.0f));
         }
-        g.setColour(outline);
-        g.fillRoundedRectangle(m, 2.0f);
+        g.setColour(groove);
+        g.fillRoundedRectangle(m, 1.5f);
         const float db = m_level > 1.0e-6f ? 20.0f * std::log10(m_level) : -100.0f;
         const float f = juce::jlimit(0.0f, 1.0f, 1.0f + db / 48.0f);
         if (f > 0.0f)
         {
-            g.setGradientFill(juce::ColourGradient(m_accent, 0.0f, m.getBottom(), output, 0.0f, m.getY(), false));
-            g.fillRoundedRectangle(m.withTop(m.getBottom() - m.getHeight() * f), 2.0f);
+            g.setColour(meterFill);
+            g.fillRoundedRectangle(m.withTop(m.getBottom() - m.getHeight() * f), 1.5f);
         }
 
         // F0 readout.
         auto f0 = juce::Rectangle<float>(10.0f, static_cast<float>(getHeight()) - 46.0f, static_cast<float>(getWidth()) - 20.0f, 36.0f);
-        g.setColour(outlineSoft);
+        g.setColour(ruleSoft);
         g.fillRect(f0.removeFromTop(1.0f));
-        g.setFont(m_owner.m_fonts.label(c_smallFont));
-        g.setColour(textFaint);
+        g.setFont(m_owner.m_fonts.caption(c_smallFont));
+        g.setColour(inkDim);
         g.drawText("PITCH", f0.removeFromTop(16.0f), juce::Justification::centredLeft, false);
-        g.setFont(m_owner.m_fonts.body(12.0f));
-        g.setColour(m_f0 > 0.0f ? text : textFaint);
+        g.setFont(m_owner.m_fonts.value(Type::value));
+        g.setColour(m_f0 > 0.0f ? ink : inkFaint);
         g.drawText(m_f0 > 0.0f ? juce::String(juce::roundToInt(m_f0)) + " Hz" : juce::String("--"), f0, juce::Justification::centredLeft, false);
+        // A pitch is heard: a filled ink dot; none: a hollow one.
         const auto dot = juce::Rectangle<float>(6.0f, 6.0f).withCentre({ f0.getRight() - 3.0f, f0.getCentreY() });
-        g.setColour(m_f0 > 0.0f ? good : outline);
-        g.fillEllipse(dot);
+        if (m_f0 > 0.0f)
+        {
+            g.setColour(ink);
+            g.fillEllipse(dot);
+        }
+        else
+        {
+            g.setColour(inkFaint);
+            g.drawEllipse(dot.reduced(0.5f), 1.0f);
+        }
     }
 
     void update(float level, float f0)
@@ -1044,7 +1070,7 @@ public:
 class SignalFlowStrip::OutputTile : public Tile
 {
 public:
-    explicit OutputTile(SignalFlowStrip& owner) : Tile(owner, "OUTPUT", juce::Colour(Params::accentOutput))
+    explicit OutputTile(SignalFlowStrip& owner) : Tile(owner, "OUTPUT")
     {
         for (const char* id : Params::outputIds)
             if (std::string_view(id) != Params::outAuto)
@@ -1054,8 +1080,6 @@ public:
         m_auto.setClickingTogglesState(true);
         m_auto.setTooltip(tooltipFor(Params::outAuto));
         m_auto.setTitle("Auto Release");
-        m_auto.setColour(juce::TextButton::buttonOnColourId, m_accent.withAlpha(0.28f));
-        m_auto.setColour(juce::TextButton::textColourOnId, text);
         addAndMakeVisible(m_auto);
         m_autoAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::outAuto, m_auto);
     }
@@ -1085,19 +1109,19 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        paintPanel(g, false, 1.0f, true);
+        paintPanel(g, false, true);
 
         auto area = meterArea().toFloat();
-        g.setColour(outlineSoft);
-        g.fillRect(juce::Rectangle<float>(12.0f, area.getY() - 8.0f, static_cast<float>(getWidth()) - 24.0f, 1.0f));
+        g.setColour(ruleSoft);
+        g.fillRect(juce::Rectangle<float>(14.0f, area.getY() - 8.0f, static_cast<float>(getWidth()) - 28.0f, 1.0f));
 
-        const auto captionFont = m_owner.m_fonts.label(c_smallFont);
-        const auto valueFont = m_owner.m_fonts.body(10.5f);
+        const auto captionFont = m_owner.m_fonts.caption(c_smallFont);
+        const auto valueFont = m_owner.m_fonts.value(Type::value);
         const auto row = [&](const juce::String& caption, const juce::String& value, juce::Colour valueColour)
         {
             auto r = area.removeFromTop(24.0f);
             g.setFont(captionFont);
-            g.setColour(textFaint);
+            g.setColour(inkDim);
             g.drawText(caption, r.removeFromLeft(40.0f), juce::Justification::centredLeft, false);
             g.setFont(valueFont);
             g.setColour(valueColour);
@@ -1109,27 +1133,34 @@ public:
         // Output level, -36..0 dBFS, with the ceiling marked.
         {
             const float db = m_out > 1.0e-6f ? 20.0f * std::log10(m_out) : -100.0f;
-            auto r = row("OUT", db > -99.0f ? (std::abs(db) < 0.05f ? juce::String("0.0") : juce::String(db, 1)) + " dB" : juce::String("--"), textDim);
-            drawBar(g, r, 1.0f + db / 36.0f, master.withAlpha(0.85f));
+            auto r = row("OUT", db > -99.0f ? (std::abs(db) < 0.05f ? juce::String("0.0") : juce::String(db, 1)) + " dB" : juce::String("--"), ink);
+            drawBar(g, r, 1.0f + db / 36.0f);
             const float x = r.getX() + r.getWidth() * juce::jlimit(0.0f, 1.0f, 1.0f + m_ceiling / 36.0f);
-            g.setColour(m_accent);
+            g.setColour(ink);
             g.fillRect(juce::Rectangle<float>(x - 1.0f, r.getY() - 3.0f, 2.0f, r.getHeight() + 6.0f));
         }
         // Gain reduction, 0..-12 dB, with a 1 s peak hold.
         {
-            auto r = row("GR", grText(m_heldGr), m_heldGr < -0.05f ? text : textDim);
-            drawBar(g, r, -m_gr / 12.0f, m_accent);
+            auto r = row("GR", grText(m_heldGr), m_heldGr < -0.05f ? ink : inkDim);
+            drawBar(g, r, -m_gr / 12.0f);
             if (m_heldGr < -0.05f)
             {
                 const float x = r.getX() + r.getWidth() * juce::jlimit(0.0f, 1.0f, -m_heldGr / 12.0f);
-                g.setColour(text);
+                g.setColour(ink);
                 g.fillRect(juce::Rectangle<float>(x - 1.0f, r.getY() - 2.0f, 2.0f, r.getHeight() + 4.0f));
             }
         }
         // Clipped, 0..12 dB.
         {
-            auto r = row("CLIP", m_clip < 0.05f ? juce::String("0.0 dB") : juce::String(m_clip, 1) + " dB", m_clip >= 0.05f ? text : textDim);
-            drawBar(g, r, m_clip / 12.0f, Theme::Colours::roar);
+            // Clipping: the warning ink, and a solid block at the bar's end beside the dB.
+            const bool clipping = m_clip >= 0.05f;
+            auto r = row("CLIP", clipping ? juce::String(m_clip, 1) + " dB" : juce::String("0.0 dB"), clipping ? warn : inkDim);
+            drawBar(g, r, m_clip / 12.0f, warn);
+            if (clipping)
+            {
+                g.setColour(warn);
+                g.fillRect(juce::Rectangle<float>(r.getRight() + 2.0f, r.getY() - 2.0f, 4.0f, r.getHeight() + 4.0f));
+            }
         }
     }
 
@@ -1176,13 +1207,12 @@ SignalFlowStrip::SignalFlowStrip(juce::AudioProcessorValueTreeState& parameters,
     m_rollAll->setTooltip("Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs "
                           "and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, "
                           "so the level stays safe. " + diceUndoHint());
-    m_rollAll->setAccent(output);
     m_rollAll->onClick = [this] { if (onRollAll) onRollAll(); };
     m_rollAll->onSecondaryClick = [this] { if (onDiceMenu) onDiceMenu(*m_rollAll); };
     m_rollAll->onUndoKey = [this](bool redo) { return onDiceUndoKey != nullptr && onDiceUndoKey(redo); };
     // The caption is part of the button: it clicks, hovers and shows the tooltip with the die.
     m_rollAll->setPillSize(c_rollAllSize);
-    m_rollAll->setCaption(c_rollAllCaption, m_fonts.label(c_smallFont), c_captionHeight);
+    m_rollAll->setCaption(c_rollAllCaption, m_fonts.caption(c_smallFont), c_captionHeight);
     addAndMakeVisible(*m_rollAll);
 
     for (int m = 0; m < Params::numModules; ++m)
@@ -1462,7 +1492,7 @@ juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const
     }
 
     const auto separator = juce::String::fromUTF8(" \xc2\xb7 ");
-    const auto font = m_fonts.label(9.0f);
+    const auto font = m_fonts.value(modeChipFontSize());
     // Full names, then short ones, then short ones packed tight, then shorter ones packed tight (the
     // button cuts anything longer).
     const auto tight = juce::String::fromUTF8("\xc2\xb7");
@@ -1577,7 +1607,7 @@ void SignalFlowStrip::resized()
     {
         // The empty slot after the last module: the die above the wire into OUTPUT, its caption under it.
         const auto slot = getSlotBounds(Params::numModules);
-        const int captionWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(m_fonts.label(c_smallFont), c_rollAllCaption))) + 8;
+        const int captionWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(m_fonts.caption(c_smallFont), c_rollAllCaption))) + 8;
         const int width = std::max(c_rollAllSize, captionWidth);
         m_rollAll->setBounds(slot.getCentreX() - width / 2, slot.getY() + 22, width,
                              c_rollAllSize + DiceButton::c_captionGap + c_captionHeight);
@@ -1773,7 +1803,7 @@ void SignalFlowStrip::paint(juce::Graphics& g)
     const auto last = getSlotBounds(Params::numModules - 1).toFloat();
     const float halfEnd = static_cast<float>(c_endGap) * 0.5f;
 
-    g.setColour(outline);
+    g.setColour(rule);
     juce::Path wire;
     // IN into slot 0
     wire.startNewSubPath(static_cast<float>(c_inWidth), first.getCentreY());
@@ -1791,26 +1821,37 @@ void SignalFlowStrip::paint(juce::Graphics& g)
     wire.lineTo(static_cast<float>(getWidth() - c_outWidth), last.getCentreY());
     g.strokePath(wire, juce::PathStrokeType(1.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
 
+    // Randomise All's slot: the empty place after the last module, dotted, so the die has a home.
+    {
+        const auto slot = getSlotBounds(Params::numModules).toFloat().reduced(1.5f);
+        juce::Path outlinePath;
+        outlinePath.addRoundedRectangle(slot, c_radius);
+        juce::Path dotted;
+        const float dots[] { 1.5f, 4.0f };
+        juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createDashedStroke(dotted, outlinePath, dots, 2);
+        g.setColour(rule);
+        g.fillPath(dotted);
+    }
+
     // While a tile is held the chevrons give way to the drop markers (below).
     if (!isDragging())
     {
-        chevron({ first.getX() - halfEnd + 1.0f, first.getCentreY() }, mark);
-        chevron({ rowStart.getX() - halfEnd + 4.0f, rowStart.getCentreY() }, mark);
-        chevron({ last.getRight() + halfEnd, last.getCentreY() }, mark);
+        chevron({ first.getX() - halfEnd + 1.0f, first.getCentreY() }, inkFaint);
+        chevron({ rowStart.getX() - halfEnd + 4.0f, rowStart.getCentreY() }, inkFaint);
+        chevron({ last.getRight() + halfEnd, last.getCentreY() }, inkFaint);
         for (int k = 0; k + 1 < Params::numModules; ++k)
         {
             if (k % c_columns == c_columns - 1)
                 continue;
             const auto r = getSlotBounds(k).toFloat();
-            chevron({ r.getRight() + static_cast<float>(c_gap) * 0.5f, r.getCentreY() }, mark);
+            chevron({ r.getRight() + static_cast<float>(c_gap) * 0.5f, r.getCentreY() }, inkFaint);
         }
     }
 
     // While a tile is held: a drop marker in every gap and at both ends of each row (the two
-    // either side of the landing slot lit), and the landing slot outlined in the tile's accent.
+    // either side of the landing slot in ink), and the landing slot outlined in dashed ink.
     if (isDragging())
     {
-        const auto accent = m_tiles[static_cast<size_t>(m_drag.module)]->m_accent;
         const auto marker = [&](int slot, bool before, bool lit)
         {
             const auto r = getSlotBounds(slot).toFloat();
@@ -1819,7 +1860,7 @@ void SignalFlowStrip::paint(juce::Graphics& g)
             const float half = (rowEdge ? static_cast<float>(c_endGap) : static_cast<float>(c_gap)) * 0.5f;
             const float x = before ? r.getX() - half : r.getRight() + half;
             const auto tick = juce::Rectangle<float>(lit ? 3.0f : 2.0f, r.getHeight() * 0.56f).withCentre({ x, r.getCentreY() });
-            g.setColour(lit ? accent.withAlpha(0.9f) : mark.withAlpha(0.55f));
+            g.setColour(lit ? ink : inkFaint.withAlpha(0.5f));
             g.fillRoundedRectangle(tick, 1.0f);
         };
         for (int k = 0; k < Params::numModules; ++k)
@@ -1834,14 +1875,14 @@ void SignalFlowStrip::paint(juce::Graphics& g)
             marker(m_drag.slot + 1, true, true);
 
         const auto slot = getSlotBounds(m_drag.slot).toFloat().reduced(1.5f);
-        g.setColour(accent.withAlpha(0.08f));
+        g.setColour(selection);
         g.fillRoundedRectangle(slot, c_radius);
         juce::Path outlinePath;
         outlinePath.addRoundedRectangle(slot, c_radius);
         juce::Path dashed;
         const float dashes[] { 6.0f, 4.0f };
         juce::PathStrokeType(1.5f).createDashedStroke(dashed, outlinePath, dashes, 2);
-        g.setColour(accent.withAlpha(0.7f));
+        g.setColour(ink.withAlpha(0.7f));
         g.fillPath(dashed);
     }
 }
@@ -1861,16 +1902,15 @@ void SignalFlowStrip::paintOverChildren(juce::Graphics& g)
     else
         at = { r.getRight() + static_cast<float>(c_gap) * 0.5f, r.getCentreY() + 16.0f };
 
-    const auto badge = juce::Rectangle<float>(20.0f, 12.0f).withCentre(at);
-    g.setColour(background);
+    // An ink tag with paper letters.
+    const auto badge = juce::Rectangle<float>(22.0f, 14.0f).withCentre(at);
+    g.setColour(paper);
     g.fillRoundedRectangle(badge.expanded(1.5f), 4.0f);
-    g.setColour(output.withAlpha(0.22f));
+    g.setColour(ink);
     g.fillRoundedRectangle(badge, 3.0f);
-    g.setColour(output.withAlpha(0.8f));
-    g.drawRoundedRectangle(badge.reduced(0.5f), 3.0f, 1.0f);
-    g.setFont(m_fonts.heading(7.5f));
-    g.setColour(output);
-    g.drawText("ST", badge.translated(0.5f, 0.0f), juce::Justification::centred, false);
+    g.setFont(m_fonts.label(Type::caption * 0.8f));
+    g.setColour(sheet);
+    g.drawText("ST", badge, juce::Justification::centred, false);
 }
 
 //==============================================================================
@@ -1971,7 +2011,7 @@ void SignalFlowStrip::timerCallback()
         if (tile.m_modeChip.isVisible())
         {
             // The LookAndFeel narrows its padding for a label that needs the room: keep 5 px each side.
-            const auto t = modeChipText(m, static_cast<float>(tile.m_modeChip.getWidth() - 10));
+            const auto t = modeChipText(m, static_cast<float>(tile.m_modeChip.getWidth() - 10 - 11));   // (and the caret)
             if (t != tile.m_modeChip.getButtonText())
                 tile.m_modeChip.setButtonText(t);
         }

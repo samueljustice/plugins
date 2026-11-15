@@ -3,10 +3,11 @@
 namespace
 {
     using namespace Theme::Colours;
+    namespace Type = Theme::Type;
 
     // The editor alerts' metrics (RoarschachLookAndFeel), so the card reads as one of them.
-    constexpr float c_radius = 8.0f;
-    constexpr float c_headerHeight = 32.0f;
+    constexpr float c_radius = Theme::Metrics::radius;
+    constexpr float c_headerHeight = 36.0f;
     constexpr int c_messageHeight = 54;
     constexpr int c_buttonHeight = 28;
     constexpr int c_buttonGap = 10;
@@ -30,31 +31,33 @@ UpdatePopup::DialogButton::DialogButton(const juce::String& buttonText, bool pri
 
 void UpdatePopup::DialogButton::paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown)
 {
-    // As the alerts' pills (RoarschachLookAndFeel::drawButtonBackground / drawButtonText): raised fill, soft
-    // outline that lightens on hover; the primary action tinted amber; an amber ring for keyboard focus.
+    // As the alerts' chips (RoarschachLookAndFeel::drawButtonBackground / drawButtonText): raised paper with
+    // an ink hairline; the primary action filled with the dyed ink, its label in paper; the focus ring for
+    // keyboard focus.
     const auto r = getLocalBounds().toFloat().reduced(0.5f);
-    const float corner = std::min(r.getWidth(), r.getHeight()) * 0.5f;
+    const float corner = Theme::Metrics::radius;
 
-    auto fill = m_primary ? output.withAlpha(0.28f) : panelRaised;
-    auto edge = m_primary ? (isMouseOverButton ? output : output.withAlpha(0.6f))
-                          : (isMouseOverButton ? textDim : outline);
-
-    g.setColour(fill.brighter(isButtonDown ? 0.2f : isMouseOverButton ? 0.1f : 0.0f));
-    g.fillRoundedRectangle(r, corner);
-
-    if (RoarschachLookAndFeel::shouldShowFocusRing(*this))
+    if (m_primary)
     {
-        g.setColour(output);
-        g.drawRoundedRectangle(r.reduced(0.25f), corner, 1.5f);
+        g.setColour(isButtonDown ? accentInk.withAlpha(0.8f) : accentInk);
+        g.fillRoundedRectangle(r, corner);
     }
     else
     {
-        g.setColour(edge);
-        g.drawRoundedRectangle(r, corner, 1.0f);
+        g.setColour(isButtonDown ? sheet.darker(0.06f) : sheet);
+        g.fillRoundedRectangle(r, corner);
+        g.setColour(isMouseOverButton ? ink.withAlpha(0.65f) : rule);
+        g.drawRoundedRectangle(r, corner, Theme::Metrics::hairline);
     }
 
-    g.setFont(m_fonts->label(12.0f));
-    g.setColour(m_primary ? Theme::Colours::text : textDim);
+    if (RoarschachLookAndFeel::shouldShowFocusRing(*this))
+    {
+        g.setColour(focus);
+        g.drawRoundedRectangle(r.expanded(1.5f), corner + 1.5f, Theme::Metrics::focusRing);
+    }
+
+    g.setFont(m_fonts->label(Type::button));
+    g.setColour(m_primary ? sheet : ink);
     g.drawText(getButtonText().toUpperCase(), r, juce::Justification::centred, false);
 }
 
@@ -97,12 +100,12 @@ UpdatePopup::~UpdatePopup()
 juce::Rectangle<int> UpdatePopup::getCardBounds() const
 {
     // One width for every button, so the row reads as a set (as the alerts do).
-    const auto font = m_fonts->label(12.0f);
+    const auto font = m_fonts->label(Type::button);
     int buttonWidth = c_buttonMinWidth;
     for (const auto* b : { &m_downloadButton, &m_laterButton, &m_skipButton })
         buttonWidth = std::max(buttonWidth, juce::roundToInt(lineWidth(font, b->getButtonText().toUpperCase())) + 44);
 
-    const auto titleWidth = juce::roundToInt(lineWidth(m_fonts->heading(11.5f), getTitle().toUpperCase())) + 2 * 14 + 14;
+    const auto titleWidth = juce::roundToInt(lineWidth(m_fonts->title(Type::heading), getTitle())) + 2 * 16 + 14;
     const int width = std::max({ c_minCardWidth, 3 * buttonWidth + 2 * c_buttonGap + 2 * c_sidePad, titleWidth });
     const int height = juce::roundToInt(c_headerHeight) + c_messageHeight + c_buttonHeight + c_bottomPad;
 
@@ -129,35 +132,32 @@ void UpdatePopup::resized()
 void UpdatePopup::paint(juce::Graphics& g)
 {
     // Backdrop: the editor dimmed beneath.
-    g.fillAll(background.withAlpha(0.72f));
+    g.fillAll(paper.withAlpha(0.78f));
 
     const auto card = getCardBounds().toFloat();
 
     juce::Path shape;
     shape.addRoundedRectangle(card, c_radius);
-    juce::DropShadow(juce::Colours::black.withAlpha(0.55f), 28, { 0, 8 }).drawForPath(g, shape);
+    juce::DropShadow(shadow, 28, { 0, 8 }).drawForPath(g, shape);
 
-    // A panel, as the editor's alerts (RoarschachLookAndFeel::drawAlertBox).
-    g.setColour(panel);
+    // A sheet of raised paper, as the editor's alerts (RoarschachLookAndFeel::drawAlertBox).
+    g.setColour(sheet);
     g.fillRoundedRectangle(card, c_radius);
-    g.setColour(outline);
-    g.drawRoundedRectangle(card.reduced(0.5f), c_radius, 1.0f);
+    g.setColour(rule);
+    g.drawRoundedRectangle(card.reduced(0.5f), c_radius, Theme::Metrics::hairline);
 
-    // Header row: accent dot, the title in capitals, a divider.
-    auto header = card.withHeight(c_headerHeight).reduced(14.0f, 0.0f);
-    g.setColour(output);
-    g.fillEllipse(header.removeFromLeft(6.0f).withSizeKeepingCentre(6.0f, 6.0f));
-    header.removeFromLeft(8.0f);
-    g.setFont(m_fonts->heading(11.5f));
-    g.setColour(text.withAlpha(0.85f));
-    g.drawText(getTitle().toUpperCase(), header, juce::Justification::centredLeft, true);
-    g.setColour(outlineSoft);
-    g.fillRect(juce::Rectangle<float>(card.getX() + 12.0f, card.getY() + c_headerHeight, card.getWidth() - 24.0f, 1.0f));
+    // Header row: the title in the display face, a short dye rule under it.
+    auto header = card.withHeight(c_headerHeight).reduced(16.0f, 0.0f);
+    g.setFont(m_fonts->title(Type::heading));
+    g.setColour(ink);
+    g.drawText(getTitle(), header.translated(0.0f, 2.0f), juce::Justification::centredLeft, true);
+    g.setColour(accent);
+    g.fillRect(juce::Rectangle<float>(card.getX() + 16.0f, card.getY() + c_headerHeight - 3.0f, 24.0f, 1.5f));
 
     // The message, centred between the header and the buttons.
     const auto message = card.withTrimmedTop(c_headerHeight).withHeight(static_cast<float>(c_messageHeight));
-    g.setFont(m_fonts->body(12.5f));
-    g.setColour(text);
+    g.setFont(m_fonts->body(Type::body));
+    g.setColour(ink);
     g.drawText(getDescription(), message, juce::Justification::centred, false);
 }
 

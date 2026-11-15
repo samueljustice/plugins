@@ -3,39 +3,47 @@
 namespace
 {
     using namespace Theme::Colours;
+    namespace Type = Theme::Type;
+    namespace Metrics = Theme::Metrics;
 
     // Popups dropping from the editor follow its scale, but never get smaller than at its default size.
     constexpr float c_minimumPopupScale = 0.8f;
 
-    constexpr float c_menuRadius = 6.0f;          // design-size menu metrics, scaled by menuScale()
+    constexpr float c_menuRadius = Metrics::radius;   // design-size menu metrics, scaled by menuScale()
     constexpr float c_menuBorder = 5.0f;
     constexpr float c_menuTickColumn = 22.0f;
     constexpr float c_menuTextInset = 24.0f;
     constexpr float c_menuArrowColumn = 20.0f;
-    constexpr float c_menuHeaderHeight = 26.0f;
+    constexpr float c_menuHeaderHeight = 28.0f;
     constexpr float c_menuSeparatorHeight = 9.0f;
-    constexpr float c_menuFontHeight = 13.0f;
 
-    constexpr float c_dialogRadius = 8.0f;        // the editor's panel radius
-    constexpr float c_dialogHeaderHeight = 32.0f; // the editor's section header height
-    constexpr int c_dialogButtonSlot = 40;        // JUCE lays out this height; the pill is c_dialogButtonHeight
+    constexpr float c_dialogRadius = Metrics::radius;
+    constexpr float c_dialogHeaderHeight = 36.0f;
+    constexpr int c_dialogButtonSlot = 40;        // JUCE lays out this height; the chip is c_dialogButtonHeight
     constexpr float c_dialogButtonHeight = 28.0f;
     constexpr int c_dialogButtonMinWidth = 96;
 
-    constexpr float c_tipRadius = 5.0f;
-    constexpr float c_tipPadX = 10.0f, c_tipPadY = 7.0f;
-    constexpr float c_tipMaxWidth = 420.0f;
+    constexpr float c_tipRadius = Metrics::radius;
+    constexpr float c_tipPadX = 11.0f, c_tipPadY = 7.0f;
+    constexpr float c_tipMaxWidth = 440.0f;
 
     const juce::Identifier c_focusRingsProperty { "roarschachFocusRings" };
     const juce::Identifier c_capitalsProperty { "roarschachCapitals" };
     const juce::Identifier c_valueFontProperty { "roarschachValueFont" };
+    const juce::Identifier c_knobStyleProperty { "roarschachKnobStyle" };
+    const juce::Identifier c_quietProperty { "roarschachQuiet" };
+    const juce::Identifier c_displayFaceProperty { "roarschachDisplayFace" };
+    const juce::Identifier c_captionLiveProperty { "roarschachCaptionLive" };
+    const juce::Identifier c_menuChipProperty { "roarschachMenuChip" };   // 1: a chip with a caret, 2: ... of an Off module
+
+    constexpr float c_caretColumn = 11.0f;   // a menu chip's caret, at its right end
 
     // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded corners
     // show what is behind them. The body itself is drawn with full alpha.
     juce::Colour nearlyOpaque(juce::Colour c) { return c.withAlpha(static_cast<juce::uint8>(0xfe)); }
 
     // Width of a line of text as drawn: getStringWidth() skips ligature placeholders, so text ending in a
-    // ligature (the body font joins "ff", "fi", ...) would measure short.
+    // ligature (the sans joins "fi", "fl", ...) would measure short.
     float lineWidth(const juce::Font& font, const juce::String& text)
     {
         return juce::GlyphArrangement::getStringWidth(font, text + " ") - juce::GlyphArrangement::getStringWidth(font, " ");
@@ -56,7 +64,7 @@ namespace
         return stem.trimEnd() + "..." + suffix;
     }
 
-    // A ">" chevron (as between the editor's sections), rotated by angle.
+    // A ">" chevron, rotated by angle.
     void strokeChevron(juce::Graphics& g, juce::Point<float> centre, float size, float angle, float thickness)
     {
         juce::Path p;
@@ -95,20 +103,6 @@ namespace
         return h > 0 ? static_cast<float>(h) / static_cast<float>(RoarschachLookAndFeel::c_menuItemHeight) : 1.0f;
     }
 
-    // The accent of a menu: the colour of the control it drops from; amber for everything else.
-    juce::Colour menuAccent(const juce::PopupMenu::Options& options)
-    {
-        if (auto* target = options.getTargetComponent())
-        {
-            if (target->isColourSpecified(juce::PopupMenu::highlightedBackgroundColourId))
-                return target->findColour(juce::PopupMenu::highlightedBackgroundColourId).withAlpha(1.0f);
-
-            if (auto* box = dynamic_cast<juce::ComboBox*>(target))
-                return box->findColour(juce::ComboBox::arrowColourId);
-        }
-        return output;
-    }
-
     bool isInAlert(const juce::Component& c)
     {
         return dynamic_cast<const juce::AlertWindow*>(c.getParentComponent()) != nullptr;
@@ -128,7 +122,12 @@ namespace
         return r.reduced(0.5f);
     }
 
-    float fieldRadius(int height) { return std::min(5.0f, static_cast<float>(height) * 0.25f); }
+    float fieldRadius(int height) { return std::min(Metrics::radius, static_cast<float>(height) * 0.25f); }
+
+    bool knobIsLive(RoarschachLookAndFeel::KnobStyle s)
+    {
+        return s == RoarschachLookAndFeel::KnobStyle::full || s == RoarschachLookAndFeel::KnobStyle::weak;
+    }
 
     //==============================================================================
     // Tab in a window shows its focus rings, a click in it hides them (stateless: the state is a property
@@ -170,7 +169,7 @@ namespace
     juce::LookAndFeel_V4::ColourScheme themeScheme()
     {
         // Anything JUCE draws that this class does not override still comes out in the theme's colours.
-        return { background, panelRaised, panelRaised, outline, text, output, text, output.withAlpha(0.3f), text };
+        return { paper, sheet, sheet, rule, ink, accent, ink, selection, ink };
     }
 }
 
@@ -179,63 +178,159 @@ RoarschachLookAndFeel::RoarschachLookAndFeel(const Theme::Fonts& fonts)
     : juce::LookAndFeel_V4(themeScheme())
     , m_fonts(fonts)
 {
+    if (fonts.regular != nullptr)
+        setDefaultSansSerifTypeface(fonts.regular);
+
+    refreshColours();
+}
+
+void RoarschachLookAndFeel::refreshColours()
+{
     const auto transparent = juce::Colours::transparentBlack;
+    setColourScheme(themeScheme());
 
-    if (fonts.medium != nullptr)
-        setDefaultSansSerifTypeface(fonts.medium);
+    setColour(juce::ResizableWindow::backgroundColourId, paper);
+    setColour(juce::DocumentWindow::textColourId, ink);
+    setColour(juce::Label::textColourId, ink);
 
-    setColour(juce::ResizableWindow::backgroundColourId, background);
-    setColour(juce::DocumentWindow::textColourId, text);
-    setColour(juce::Label::textColourId, text);
-
-    setColour(juce::Slider::textBoxTextColourId, text);
+    setColour(juce::Slider::textBoxTextColourId, ink);
     setColour(juce::Slider::textBoxOutlineColourId, transparent);
     setColour(juce::Slider::textBoxBackgroundColourId, transparent);
-    setColour(juce::Slider::textBoxHighlightColourId, output.withAlpha(0.3f));
+    setColour(juce::Slider::textBoxHighlightColourId, selection);
 
-    setColour(juce::ComboBox::backgroundColourId, panelRaised);
-    setColour(juce::ComboBox::outlineColourId, outline);
-    setColour(juce::ComboBox::textColourId, text);
-    setColour(juce::ComboBox::arrowColourId, harmonics);
-    setColour(juce::ComboBox::focusedOutlineColourId, harmonics.withAlpha(0.6f));
+    setColour(juce::ComboBox::backgroundColourId, sheet);
+    setColour(juce::ComboBox::outlineColourId, rule);
+    setColour(juce::ComboBox::textColourId, ink);
+    setColour(juce::ComboBox::arrowColourId, inkDim);
+    setColour(juce::ComboBox::focusedOutlineColourId, focus);
 
-    setColour(juce::PopupMenu::backgroundColourId, nearlyOpaque(panelRaised));
-    setColour(juce::PopupMenu::textColourId, text);
-    setColour(juce::PopupMenu::headerTextColourId, textDim);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, output.withAlpha(0.16f));
-    setColour(juce::PopupMenu::highlightedTextColourId, text);
+    setColour(juce::PopupMenu::backgroundColourId, nearlyOpaque(sheet));
+    setColour(juce::PopupMenu::textColourId, ink);
+    setColour(juce::PopupMenu::headerTextColourId, inkDim);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, selection);
+    setColour(juce::PopupMenu::highlightedTextColourId, ink);
 
-    setColour(juce::TextButton::buttonColourId, panelRaised);
-    setColour(juce::TextButton::buttonOnColourId, panelRaised.brighter(0.1f));
-    setColour(juce::TextButton::textColourOffId, textDim);
-    setColour(juce::TextButton::textColourOnId, text);
+    setColour(juce::TextButton::buttonColourId, sheet);
+    setColour(juce::TextButton::buttonOnColourId, ink);
+    setColour(juce::TextButton::textColourOffId, ink);
+    setColour(juce::TextButton::textColourOnId, sheet);
 
-    setColour(juce::HyperlinkButton::textColourId, textDim);
+    setColour(juce::HyperlinkButton::textColourId, inkDim);
 
-    setColour(juce::ToggleButton::tickColourId, output);
-    setColour(juce::ToggleButton::tickDisabledColourId, textFaint);
-    setColour(juce::ToggleButton::textColourId, textDim);
+    setColour(juce::ToggleButton::tickColourId, accent);
+    setColour(juce::ToggleButton::tickDisabledColourId, inkFaint);
+    setColour(juce::ToggleButton::textColourId, inkDim);
 
-    setColour(juce::AlertWindow::backgroundColourId, panel);
-    setColour(juce::AlertWindow::textColourId, text);
-    setColour(juce::AlertWindow::outlineColourId, outline);
+    setColour(juce::AlertWindow::backgroundColourId, sheet);
+    setColour(juce::AlertWindow::textColourId, ink);
+    setColour(juce::AlertWindow::outlineColourId, rule);
 
-    setColour(juce::TextEditor::backgroundColourId, panelRaised);
-    setColour(juce::TextEditor::textColourId, text);
-    setColour(juce::TextEditor::outlineColourId, outline);
-    setColour(juce::TextEditor::focusedOutlineColourId, output.withAlpha(0.75f));
-    setColour(juce::TextEditor::highlightColourId, output.withAlpha(0.3f));
-    setColour(juce::TextEditor::highlightedTextColourId, text);
+    setColour(juce::TextEditor::backgroundColourId, sheet);
+    setColour(juce::TextEditor::textColourId, ink);
+    setColour(juce::TextEditor::outlineColourId, rule);
+    setColour(juce::TextEditor::focusedOutlineColourId, focus);
+    setColour(juce::TextEditor::highlightColourId, selection);
+    setColour(juce::TextEditor::highlightedTextColourId, ink);
     setColour(juce::TextEditor::shadowColourId, transparent);
-    setColour(juce::CaretComponent::caretColourId, output);
+    setColour(juce::CaretComponent::caretColourId, ink);
 
-    setColour(juce::ScrollBar::thumbColourId, textFaint);
+    setColour(juce::ScrollBar::thumbColourId, ink.withAlpha(0.35f));
     setColour(juce::ScrollBar::trackColourId, transparent);
     setColour(juce::ScrollBar::backgroundColourId, transparent);
 
-    setColour(juce::TooltipWindow::backgroundColourId, panelRaised);
-    setColour(juce::TooltipWindow::textColourId, text);
-    setColour(juce::TooltipWindow::outlineColourId, outline);
+    setColour(juce::TooltipWindow::backgroundColourId, sheet);
+    setColour(juce::TooltipWindow::textColourId, ink);
+    setColour(juce::TooltipWindow::outlineColourId, rule);
+}
+
+//==============================================================================
+void RoarschachLookAndFeel::setKnobStyle(juce::Slider& slider, KnobStyle style)
+{
+    if (getKnobStyle(slider) == style)
+        return;
+    slider.getProperties().set(c_knobStyleProperty, static_cast<int>(style));
+    slider.repaint();
+    for (auto* child : slider.getChildren())
+        child->repaint();
+}
+
+RoarschachLookAndFeel::KnobStyle RoarschachLookAndFeel::getKnobStyle(const juce::Slider& slider)
+{
+    return static_cast<KnobStyle>(static_cast<int>(slider.getProperties().getWithDefault(c_knobStyleProperty, 0)));
+}
+
+void RoarschachLookAndFeel::setCaptionLive(juce::Label& label, bool live)
+{
+    const juce::var v(live);
+    if (label.getProperties()[c_captionLiveProperty] == v)
+        return;
+    label.getProperties().set(c_captionLiveProperty, v);
+    label.repaint();
+}
+
+bool RoarschachLookAndFeel::isCaptionLive(const juce::Label& label)
+{
+    return static_cast<bool>(label.getProperties().getWithDefault(c_captionLiveProperty, true));
+}
+
+int RoarschachLookAndFeel::getMenuChip(const juce::Button& b)
+{
+    return static_cast<int>(b.getProperties().getWithDefault(c_menuChipProperty, 0));
+}
+
+void RoarschachLookAndFeel::setMenuChip(juce::Button& b, bool off)
+{
+    const juce::var v(off ? 2 : 1);
+    if (b.getProperties()[c_menuChipProperty] == v)
+        return;
+    b.getProperties().set(c_menuChipProperty, v);
+    b.repaint();
+}
+
+void RoarschachLookAndFeel::setQuiet(juce::Button& b)
+{
+    b.getProperties().set(c_quietProperty, true);
+    b.repaint();
+}
+
+void RoarschachLookAndFeel::setDisplayFace(juce::Button& b)
+{
+    b.getProperties().set(c_displayFaceProperty, true);
+    b.repaint();
+}
+
+void RoarschachLookAndFeel::strokeBrush(juce::Graphics& g, juce::Point<float> c, float radius, float from, float to, float width)
+{
+    // A filled outline: the inner and outer edges of the stroke, its width easing from 35 % at the
+    // start to full at the end, closed by a round end (the brush lifting off). At most 40 points.
+    const auto at = [&](float a, float r) { return c + juce::Point<float>(std::sin(a), -std::cos(a)) * r; };
+    const float span = to - from;
+    if (std::abs(span) < 1.0e-3f)
+    {
+        g.fillEllipse(juce::Rectangle<float>(width, width).withCentre(at(to, radius)));
+        return;
+    }
+    const int n = juce::jlimit(6, 40, static_cast<int>(std::abs(span) * radius / 3.0f));
+    const auto half = [&](int i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(n);
+        return width * 0.5f * (0.35f + 0.65f * std::sqrt(t));
+    };
+    juce::Path p;
+    for (int i = 0; i <= n; ++i)
+    {
+        const float a = from + span * static_cast<float>(i) / static_cast<float>(n);
+        const auto pt = at(a, radius + half(i));
+        if (i == 0)
+            p.startNewSubPath(pt);
+        else
+            p.lineTo(pt);
+    }
+    for (int i = n; i >= 0; --i)
+        p.lineTo(at(from + span * static_cast<float>(i) / static_cast<float>(n), radius - half(i)));
+    p.closeSubPath();
+    g.fillPath(p);
+    g.fillEllipse(juce::Rectangle<float>(width, width).withCentre(at(to, radius)));
 }
 
 //==============================================================================
@@ -269,125 +364,138 @@ void RoarschachLookAndFeel::setLabelDrawnInCapitals(juce::Button& button)
 
 juce::Colour RoarschachLookAndFeel::accentFor(juce::MessageBoxIconType type)
 {
-    switch (type)
-    {
-        case juce::MessageBoxIconType::WarningIcon:  return bad;
-        case juce::MessageBoxIconType::InfoIcon:     return input;
-        case juce::MessageBoxIconType::QuestionIcon:
-        case juce::MessageBoxIconType::NoIcon:
-        default:                                     return output;
-    }
+    return type == juce::MessageBoxIconType::WarningIcon ? warn : accentInk;
 }
 
-void RoarschachLookAndFeel::drawMark(juce::Graphics& g, juce::Rectangle<float> mark)
+//==============================================================================
+// The mark
+//==============================================================================
+namespace
 {
-    // Designed on a 30 x 22 grid (as the sibling marks) and mirrored about the vertical centre line, like a
-    // folded ink blot. Every shape is built for the left half and reflected, so it stays exactly symmetric.
-    const float sx = mark.getWidth() / 30.0f, sy = mark.getHeight() / 22.0f;
-    const auto toArea = juce::AffineTransform::scale(sx, sy).translated(mark.getX(), mark.getY());
-    const auto mirror = juce::AffineTransform::scale(-1.0f, 1.0f).translated(30.0f, 0.0f);
-
-    auto mirrored = [&mirror](const juce::Path& half)
+    /** The mark's shapes, designed on a 30 x 22 grid and mirrored about the vertical centre line, like a
+        folded ink blot (every shape is built for the left half and reflected, so it stays exactly
+        symmetric), placed in `area`. */
+    struct MarkShapes
     {
-        juce::Path both(half);
-        both.addPath(half, mirror);
-        return both;
+        juce::Path head;    // the blot and its horns, with the maw and the eye slits cut out
+        juce::Path blot, horns, maw, fangs, eyes;
+        float stroke = 1.0f;
+
+        explicit MarkShapes(juce::Rectangle<float> area)
+        {
+            const float sx = area.getWidth() / 30.0f, sy = area.getHeight() / 22.0f;
+            stroke = std::min(sx, sy);
+            const auto toArea = juce::AffineTransform::scale(sx, sy).translated(area.getX(), area.getY());
+            const auto mirror = juce::AffineTransform::scale(-1.0f, 1.0f).translated(30.0f, 0.0f);
+            const auto mirrored = [&](const juce::Path& half)
+            {
+                juce::Path both(half);
+                both.addPath(half, mirror);
+                both.applyTransform(toArea);
+                return both;
+            };
+
+            // The blot: a head that bulges at the brow and the cheeks and tapers to a chin, with an inky drip.
+            juce::Path blotHalf;
+            blotHalf.startNewSubPath(15.0f, 0.6f);
+            blotHalf.cubicTo(11.0f, 0.4f, 6.5f, 0.8f, 3.6f, 3.2f);   // brow
+            blotHalf.cubicTo(1.2f, 5.0f, 0.2f, 7.6f, 1.6f, 9.4f);    // brow tip
+            blotHalf.cubicTo(0.4f, 11.6f, 1.0f, 14.6f, 3.6f, 16.2f); // cheek
+            blotHalf.cubicTo(6.0f, 17.8f, 8.6f, 19.4f, 11.2f, 20.2f); // jaw
+            blotHalf.cubicTo(12.6f, 20.6f, 13.6f, 21.6f, 15.0f, 21.4f); // chin drip
+            blotHalf.closeSubPath();
+
+            // Horns: short, curling out of the brow.
+            juce::Path hornHalf;
+            hornHalf.startNewSubPath(8.4f, 1.4f);
+            hornHalf.quadraticTo(4.6f, 2.0f, 1.6f, 1.0f);
+            hornHalf.quadraticTo(2.6f, 3.0f, 4.4f, 4.6f);
+            hornHalf.closeSubPath();
+
+            // The maw: a wide open mouth, upper lip arched, lower lip sagging.
+            juce::Path mawHalf;
+            mawHalf.startNewSubPath(15.0f, 9.6f);
+            mawHalf.cubicTo(11.5f, 9.4f, 7.4f, 9.6f, 4.6f, 11.4f);
+            mawHalf.cubicTo(6.2f, 14.6f, 10.0f, 17.4f, 15.0f, 17.6f);
+            mawHalf.closeSubPath();
+
+            // Fangs: two long ones from the upper lip, one shorter from the lower lip, per side.
+            juce::Path fangsHalf;
+            fangsHalf.addTriangle(12.2f, 9.5f, 13.8f, 9.5f, 13.0f, 12.6f);
+            fangsHalf.addTriangle(8.0f, 9.8f, 9.8f, 9.6f, 9.0f, 13.2f);
+            fangsHalf.addTriangle(10.0f, 16.9f, 11.8f, 17.3f, 11.0f, 14.6f);
+
+            // Eyes: slanted slits under the brow.
+            juce::Path eyeHalf;
+            eyeHalf.startNewSubPath(12.6f, 6.6f);
+            eyeHalf.quadraticTo(9.8f, 4.6f, 7.0f, 5.0f);
+            eyeHalf.quadraticTo(9.4f, 7.2f, 12.6f, 6.6f);
+            eyeHalf.closeSubPath();
+
+            blot = mirrored(blotHalf);
+            horns = mirrored(hornHalf);
+            maw = mirrored(mawHalf);
+            fangs = mirrored(fangsHalf);
+            eyes = mirrored(eyeHalf);
+
+            // The head as one shape with real holes (even-odd), so whatever is behind the mark shows
+            // through the maw and the eyes: nothing is painted in a background colour.
+            head.setUsingNonZeroWinding(false);
+            head.addPath(blot);
+            head.addPath(maw);
+            head.addPath(eyes);
+        }
     };
+}
 
-    // The blot: a head that bulges at the brow and the cheeks and tapers to a chin, with an inky drip.
-    juce::Path blotHalf;
-    blotHalf.startNewSubPath(15.0f, 0.6f);
-    blotHalf.cubicTo(11.0f, 0.4f, 6.5f, 0.8f, 3.6f, 3.2f);   // brow
-    blotHalf.cubicTo(1.2f, 5.0f, 0.2f, 7.6f, 1.6f, 9.4f);    // brow tip
-    blotHalf.cubicTo(0.4f, 11.6f, 1.0f, 14.6f, 3.6f, 16.2f); // cheek
-    blotHalf.cubicTo(6.0f, 17.8f, 8.6f, 19.4f, 11.2f, 20.2f); // jaw
-    blotHalf.cubicTo(12.6f, 20.6f, 13.6f, 21.6f, 15.0f, 21.4f); // chin drip
-    blotHalf.closeSubPath();
-
-    // Horns: short, curling out of the brow.
-    juce::Path hornHalf;
-    hornHalf.startNewSubPath(8.4f, 1.4f);
-    hornHalf.quadraticTo(4.6f, 2.0f, 1.6f, 1.0f);
-    hornHalf.quadraticTo(2.6f, 3.0f, 4.4f, 4.6f);
-    hornHalf.closeSubPath();
-
-    // The maw: a wide open mouth, upper lip arched, lower lip sagging.
-    juce::Path mawHalf;
-    mawHalf.startNewSubPath(15.0f, 9.6f);
-    mawHalf.cubicTo(11.5f, 9.4f, 7.4f, 9.6f, 4.6f, 11.4f);
-    mawHalf.cubicTo(6.2f, 14.6f, 10.0f, 17.4f, 15.0f, 17.6f);
-    mawHalf.closeSubPath();
-
-    // Fangs: two long ones from the upper lip, one shorter from the lower lip, per side.
-    juce::Path fangsHalf;
-    fangsHalf.addTriangle(12.2f, 9.5f, 13.8f, 9.5f, 13.0f, 12.6f);
-    fangsHalf.addTriangle(8.0f, 9.8f, 9.8f, 9.6f, 9.0f, 13.2f);
-    fangsHalf.addTriangle(10.0f, 16.9f, 11.8f, 17.3f, 11.0f, 14.6f);
-
-    // Eyes: slanted slits under the brow.
-    juce::Path eyeHalf;
-    eyeHalf.startNewSubPath(12.6f, 6.6f);
-    eyeHalf.quadraticTo(9.8f, 4.6f, 7.0f, 5.0f);
-    eyeHalf.quadraticTo(9.4f, 7.2f, 12.6f, 6.6f);
-    eyeHalf.closeSubPath();
-
-    const auto blot = mirrored(blotHalf);
-    auto horns = mirrored(hornHalf);
-    auto maw = mirrored(mawHalf);
-    auto fangs = mirrored(fangsHalf);
-    auto eyes = mirrored(eyeHalf);
-
-    juce::Path blotInArea(blot);
-    blotInArea.applyTransform(toArea);
-    horns.applyTransform(toArea);
-    maw.applyTransform(toArea);
-    fangs.applyTransform(toArea);
-    eyes.applyTransform(toArea);
-
-    // Ink: the roar ember fading to the growl rose at the chin, with a soft bleed outline in the pitch violet.
-    // Both outlines first, then both fills, so the horns join the head without a seam.
-    const float stroke = std::min(sx, sy);
-    const juce::PathStrokeType bleed(1.6f * stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-    g.setColour(pitch.withAlpha(0.35f));
-    g.strokePath(horns, bleed);
-    g.strokePath(blotInArea, bleed);
-    g.setGradientFill(juce::ColourGradient(roar, mark.getCentreX(), mark.getY(),
-                                           growl, mark.getCentreX(), mark.getBottom(), false));
-    g.fillPath(horns);
-    g.fillPath(blotInArea);
-
-    // The maw and the eye slits are cut out of the ink in the background colour; the fangs bite back in.
-    g.setColour(background);
-    g.fillPath(maw);
-    g.fillPath(eyes);
-
+void RoarschachLookAndFeel::drawMark(juce::Graphics& g, juce::Rectangle<float> area)
+{
+    // One ink, as the creature itself: the blot solid, the maw and the eye slits cut through it, the
+    // fangs biting back in the same ink. Nothing behind it.
+    const MarkShapes m(area);
+    g.setColour(ink);
+    g.fillPath(m.horns);
+    g.fillPath(m.head);
     const juce::Graphics::ScopedSaveState clip(g);
-    g.reduceClipRegion(maw); // fangs never poke out of the mouth
-    g.setColour(text.withAlpha(0.92f));
-    g.fillPath(fangs);
+    g.reduceClipRegion(m.maw); // fangs never poke out of the mouth
+    g.fillPath(m.fangs);
+}
+
+void RoarschachLookAndFeel::drawColourMark(juce::Graphics& g, juce::Rectangle<float> area)
+{
+    // The mark in colour (the About window only): ember fading to rose at the chin, a soft violet bleed
+    // round its edge, the maw and the eyes cut through, the fangs in pale ink.
+    const MarkShapes m(area);
+    const juce::PathStrokeType bleed(1.6f * m.stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+    g.setColour(juce::Colour(Theme::Brand::markBleed).withAlpha(0.35f));
+    g.strokePath(m.horns, bleed);
+    g.strokePath(m.blot, bleed);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(Theme::Brand::markTop), area.getCentreX(), area.getY(),
+                                           juce::Colour(Theme::Brand::markChin), area.getCentreX(), area.getBottom(), false));
+    g.fillPath(m.horns);
+    g.fillPath(m.head);
+    const juce::Graphics::ScopedSaveState clip(g);
+    g.reduceClipRegion(m.maw);
+    g.setColour(juce::Colour(Theme::Brand::markFangs));
+    g.fillPath(m.fangs);
 }
 
 juce::Rectangle<float> RoarschachLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title,
-                                                        juce::Colour accent, float headerHeight) const
+                                                        float headerHeight) const
 {
-    // The editor's section panels (PluginEditor::paintContent): fill, soft outline, dot, title, divider.
-    g.setColour(panel);
-    g.fillRoundedRectangle(r, 8.0f);
-    g.setColour(outlineSoft);
-    g.drawRoundedRectangle(r.reduced(0.5f), 8.0f, 1.0f);
+    // A wash on the paper: no outline; the title in the display face with a short ink rule under it.
+    g.setColour(wash);
+    g.fillRoundedRectangle(r, Metrics::radius);
 
-    auto headerRow = r.withHeight(headerHeight).reduced(12.0f, 0.0f);
-    g.setColour(accent);
-    g.fillEllipse(headerRow.removeFromLeft(6.0f).withSizeKeepingCentre(6.0f, 6.0f));
-    headerRow.removeFromLeft(8.0f);
-    g.setFont(m_fonts.heading(11.0f));
-    g.setColour(text.withAlpha(0.85f));
-    g.drawText(title, headerRow, juce::Justification::centredLeft, false);
+    auto headerRow = r.withHeight(headerHeight).reduced(14.0f, 0.0f);
+    g.setFont(m_fonts.title(Type::menuHeader));
+    g.setColour(ink);
+    g.drawText(title, headerRow.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
 
-    if (headerHeight < r.getHeight() - 1.0f) // a panel that is only a header row has no divider
+    if (headerHeight < r.getHeight() - 1.0f) // a panel that is only a header row has no rule
     {
-        g.setColour(outlineSoft);
-        g.fillRect(juce::Rectangle<float>(r.getX() + 12.0f, std::round(r.getY() + headerHeight), r.getWidth() - 24.0f, 1.0f));
+        g.setColour(accent);
+        g.fillRect(juce::Rectangle<float>(r.getX() + 14.0f, std::round(r.getY() + headerHeight - 5.0f), 24.0f, 1.5f));
     }
     return headerRow;
 }
@@ -398,51 +506,62 @@ juce::Rectangle<float> RoarschachLookAndFeel::drawPanel(juce::Graphics& g, juce:
 void RoarschachLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
                                              float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider)
 {
-    const auto accent = slider.findColour(juce::Slider::rotarySliderFillColourId);
-    const bool hot = slider.isMouseOverOrDragging();
+    // Ink on paper: a hairline track, the value as a brush stroke in the mood's dye that swells towards
+    // the value, and a flat ink disc with a paper pointer. A knob the settings do not use (or of an Off
+    // module) is drawn as an outline with an ink stroke, so its state never rests on colour alone.
+    const auto style = getKnobStyle(slider);
+    const bool flat = !knobIsLive(style);
+    const bool hot = slider.isMouseOverOrDragging() && slider.isEnabled();
 
     const auto area = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
     const float diameter = std::min(area.getWidth(), area.getHeight());
     const auto centre = area.getCentre();
     const float radius = diameter * 0.5f;
-    const float trackWidth = std::max(2.5f, radius * 0.09f);
-    const float arcRadius = radius - trackWidth * 0.5f;
+    const float brush = std::max(3.0f, radius * 0.16f);
+    const float arcRadius = radius - brush * 0.5f;
     const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
-    // Track
     juce::Path track;
     track.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour(outline);
-    g.strokePath(track, juce::PathStrokeType(trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour(ink.withAlpha(0.30f));
+    g.strokePath(track, juce::PathStrokeType(Metrics::hairline, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    // Value arc: bipolar parameters (dB gain) grow from the centre.
+    // The value: bipolar parameters (dB gain) grow from the centre.
     const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0 && juce::approximatelyEqual(slider.getMinimum(), -slider.getMaximum());
     const float fromAngle = bipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
+    g.setColour(flat ? inkFaint : style == KnobStyle::weak ? accent.withAlpha(0.7f) : accent);
+    strokeBrush(g, centre, arcRadius, fromAngle, angle, flat ? brush * 0.55f : brush);
 
-    juce::Path value;
-    value.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f, std::min(fromAngle, angle), std::max(fromAngle, angle), true);
-    g.setColour(accent.withAlpha(hot ? 1.0f : 0.9f));
-    g.strokePath(value, juce::PathStrokeType(trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // Body
-    const float bodyRadius = arcRadius - trackWidth * 1.6f;
+    // The disc: flat ink (a little bleed under the mouse); for an unused or Off knob, its outline only.
+    const float bodyRadius = arcRadius - brush * 1.45f;
     const auto body = juce::Rectangle<float>(bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre(centre);
+    if (flat)
+    {
+        g.setColour(inkFaint);
+        g.drawEllipse(body.reduced(0.75f), 1.4f);
+    }
+    else
+    {
+        if (hot)
+        {
+            g.setColour(ink.withAlpha(0.16f));
+            g.fillEllipse(body.expanded(2.5f));
+        }
+        g.setColour(ink);
+        g.fillEllipse(body);
+    }
 
-    g.setColour(juce::Colours::black.withAlpha(0.35f));
-    g.fillEllipse(body.translated(0.0f, 2.0f));
-
-    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(hot ? 0.18f : 0.1f), centre.x, body.getY(),
-                                           panelRaised.darker(0.25f), centre.x, body.getBottom(), false));
-    g.fillEllipse(body);
-    g.setColour(outline.brighter(0.15f));
-    g.drawEllipse(body.reduced(0.5f), 1.0f);
-
-    // Pointer
     const auto direction = juce::Point<float>(std::sin(angle), -std::cos(angle));
-    const auto p1 = centre + direction * (bodyRadius * 0.35f);
-    const auto p2 = centre + direction * (bodyRadius * 0.82f);
-    g.setColour(text);
-    g.drawLine({ p1, p2 }, 2.0f);
+    const auto p1 = centre + direction * (bodyRadius * 0.30f);
+    const auto p2 = centre + direction * (bodyRadius * 0.86f);
+    g.setColour(flat ? inkFaint : sheet);
+    g.drawLine({ p1, p2 }, flat ? 1.5f : Metrics::pointer);
+
+    if (shouldShowFocusRing(slider))
+    {
+        g.setColour(focus);
+        g.drawEllipse(juce::Rectangle<float>(diameter + 2.0f, diameter + 2.0f).withCentre(centre), Metrics::focusRing);
+    }
 }
 
 juce::Slider::SliderLayout RoarschachLookAndFeel::getSliderLayout(juce::Slider& slider)
@@ -462,29 +581,29 @@ juce::Slider::SliderLayout RoarschachLookAndFeel::getSliderLayout(juce::Slider& 
     return layout;
 }
 
-void RoarschachLookAndFeel::setValueFontHeight(juce::Slider& slider, float height)
+void RoarschachLookAndFeel::setValueFontHeight(juce::Slider& slider, float pointHeight)
 {
-    slider.getProperties().set(c_valueFontProperty, height);
+    slider.getProperties().set(c_valueFontProperty, pointHeight);
 }
 
 juce::Label* RoarschachLookAndFeel::createSliderTextBox(juce::Slider& slider)
 {
     auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
-    label->setFont(m_fonts.body(static_cast<float>(slider.getProperties().getWithDefault(c_valueFontProperty, 12.0f))));
+    label->setFont(m_fonts.value(static_cast<float>(slider.getProperties().getWithDefault(c_valueFontProperty, Type::value))));
     label->setJustificationType(juce::Justification::centred);
-    label->setColour(juce::Label::textColourId, text);
+    label->setColour(juce::Label::textColourId, ink);
     label->setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
     label->setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 
-    // While a value is typed: a rounded field in the knob's own accent (outline, selection, caret), with the
-    // text centred like the value it replaces. Label::createEditorComponent() copies these to its TextEditor.
-    const auto accent = slider.findColour(juce::Slider::rotarySliderFillColourId);
-    label->setColour(juce::Label::textWhenEditingColourId, text);
-    label->setColour(juce::Label::backgroundWhenEditingColourId, panelRaised);
-    label->setColour(juce::Label::outlineWhenEditingColourId, accent.withAlpha(0.6f));
-    label->setColour(juce::TextEditor::highlightColourId, accent.withAlpha(0.35f));
-    label->setColour(juce::TextEditor::highlightedTextColourId, text);
-    label->setColour(juce::CaretComponent::caretColourId, accent);
+    // While a value is typed: a raised paper field with an ink outline, the selection in the mood's dye,
+    // the text centred like the value it replaces. Label::createEditorComponent() copies these to its
+    // TextEditor (the colours are read again when the palette changes: see drawLabel).
+    label->setColour(juce::Label::textWhenEditingColourId, ink);
+    label->setColour(juce::Label::backgroundWhenEditingColourId, sheet);
+    label->setColour(juce::Label::outlineWhenEditingColourId, focus);
+    label->setColour(juce::TextEditor::highlightColourId, selection);
+    label->setColour(juce::TextEditor::highlightedTextColourId, ink);
+    label->setColour(juce::CaretComponent::caretColourId, ink);
     label->onEditorShow = [label]
     {
         if (auto* editor = label->getCurrentTextEditor())
@@ -496,56 +615,73 @@ juce::Label* RoarschachLookAndFeel::createSliderTextBox(juce::Slider& slider)
     return label;
 }
 
+void RoarschachLookAndFeel::drawLabel(juce::Graphics& g, juce::Label& label)
+{
+    // A knob's value: ink while the knob is used, the faint rank (still 4.5:1 or more) when it is not or its
+    // module is Off, whatever colours the box was built with (the palette moves with the mood).
+    if (auto* slider = dynamic_cast<juce::Slider*>(label.getParentComponent()); slider != nullptr && !label.isBeingEdited())
+    {
+        g.setColour(knobIsLive(getKnobStyle(*slider)) ? ink : inkFaint);
+        g.setFont(getLabelFont(label));
+        g.drawFittedText(label.getText(), label.getLocalBounds(), label.getJustificationType(), 1, 1.0f);
+        return;
+    }
+    if (const auto live = label.getProperties()[c_captionLiveProperty]; !live.isVoid() && !label.isBeingEdited())
+    {
+        g.setColour(static_cast<bool>(live) ? inkDim : inkFaint);
+        g.setFont(getLabelFont(label));
+        g.drawFittedText(label.getText(), label.getBorderSize().subtractedFrom(label.getLocalBounds()), label.getJustificationType(),
+                         1, label.getMinimumHorizontalScale());
+        return;
+    }
+    juce::LookAndFeel_V4::drawLabel(g, label);
+}
+
 juce::Font RoarschachLookAndFeel::getLabelFont(juce::Label& label)
 {
     // Knob value boxes show values; every other editor label is a caption. A label whose code set one of the
     // theme's fonts keeps it (e.g. the About window's status line); JUCE's default label font never shows.
     if (auto* slider = dynamic_cast<juce::Slider*>(label.getParentComponent()))
-        return m_fonts.body(static_cast<float>(slider->getProperties().getWithDefault(c_valueFontProperty, 12.0f)));
+        return m_fonts.value(static_cast<float>(slider->getProperties().getWithDefault(c_valueFontProperty, Type::value)));
 
-    if (dynamic_cast<juce::ComboBox*>(label.getParentComponent()) == nullptr)
-    {
-        const auto face = label.getFont().getTypefacePtr();
-        if (face != nullptr && (face == m_fonts.regular || face == m_fonts.medium || face == m_fonts.bold))
-            return label.getFont();
-    }
+    if (dynamic_cast<juce::ComboBox*>(label.getParentComponent()) == nullptr && m_fonts.isThemeFont(label.getFont()))
+        return label.getFont();
 
-    return m_fonts.label(10.5f);
+    return m_fonts.caption(Type::caption);
 }
 
 //==============================================================================
-// Toggle buttons (On LEDs)
+// Toggle buttons (On lamps)
 //==============================================================================
-void RoarschachLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour accent, bool on, bool hot, bool focused)
+void RoarschachLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> area, bool on, bool hot, bool focused)
 {
-    // A round lamp: lit, it is the accent with a soft halo and a bright core; off, a dark socket with a
-    // faint rim. The rim brightens under the mouse; keyboard focus adds an amber ring.
+    // An ink lamp: on, a filled blot in the mood's dye inside an ink ring, with a soft dye halo; off, the
+    // ring alone (hollow). The shape carries the state; the dye only adds to it.
     const float d = std::min(area.getWidth(), area.getHeight());
     const auto c = area.getCentre();
-    const auto lamp = juce::Rectangle<float>(d, d).withCentre(c).reduced(d * 0.18f);
+    const auto lamp = juce::Rectangle<float>(d, d).withCentre(c).reduced(d * 0.2f);
 
     if (on)
     {
-        g.setGradientFill(juce::ColourGradient(accent.withAlpha(0.45f), c.x, c.y, accent.withAlpha(0.0f), c.x + d * 0.5f, c.y, true));
-        g.fillEllipse(juce::Rectangle<float>(d, d).withCentre(c));
-        g.setGradientFill(juce::ColourGradient(accent.interpolatedWith(juce::Colours::white, 0.55f), c.x - lamp.getWidth() * 0.15f,
-                                               c.y - lamp.getHeight() * 0.2f, accent, c.x, lamp.getBottom(), true));
+        g.setColour(accent.withAlpha(0.24f));
+        g.fillEllipse(lamp.expanded(d * 0.12f));
+        g.setColour(accentInk);
         g.fillEllipse(lamp);
-        g.setColour(accent.brighter(hot ? 0.4f : 0.15f));
-        g.drawEllipse(lamp, 1.0f);
+        g.setColour(ink);
+        g.drawEllipse(lamp.reduced(0.5f), 1.2f);
     }
     else
     {
-        g.setColour(background);
+        g.setColour(sheet);
         g.fillEllipse(lamp);
-        g.setColour(hot ? accent.withAlpha(0.8f) : textFaint);
-        g.drawEllipse(lamp.reduced(0.5f), 1.2f);
+        g.setColour(hot ? ink : inkFaint);
+        g.drawEllipse(lamp.reduced(0.6f), hot ? 1.6f : 1.3f);
     }
 
     if (focused)
     {
-        g.setColour(output);
-        g.drawEllipse(juce::Rectangle<float>(d, d).withCentre(c).reduced(0.75f), 1.5f);
+        g.setColour(focus);
+        g.drawEllipse(juce::Rectangle<float>(d, d).withCentre(c).reduced(0.75f), Metrics::focusRing);
     }
 }
 
@@ -553,17 +689,16 @@ void RoarschachLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButt
 {
     auto r = button.getLocalBounds().toFloat();
     const float ledSize = std::min(r.getHeight(), 16.0f);
-    const auto accent = button.findColour(juce::ToggleButton::tickColourId);
     const bool hot = button.isEnabled() && (isMouseOverButton || isButtonDown);
     drawLed(g, r.removeFromLeft(std::max(ledSize, std::min(r.getWidth(), r.getHeight()))).withSizeKeepingCentre(ledSize, ledSize),
-            button.isEnabled() ? accent : textFaint, button.getToggleState(), hot, shouldShowFocusRing(button));
+            button.getToggleState() && button.isEnabled(), hot, shouldShowFocusRing(button));
 
     if (button.getButtonText().isNotEmpty())
     {
         r.removeFromLeft(6.0f);
-        const auto font = m_fonts.label(std::min(11.0f, r.getHeight() * 0.6f));
+        const auto font = m_fonts.label(std::min(Type::button, r.getHeight() * 0.75f));
         g.setFont(font);
-        g.setColour(!button.isEnabled() ? textFaint : button.getToggleState() ? text : textDim);
+        g.setColour(!button.isEnabled() ? inkFaint : button.getToggleState() ? ink : inkDim);
         g.drawText(fitToWidth(font, button.getButtonText().toUpperCase(), r.getWidth()), r, juce::Justification::centredLeft, false);
     }
 }
@@ -576,35 +711,35 @@ void RoarschachLookAndFeel::drawComboBox(juce::Graphics& g, int width, int heigh
 {
     const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)).reduced(0.5f);
     const bool hot = box.isMouseOver(true) || box.isPopupActive();
-    const bool ring = shouldShowFocusRing(box);
 
-    g.setColour(box.findColour(juce::ComboBox::backgroundColourId).brighter(hot ? 0.08f : 0.0f));
-    g.fillRoundedRectangle(r, 5.0f);
+    g.setColour(sheet);
+    g.fillRoundedRectangle(r, Metrics::radius);
 
-    if (ring)
+    if (shouldShowFocusRing(box))
     {
-        g.setColour(output);
-        g.drawRoundedRectangle(r.reduced(0.25f), 5.0f, 1.5f);
+        g.setColour(focus);
+        g.drawRoundedRectangle(r.reduced(0.25f), Metrics::radius, Metrics::focusRing);
     }
     else
     {
-        g.setColour(hot ? box.findColour(juce::ComboBox::focusedOutlineColourId) : box.findColour(juce::ComboBox::outlineColourId));
-        g.drawRoundedRectangle(r, 5.0f, 1.0f);
+        g.setColour(hot ? ink.withAlpha(0.6f) : rule);
+        g.drawRoundedRectangle(r, Metrics::radius, Metrics::hairline);
     }
 
+    // The caret: this opens a list.
     const float cx = r.getRight() - 13.0f;
     const float cy = r.getCentreY();
     juce::Path chevron;
     chevron.startNewSubPath(cx - 4.0f, cy - 2.0f);
     chevron.lineTo(cx, cy + 2.0f);
     chevron.lineTo(cx + 4.0f, cy - 2.0f);
-    g.setColour(box.findColour(juce::ComboBox::arrowColourId));
+    g.setColour(hot ? ink : inkDim);
     g.strokePath(chevron, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
 juce::Font RoarschachLookAndFeel::getComboBoxFont(juce::ComboBox&)
 {
-    return m_fonts.body(12.0f);
+    return m_fonts.body(Type::body);
 }
 
 void RoarschachLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
@@ -634,42 +769,42 @@ void RoarschachLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button
                                                  bool isMouseOverButton, bool isButtonDown)
 {
     if (backgroundColour.isTransparent())
-        return; // a text link: no pill (see drawButtonText)
+        return; // a text link: no chip (see drawButtonText)
 
+    // Paper chips: raised paper with an ink hairline. Pressed in (on, or a dialog's primary action):
+    // filled with ink, its label in paper. A quiet header glyph has no chip until the mouse is over it.
     const auto r = pillBounds(button);
-    const float corner = std::min(r.getWidth(), r.getHeight()) * 0.5f;
+    const float corner = std::min(Metrics::radius, std::min(r.getWidth(), r.getHeight()) * 0.5f);
     const bool enabled = button.isEnabled();
+    const bool quiet = static_cast<bool>(button.getProperties().getWithDefault(c_quietProperty, false));
+    const bool filled = (button.getToggleState() && button.getClickingTogglesState()) || isPrimaryDialogButton(button);
+    const int menuChip = static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0));
 
-    auto fill = backgroundColour;
-    auto edge = isMouseOverButton && enabled ? textDim : outline;
-
-    if (auto* alert = dynamic_cast<juce::AlertWindow*>(button.getParentComponent()))
+    if (menuChip == 2)
     {
-        // The Return-key button is the dialog's primary action, tinted in the dialog's accent.
-        if (isPrimaryDialogButton(button))
-        {
-            const auto accent = accentFor(alert->getAlertType());
-            fill = accent.withAlpha(0.28f);
-            edge = isMouseOverButton ? accent : accent.withAlpha(0.6f);
-        }
+        // A mode chip of an Off module: its outline only, quieter.
+        g.setColour(isMouseOverButton ? rule : ruleSoft);
+        g.drawRoundedRectangle(r, corner, Metrics::hairline);
     }
-
-    if (!enabled)
-        fill = fill.withMultipliedAlpha(0.5f);
-
-    g.setColour(fill.brighter(isButtonDown ? 0.2f : isMouseOverButton && enabled ? 0.1f : 0.0f));
-    g.fillRoundedRectangle(r, corner);
+    else if (filled)
+    {
+        const auto fill = isPrimaryDialogButton(button) ? accentFor(dynamic_cast<juce::AlertWindow*>(button.getParentComponent())->getAlertType())
+                                                         : ink;
+        g.setColour(!enabled ? inkFaint : isButtonDown ? fill.withAlpha(0.8f) : fill == ink ? ink : fill);
+        g.fillRoundedRectangle(r, corner);
+    }
+    else if (!quiet || isMouseOverButton || isButtonDown)
+    {
+        g.setColour(isButtonDown ? sheet.darker(0.06f) : sheet);
+        g.fillRoundedRectangle(r, corner);
+        g.setColour(!enabled ? ruleSoft : isMouseOverButton ? ink.withAlpha(0.65f) : rule);
+        g.drawRoundedRectangle(r, corner, Metrics::hairline);
+    }
 
     if (shouldShowFocusRing(button))
     {
-        auto* alert = dynamic_cast<juce::AlertWindow*>(button.getParentComponent());
-        g.setColour(alert != nullptr ? accentFor(alert->getAlertType()) : output);
-        g.drawRoundedRectangle(r.reduced(0.25f), corner, 1.5f);
-    }
-    else
-    {
-        g.setColour(enabled ? edge : outline.withMultipliedAlpha(0.6f));
-        g.drawRoundedRectangle(r, corner, 1.0f);
+        g.setColour(focus);
+        g.drawRoundedRectangle(r.expanded(1.5f), corner + 1.5f, Metrics::focusRing);
     }
 }
 
@@ -681,14 +816,13 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
 
     if (isLinkStyle(button))
     {
-        // A text link: dim (or its own colour) when idle, amber under the mouse, underlined on hover or focus.
+        // A text link: dim (or its own colour) when idle, the dyed ink under the mouse, underlined on hover
+        // or focus.
         auto colour = button.findColour(juce::TextButton::textColourOffId);
         if (!button.isEnabled())
-            colour = textFaint;
-        else if (isButtonDown)
-            colour = output.darker(0.15f);
-        else if (isMouseOverButton)
-            colour = output;
+            colour = inkFaint;
+        else if (isButtonDown || isMouseOverButton)
+            colour = accentInk;
 
         const auto area = button.getLocalBounds().toFloat();
         const auto shown = fitToWidth(font, label, area.getWidth());
@@ -700,21 +834,43 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
         {
             const float w = lineWidth(font, shown);
             const float y = std::round(area.getCentreY() + font.getAscent() * 0.5f + 2.0f);
-            g.setColour(shouldShowFocusRing(button) ? output : colour);
+            g.setColour(shouldShowFocusRing(button) ? focus : colour);
             g.fillRect(juce::Rectangle<float>(area.getCentreX() - w * 0.5f, y, w, 1.0f));
         }
         return;
     }
 
-    auto colour = button.findColour(button.getToggleState() || isPrimaryDialogButton(button) ? juce::TextButton::textColourOnId
-                                                                                            : juce::TextButton::textColourOffId);
-    if (!button.isEnabled())
-        colour = textFaint;
+    const bool filled = (button.getToggleState() && button.getClickingTogglesState()) || isPrimaryDialogButton(button);
+    const int menuChip = static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0));
+    auto colour = filled ? sheet : isMouseOverButton || isButtonDown ? ink : button.findColour(juce::TextButton::textColourOffId);
+    if (!button.isEnabled() || menuChip == 2)
+        colour = filled ? sheet : inkFaint;
 
-    // The label keeps clear of the pill's rounded ends, but a short label in a small pill (the preset bar's
-    // "<" and ">", "?", CHOOSE) takes the room it needs: a label is only cut when the pill is too narrow for it.
+    // The preset bar's arrows are drawn as ink chevrons, the same stroke as the menus'.
+    if (label == "<" || label == ">")
+    {
+        g.setColour(!button.isEnabled() ? inkFaint : isMouseOverButton ? ink : inkDim);
+        strokeChevron(g, button.getLocalBounds().toFloat().getCentre(), 4.5f,
+                      label == "<" ? juce::MathConstants<float>::pi : 0.0f, 1.7f);
+        return;
+    }
+
+    // The label keeps clear of the chip's ends, but a short label in a small chip ("?", CHOOSE) takes the
+    // room it needs: a label is only cut when the chip is too narrow for it.
     // (Graphics::drawText drops a word that overruns its area, hence the pixel of slack.)
-    const auto r = pillBounds(button);
+    auto r = pillBounds(button);
+    if (menuChip != 0)
+    {
+        // The caret: this chip opens a menu.
+        const auto caret = r.removeFromRight(c_caretColumn).translated(-2.0f, 0.0f);
+        const auto c = caret.getCentre();
+        juce::Path p;
+        p.startNewSubPath(c.x - 3.0f, c.y - 1.5f);
+        p.lineTo(c.x, c.y + 1.5f);
+        p.lineTo(c.x + 3.0f, c.y - 1.5f);
+        g.setColour(menuChip == 2 ? inkFaint : isMouseOverButton ? ink : inkDim);
+        g.strokePath(p, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
     const float preferredPad = std::max(4.0f, std::round(r.getHeight() * 0.35f));
     const float pad = juce::jlimit(1.0f, preferredPad, (r.getWidth() - lineWidth(font, label)) * 0.5f - 1.0f);
     const auto area = r.reduced(pad, 0.0f);
@@ -726,11 +882,15 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
 
 juce::Font RoarschachLookAndFeel::getTextButtonFont(juce::TextButton& button, int buttonHeight)
 {
+    if (static_cast<bool>(button.getProperties().getWithDefault(c_displayFaceProperty, false)))
+        return m_fonts.title(std::min(Type::presetName, static_cast<float>(buttonHeight) * 0.66f));
     if (isInAlert(button))
-        return m_fonts.label(12.0f);
+        return m_fonts.label(Type::button);
     if (isLinkStyle(button))
-        return m_fonts.body(12.0f);
-    return m_fonts.label(std::min(13.0f, static_cast<float>(buttonHeight) * 0.5f));
+        return m_fonts.body(Type::body);
+    if (static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0)) != 0)
+        return m_fonts.value(std::min(Type::button, static_cast<float>(buttonHeight) * 0.6f));   // (untracked: mode names are long)
+    return m_fonts.label(std::min(Type::button, static_cast<float>(buttonHeight) * 0.6f));
 }
 
 //==============================================================================
@@ -738,7 +898,7 @@ juce::Font RoarschachLookAndFeel::getTextButtonFont(juce::TextButton& button, in
 //==============================================================================
 juce::Font RoarschachLookAndFeel::menuFont(float scale) const
 {
-    return m_fonts.body(c_menuFontHeight * scale);
+    return m_fonts.body(Type::menu * scale);
 }
 
 juce::Font RoarschachLookAndFeel::getPopupMenuFont()
@@ -765,8 +925,8 @@ void RoarschachLookAndFeel::drawPopupMenuBackgroundWithOptions(juce::Graphics& g
 
     g.setColour(fill);
     g.fillRoundedRectangle(r, c_menuRadius * s);
-    g.setColour(outline);
-    g.drawRoundedRectangle(r.reduced(0.5f), c_menuRadius * s, 1.0f);
+    g.setColour(rule);
+    g.drawRoundedRectangle(r.reduced(0.5f), c_menuRadius * s, Metrics::hairline);
 }
 
 void RoarschachLookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, const juce::Rectangle<int>& area,
@@ -779,20 +939,22 @@ void RoarschachLookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, cons
 
     if (item.isSeparator)
     {
-        g.setColour(outline);
+        g.setColour(ruleSoft);
         g.fillRect(juce::Rectangle<float>(row.getX() + 8.0f * s, std::floor(row.getCentreY()), row.getWidth() - 16.0f * s, 1.0f));
         return;
     }
 
-    const auto accent = menuAccent(options);
     const bool enabled = item.isEnabled;
     const bool hasSubMenu = item.subMenu != nullptr && (item.itemID == 0 || item.subMenu->getNumItems() > 0);
     const bool highlighted = isHighlighted && enabled;
 
     if (highlighted)
     {
-        g.setColour(accent.withAlpha(0.16f));
-        g.fillRoundedRectangle(row.reduced(0.0f, 1.0f), 4.0f * s);
+        // A dye wash under the row, and a short dye mark at its left edge.
+        g.setColour(selection);
+        g.fillRoundedRectangle(row.reduced(0.0f, 1.0f), 3.0f * s);
+        g.setColour(accent);
+        g.fillRoundedRectangle(juce::Rectangle<float>(row.getX() + 2.0f * s, row.getY() + 5.0f * s, 2.0f * s, row.getHeight() - 10.0f * s), 1.0f * s);
     }
 
     auto content = row;
@@ -807,25 +969,25 @@ void RoarschachLookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, cons
     }
     else if (item.isTicked)
     {
-        // A stroked check in the menu's accent.
+        // A stroked check in the dyed ink.
         const auto c = tickArea.getCentre().translated(1.0f * s, 0.0f);
         juce::Path tick;
         tick.startNewSubPath(c.x - 4.0f * s, c.y + 0.2f * s);
         tick.lineTo(c.x - 1.3f * s, c.y + 3.0f * s);
         tick.lineTo(c.x + 4.0f * s, c.y - 3.2f * s);
-        g.setColour(enabled ? accent : textFaint);
-        g.strokePath(tick, juce::PathStrokeType(1.7f * s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(enabled ? accentInk : inkFaint);
+        g.strokePath(tick, juce::PathStrokeType(1.8f * s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     if (hasSubMenu)
     {
-        g.setColour(!enabled ? textFaint : highlighted ? text : textDim);
+        g.setColour(!enabled ? inkFaint : highlighted ? ink : inkDim);
         strokeChevron(g, arrowArea.getCentre().translated(-2.0f * s, 0.0f), 3.5f * s, 0.0f, 1.4f * s);
     }
 
-    // Text, with a trailing "(...)" qualifier in the dim colour.
+    // Text, with a trailing "(...)" qualifier in the dim ink.
     const auto font = menuFont(s);
-    const auto main = !enabled ? textFaint
+    const auto main = !enabled ? inkFaint
                     : item.colour != juce::Colour() ? item.colour
                     : findColour(highlighted ? juce::PopupMenu::highlightedTextColourId : juce::PopupMenu::textColourId);
     const auto shown = fitToWidth(font, item.text, content.getWidth());
@@ -837,7 +999,7 @@ void RoarschachLookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, cons
         const auto head = shown.substring(0, open);
         g.setColour(main);
         g.drawText(head, content, juce::Justification::centredLeft, false);
-        g.setColour(textDim);
+        g.setColour(inkDim);
         g.drawText(shown.substring(open), content.withTrimmedLeft(lineWidth(font, head)), juce::Justification::centredLeft, false);
     }
     else
@@ -848,8 +1010,8 @@ void RoarschachLookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, cons
 
     if (item.shortcutKeyDescription.isNotEmpty())
     {
-        g.setFont(m_fonts.label(10.0f * s));
-        g.setColour(textFaint);
+        g.setFont(m_fonts.body(Type::caption * s));
+        g.setColour(inkFaint);
         g.drawText(item.shortcutKeyDescription, content, juce::Justification::centredRight, false);
     }
 }
@@ -858,20 +1020,23 @@ void RoarschachLookAndFeel::drawPopupMenuSectionHeaderWithOptions(juce::Graphics
                                                                   const juce::String& sectionName,
                                                                   const juce::PopupMenu::Options& options)
 {
-    // In the panel-header style: an accent dot in the tick column, then the name in the heading font, aligned
-    // with the items' text. (JUCE already insets a header by the menu border.)
+    // The section's name in the display face, aligned with the items' text, and a ruled line running
+    // on from it to the menu's edge. (JUCE already insets a header by the menu border.)
     const float s = menuScale(options);
     const auto r = area.toFloat().withTrimmedTop(8.0f * s).withTrimmedBottom(2.0f * s);
-    const float dot = 5.0f * s;
-
-    g.setColour(menuAccent(options));
-    g.fillEllipse(juce::Rectangle<float>(dot, dot).withCentre({ r.getX() + c_menuTickColumn * s * 0.5f + 1.0f * s, r.getCentreY() }));
-
-    const auto font = m_fonts.heading(10.5f * s);
-    const auto textArea = r.withTrimmedLeft(c_menuTextInset * s).withTrimmedRight(8.0f * s);
+    const auto font = m_fonts.title(Type::menuHeader * s);
+    const auto textArea = r.withTrimmedLeft(c_menuTextInset * s).withTrimmedRight(10.0f * s);
+    const auto shown = fitToWidth(font, sectionName, textArea.getWidth());
     g.setFont(font);
     g.setColour(findColour(juce::PopupMenu::headerTextColourId));
-    g.drawText(fitToWidth(font, sectionName, textArea.getWidth()), textArea, juce::Justification::centredLeft, false);
+    g.drawText(shown, textArea, juce::Justification::centredLeft, false);
+
+    const float ruleX = textArea.getX() + lineWidth(font, shown) + 8.0f * s;
+    if (ruleX < textArea.getRight() - 8.0f * s)
+    {
+        g.setColour(ruleSoft);
+        g.fillRect(juce::Rectangle<float>(ruleX, std::round(textArea.getCentreY() + 1.0f * s), textArea.getRight() - ruleX, 1.0f));
+    }
 }
 
 void RoarschachLookAndFeel::getIdealPopupMenuItemSizeWithOptions(const juce::String& itemText, bool isSeparator,
@@ -897,7 +1062,7 @@ void RoarschachLookAndFeel::getIdealPopupMenuSectionHeaderSizeWithOptions(const 
 {
     const float s = menuScale(options);
     idealHeight = juce::roundToInt(c_menuHeaderHeight * s);
-    idealWidth = juce::roundToInt(lineWidth(m_fonts.heading(10.5f * s), headerText) + (c_menuTextInset + 12.0f) * s);
+    idealWidth = juce::roundToInt(lineWidth(m_fonts.title(Type::menuHeader * s), headerText) + (c_menuTextInset + 40.0f) * s);
 }
 
 void RoarschachLookAndFeel::drawPopupMenuUpDownArrowWithOptions(juce::Graphics& g, int width, int height,
@@ -913,7 +1078,7 @@ void RoarschachLookAndFeel::drawPopupMenuUpDownArrowWithOptions(juce::Graphics& 
                                            fill.withAlpha(0.0f), 0.0f, isScrollUpArrow ? h : 0.0f, false));
     g.fillRect(juce::Rectangle<float>(inset, isScrollUpArrow ? 1.0f : 0.0f, static_cast<float>(width) - 2.0f * inset, h - 1.0f));
 
-    g.setColour(textDim);
+    g.setColour(inkDim);
     strokeChevron(g, { static_cast<float>(width) * 0.5f, h * 0.5f }, 3.0f * s,
                   juce::MathConstants<float>::halfPi * (isScrollUpArrow ? -1.0f : 1.0f), 1.5f * s);
 }
@@ -926,7 +1091,7 @@ int RoarschachLookAndFeel::getPopupMenuColumnSeparatorWidthWithOptions(const juc
 void RoarschachLookAndFeel::drawPopupMenuColumnSeparatorWithOptions(juce::Graphics& g, const juce::Rectangle<int>& bounds,
                                                                     const juce::PopupMenu::Options& options)
 {
-    g.setColour(outline);
+    g.setColour(ruleSoft);
     g.fillRect(bounds.toFloat().reduced(0.0f, 6.0f * menuScale(options)));
 }
 
@@ -949,28 +1114,24 @@ void RoarschachLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& a
                                          const juce::Rectangle<int>&, juce::TextLayout& textLayout)
 {
     const auto bounds = alert.getLocalBounds().toFloat();
-    const auto accent = accentFor(alert.getAlertType());
 
     if (alert.isOpaque())
-        g.fillAll(background); // an opaque window can't show what is behind its rounded corners
+        g.fillAll(paper); // an opaque window can't show what is behind its rounded corners
 
-    // A panel, as the editor's sections: no icon.
+    // A sheet of raised paper with an ink hairline: no icon.
     g.setColour(alert.findColour(juce::AlertWindow::backgroundColourId));
     g.fillRoundedRectangle(bounds, c_dialogRadius);
-    g.setColour(alert.findColour(juce::AlertWindow::outlineColourId));
-    g.drawRoundedRectangle(bounds.reduced(0.5f), c_dialogRadius, 1.0f);
+    g.setColour(rule);
+    g.drawRoundedRectangle(bounds.reduced(0.5f), c_dialogRadius, Metrics::hairline);
 
-    // Header row: accent dot, the title in capitals, a divider.
-    auto header = bounds.withHeight(c_dialogHeaderHeight).reduced(14.0f, 0.0f);
-    g.setColour(accent);
-    g.fillEllipse(header.removeFromLeft(6.0f).withSizeKeepingCentre(6.0f, 6.0f));
-    header.removeFromLeft(8.0f);
-    const auto titleFont = m_fonts.heading(11.5f);
+    // Header row: the title in the display face, a short rule under it (the warning ink for a warning).
+    auto header = bounds.withHeight(c_dialogHeaderHeight).reduced(16.0f, 0.0f);
+    const auto titleFont = getAlertWindowTitleFont();
     g.setFont(titleFont);
-    g.setColour(text.withAlpha(0.85f));
-    g.drawText(fitToWidth(titleFont, alert.getName().toUpperCase(), header.getWidth()), header, juce::Justification::centredLeft, false);
-    g.setColour(outlineSoft);
-    g.fillRect(juce::Rectangle<float>(12.0f, c_dialogHeaderHeight, bounds.getWidth() - 24.0f, 1.0f));
+    g.setColour(ink);
+    g.drawText(fitToWidth(titleFont, alert.getName(), header.getWidth()), header.translated(0.0f, 2.0f), juce::Justification::centredLeft, false);
+    g.setColour(alert.getAlertType() == juce::MessageBoxIconType::WarningIcon ? warn : accent);
+    g.fillRect(juce::Rectangle<float>(16.0f, c_dialogHeaderHeight - 3.0f, 24.0f, 1.5f));
 
     // JUCE lays the title and the message out as one TextLayout. The title is drawn above, so its runs are
     // hidden; the message lines are centred across the dialog, between the header and the first control.
@@ -985,7 +1146,7 @@ void RoarschachLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& a
 
         for (auto* run : line.runs)
         {
-            const bool isTitle = run->font.getTypefacePtr() == m_fonts.bold;
+            const bool isTitle = run->font.getTypefacePtr() == m_fonts.displayFace;
             run->colour = isTitle ? juce::Colours::transparentBlack : messageColour;
             isMessageLine = isMessageLine || (!isTitle && !run->glyphs.isEmpty());
         }
@@ -1028,7 +1189,7 @@ int RoarschachLookAndFeel::getAlertWindowButtonHeight()
 juce::Array<int> RoarschachLookAndFeel::getWidthsForTextButtons(juce::AlertWindow&, const juce::Array<juce::TextButton*>& buttons)
 {
     // One width for every button of a dialog, so the row reads as a set.
-    const auto font = m_fonts.label(12.0f);
+    const auto font = m_fonts.label(Type::button);
     int width = c_dialogButtonMinWidth;
     for (auto* b : buttons)
         width = std::max(width, juce::roundToInt(lineWidth(font, b->getButtonText().toUpperCase())) + 44);
@@ -1038,9 +1199,9 @@ juce::Array<int> RoarschachLookAndFeel::getWidthsForTextButtons(juce::AlertWindo
     return widths;
 }
 
-juce::Font RoarschachLookAndFeel::getAlertWindowTitleFont()   { return m_fonts.heading(11.5f); }
-juce::Font RoarschachLookAndFeel::getAlertWindowMessageFont() { return m_fonts.body(12.5f); }
-juce::Font RoarschachLookAndFeel::getAlertWindowFont()        { return m_fonts.label(10.5f); }
+juce::Font RoarschachLookAndFeel::getAlertWindowTitleFont()   { return m_fonts.title(Type::heading); }
+juce::Font RoarschachLookAndFeel::getAlertWindowMessageFont() { return m_fonts.body(Type::body); }
+juce::Font RoarschachLookAndFeel::getAlertWindowFont()        { return m_fonts.body(Type::body); }
 
 //==============================================================================
 // Text fields
@@ -1073,7 +1234,7 @@ void RoarschachLookAndFeel::drawTextEditorOutline(juce::Graphics& g, int width, 
     if (colour.isTransparent())
         return;
 
-    const float thickness = focused ? 1.5f : 1.0f;
+    const float thickness = focused ? Metrics::focusRing : Metrics::hairline;
     const auto r = juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(thickness * 0.5f);
     g.setColour(colour);
     if (editor.isOpaque())
@@ -1092,13 +1253,13 @@ void RoarschachLookAndFeel::drawScrollbar(juce::Graphics& g, juce::ScrollBar& sc
     if (thumbSize <= 0)
         return;
 
-    // No track: a thin pill, like the editor's meter tracks.
+    // No track: a thin ink stroke.
     auto thumb = (isScrollbarVertical ? juce::Rectangle<int>(x, thumbStartPosition, width, thumbSize)
                                       : juce::Rectangle<int>(thumbStartPosition, y, thumbSize, height)).toFloat();
     thumb = isScrollbarVertical ? thumb.withSizeKeepingCentre(4.0f, std::max(4.0f, thumb.getHeight() - 4.0f))
                                 : thumb.withSizeKeepingCentre(std::max(4.0f, thumb.getWidth() - 4.0f), 4.0f);
 
-    g.setColour(isMouseOver || isMouseDown ? textDim : scrollbar.findColour(juce::ScrollBar::thumbColourId));
+    g.setColour(isMouseOver || isMouseDown ? ink.withAlpha(0.6f) : scrollbar.findColour(juce::ScrollBar::thumbColourId));
     g.fillRoundedRectangle(thumb, 2.0f);
 }
 
@@ -1110,7 +1271,7 @@ juce::TextLayout RoarschachLookAndFeel::layoutTooltip(const juce::String& tipTex
     juce::AttributedString s;
     s.setJustification(juce::Justification::topLeft);
     s.setLineSpacing(2.0f);
-    s.append(tipText, m_fonts.body(11.5f), colour);
+    s.append(tipText, m_fonts.body(Type::body), colour);
 
     juce::TextLayout layout;
 
@@ -1140,7 +1301,7 @@ juce::Rectangle<int> RoarschachLookAndFeel::getTooltipBounds(const juce::String&
 
 void RoarschachLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& tipText, int width, int height)
 {
-    // The editor's tooltip window is transparent outside this rounded panel.
+    // The editor's tooltip window is transparent outside this rounded sheet.
     const auto r = juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height));
     const auto fill = findColour(juce::TooltipWindow::backgroundColourId);
 
@@ -1149,8 +1310,8 @@ void RoarschachLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& t
 
     g.setColour(fill);
     g.fillRoundedRectangle(r, c_tipRadius);
-    g.setColour(findColour(juce::TooltipWindow::outlineColourId));
-    g.drawRoundedRectangle(r.reduced(0.5f), c_tipRadius, 1.0f);
+    g.setColour(rule);
+    g.drawRoundedRectangle(r.reduced(0.5f), c_tipRadius, Metrics::hairline);
 
     layoutTooltip(tipText, findColour(juce::TooltipWindow::textColourId)).draw(g, r.reduced(c_tipPadX, c_tipPadY));
 }
@@ -1160,7 +1321,7 @@ void RoarschachLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& t
 //==============================================================================
 void RoarschachLookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, bool isMouseOver, bool isMouseDragging)
 {
-    // Three short grip strokes in the corner, faint until the mouse is over them.
+    // Three short ink strokes in the corner, the faint rank until the mouse is over them.
     const float right = static_cast<float>(w) - 3.5f, bottom = static_cast<float>(h) - 3.5f;
     juce::Path grip;
     for (const float d : { 3.5f, 7.5f, 11.5f })
@@ -1168,13 +1329,13 @@ void RoarschachLookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, b
         grip.startNewSubPath(right - d, bottom);
         grip.lineTo(right, bottom - d);
     }
-    g.setColour(isMouseOver || isMouseDragging ? textDim : textFaint);
-    g.strokePath(grip, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour(isMouseOver || isMouseDragging ? ink : inkFaint);
+    g.strokePath(grip, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
 std::unique_ptr<juce::DropShadower> RoarschachLookAndFeel::createDropShadowerForComponent(juce::Component&)
 {
-    return std::make_unique<juce::DropShadower>(juce::DropShadow(juce::Colours::black.withAlpha(0.5f), 14, { 0, 4 }));
+    return std::make_unique<juce::DropShadower>(juce::DropShadow(shadow, 14, { 0, 4 }));
 }
 
 std::unique_ptr<juce::FocusOutline> RoarschachLookAndFeel::createFocusOutlineForComponent(juce::Component&)
@@ -1185,8 +1346,9 @@ std::unique_ptr<juce::FocusOutline> RoarschachLookAndFeel::createFocusOutlineFor
 
         void drawOutline(juce::Graphics& g, int width, int height) override
         {
-            g.setColour(output);
-            g.drawRoundedRectangle(juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(0.75f), 5.0f, 1.5f);
+            g.setColour(focus);
+            g.drawRoundedRectangle(juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(0.75f),
+                                   Metrics::radius, Metrics::focusRing);
         }
     };
 
@@ -1208,35 +1370,28 @@ void ThemeLink::setFont(const juce::Font& newFont, bool resizeToMatchComponentHe
     juce::HyperlinkButton::setFont(newFont, resizeToMatchComponentHeight, newJustification);
 }
 
-void ThemeLink::setHoverColour(juce::Colour colour)
-{
-    m_hoverColour = colour;
-    repaint();
-}
-
 void ThemeLink::paintButton(juce::Graphics& g, bool isMouseOverButton, bool isButtonDown)
 {
+    // Idle in its own colour (textColourId), the dyed ink under the mouse (read live: it follows the mood).
     auto colour = findColour(juce::HyperlinkButton::textColourId);
     if (!isEnabled())
-        colour = colour.withMultipliedAlpha(0.4f);
-    else if (isButtonDown)
-        colour = m_hoverColour.darker(0.15f);
-    else if (isMouseOverButton)
-        colour = m_hoverColour;
+        colour = Theme::Colours::inkFaint;
+    else if (isButtonDown || isMouseOverButton)
+        colour = Theme::Colours::accentInk;
 
     const auto area = getLocalBounds().reduced(1, 0).toFloat();
     g.setColour(colour);
     g.setFont(m_font);
     g.drawText(getButtonText(), area, m_justification.getOnlyHorizontalFlags() | juce::Justification::verticallyCentred, true);
 
-    if (RoarschachLookAndFeel::shouldShowFocusRing(*this))
+    if (RoarschachLookAndFeel::shouldShowFocusRing(*this) || (isMouseOverButton && isEnabled()))
     {
-        // Keyboard focus: an amber underline under the text.
-        const float w = std::min(area.getWidth(), juce::GlyphArrangement::getStringWidth(m_font, getButtonText()));
+        // An underline under the text (hover, and keyboard focus).
+        const float w = std::min(area.getWidth(), lineWidth(m_font, getButtonText()));
         const float x = m_justification.testFlags(juce::Justification::left) ? area.getX()
                       : m_justification.testFlags(juce::Justification::right) ? area.getRight() - w
                       : area.getCentreX() - w * 0.5f;
-        g.setColour(Theme::Colours::output);
+        g.setColour(RoarschachLookAndFeel::shouldShowFocusRing(*this) ? Theme::Colours::focus : colour);
         g.fillRect(juce::Rectangle<float>(x, std::round(area.getCentreY() + m_font.getAscent() * 0.5f + 2.0f), w, 1.0f));
     }
 }

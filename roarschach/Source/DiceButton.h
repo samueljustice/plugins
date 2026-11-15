@@ -7,8 +7,8 @@
 #include <functional>
 
 /**
- * A die drawn in vectors on the house's pill button (the LookAndFeel's background, outline, hover,
- * pressed, disabled and focus ring), so it sits with the preset bar's buttons and the tiles' chips.
+ * A die drawn in ink, as its own glyph: no chip at rest; under the mouse a raised-paper chip with an ink
+ * hairline, as the other quiet header glyphs; keyboard focus adds the focus ring.
  * The face shows 1..6 pips (setFace: the dice show a new face after every roll).
  *
  * - setPillSize draws the pill smaller than the button, so the button's clickable area can be larger
@@ -53,8 +53,16 @@ public:
     }
     int getFace() const noexcept { return m_face; }
 
-    /** The pips' colour on hover (the die itself stays in the house's text colours otherwise). */
-    void setAccent(juce::Colour accent) { m_accent = accent; repaint(); }
+    /** A die of a module that is Off: drawn in the faint ink (it still rolls). */
+    void setMuted(bool muted)
+    {
+        if (muted != m_muted)
+        {
+            m_muted = muted;
+            repaint();
+        }
+    }
+    bool isMuted() const noexcept { return m_muted; }
 
     /** The pill's side (0: the whole button). A smaller pill leaves a margin that still clicks. */
     void setPillSize(int side) { m_pillSize = side; repaint(); }
@@ -114,7 +122,7 @@ public:
         const auto inner = box.reduced(stroke * 0.5f);
         const float corner = side * 0.24f;
 
-        g.setColour(body.withMultipliedAlpha(0.18f));
+        g.setColour(Theme::Colours::accent.withAlpha(0.20f));   // a dye wash inside the ink outline
         g.fillRoundedRectangle(inner, corner);
         g.setColour(body);
         g.drawRoundedRectangle(inner, corner, stroke);
@@ -152,32 +160,29 @@ public:
         const bool enabled = isEnabled();
         const auto pill = getPillBounds();
 
-        // The house's pill (as the LookAndFeel draws a button), in the pill's area only.
+        // No chip at rest (the die is its own glyph); under the mouse a raised-paper chip and an ink
+        // hairline, as the other quiet header glyphs.
         {
-            const float corner = std::min(pill.getWidth(), pill.getHeight()) * 0.5f;
-            auto fill = findColour(juce::TextButton::buttonColourId);
-            if (!enabled)
-                fill = fill.withMultipliedAlpha(0.5f);
-            g.setColour(fill.brighter(isDown ? 0.2f : isMouseOver && enabled ? 0.1f : 0.0f));
-            g.fillRoundedRectangle(pill, corner);
+            const float corner = Theme::Metrics::radius;
+            if (enabled && (isMouseOver || isDown))
+            {
+                g.setColour(isDown ? Theme::Colours::sheet.darker(0.06f) : Theme::Colours::sheet);
+                g.fillRoundedRectangle(pill, corner);
+                g.setColour(Theme::Colours::ink.withAlpha(0.55f));
+                g.drawRoundedRectangle(pill, corner, Theme::Metrics::hairline);
+            }
             if (RoarschachLookAndFeel::shouldShowFocusRing(*this))
             {
-                g.setColour(Theme::Colours::output);
-                g.drawRoundedRectangle(pill.reduced(0.25f), corner, 1.5f);
-            }
-            else
-            {
-                g.setColour(!enabled ? Theme::Colours::outline.withMultipliedAlpha(0.6f)
-                                     : isMouseOver ? Theme::Colours::textDim : Theme::Colours::outline);
-                g.drawRoundedRectangle(pill, corner, 1.0f);
+                g.setColour(Theme::Colours::focus);
+                g.drawRoundedRectangle(pill.expanded(1.0f), corner + 1.0f, Theme::Metrics::focusRing);
             }
         }
 
-        auto body = isDown || isMouseOver ? Theme::Colours::text : Theme::Colours::textDim;
-        auto pips = (isDown || isMouseOver) && !m_accent.isTransparent() ? m_accent : body;
+        auto body = isDown || isMouseOver ? Theme::Colours::ink : m_muted ? Theme::Colours::inkFaint : Theme::Colours::inkDim;
+        auto pips = body;
         if (!enabled)
         {
-            body = Theme::Colours::textFaint;
+            body = Theme::Colours::inkFaint;
             pips = body;
         }
         // Pressed: the die sinks a little, the house's pressed state for a glyph.
@@ -188,7 +193,7 @@ public:
         if (m_caption.isNotEmpty())
         {
             g.setFont(m_captionFont);
-            g.setColour(!enabled ? Theme::Colours::textFaint : isDown || isMouseOver ? Theme::Colours::text : Theme::Colours::textDim);
+            g.setColour(!enabled ? Theme::Colours::inkFaint : isDown || isMouseOver ? Theme::Colours::ink : Theme::Colours::inkDim);
             g.drawText(m_caption, getCaptionBounds(), juce::Justification::centred, false);
         }
     }
@@ -261,7 +266,7 @@ private:
     };
 
     int m_face = 5;
-    juce::Colour m_accent;
+    bool m_muted = false;
     int m_pillSize = 0;
     juce::String m_caption;
     juce::Font m_captionFont { juce::FontOptions {} };

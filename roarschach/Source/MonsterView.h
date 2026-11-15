@@ -161,7 +161,13 @@ public:
     /** Message thread. Stores into atomics read by the GL thread. */
     void setParams (const Params& params);
 
-    /** Message thread. Radius (component px) of the rounded corners and the colour drawn outside them. */
+    /** Message thread: the cloud's colour as it is on screen now (OkLCh hue in degrees, chroma), for the
+        controls to take their tint from. While no frames are drawn, the tone of the settings' mood (or
+        of the colour kept while Frozen). */
+    roar::CreatureMood::Tone shownTone() const;
+
+    /** Message thread. Radius (component px) of the rounded corners and the colour drawn outside them:
+        the paper, which the picture's edges also dissolve into. */
     void setCorner (float radius, juce::Colour outside);
 
     void paint (juce::Graphics&) override;
@@ -238,9 +244,17 @@ private:
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodKept {};   // the saved frozen colour
     std::atomic<bool> m_moodHasKept { false };
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodShown {};  // written on the GL thread (only while it draws)
+    std::array<std::atomic<float>, 2> m_toneShown {};   // hue, chroma on screen (GL thread writes, only while it draws)
+    std::atomic<bool> m_toneSeen { false };
     std::atomic<int> m_width { 0 }, m_height { 0 };
     std::atomic<float> m_cornerRadius { 8.0f };
-    std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::background.getARGB() };
+    std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::paper.getARGB() };
+
+    // The feathered edge (message thread): an image of the paper fading in from every side, made once
+    // for a size and a paper colour, so paint() costs one image draw (never a blur).
+    juce::Image m_feather;
+    juce::uint32 m_featherArgb = 0;
+    void drawFeather (juce::Graphics&, juce::Rectangle<float> bounds);
 
     // Written on the GL thread, read by the overlay.
     std::atomic<bool> m_shaderFailed { false };

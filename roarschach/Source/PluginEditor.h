@@ -85,6 +85,24 @@ private:
 
     void paintContent(juce::Graphics& g);
     void layoutContent();
+    juce::Rectangle<float> wordmarkBounds() const;
+    juce::Rectangle<float> creditLineBounds() const;
+
+    /** The colour mood: the cloud's shown tone, eased, into the palette (Theme::applyMood) a few times a
+        second, and what uses it repainted when it changed. Only the editor last opened or pointed at
+        drives the (shared) palette. */
+    void followMood();
+    void applyMood(bool force);
+
+    struct MoodFocus final : public juce::MouseListener
+    {
+        explicit MoodFocus(RoarschachAudioProcessorEditor& e) : m_editor(e) {}
+        void mouseEnter(const juce::MouseEvent&) override;
+        RoarschachAudioProcessorEditor& m_editor;
+    };
+    MoodFocus m_moodFocus { *this };
+    roar::CreatureMood::Tone m_moodTone { Theme::c_referenceHue, Theme::c_referenceChroma };
+    int m_moodTick = 0;
     void showAboutWindow();
     void updateMonsterParams();
 

@@ -478,6 +478,53 @@ void MonsterView::visibilityChanged()
     }
 }
 
+roar::CreatureMood::Tone MonsterView::shownTone() const
+{
+    if (drawsFrames() && m_glReady.load (std::memory_order_relaxed) && m_toneSeen.load (std::memory_order_relaxed))
+        return { m_toneShown[0].load (std::memory_order_relaxed), m_toneShown[1].load (std::memory_order_relaxed) };
+
+    roar::CreatureMood::Axes target {};
+    const bool kept = m_moodFrozen.load (std::memory_order_relaxed) && m_moodHasKept.load (std::memory_order_acquire);
+    for (size_t i = 0; i < target.size(); ++i)
+        target[i] = safe ((kept ? m_moodKept[i] : m_moodTarget[i]).load (std::memory_order_relaxed), 0.0f, 1.0f);
+    if (m_testMood[0].load (std::memory_order_relaxed) >= 0.0f)
+        for (size_t i = 0; i < target.size(); ++i)
+            target[i] = safe (m_testMood[i].load (std::memory_order_relaxed), 0.0f, 1.0f);
+    return roar::CreatureMood::tone (target);
+}
+
+void MonsterView::drawFeather (juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    // The picture has no frame: its edges dissolve into the paper. Narrow at the top and the sides, a
+    // little deeper at the foot, where the picture meets the controls; the creature's body keeps clear of
+    // it (it never reaches the outer 3 % of the picture).
+    const int w = juce::roundToInt (bounds.getWidth()), h = juce::roundToInt (bounds.getHeight());
+    if (w <= 0 || h <= 0)
+        return;
+    const auto paperColour = juce::Colour (m_outsideArgb.load (std::memory_order_relaxed));
+    if (m_feather.getWidth() != w || m_feather.getHeight() != h || m_featherArgb != paperColour.getARGB())
+    {
+        m_featherArgb = paperColour.getARGB();
+        m_feather = juce::Image (juce::Image::ARGB, w, h, true);
+        constexpr float side = 22.0f, top = 18.0f, foot = 34.0f;
+        const auto ease = [] (float t) { t = juce::jlimit (0.0f, 1.0f, t); return t * t * (3.0f - 2.0f * t); };
+        juce::Image::BitmapData px (m_feather, juce::Image::BitmapData::writeOnly);
+        for (int y = 0; y < h; ++y)
+        {
+            const float fy = std::min (ease (static_cast<float> (y) / top), ease (static_cast<float> (h - 1 - y) / foot));
+            for (int x = 0; x < w; ++x)
+            {
+                // (the corners round off: the two fades multiply)
+                const float fx = ease (std::min (static_cast<float> (x), static_cast<float> (w - 1 - x)) / side);
+                const float keep = fx * fy;
+                if (keep < 0.999f)
+                    px.setPixelColour (x, y, paperColour.withAlpha (1.0f - keep));
+            }
+        }
+    }
+    g.drawImageAt (m_feather, juce::roundToInt (bounds.getX()), juce::roundToInt (bounds.getY()));
+}
+
 void MonsterView::paint (juce::Graphics& g)
 {
     using namespace Theme::Colours;
@@ -515,61 +562,69 @@ void MonsterView::paint (juce::Graphics& g)
             }
         if (m_failShown)
         {
-            g.setFont (m_fonts->body (12.0f));
+            g.setFont (m_fonts->body (Theme::Type::body));
             const juce::String message ("OpenGL not available");
-            const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), message) + 24.0f;
-            const auto pill = bounds.withSizeKeepingCentre (w, 24.0f);
-            g.setColour (scope.withAlpha (0.6f));
-            g.fillRoundedRectangle (pill, 6.0f);
-            g.setColour (textDim);
+            const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), message) + 28.0f;
+            const auto pill = bounds.withSizeKeepingCentre (w, 26.0f);
+            g.setColour (readout);
+            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+            g.setColour (readoutText);
             g.drawText (message, pill, juce::Justification::centred, false);
         }
     }
 
-    auto row = bounds.reduced (16.0f, 12.0f).removeFromTop (16.0f);
-    g.setFont (m_fonts->label (10.5f));
+    drawFeather (g, bounds);
 
-    // The readouts sit on a soft dark backing: the creature view is a pale, misty sky, and the
-    // accent colours alone would not read on it.
-    const auto readout = [&g] (const juce::String& label, juce::Rectangle<float> r, bool left, juce::Colour c)
+    // The readouts: soft rounded labels of raised paper, the caption (the first word) in the dim ink and
+    // small, the value in ink, so they read on any cloud and in any mood without a hard box.
+    const auto captionFont = m_fonts->caption (Theme::Type::caption);
+    const auto valueFont = m_fonts->value (Theme::Type::value);
+    const auto readoutLabel = [&] (const juce::String& textIn, juce::Rectangle<float> r, bool left, bool dim)
     {
-        const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 12.0f;
-        const auto pill = (left ? r.withWidth (w).translated (-6.0f, 0.0f) : r.withLeft (r.getRight() - w).translated (6.0f, 0.0f)).expanded (0.0f, 2.0f);
-        g.setColour (scope.withAlpha (0.6f));
-        g.fillRoundedRectangle (pill, 5.0f);
-        g.setColour (c);
-        g.drawText (label, r, left ? juce::Justification::centredLeft : juce::Justification::centredRight, false);
+        const auto caption = textIn.upToFirstOccurrenceOf (" ", false, false);
+        const auto value = textIn.fromFirstOccurrenceOf (" ", false, false).trim();
+        const float cw = juce::GlyphArrangement::getStringWidth (captionFont, caption);
+        const float vw = value.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (valueFont, value) + 7.0f;
+        const float w = cw + vw + 22.0f;
+        const auto plate = (left ? r.withWidth (w).translated (-11.0f, 0.0f) : r.withLeft (r.getRight() - w).translated (11.0f, 0.0f)).expanded (0.0f, 4.0f);
+        g.setColour (readout);
+        g.fillRoundedRectangle (plate, plate.getHeight() * 0.5f);
+        auto inner = plate.reduced (11.0f, 0.0f);
+        g.setFont (captionFont);
+        g.setColour (readoutCaption);
+        g.drawText (caption, inner.removeFromLeft (cw + 1.0f), juce::Justification::centredLeft, false);
+        if (value.isNotEmpty())
+        {
+            g.setFont (valueFont);
+            g.setColour (dim ? readoutCaption : readoutText);
+            g.drawText (value, inner, juce::Justification::centredRight, false);
+        }
     };
 
-    readout (m_f0Text, row, true, m_f0Text == "F0 --" ? textFaint : pitch.withAlpha (0.9f));
-    readout (m_detailText, row, false, Theme::Colours::detail.withAlpha (0.85f));
+    auto row = bounds.reduced (24.0f, 18.0f).removeFromTop (18.0f);
+    readoutLabel (m_f0Text, row, true, m_f0Text == "F0 --");
+    readoutLabel (m_detailText, row, false, false);
 
-    auto bottom = bounds.reduced (16.0f, 12.0f).removeFromBottom (16.0f);
+    auto bottom = bounds.reduced (24.0f, 18.0f).removeFromBottom (18.0f).translated (0.0f, -12.0f);
 
     if (m_gravelShown)
-    {
-        readout ("VOCODER  32 BANDS", bottom, true, vocoder.withAlpha (0.85f));
-    }
+        readoutLabel ("VOCODER 32 BANDS", bottom, true, false);
 
     if (m_sleepShown)
-    {
-        readout ("ASLEEP", bottom, false, textDim);
-    }
+        readoutLabel ("ASLEEP", bottom, false, true);
 
     if (m_hintShown && m_hintText.isNotEmpty())
     {
-        // Centred on the bottom row, between the two readouts, on the same dark backing.
-        g.setFont (m_fonts->body (12.0f));
-        const float w = std::min (bottom.getWidth() - 360.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), m_hintText) + 20.0f);
-        const auto pill = bottom.withSizeKeepingCentre (w, bottom.getHeight()).expanded (0.0f, 3.0f);
-        g.setColour (scope.withAlpha (0.6f));
-        g.fillRoundedRectangle (pill, 5.0f);
-        g.setColour (textDim);
-        g.drawText (m_hintText, pill.reduced (8.0f, 0.0f), juce::Justification::centred, true);
+        // Centred on the bottom row, between the two readouts, on the same soft label.
+        const auto hintFont = m_fonts->body (Theme::Type::body);
+        g.setFont (hintFont);
+        const float w = std::min (bottom.getWidth() - 360.0f, juce::GlyphArrangement::getStringWidth (hintFont, m_hintText) + 28.0f);
+        const auto pill = bottom.withSizeKeepingCentre (w, bottom.getHeight()).expanded (0.0f, 4.0f);
+        g.setColour (readout);
+        g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+        g.setColour (readoutText);
+        g.drawText (m_hintText, pill.reduced (12.0f, 0.0f), juce::Justification::centred, true);
     }
-
-    g.setColour (outlineSoft);
-    g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 }
 
 void MonsterView::newOpenGLContextCreated()
@@ -760,6 +815,9 @@ void MonsterView::updateAnimation (float dt)
             m_tone.snap (tone);
         else
             m_tone.step (dt, tone);
+        m_toneShown[0].store (m_tone.value.hue, std::memory_order_relaxed);
+        m_toneShown[1].store (m_tone.value.chroma, std::memory_order_relaxed);
+        m_toneSeen.store (true, std::memory_order_relaxed);
         m_moodSnap = false;
     }
 
@@ -861,7 +919,7 @@ void MonsterView::renderOpenGL()
     const int height = juce::roundToInt (scale * (float) m_height.load (std::memory_order_relaxed));
 
     glViewport (0, 0, width, height);
-    juce::OpenGLHelpers::clear (Theme::Colours::scope);
+    juce::OpenGLHelpers::clear (juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
 
     if (! m_renderer.isCreated() || width <= 0 || height <= 0)
         return;

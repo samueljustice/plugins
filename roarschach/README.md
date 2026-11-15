@@ -534,7 +534,7 @@ Options:
 
 Created by Samuel Justice, Creative Sound Supervisor at [Sweet Justice](https://www.sweetjusticesound.com).
 
-- UI font: [Azeret Mono](https://github.com/displaay/Azeret), SIL Open Font License 1.1.
+- UI fonts: [Marcellus](https://github.com/google/fonts/tree/main/ofl/marcellus) and [Source Sans 3](https://github.com/adobe-fonts/source-sans), both under the SIL Open Font License 1.1 (each font's licence is beside it in [Resources/Fonts](Resources/Fonts)).
 - All the signal processing is original, built on [JUCE](https://juce.com).
 
 ## License

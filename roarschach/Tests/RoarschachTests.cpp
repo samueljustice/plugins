@@ -83,6 +83,7 @@ struct RoarschachEditorInspector
     static juce::LookAndFeel& lookAndFeel(RoarschachAudioProcessorEditor& e) { return e.m_lookAndFeel; }
     static DiceButton& presetDice(RoarschachAudioProcessorEditor& e) { return e.m_presetDice; }
     static void updateMonster(RoarschachAudioProcessorEditor& e) { e.updateMonsterParams(); }
+    static void followMood(RoarschachAudioProcessorEditor& e) { e.followMood(); }
 };
 
 namespace
@@ -3160,15 +3161,17 @@ namespace
                 check(menus == static_cast<int>(dice.size()), "every die opens its undo menu from the keyboard and for screen readers");
             }
 
-            // Off modules dim their die with the rest of the tile.
+            // Off modules mute their die with the rest of the tile (drawn in the faint ink, not faded:
+            // the state shows in ink rank and shape, and the die stays fully opaque and clickable).
             {
                 const auto ring = static_cast<int>(Params::ModuleId::ring);
                 setParam(*p, Params::modules[static_cast<size_t>(ring)].onId, 0.0f);
                 strip.refresh();
-                const float offAlpha = strip.getModuleDice(ring)->getAlpha();
+                const bool offMuted = strip.getModuleDice(ring)->isMuted();
                 setParam(*p, Params::modules[static_cast<size_t>(ring)].onId, 1.0f);
                 strip.refresh();
-                check(offAlpha < 0.6f && strip.getModuleDice(ring)->getAlpha() > 0.99f, "an Off module's die is dimmed");
+                check(offMuted && !strip.getModuleDice(ring)->isMuted() && strip.getModuleDice(ring)->getAlpha() > 0.99f,
+                      "an Off module's die is muted");
             }
 
             // Cmd+Z / Shift+Cmd+Z on the die that has the focus; anywhere else they are the host's.
@@ -3755,8 +3758,9 @@ namespace
                 ticks(menu);
 
                 // Every combination of choices: the chip text names them and fits the chip.
-                const float room = static_cast<float>(chip->getWidth() - 16);
-                const auto font = Theme::Fonts().label(9.0f);
+                // (the chip's label is set untracked at the chip's height; its caret takes 11 px)
+                const float room = static_cast<float>(chip->getWidth() - 16 - 11);
+                const auto font = Theme::Fonts().value(std::min(Theme::Type::button, static_cast<float>(chip->getHeight()) * 0.6f));
                 std::vector<const char*> ids;
                 for (const char* id : spec.chipIds)
                     if (id != nullptr)
@@ -3767,7 +3771,7 @@ namespace
                     {
                         const auto t = strip.modeChipText(m, room);
                         const float w = juce::GlyphArrangement::getStringWidth(font, t);
-                        if (w > static_cast<float>(chip->getWidth()) - 10.0f)
+                        if (w > static_cast<float>(chip->getWidth()) - 10.0f - 11.0f)
                         {
                             ++failures;
                             std::printf("    chip %s: \"%s\" is %.0f px in a %d px chip\n", spec.code, t.toRawUTF8(), w, chip->getWidth());
@@ -3860,7 +3864,10 @@ namespace
             setParam(*p, Params::pitchOn, 0.0f);
             strip.refresh();
             const auto pitch = strip.getKnobs(strip.getModuleTile(static_cast<int>(Params::ModuleId::pitch)));
-            check(std::abs(pitch[0].first->getAlpha() - 0.45f) < 0.01f && pitch[0].first->isEnabled(), "an Off tile is dimmed and its knobs still work");
+            // An Off tile's knobs are drawn as outlines (their state by shape; nothing is faded).
+            check(RoarschachLookAndFeel::getKnobStyle(*pitch[0].first) == RoarschachLookAndFeel::KnobStyle::off
+                      && pitch[0].first->getAlpha() > 0.99f && pitch[0].first->isEnabled(),
+                  "an Off tile's knobs are drawn as outlines and still work");
             setParam(*p, Params::pitchOn, 1.0f);
         }
 
@@ -3872,6 +3879,133 @@ namespace
     // first-run hint, the quick start, knobs the current settings do not use, the latency note.
 
     /** WCAG contrast ratio of two opaque colours. */
+    double contrastRatio(juce::Colour a, juce::Colour b);
+
+    /** The roles' contrast at every mood extreme (Theme::makeRoles), each pair at its worst. */
+    void testThemeContrast()
+    {
+        struct Pair { const char* what; juce::Colour Theme::Roles::* a; juce::Colour Theme::Roles::* b; double need; };
+        using R = Theme::Roles;
+        const Pair pairs[] {
+            { "ink on paper", &R::ink, &R::paper, 4.5 },              { "ink on a tile", &R::ink, &R::wash, 4.5 },
+            { "dim ink on paper", &R::inkDim, &R::paper, 4.5 },       { "dim ink on a tile", &R::inkDim, &R::wash, 4.5 },
+            { "dim ink on raised paper", &R::inkDim, &R::sheet, 4.5 },
+            { "faint ink on paper", &R::inkFaint, &R::paper, 4.5 },   { "faint ink on a tile", &R::inkFaint, &R::wash, 4.5 },
+            { "faint ink on raised paper", &R::inkFaint, &R::sheet, 4.5 },
+            { "dyed ink on paper", &R::accentInk, &R::paper, 4.5 },   { "dyed ink on a tile", &R::accentInk, &R::wash, 4.5 },
+            { "dyed ink on raised paper", &R::accentInk, &R::sheet, 4.5 },
+            { "paper letters on a dyed-ink button", &R::sheet, &R::accentInk, 4.5 },
+            { "paper letters on an ink button", &R::sheet, &R::ink, 4.5 },
+            { "warning ink on a tile", &R::warn, &R::wash, 4.5 },     { "paper letters on a warning button", &R::sheet, &R::warn, 4.5 },
+            { "a value arc on a tile", &R::accent, &R::wash, 3.0 },   { "a meter fill in its groove", &R::meterFill, &R::groove, 3.0 },
+            { "a meter fill on a tile", &R::meterFill, &R::wash, 3.0 }, { "the focus ring on a tile", &R::focus, &R::wash, 3.0 },
+            { "the focus ring on raised paper", &R::focus, &R::sheet, 3.0 },
+        };
+
+        for (const auto variant : { Theme::Variant::paper, Theme::Variant::dark })
+        {
+            const char* name = variant == Theme::Variant::paper ? "paper" : "dark";
+            for (const auto& pair : pairs)
+            {
+                double worst = 1.0e9;
+                float worstHue = 0.0f, worstChroma = 0.0f;
+                for (int h = 0; h < 360; h += 5)
+                    for (const float c : { 0.0f, 0.02f, 0.0394f, 0.06f, 0.085f, 0.12f, 0.2f })
+                    {
+                        const auto roles = Theme::makeRoles(variant, static_cast<float>(h), c);
+                        const double cr = contrastRatio(roles.*(pair.a), roles.*(pair.b));
+                        if (cr < worst)
+                        {
+                            worst = cr;
+                            worstHue = static_cast<float>(h);
+                            worstChroma = c;
+                        }
+                    }
+                if (variant == Theme::Variant::paper)
+                    std::printf("  %-36s %5.2f to 1 at its worst (hue %3.0f, chroma %.3f)\n", pair.what, worst, worstHue, worstChroma);
+                check(worst >= pair.need, juce::String(name) + " roles: " + pair.what + " holds " + juce::String(pair.need, 1)
+                                              + " to 1 in every mood (worst " + juce::String(worst, 2) + ")");
+            }
+
+            // The readouts over the picture: the value on its soft label, over the darkest and the
+            // palest the picture can be behind it.
+            double readoutWorst = 1.0e9;
+            for (int h = 0; h < 360; h += 15)
+                for (const float c : { 0.0f, 0.085f, 0.2f })
+                {
+                    const auto roles = Theme::makeRoles(variant, static_cast<float>(h), c);
+                    for (const auto behind : { juce::Colours::black, juce::Colours::white, juce::Colour(0xff94b0c1) })
+                        readoutWorst = std::min(readoutWorst, contrastRatio(roles.readoutText, behind.overlaidWith(roles.readout)));
+                }
+            if (variant == Theme::Variant::paper)
+                std::printf("  %-36s %5.2f to 1 at its worst\n", "a readout over the picture", readoutWorst);
+            check(readoutWorst >= 4.5, juce::String(name) + " roles: a readout over the picture holds 4.5 to 1");
+        }
+
+        // The three ranks of ink stay apart (on the paper at the reference tone).
+        const auto ref = Theme::makeRoles(Theme::Variant::paper, Theme::c_referenceHue, Theme::c_referenceChroma);
+        check(contrastRatio(ref.ink, ref.wash) > contrastRatio(ref.inkDim, ref.wash) + 2.0
+                  && contrastRatio(ref.inkDim, ref.wash) > contrastRatio(ref.inkFaint, ref.wash) + 0.6,
+              "the three ranks of ink stay apart");
+
+        // Lightness is locked: the paper is as bright in a warm mood as in a cold one (so the window's
+        // light output and every contrast hold), only its tone moves.
+        float lo = 1.0f, hi = 0.0f;
+        for (int h = 0; h < 360; h += 5)
+        {
+            const float y = Theme::luminance(Theme::makeRoles(Theme::Variant::paper, static_cast<float>(h), 0.12f).paper);
+            lo = std::min(lo, y);
+            hi = std::max(hi, y);
+        }
+        std::printf("  paper luminance %.3f to %.3f across every hue\n", lo, hi);
+        check(hi - lo < 0.03f, "the paper's brightness does not move with the mood");
+    }
+
+    /** The colour mood reaches the controls: the accent the LookAndFeel draws with differs between
+        moods (a warm mood against a cold one), and follows the creature view's tone. */
+    void testMoodTintsControls()
+    {
+        const auto ember = Theme::makeRoles(Theme::Variant::paper, 28.0f, 0.085f);
+        const auto blue = Theme::makeRoles(Theme::Variant::paper, 262.0f, 0.082f);
+        const auto distance = [](juce::Colour a, juce::Colour b)
+        {
+            return std::abs(a.getFloatRed() - b.getFloatRed()) + std::abs(a.getFloatGreen() - b.getFloatGreen())
+                 + std::abs(a.getFloatBlue() - b.getFloatBlue());
+        };
+        check(distance(ember.accent, blue.accent) > 0.3f, "the accent differs between a warm and a cold mood");
+        check(distance(ember.paper, blue.paper) > 0.03f, "the paper takes a tint of the mood");
+        check(ember.paper.getFloatRed() > ember.paper.getFloatBlue() && blue.paper.getFloatBlue() > blue.paper.getFloatRed(),
+              "a warm mood warms the paper and a cold one cools it");
+
+        // Through the editor: the creature view's mood drives the palette, and the LookAndFeel's colours.
+        auto p = makeProcessor(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+        auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+        auto& view = RoarschachEditorInspector::monster(editor);
+        auto& laf = RoarschachEditorInspector::lookAndFeel(editor);
+        const auto settle = [&](const roar::CreatureMood::Axes& axes)
+        {
+            view.setMoodForTests(axes);
+            for (int i = 0; i < 40; ++i)
+                RoarschachEditorInspector::followMood(editor);
+            return laf.findColour(juce::ToggleButton::tickColourId);
+        };
+        const int servedBefore = Theme::paletteSerial();
+        const auto warm = settle({ 1.0f, 0.0f, 0.0f, 0.0f });
+        const auto cold = settle({ 0.0f, 1.0f, 0.0f, 0.0f });
+        std::printf("  the controls' accent: %s in a warm mood, %s in a cold one\n", warm.toDisplayString(false).toRawUTF8(),
+                    cold.toDisplayString(false).toRawUTF8());
+        check(distance(warm, cold) > 0.3f && warm.getFloatRed() > cold.getFloatRed() && cold.getFloatBlue() > warm.getFloatBlue(),
+              "the editor's controls take the mood's accent");
+        check(Theme::paletteSerial() > servedBefore, "the palette changed with the mood");
+        const int servedSettled = Theme::paletteSerial();
+        settle({ 0.0f, 1.0f, 0.0f, 0.0f });
+        check(Theme::paletteSerial() == servedSettled, "a settled mood changes nothing (nothing repaints)");
+        view.setMoodForTests({ -1.0f, -1.0f, -1.0f, -1.0f });
+        editorBase.reset();
+        Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+    }
+
     double contrastRatio(juce::Colour a, juce::Colour b)
     {
         const auto luminance = [](juce::Colour c)
@@ -4018,22 +4152,18 @@ namespace
             check(again->getWidth() == juce::roundToInt(baseW * 0.7f), "the size saved with the instance is the size its editor opens at");
         }
 
-        // 4. Contrast: every rank of text reads on every panel colour (WCAG AA is 4.5 to 1).
-        {
-            namespace C = Theme::Colours;
-            const double faintPanel = contrastRatio(C::textFaint, C::panel), faintBack = contrastRatio(C::textFaint, C::background),
-                         faintRaised = contrastRatio(C::textFaint, C::panelRaised), dimRaised = contrastRatio(C::textDim, C::panelRaised);
-            std::printf("  contrast: faint text %.2f on a panel, %.2f on the background, %.2f on a raised panel; dim text %.2f on a raised panel\n",
-                        faintPanel, faintBack, faintRaised, dimRaised);
-            check(faintPanel >= 4.5 && faintBack >= 4.5, "the faintest text is at least 4.5 to 1 on the panel and the background");
-            check(faintRaised >= 4.0, "the faintest text is at least 4 to 1 on a raised panel");
-            check(dimRaised >= 4.5 && contrastRatio(C::textDim, C::panel) > faintPanel + 1.5
-                      && contrastRatio(C::text, C::panel) > contrastRatio(C::textDim, C::panel) + 3.0,
-                  "the three ranks of text stay apart");
-        }
+        // 4. Contrast in every colour mood: the palette's roles at every hue (5 degree steps) and at
+        //    chromas from none to beyond the most vivid mood, in both role sets (WCAG: 4.5 to 1 for
+        //    text, 3 to 1 for marks that are not text).
+        testThemeContrast();
+        testMoodTintsControls();
 
-        // 5. Captions: 11 design px wherever the tile has the room (8.8 px at the smallest default
-        //    window), never under 9, each whole word shown, clear of the captions beside it and of the sides of its tile.
+        // 5. Captions: at the caption size (Theme::Type::caption, point height) wherever the tile has the
+        //    room, never under 8.25 (CHAMBER's four narrow knobs only), each whole word shown, clear of the
+        //    captions beside it and of the sides of its tile. (Sizes are point heights: the sans's cap
+        //    height is 0.66 of it, so 12.9 pt keeps 5.5 px capitals at 65 %. CHAMBER's 8.25 pt floor gives
+        //    5.4 px capitals at full size, the same as the 9 px-high mono captions this floor replaces;
+        //    its four knobs need a layout of their own to reach the caption size.)
         {
             auto p = makeProcessor(48000.0, 512);
             std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
@@ -4056,21 +4186,22 @@ namespace
                 for (auto* label : labels)
                 {
                     ++captions;
-                    const float height = label->getFont().getHeight();
+                    const float height = label->getFont().getHeightInPoints();
                     smallest = std::min(smallest, height);
-                    tiny += height < 9.0f - 0.01f ? 1 : 0;
-                    small += tile != chamberTile && height < 11.0f - 0.01f ? 1 : 0;
+                    tiny += height < 8.25f - 0.01f ? 1 : 0;
+                    small += tile != chamberTile && height < Theme::Type::caption - 0.01f ? 1 : 0;
                     cut += juce::GlyphArrangement::getStringWidth(label->getFont(), label->getText()) > static_cast<float>(label->getWidth()) ? 1 : 0;
-                    cut += height > static_cast<float>(label->getHeight()) ? 1 : 0;
+                    // (the capitals and their room: ascent above the baseline, no descenders in capitals)
+                    cut += label->getFont().getAscent() > static_cast<float>(label->getHeight()) ? 1 : 0;
                     outside += tile->getLocalBounds().contains(label->getBounds()) ? 0 : 1;
                     for (auto* other : labels)
                         touching += other != label && other->getBounds().intersects(label->getBounds()) ? 1 : 0;
                 }
             }
-            std::printf("  %d knob captions, the smallest %.2f design px (%.1f px in an 80 %% window)\n", captions, smallest, smallest * 0.8f);
+            std::printf("  %d knob captions, the smallest %.2f pt (capitals %.1f px at 65 %%)\n", captions, smallest, smallest * 0.66f * 0.65f);
             check(captions >= 30, "the knob captions were found");
-            check(small == 0, juce::String(small) + " captions under 11 design px outside CHAMBER");
-            check(tiny == 0, juce::String(tiny) + " captions under 9 design px");
+            check(small == 0, juce::String(small) + " captions under the caption size outside CHAMBER");
+            check(tiny == 0, juce::String(tiny) + " captions under 8.25 pt");
             check(cut == 0, juce::String(cut) + " captions cut short");
             check(outside == 0 && touching == 0, "captions overlap each other or leave their tile");
         }
@@ -4283,11 +4414,18 @@ namespace
                             return slider;
                 return nullptr;
             };
+            // A knob's state is drawn by its shape (LookAndFeel::KnobStyle: a filled disc in use, a lighter
+            // arc when it does little, an outline when unused or Off), never by fading it. These checks read
+            // the style on the three ranks lit, weak and unused (Off counts as unused).
             const auto alphaOf = [&](const char* id)
             {
                 strip.refresh();
                 auto* knob = knobFor(id);
-                return knob != nullptr && knob->isEnabled() ? knob->getAlpha() : -1.0f;
+                if (knob == nullptr || !knob->isEnabled() || knob->getAlpha() < 0.99f)
+                    return -1.0f;
+                using Style = RoarschachLookAndFeel::KnobStyle;
+                const auto style = RoarschachLookAndFeel::getKnobStyle(*knob);
+                return style == Style::full ? 1.0f : style == Style::weak ? 0.7f : 0.45f;
             };
             const auto is = [](float alpha, float want) { return std::abs(alpha - want) < 0.01f; };
             const float lit = 1.0f, weak = 0.7f, unused = 0.45f;
@@ -4407,12 +4545,12 @@ namespace
             rate->setValue(40.0, juce::sendNotificationSync);
             check(std::abs(getParam(*p, Params::growlRate) - 40.0f) < 0.5f, "a dimmed knob still turns");
 
-            // Dimming a knob and its caption together.
+            // A knob and its caption change together: an unused knob's caption takes the faint ink.
             int captionsApart = 0;
             for (auto* c : strip.getOutputTile()->getChildren())
                 if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->getText() == "SHAPE")
-                    captionsApart += is(label->getAlpha(), alphaOf(Params::outClipShape)) ? 0 : 1;
-            check(captionsApart == 0, "a dimmed knob's caption dims with it");
+                    captionsApart += RoarschachLookAndFeel::isCaptionLive(*label) == (alphaOf(Params::outClipShape) > 0.5f) ? 0 : 1;
+            check(captionsApart == 0, "an unused knob's caption changes with it");
         }
 
         writeUiShots();
