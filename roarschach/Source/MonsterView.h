@@ -190,6 +190,14 @@ public:
     bool readsSilenceForTests() const { return m_stale.load (std::memory_order_relaxed); }
     bool isAsleepForTests() const { return m_asleep.load (std::memory_order_relaxed); }
     bool isIdleForTests() const { return m_idle.load (std::memory_order_relaxed); }
+    /** A readout over the picture ("CAPTION value", or a caption alone) on its soft label, at the
+        left or the right end of `row`; returns the label's bounds. Also used by the tests, which
+        measure it over the darkest and the palest picture. */
+    static juce::Rectangle<float> drawReadout (juce::Graphics&, const Theme::Fonts&, const juce::String& text,
+                                               juce::Rectangle<float> row, bool left, bool dim);
+    /** The first-run hint, centred on `row`; returns its label's bounds. */
+    static juce::Rectangle<float> drawHint (juce::Graphics&, const Theme::Fonts&, const juce::String& text, juce::Rectangle<float> row);
+
     /** Tests: the readouts as the last refreshOverlay() wrote them ("F0 ... | DETAIL ..."). Message thread. */
     juce::String getReadoutsForTests() const { return m_f0Text + " | " + m_detailText; }
     /** Tests: the ripples from hits as the last frame stepped them. */

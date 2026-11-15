@@ -158,23 +158,22 @@ namespace Theme
             return r;
         }
 
-        // Paper: the cloud's own tone, greyed to a fifth of the mood's chroma (never above 0.017), so
-        // the mood washes through without colouring the sheet. Warm moods lean the paper towards
-        // parchment (an ember cloud gives a warm sand, not a pink), and the dye keeps the mood's own hue.
-        const auto paperHue = [hue]
-        {
-            const float fromEmber = std::remainder(hue - 28.0f, 360.0f);
-            const float w = std::max(0.0f, 1.0f - std::abs(fromEmber) / 70.0f);
-            return hue + 24.0f * w;
-        }();
-        const float pc = std::min(0.017f, 0.2f * chroma);
+        // Paper: the cloud's own tone, greyed to a fifth of the mood's chroma (never above 0.017; a
+        // little more in warm moods), so the mood washes through without colouring the sheet. Warm moods
+        // lean the paper towards parchment (an ember cloud gives a warm parchment, not a pink), and the
+        // dye keeps the mood's own hue. `warm` weighs the lean: 1 at an ember cloud, 0 from 70 degrees away.
+        const float warm = std::max(0.0f, 1.0f - std::abs(std::remainder(hue - 28.0f, 360.0f)) / 70.0f);
+        const float paperHue = hue + 40.0f * warm;   // an ember cloud's paper is parchment (hue ~70), never pink
+        const float pc = std::min(0.017f + 0.005f * warm, (0.2f + 0.06f * warm) * chroma);
         const float ac = juce::jlimit(0.060f, 0.130f, chroma * 1.45f);
         const float ic = juce::jlimit(0.050f, 0.110f, chroma * 1.20f);
 
-        r.paper = lch(0.765f, pc, paperHue);
-        r.wash = lch(0.782f, pc * 0.8f, paperHue);   // barely lighter than the paper: a wash, not a card
-        r.sheet = lch(0.885f, pc * 0.55f, paperHue);
-        r.groove = lch(0.700f, pc * 0.9f, paperHue);
+        // A pale paper (lighter than the cloud's shade, darker than its lights), so the picture's
+        // whites stay the brightest thing in the window.
+        r.paper = lch(0.800f, pc, paperHue);
+        r.wash = lch(0.818f, pc * 0.8f, paperHue);   // barely lighter than the paper: a wash, not a card
+        r.sheet = lch(0.905f, pc * 0.55f, paperHue);
+        r.groove = lch(0.725f, pc * 0.9f, paperHue);
 
         // Ink carries a trace of the mood (barely: chroma .008 to .012).
         r.ink = lch(0.205f, 0.008f, hue);
@@ -302,7 +301,26 @@ namespace Theme
         inline constexpr float hairline = 1.0f;      ///< rules and outlines
         inline constexpr float focusRing = 1.5f;     ///< keyboard focus
         inline constexpr float pointer = 2.0f;       ///< a knob's pointer
-        inline constexpr float meter = 4.0f;         ///< a meter's thickness in the footers
+        inline constexpr float meter = 5.0f;         ///< a meter's thickness in the footers
+        inline constexpr float meterTick = 3.0f;     ///< the ticks ruled under a meter's groove
+        inline constexpr float lamp = 14.0f;         ///< an On lamp's drawn size
+
+        /** The smallest clickable area of a small control (design px): 16 px or more at 65 %. Small
+            glyphs (an On lamp, a die, the move chip, a mode chip) are drawn smaller than this and click
+            in a margin around what is drawn. */
+        inline constexpr int hitTarget = 26;
+        inline constexpr int chipHeight = 18;        ///< a mode chip as drawn (its button is hitTarget high)
+
+        /** How long a clip mark stays up after the last clipped sample (ms). */
+        inline constexpr double clipLatchMs = 1500.0;
+    }
+
+    /** The picture's own tones for its still cloud (when the visualiser is Off or OpenGL is not
+        available): part of the visualiser's look, like c_glClear, not roles. */
+    namespace Picture
+    {
+        inline constexpr juce::uint32 cloudLit = 0xffd9e3eb;
+        inline constexpr juce::uint32 cloudTone = 0xff94b0c1;
     }
 
     //==============================================================================
@@ -359,14 +377,15 @@ namespace Theme
         inline constexpr float presetName = 17.0f; ///< the preset's name in the header
         inline constexpr float heading = 17.0f;    ///< dialog and About titles
         inline constexpr float tileTitle = 14.5f;  ///< a module's name on its tile (all at one size: the largest every name fits)
-        inline constexpr float tileTitleMin = 11.5f;
+        inline constexpr float tileTitleMin = 12.25f; ///< (the display face's capitals are 0.70 of it: 5.5 px at 65 %)
         inline constexpr float menuHeader = 13.5f; ///< a section of a menu
         inline constexpr float body = 13.5f;       ///< prose: tooltips, dialogs, the hint over the picture
-        inline constexpr float prose = 12.5f;      ///< dense prose: the About window's quick start and licence
+        inline constexpr float prose = 12.5f;      ///< dense prose: the About window's quick start and licence (a window of its own, never scaled down)
         inline constexpr float menu = 14.0f;       ///< menu items
-        inline constexpr float button = 12.5f;     ///< button labels (capitals)
+        inline constexpr float button = 13.0f;     ///< button labels (capitals)
+        inline constexpr float chip = 12.9f;       ///< a mode chip's choices (capitals, untracked: they are long)
         inline constexpr float value = 13.0f;      ///< values under knobs and in footers
-        inline constexpr float caption = 12.9f;    ///< captions, footer labels, slot numbers (the floor)
+        inline constexpr float caption = 12.9f;    ///< captions, footer labels, slot numbers, badges (the floor)
         inline constexpr float credit = 11.5f;     ///< the header's credit line (has room to grow, never needed to read)
     }
 

@@ -88,6 +88,10 @@ struct RoarschachEditorInspector
     static void showPresetMenu(RoarschachAudioProcessorEditor& e) { e.showPresetMenu(); }
     static void showUpdatePopup(RoarschachAudioProcessorEditor& e, const sammyj::UpdateInfo& i) { e.showUpdatePopup(i); }
     static void closeUpdatePopup(RoarschachAudioProcessorEditor& e) { e.closeUpdatePopup(); }
+    static void promptSavePreset(RoarschachAudioProcessorEditor& e, const juce::String& name) { e.promptSavePreset(name); }
+    static juce::AlertWindow* alert(RoarschachAudioProcessorEditor& e) { return e.m_alert.get(); }
+    static void closeAlert(RoarschachAudioProcessorEditor& e) { if (e.m_alert != nullptr) e.m_alert->exitModalState(0); e.m_alert.reset(); }
+    static juce::Button& presetName(RoarschachAudioProcessorEditor& e) { return e.m_presetNameButton; }
 };
 
 namespace
@@ -3762,9 +3766,9 @@ namespace
                 ticks(menu);
 
                 // Every combination of choices: the chip text names them and fits the chip.
-                // (the chip's label is set untracked at the chip's height; its caret takes 11 px)
-                const float room = static_cast<float>(chip->getWidth() - 16 - 11);
-                const auto font = Theme::Fonts().value(std::min(Theme::Type::button, static_cast<float>(chip->getHeight()) * 0.6f));
+                // (the chip's label is set untracked at the chip size; its caret takes 11 px, the ends 3 px each)
+                const float room = static_cast<float>(chip->getWidth() - 6 - 11);
+                const auto font = Theme::Fonts().value(Theme::Type::chip);
                 std::vector<const char*> ids;
                 for (const char* id : spec.chipIds)
                     if (id != nullptr)
@@ -3775,7 +3779,7 @@ namespace
                     {
                         const auto t = strip.modeChipText(m, room);
                         const float w = juce::GlyphArrangement::getStringWidth(font, t);
-                        if (w > static_cast<float>(chip->getWidth()) - 10.0f - 11.0f)
+                        if (w > room)
                         {
                             ++failures;
                             std::printf("    chip %s: \"%s\" is %.0f px in a %d px chip\n", spec.code, t.toRawUTF8(), w, chip->getWidth());
@@ -4197,9 +4201,19 @@ namespace
                     cut += juce::GlyphArrangement::getStringWidth(label->getFont(), label->getText()) > static_cast<float>(label->getWidth()) ? 1 : 0;
                     // (the capitals and their room: ascent above the baseline, no descenders in capitals)
                     cut += label->getFont().getAscent() > static_cast<float>(label->getHeight()) ? 1 : 0;
-                    outside += tile->getLocalBounds().contains(label->getBounds()) ? 0 : 1;
+                    const bool out = !tile->getLocalBounds().contains(label->getBounds());
+                    outside += out ? 1 : 0;
                     for (auto* other : labels)
-                        touching += other != label && other->getBounds().intersects(label->getBounds()) ? 1 : 0;
+                    {
+                        const bool touch = other != label && other->getBounds().intersects(label->getBounds());
+                        touching += touch ? 1 : 0;
+                        if (touch)
+                            std::printf("    caption \"%s\" %s touches \"%s\" %s\n", label->getText().toRawUTF8(), label->getBounds().toString().toRawUTF8(),
+                                        other->getText().toRawUTF8(), other->getBounds().toString().toRawUTF8());
+                    }
+                    if (out)
+                        std::printf("    caption \"%s\" %s leaves its tile %s\n", label->getText().toRawUTF8(), label->getBounds().toString().toRawUTF8(),
+                                    tile->getLocalBounds().toString().toRawUTF8());
                 }
             }
             std::printf("  %d knob captions, the smallest %.2f pt (capitals %.1f px at 65 %%)\n", captions, smallest, smallest * 0.66f * 0.65f);
@@ -4628,6 +4642,7 @@ namespace
         int position = 0;
         juce::AudioBuffer<float> buffer(2, block);
         juce::MidiBuffer midi;
+        bool silent = false;   // (true: the plug-in is fed silence, for the sleeping creature and the hint)
 
         // Plays the voice in real time while the editor's timers and the GL thread run.
         const auto play = [&](double seconds)
@@ -4639,6 +4654,8 @@ namespace
                     position = 0;
                 buffer.copyFrom(0, 0, voice.l.data() + position, block);
                 buffer.copyFrom(1, 0, voice.r.data() + position, block);
+                if (silent)
+                    buffer.clear();
                 position += block;
                 p->processBlock(buffer, midi);
                 runLoop(static_cast<int>(1000.0 * block / sr));
@@ -4715,6 +4732,72 @@ namespace
             play(1.0);
         };
 
+        // Contrast measured from the pixels of a 2x picture of the editor: in each box, the darkest
+        // pixel (the text) against the lightest (the surface it is set on).
+        const auto boxContrast = [&](const juce::Image& image, juce::Rectangle<int> box)
+        {
+            box = (box * 2).getIntersection(image.getBounds());
+            float lo = 2.0f, hi = -1.0f;
+            const juce::Image::BitmapData px(image, juce::Image::BitmapData::readOnly);
+            for (int y = box.getY(); y < box.getBottom(); ++y)
+                for (int x = box.getX(); x < box.getRight(); ++x)
+                {
+                    const float l = Theme::luminance(px.getPixelColour(x, y).withAlpha(1.0f));
+                    lo = std::min(lo, l);
+                    hi = std::max(hi, l);
+                }
+            return hi < 0.0f ? 0.0f : (hi + 0.05f) / (lo + 0.05f);
+        };
+        const auto inStage = [&](juce::Component& c, juce::Rectangle<int> r) { return stage.getLocalArea(&c, r); };
+        const auto valueBox = [](juce::Slider& s) -> juce::Component*
+        {
+            for (auto* c : s.getChildren())
+                if (dynamic_cast<juce::Label*>(c) != nullptr)
+                    return c;
+            return nullptr;
+        };
+        const auto measureContrast = [&](const juce::Image& picture, const juce::String& mood)
+        {
+            juce::String line = "  contrast from pixels, " + mood + ":";
+            const auto add = [&](const juce::String& what, float ratio) { line << "  " << what << " " << juce::String(ratio, 2); };
+            for (const bool on : { true, false })
+                for (int m = 0; m < Params::numModules; ++m)
+                {
+                    auto* tile = strip.getModuleTile(m);
+                    if (strip.getOnButton(m)->getToggleState() != on)
+                        continue;
+                    const auto knobs = strip.getKnobs(tile);
+                    auto* slider = knobs.front().first;
+                    if (auto* box = valueBox(*slider))
+                    {
+                        // (the text's own box: the value label, its height trimmed to the capitals)
+                        const auto r = inStage(*box, box->getLocalBounds().withSizeKeepingCentre(std::min(box->getWidth(), 50), 12));
+                        add(on ? "value" : "value(off)", boxContrast(picture, r));
+                    }
+                    for (auto* c : tile->getChildren())
+                        if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->isVisible() && label->getText().isNotEmpty())
+                        {
+                            add(on ? "caption" : "caption(off)", boxContrast(picture, inStage(*label, label->getLocalBounds().withSizeKeepingCentre(label->getWidth(), 10))));
+                            break;
+                        }
+                    add(on ? "slot number" : "slot number(off)", boxContrast(picture, inStage(*tile, { 28, 7, 15, 12 })));
+                    add(on ? "name" : "name(off)", boxContrast(picture, inStage(*tile, { 50, 7, 40, 12 })));
+                    if (auto* chip = strip.getModeChip(m))
+                        add(on ? "mode" : "mode(off)", boxContrast(picture, inStage(*chip, chip->getLocalBounds().withSizeKeepingCentre(40, 9))));
+                    if (!on)
+                        add("OFF footer", boxContrast(picture, inStage(*tile, { tile->getWidth() / 2 - 12, tile->getHeight() - 20, 24, 10 })));
+                    break;
+                }
+            {
+                auto& in = *strip.getInTile();
+                add("IN caption", boxContrast(picture, inStage(in, { 30, 34, 52, 10 })));
+                add("IN scale", boxContrast(picture, inStage(in, { 26, 170, 24, 9 })));
+            }
+            // The readouts over the creature: the top-left one's caption and value (on their soft label).
+            add("readout", boxContrast(picture, inStage(monster, { 20, 20, 28, 12 })));
+            std::printf("%s\n", line.toRawUTF8());
+        };
+
         // 1. Init, playing.
         play(2.5);
         waitFormed();
@@ -4753,6 +4836,7 @@ namespace
                             f.overtoneLevel.load(), f.ringAmount.load());
             }
             const auto slug = juce::String(name).replace(" ", "-").toLowerCase();
+            measureContrast(picture, name);
             save(picture.rescaled(picture.getWidth() / 2, picture.getHeight() / 2, juce::Graphics::highResamplingQuality), "03-preset-" + slug + ".png");
             // The face, close up.
             const auto face = stage.getLocalArea(&monster, monster.getLocalBounds()).withSizeKeepingCentre(560, 400) * 2;
@@ -4983,6 +5067,82 @@ namespace
             stage.setSize(baseW, baseH + 100);
             editor.setBounds(0, 0, baseW, baseH);
             play(0.5);
+        }
+
+        // 5d. Stage pictures of the parts the README does not show: the whole header, a value being
+        //     typed, the save dialog, the About window, the hint line and ASLEEP over the creature.
+        {
+            save(stage.createComponentSnapshot({ 0, 0, baseW, 56 }, true, 2.0f), "header-full@2x.png");
+
+            // A value being typed: RING's Amount, its box open with a new value in it.
+            {
+                const int ring = static_cast<int>(Params::ModuleId::ring);
+                auto* tile = strip.getModuleTile(ring);
+                auto* knob = strip.getKnobs(tile).front().first;
+                knob->showTextBox();
+                runLoop(50);
+                if (auto* box = dynamic_cast<juce::Label*>(valueBox(*knob)))
+                    if (auto* field = box->getCurrentTextEditor())
+                    {
+                        field->setText("35", false);
+                        field->setHighlightedRegion({ 0, 2 });
+                    }
+                runLoop(50);
+                save(stage.createComponentSnapshot(inStage(*tile, tile->getLocalBounds()).expanded(6), true, 2.0f), "value-typed@2x.png");
+                knob->hideTextBox(false);
+                runLoop(50);
+            }
+
+            // The save dialog, drawn over the editor where it opens (it is a window of its own).
+            {
+                RoarschachEditorInspector::promptSavePreset(editor, "Night Feeder");
+                runLoop(100);
+                if (auto* alert = RoarschachEditorInspector::alert(editor))
+                {
+                    auto image = editorPicture(2.0f);
+                    const auto shot = alert->createComponentSnapshot(alert->getLocalBounds(), true, 2.0f);
+                    const auto at = juce::Rectangle<int>(alert->getWidth(), alert->getHeight()).withCentre(editor.getLocalBounds().getCentre());
+                    {
+                        juce::Graphics g(image);
+                        g.drawImage(shot, (at * 2).toFloat());
+                    }
+                    save(image.getClippedImage((at.expanded(60, 40) * 2).getIntersection(image.getBounds())), "save-dialog@2x.png");
+                    std::printf("  the save dialog: %d x %d\n", alert->getWidth(), alert->getHeight());
+                }
+                else
+                    std::printf("  (the save dialog did not open)\n");
+                RoarschachEditorInspector::closeAlert(editor);
+                runLoop(100);
+            }
+
+            // The About window's content, at the size it opens at.
+            {
+                auto& look = dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(editor));
+                auto about = AboutWindow::createContent(look, RoarschachAudioProcessorEditor::latencyNote(p->getLatencySamples(), p->getSampleRate()));
+                about->setSize(AboutWindow::c_width, AboutWindow::c_height);
+                save(about->createComponentSnapshot(about->getLocalBounds(), true, 2.0f), "about@2x.png");
+            }
+
+            // Silence: the creature falls asleep, and a new instance's hint comes up between the readouts.
+            {
+                silent = true;
+                monster.setHint("Play a voice through it to wake the creature. Pick a preset or roll a die to change it.");
+                play(3.0);
+                const auto picture = editorPicture(2.0f);
+                const auto view = stage.getLocalArea(&monster, monster.getLocalBounds());
+                save(picture.getClippedImage((view.withTop(view.getBottom() - 70) * 2).getIntersection(picture.getBounds())), "hint-asleep@2x.png");
+                measureContrast(picture, "asleep");
+                {
+                    // ASLEEP's own box: at the right of the bottom row.
+                    const auto r = juce::Rectangle<int>(view.getRight() - 90, view.getBottom() - 48, 60, 14);
+                    std::printf("  ASLEEP from pixels: %.2f; the hint: %.2f\n", static_cast<double>(boxContrast(picture, r)),
+                                static_cast<double>(boxContrast(picture, juce::Rectangle<int>(view.getCentreX() - 60, view.getBottom() - 48, 120, 14))));
+                }
+                save(picture.getClippedImage(stage.getLocalArea(&monster, monster.getLocalBounds()).withSizeKeepingCentre(560, 400) * 2), "face-asleep@2x.png");
+                silent = false;
+                monster.setHint({});
+                play(1.0);
+            }
         }
 
         // 6. A small editor (the minimum scale) for legibility.

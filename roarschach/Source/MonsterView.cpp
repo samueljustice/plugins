@@ -541,8 +541,8 @@ void MonsterView::paint (juce::Graphics& g)
         juce::Path shape;
         shape.addRoundedRectangle (bounds, radius);
         g.reduceClipRegion (shape);
-        const auto cloudLit = juce::Colour::fromFloatRGBA (0.85f, 0.89f, 0.92f, 1.0f);
-        const auto cloudTone = juce::Colour::fromFloatRGBA (0.580f, 0.690f, 0.757f, 1.0f);   // the cloud's tone
+        const auto cloudLit = juce::Colour (Theme::Picture::cloudLit);
+        const auto cloudTone = juce::Colour (Theme::Picture::cloudTone);   // the cloud's tone
         g.setGradientFill (juce::ColourGradient (cloudLit, 0.0f, bounds.getY(), cloudTone, 0.0f, bounds.getBottom(), false));
         g.fillRect (bounds);
         const float h = bounds.getHeight(), cx = bounds.getCentreX();
@@ -575,56 +575,68 @@ void MonsterView::paint (juce::Graphics& g)
 
     drawFeather (g, bounds);
 
-    // The readouts: soft rounded labels of raised paper, the caption (the first word) in the dim ink and
-    // small, the value in ink, so they read on any cloud and in any mood without a hard box.
-    const auto captionFont = m_fonts->caption (Theme::Type::caption);
-    const auto valueFont = m_fonts->value (Theme::Type::value);
-    const auto readoutLabel = [&] (const juce::String& textIn, juce::Rectangle<float> r, bool left, bool dim)
-    {
-        const auto caption = textIn.upToFirstOccurrenceOf (" ", false, false);
-        const auto value = textIn.fromFirstOccurrenceOf (" ", false, false).trim();
-        const float cw = juce::GlyphArrangement::getStringWidth (captionFont, caption);
-        const float vw = value.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (valueFont, value) + 7.0f;
-        const float w = cw + vw + 22.0f;
-        const auto plate = (left ? r.withWidth (w).translated (-11.0f, 0.0f) : r.withLeft (r.getRight() - w).translated (11.0f, 0.0f)).expanded (0.0f, 4.0f);
-        g.setColour (readout);
-        g.fillRoundedRectangle (plate, plate.getHeight() * 0.5f);
-        auto inner = plate.reduced (11.0f, 0.0f);
-        g.setFont (captionFont);
-        g.setColour (readoutCaption);
-        g.drawText (caption, inner.removeFromLeft (cw + 1.0f), juce::Justification::centredLeft, false);
-        if (value.isNotEmpty())
-        {
-            g.setFont (valueFont);
-            g.setColour (dim ? readoutCaption : readoutText);
-            g.drawText (value, inner, juce::Justification::centredRight, false);
-        }
-    };
-
+    // The readouts: soft rounded labels of raised paper (drawReadout), top left and right, and at the
+    // foot the vocoder's band count and ASLEEP.
     auto row = bounds.reduced (24.0f, 18.0f).removeFromTop (18.0f);
-    readoutLabel (m_f0Text, row, true, m_f0Text == "F0 --");
-    readoutLabel (m_detailText, row, false, false);
+    drawReadout (g, *m_fonts, m_f0Text, row, true, m_f0Text == "F0 --");
+    drawReadout (g, *m_fonts, m_detailText, row, false, false);
 
     auto bottom = bounds.reduced (24.0f, 18.0f).removeFromBottom (18.0f).translated (0.0f, -12.0f);
 
     if (m_gravelShown)
-        readoutLabel ("VOCODER 32 BANDS", bottom, true, false);
+        drawReadout (g, *m_fonts, "VOCODER 32 BANDS", bottom, true, false);
 
     if (m_sleepShown)
-        readoutLabel ("ASLEEP", bottom, false, true);
+        drawReadout (g, *m_fonts, "ASLEEP", bottom, false, true);
 
     if (m_hintShown && m_hintText.isNotEmpty())
+        drawHint (g, *m_fonts, m_hintText, bottom);
+}
+
+juce::Rectangle<float> MonsterView::drawReadout (juce::Graphics& g, const Theme::Fonts& fonts, const juce::String& text,
+                                                 juce::Rectangle<float> row, bool left, bool dim)
+{
+    // A soft rounded label of raised paper, the caption (the first word) in the dim ink, the value in
+    // ink, so it reads on any cloud and in any mood without a hard box. A readout with no value (ASLEEP)
+    // is its caption alone, set in ink: it is the whole message.
+    using namespace Theme::Colours;
+    const auto captionFont = fonts.caption (Theme::Type::caption);
+    const auto valueFont = fonts.value (Theme::Type::value);
+    const auto caption = text.upToFirstOccurrenceOf (" ", false, false);
+    const auto value = text.fromFirstOccurrenceOf (" ", false, false).trim();
+    const float cw = juce::GlyphArrangement::getStringWidth (captionFont, caption);
+    const float vw = value.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (valueFont, value) + 8.0f;
+    const float w = std::ceil (cw + vw + 24.0f);
+    const auto plate = (left ? row.withWidth (w).translated (-12.0f, 0.0f) : row.withLeft (row.getRight() - w).translated (12.0f, 0.0f))
+                           .expanded (0.0f, 4.0f);
+    g.setColour (readout);
+    g.fillRoundedRectangle (plate, plate.getHeight() * 0.5f);
+    auto inner = plate.reduced (12.0f, 0.0f);
+    g.setFont (captionFont);
+    g.setColour (value.isEmpty() && ! dim ? readoutText : readoutCaption);
+    g.drawText (caption, inner.removeFromLeft (cw + 1.0f), juce::Justification::centredLeft, false);
+    if (value.isNotEmpty())
     {
-        // Centred on the bottom row, between the two readouts, on the same soft label.
-        const auto hintFont = m_fonts->body (Theme::Type::body);
-        g.setFont (hintFont);
-        const float w = std::min (bottom.getWidth() - 360.0f, juce::GlyphArrangement::getStringWidth (hintFont, m_hintText) + 28.0f);
-        const auto pill = bottom.withSizeKeepingCentre (w, bottom.getHeight()).expanded (0.0f, 4.0f);
-        g.setColour (readout);
-        g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
-        g.setColour (readoutText);
-        g.drawText (m_hintText, pill.reduced (12.0f, 0.0f), juce::Justification::centred, true);
+        g.setFont (valueFont);
+        g.setColour (dim ? readoutCaption : readoutText);
+        g.drawText (value, inner, juce::Justification::centredRight, false);
     }
+    return plate;
+}
+
+juce::Rectangle<float> MonsterView::drawHint (juce::Graphics& g, const Theme::Fonts& fonts, const juce::String& text, juce::Rectangle<float> row)
+{
+    // Centred on the bottom row, between the two readouts, on the same soft label: one line of prose.
+    using namespace Theme::Colours;
+    const auto hintFont = fonts.body (Theme::Type::body);
+    const float w = std::min (row.getWidth() - 360.0f, std::ceil (juce::GlyphArrangement::getStringWidth (hintFont, text)) + 32.0f);
+    const auto pill = row.withSizeKeepingCentre (w, row.getHeight()).expanded (0.0f, 4.0f);
+    g.setColour (readout);
+    g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+    g.setFont (hintFont);
+    g.setColour (readoutText);
+    g.drawText (text, pill.reduced (14.0f, 0.0f), juce::Justification::centred, true);
+    return pill;
 }
 
 void MonsterView::newOpenGLContextCreated()

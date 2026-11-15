@@ -119,6 +119,8 @@ namespace
         auto r = b.getLocalBounds().toFloat();
         if (isInAlert(b))
             r = r.withSizeKeepingCentre(r.getWidth(), std::min(r.getHeight(), c_dialogButtonHeight));
+        else if (static_cast<int>(b.getProperties().getWithDefault(c_menuChipProperty, 0)) != 0)
+            r = r.withSizeKeepingCentre(r.getWidth(), std::min(r.getHeight(), static_cast<float>(Metrics::chipHeight)));   // (the button is its hit target)
         return r.reduced(0.5f);
     }
 
@@ -507,10 +509,12 @@ void RoarschachLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, in
                                              float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider)
 {
     // Ink on paper: a hairline track, the value as a brush stroke in the mood's dye that swells towards
-    // the value, and a flat ink disc with a paper pointer. A knob the settings do not use (or of an Off
-    // module) is drawn as an outline with an ink stroke, so its state never rests on colour alone.
+    // the value, and a flat ink disc with a paper pointer. The state is drawn by shape, never by fading:
+    //  - full: the disc solid, the brushed arc;
+    //  - weak (does little): the disc solid, the arc a fine line;
+    //  - unused: the disc an outline, the arc a fine line in the faint ink, the pointer in ink;
+    //  - off (its module is Off): the disc an outline, no arc at all, the pointer in the faint ink.
     const auto style = getKnobStyle(slider);
-    const bool flat = !knobIsLive(style);
     const bool hot = slider.isMouseOverOrDragging() && slider.isEnabled();
 
     const auto area = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
@@ -523,39 +527,51 @@ void RoarschachLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, in
 
     juce::Path track;
     track.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour(ink.withAlpha(0.30f));
+    g.setColour(rule);
     g.strokePath(track, juce::PathStrokeType(Metrics::hairline, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     // The value: bipolar parameters (dB gain) grow from the centre.
     const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0 && juce::approximatelyEqual(slider.getMinimum(), -slider.getMaximum());
     const float fromAngle = bipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
-    g.setColour(flat ? inkFaint : style == KnobStyle::weak ? accent.withAlpha(0.7f) : accent);
-    strokeBrush(g, centre, arcRadius, fromAngle, angle, flat ? brush * 0.55f : brush);
+    if (style == KnobStyle::full)
+    {
+        g.setColour(accent);
+        strokeBrush(g, centre, arcRadius, fromAngle, angle, brush);
+    }
+    else if (style != KnobStyle::off)
+    {
+        juce::Path fine;
+        fine.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f, fromAngle, angle, true);
+        g.setColour(style == KnobStyle::weak ? accent : inkFaint);
+        g.strokePath(fine, juce::PathStrokeType(std::max(1.5f, brush * 0.4f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
 
     // The disc: flat ink (a little bleed under the mouse); for an unused or Off knob, its outline only.
+    const bool solid = knobIsLive(style);
     const float bodyRadius = arcRadius - brush * 1.45f;
     const auto body = juce::Rectangle<float>(bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre(centre);
-    if (flat)
+    if (!solid)
     {
-        g.setColour(inkFaint);
-        g.drawEllipse(body.reduced(0.75f), 1.4f);
+        g.setColour(hot ? ink : inkFaint);
+        g.drawEllipse(body.reduced(0.75f), 1.5f);
     }
     else
     {
         if (hot)
         {
-            g.setColour(ink.withAlpha(0.16f));
-            g.fillEllipse(body.expanded(2.5f));
+            g.setColour(selection);
+            g.fillEllipse(body.expanded(3.0f));
         }
         g.setColour(ink);
         g.fillEllipse(body);
     }
 
+    // The pointer: from a third of the way out to the rim, so it reads at a glance at any size.
     const auto direction = juce::Point<float>(std::sin(angle), -std::cos(angle));
-    const auto p1 = centre + direction * (bodyRadius * 0.30f);
+    const auto p1 = centre + direction * (bodyRadius * (solid ? 0.30f : 0.20f));
     const auto p2 = centre + direction * (bodyRadius * 0.86f);
-    g.setColour(flat ? inkFaint : sheet);
-    g.drawLine({ p1, p2 }, flat ? 1.5f : Metrics::pointer);
+    g.setColour(solid ? sheet : style == KnobStyle::unused ? ink : inkFaint);
+    g.drawLine({ p1, p2 }, solid ? Metrics::pointer : 1.6f);
 
     if (shouldShowFocusRing(slider))
     {
@@ -659,7 +675,7 @@ void RoarschachLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> ar
     // ring alone (hollow). The shape carries the state; the dye only adds to it.
     const float d = std::min(area.getWidth(), area.getHeight());
     const auto c = area.getCentre();
-    const auto lamp = juce::Rectangle<float>(d, d).withCentre(c).reduced(d * 0.2f);
+    const auto lamp = juce::Rectangle<float>(d, d).withCentre(c).reduced(d * 0.18f);
 
     if (on)
     {
@@ -687,8 +703,9 @@ void RoarschachLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> ar
 
 void RoarschachLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool isMouseOverButton, bool isButtonDown)
 {
+    // The lamp is drawn at its own size; the button around it is the hit target (Metrics::hitTarget).
     auto r = button.getLocalBounds().toFloat();
-    const float ledSize = std::min(r.getHeight(), 16.0f);
+    const float ledSize = std::min(r.getHeight(), Metrics::lamp + 4.0f);
     const bool hot = button.isEnabled() && (isMouseOverButton || isButtonDown);
     drawLed(g, r.removeFromLeft(std::max(ledSize, std::min(r.getWidth(), r.getHeight()))).withSizeKeepingCentre(ledSize, ledSize),
             button.getToggleState() && button.isEnabled(), hot, shouldShowFocusRing(button));
@@ -780,11 +797,31 @@ void RoarschachLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button
     const bool filled = (button.getToggleState() && button.getClickingTogglesState()) || isPrimaryDialogButton(button);
     const int menuChip = static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0));
 
-    if (menuChip == 2)
+    if (menuChip != 0)
     {
-        // A mode chip of an Off module: its outline only, quieter.
-        g.setColour(isMouseOverButton ? rule : ruleSoft);
-        g.drawRoundedRectangle(r, corner, Metrics::hairline);
+        // A mode chip: its choices on a ruled line, a caret at its end (no box). Under the mouse a wash
+        // of raised paper. A chip of an Off module stands on a dotted line instead (its state by shape).
+        if (enabled && (isMouseOverButton || isButtonDown))
+        {
+            g.setColour(isButtonDown ? selection : sheet);
+            g.fillRoundedRectangle(r, corner);
+        }
+        const float y = std::round(r.getBottom()) - 0.5f;
+        if (menuChip == 2)
+        {
+            juce::Path line, dotted;
+            line.startNewSubPath(r.getX() + 1.0f, y);
+            line.lineTo(r.getRight() - 1.0f, y);
+            const float dots[] { 1.2f, 3.0f };
+            juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createDashedStroke(dotted, line, dots, 2);
+            g.setColour(inkFaint);
+            g.fillPath(dotted);
+        }
+        else
+        {
+            g.setColour(isMouseOverButton ? ink : rule);
+            g.fillRect(juce::Rectangle<float>(r.getX(), y - 0.5f, r.getWidth(), Metrics::hairline));
+        }
     }
     else if (filled)
     {
@@ -865,12 +902,31 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
         const auto caret = r.removeFromRight(c_caretColumn).translated(-2.0f, 0.0f);
         const auto c = caret.getCentre();
         juce::Path p;
-        p.startNewSubPath(c.x - 3.0f, c.y - 1.5f);
-        p.lineTo(c.x, c.y + 1.5f);
-        p.lineTo(c.x + 3.0f, c.y - 1.5f);
+        p.startNewSubPath(c.x - 3.5f, c.y - 1.75f);
+        p.lineTo(c.x, c.y + 1.75f);
+        p.lineTo(c.x + 3.5f, c.y - 1.75f);
         g.setColour(menuChip == 2 ? inkFaint : isMouseOverButton ? ink : inkDim);
-        g.strokePath(p, juce::PathStrokeType(1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
+    // The preset's name: an edited preset is marked with a drop of the dye after its name (its text
+    // keeps the " *" for screen readers and the tests).
+    if (static_cast<bool>(button.getProperties().getWithDefault(c_displayFaceProperty, false)) && label.endsWith(" *"))
+    {
+        const auto stem = label.dropLastCharacters(2);
+        const float drop = std::max(5.0f, font.getHeight() * 0.3f);
+        const auto area = r.reduced(4.0f, 0.0f);
+        const auto shown = fitToWidth(font, stem, area.getWidth() - drop - 6.0f);
+        const float w = lineWidth(font, shown);
+        const float x = area.getCentreX() - (w + drop + 6.0f) * 0.5f;
+        g.setFont(font);
+        g.setColour(colour);
+        g.drawText(shown, juce::Rectangle<float>(x, area.getY(), w + 1.0f, area.getHeight()), juce::Justification::centredLeft, false);
+        g.setColour(accentInk);
+        const float baseline = area.getCentreY() + (font.getAscent() - font.getDescent()) * 0.5f;
+        g.fillEllipse(juce::Rectangle<float>(drop, drop).withCentre({ x + w + 6.0f + drop * 0.5f, baseline - font.getAscent() * 0.32f }));
+        return;
+    }
+
     const float preferredPad = std::max(4.0f, std::round(r.getHeight() * 0.35f));
     const float pad = juce::jlimit(1.0f, preferredPad, (r.getWidth() - lineWidth(font, label)) * 0.5f - 1.0f);
     const auto area = r.reduced(pad, 0.0f);
@@ -889,8 +945,8 @@ juce::Font RoarschachLookAndFeel::getTextButtonFont(juce::TextButton& button, in
     if (isLinkStyle(button))
         return m_fonts.body(Type::body);
     if (static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0)) != 0)
-        return m_fonts.value(std::min(Type::button, static_cast<float>(buttonHeight) * 0.6f));   // (untracked: mode names are long)
-    return m_fonts.label(std::min(Type::button, static_cast<float>(buttonHeight) * 0.6f));
+        return m_fonts.value(Type::chip);   // (untracked: mode names are long)
+    return m_fonts.label(std::min(Type::button, static_cast<float>(buttonHeight) * 0.66f));
 }
 
 //==============================================================================
