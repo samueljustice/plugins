@@ -4,7 +4,7 @@
 
 A VST3/AU modular voice processor by **Samuel Justice**, built for exploration and fun. One insert holds fifteen modules (pitch and size, a small speaker in a resonant room, clean-up, de-essing, detail, a vocoder, a ring modulator, shimmer, growl, a phaser, tube roar, an ensemble, a top-end tamer, a tracked sub and overtones) that run in any order, between an input stage and a level-matched output with a limiter and a clipper. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between.
 
-### [Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), the installer for every Sammy J plug-in
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
 <img src="docs/hero.gif" alt="The Roarschach window with the Kaiju preset, in motion: lit ember-red cloud drifts in the view above the chain of modules; a voice starts and dark ink gathers out of the cloud by flow into a wide mirrored blot whose wings hang low and curl up at their tips, while the meters and the vocoder's band display move; a hit as the roar starts sends a lit swell out through the cloud, and a warm light opens in the rift down the blot's middle; the voice stops and the blot tears back into smoke" width="880">
 

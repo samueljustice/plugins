@@ -1,15 +1,15 @@
 # SammyJs Reversinator
 
-A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
+A VST3/AU real-time reverser for macOS and Windows. Reversinator recreates **Backwards Machine** (The Sound Guy, 2007), a plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-### [Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), the installer for every Sammy J plug-in
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
 ![Reversinator](docs/screenshot.png)
 
 ## Features
 
 - **The three Backwards Machine effects**, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
-- **Checked against the real thing.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
+- **Checked against the original.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
 
   | Effect | Correlation | Residual |
   |---|---|---|
