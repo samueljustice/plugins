@@ -139,7 +139,7 @@ win = first(r'href="([^"]+Windows-Installer\.exe)"', f"https://github.com/{repo}
 inside = [v.strip() for v in first(r"every plug-in: (.*?)\.\s*<br").split("·") if v.strip()]
 built = first(r"Built ([^<]*?)\. Older")
 donate = first(r'href="(https://www\.paypal\.com/donate/[^"]+)"')
-tagline = first(r"<p[^>]*>\s*<strong>(Toys[^<]*)</strong>", "Toys I've made for sound designers.")
+tagline = first(r"<p[^>]*>\s*<strong>(Toys[^<]*)</strong>", "Toys and utilities I've made for sound designers.")
 inside_html = "".join(f"<li>{html.escape(v)}</li>" for v in inside)
 
 # A drawn waveform for the rule under the title: a few decaying bursts, the same every build.
