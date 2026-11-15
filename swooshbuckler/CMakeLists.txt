@@ -306,7 +306,7 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerOutput PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerOutput PRIVATE Swooshbuckler)
 
-    # Files test: takes of every room width on disk. Every width, Channel Order (Pro Tools (Film), SMPTE / WAV),
+    # Files test: takes of every room width on disk. Every width, Channel Order (Like Pro Tools, WAV Standard),
     # File Layout (Interleaved, Multi-Mono) and file type written and read back with the test's own parser (the WAV
     # speaker mask, the channel names, each channel's sound in its slot, the markers, Multi-Mono sets complete and
     # named, all or nothing), the tape and the saved last minutes at 12 channels, the 512 MB cap, the Mono fold,
@@ -317,8 +317,8 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerFiles PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerFiles PRIVATE Swooshbuckler)
 
-    # Export test: Render Variations at every room width through the real renderer (channel count, the Pro Tools
-    # and SMPTE / WAV orders against the Multi-Mono files, speaker masks, file names, markers, the same batch twice,
+    # Export test: Render Variations at every room width through the real renderer (channel count, Like Pro Tools
+    # and WAV Standard orders against the Multi-Mono files, speaker masks, file names, markers, the same batch twice,
     # Mono as the Stereo fold, a 7.1.4 render's sound in the room), the Width choice, the estimate, FLAC and AIFF
     # limits said before rendering, wide takes in the Takes, and the tape in a 7.1.4 room (the labelled Stereo
     # fold under the Ceiling, the saved last minutes' real length).

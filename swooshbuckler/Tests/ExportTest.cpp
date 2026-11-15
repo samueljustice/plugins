@@ -344,6 +344,8 @@ int main(int argc, char* argv[])
             { takefile::orderLine(W::Surround714, O::ProTools, L::Interleaved, C::Aiff), "7.1.4 in one file: L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr." },
             { takefile::orderLine(W::Surround714, O::WavStandard, L::Interleaved), "7.1.4 in one file: L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr." },
             { takefile::orderLine(W::Surround71, O::ProTools, L::Interleaved, C::Flac), "7.1 in one file: L R C LFE Lsr Rsr Lss Rss, FLAC's own order." },
+            { takefile::orderLine(W::Surround714, O::ProTools, L::Interleaved, C::Flac), "7.1.4 is more channels than one FLAC file holds." },
+            { takefile::orderLine(W::Surround714, O::ProTools, L::MultiMono, C::Flac), "7.1.4 as 12 files ending .L .C .R .Lss .Rss .Lsr .Rsr .LFE .Ltf .Rtf .Ltr .Rtr." },
             { takefile::orderLine(W::Surround714, O::ProTools, L::MultiMono), "7.1.4 as 12 files ending .L .C .R .Lss .Rss .Lsr .Rsr .LFE .Ltf .Rtf .Ltr .Rtr." },
             { takefile::orderLine(W::Surround712, O::ProTools, L::MultiMono), "7.1.2 as 10 files ending .L .C .R .Lss .Rss .Lsr .Rsr .LFE .Lts .Rts." },
             { takefile::orderLine(W::Stereo, O::ProTools, L::Interleaved), "Stereo in one file: L R." },
@@ -358,7 +360,7 @@ int main(int argc, char* argv[])
               "Channel Order is lit for one 7.1.4 WAV or AIFF file only (not FLAC, not Multi-Mono), File Layout from Stereo up");
     }
 
-    // Render Variations at every width, from a Stereo rig: Pro Tools order with the one file too, SMPTE / WAV, and
+    // Render Variations at every width, from a Stereo rig: Like Pro Tools with the one file too, WAV Standard, and
     // Multi-Mono with the one file too. The same batch every time.
     std::cout << "Render Variations at every width" << std::endl;
     std::map<W, Audio> firstOf; // each width's first variation, in the Pro Tools order
@@ -390,7 +392,7 @@ int main(int argc, char* argv[])
                   name + ": the files have " + juce::String(n) + (n == 1 ? " channel" : " channels") + " (" + num(pt.length() / c_fs) + " s)");
             check(pt2.channels() == n && pt2.length() > 0 && ! sameChannel(pt, 0, pt2, 0), name + ": the two variations differ");
 
-            // The Multi-Mono set: one mono file per speaker, named the Pro Tools way, nothing else beside it.
+            // The Multi-Mono set: one mono file per speaker, named for its speaker, nothing else beside it.
             const auto ptNames = typedOrder(width, room::FileOrder::ProTools);
             juce::StringArray expected;
             for (const auto& s : ptNames)

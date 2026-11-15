@@ -193,7 +193,7 @@ private:
         std::array<juce::TextButton, 3> m_types, m_bits;
         std::array<juce::TextButton, 6> m_rates;
         std::array<juce::TextButton, 3> m_channels;   // as played (named after the room), Stereo, Mono
-        std::array<juce::TextButton, 2> m_orders;     // Channel Order: Pro Tools (Film), SMPTE / WAV
+        std::array<juce::TextButton, 2> m_orders;     // Channel Order: Like Pro Tools, WAV Standard
         std::array<juce::TextButton, 2> m_layouts;    // File Layout: Interleaved, Multi-Mono
         juce::Rectangle<int> m_orderCaption, m_layoutCaption, m_orderLine;
         juce::ToggleButton m_auto { "Auto-Arm on Opening" };

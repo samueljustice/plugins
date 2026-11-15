@@ -1306,6 +1306,32 @@ int main(int argc, char* argv[])
             ed.showVariations();
             rig.run(0.1);
             checkTexts("Render Variations," + at, ed.m_variations, scale, 1.0f);
+            if (scale == 1.0f)
+            {
+                // Render rests while the format chosen can't be made, and a finished batch's line goes when a choice changes.
+                auto& v = ed.m_variations;
+                auto pick = [](juce::ComboBox& box, int id) { box.setSelectedId(id, juce::sendNotificationSync); };
+                const int widthWas = v.m_width.getSelectedId(), layoutWas = v.m_layout.getSelectedId(), typeWas = proc.getFileType();
+                pick(v.m_width, static_cast<int>(room::Width::Surround714) + 1);
+                pick(v.m_layout, 1);
+                const bool litForWav = v.m_render.isEnabled() && ! v.m_getProblem;
+                proc.setFileType(2);
+                v.readSettings();
+                const bool restsForFlac = ! v.m_render.isEnabled() && v.m_getProblem && v.m_render.getTooltip().contains("red line");
+                v.m_shown.state = VariationRenderer::State::Finished; // as if a batch had just ended with these choices
+                v.m_planChanged = false;
+                pick(v.m_layout, 2);
+                const bool litForSets = v.m_render.isEnabled() && ! v.m_getProblem;
+                check(litForWav && restsForFlac && litForSets,
+                      "Render Variations: Render rests (and says why) for 7.1.4 in one FLAC file, and is lit for WAV and for Multi-Mono FLAC");
+                check(v.m_planChanged, "Render Variations: a finished batch's Done line goes when a choice changes");
+                v.m_shown = {};
+                v.m_planChanged = false;
+                proc.setFileType(typeWas);
+                v.readSettings();
+                pick(v.m_layout, layoutWas);
+                pick(v.m_width, widthWas);
+            }
             ed.m_variations.setVisible(false);
             ed.m_about.setVisible(true);
             checkTexts("About," + at, ed.m_about, scale, 1.0f);

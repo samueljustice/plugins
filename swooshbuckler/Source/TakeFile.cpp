@@ -431,6 +431,9 @@ juce::String orderLine(room::Width width, room::FileOrder order, Layout layout, 
             suffixes.add(room::multiMonoSuffix(width, track[static_cast<size_t>(i)]));
         return name + " as " + juce::String(n) + " files ending " + suffixes.joinIntoString(" ") + ".";
     }
+    // FLAC stops at eight channels: there is no order to spell out for a file that can't be made.
+    if (container == Container::Flac && room::layout(width).numChannels > c_maxFlacChannels)
+        return name + " is more channels than one FLAC file holds.";
     const auto fileOrder = orderFor(container, order);
     juce::String line = name + " in one file: " + channelLine(width, fileOrder);
     if (width == room::Width::Stereo)

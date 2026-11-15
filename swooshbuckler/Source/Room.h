@@ -14,7 +14,7 @@
  *   pan()       a position in the room -> one gain per speaker
  *   flight()    the four flight paths: pass progress -> position and distance
  *   fold()      fixed matrices from every width to every narrower one
- *   file orders the Pro Tools (Film) and SMPTE / WAV channel orders, the WAV speaker mask, the line that spells
+ *   file orders the Like Pro Tools and WAV Standard channel orders, the WAV speaker mask, the line that spells
  *               out the order, and the Multi-Mono file suffixes
  *
  * THE ROOM is a box with the listener in the middle of the floor:
