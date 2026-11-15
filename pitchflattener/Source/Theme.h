@@ -4,40 +4,33 @@
 #include "BinaryData.h"
 
 /**
- * Shared look for Pitch Flattener (the same design system as Subbertone):
- * one palette and one font family (Azeret Mono, embedded).
+ * Pitch Flattener's look: one palette and one font family (Azeret Mono, embedded).
  *
- * Every accent colour has exactly one meaning wherever it appears (knob arcs,
- * section dots, traces and readouts):
- *   teal   = detection: the detected input pitch and everything that shapes it
- *   amber  = target: the pitch being flattened to
- *   violet = correction: the shift applied, and the corrected output pitch
- *   rose   = warnings
+ * Every accent colour has exactly one meaning wherever it appears (buttons, gauges, traces, the
+ * flight view, banners and readouts), so the colour alone tells the user what they are looking at:
+ *   orange  = things you set: controls, the target pitch, headings
+ *   cyan    = what was heard: the sound's pitch as read
+ *   lime    = the flattened result, "go", success
+ *   magenta = recording, warnings, problems
+ * Amber is orange's highlight (a pressed or hot control), never a meaning of its own.
  */
 namespace Theme
 {
     namespace Colours
     {
-        inline const juce::Colour background  { 0xff0d0f14 };
-        inline const juce::Colour panel       { 0xff141720 };
-        inline const juce::Colour panelRaised { 0xff1c202b };
-        inline const juce::Colour outline     { 0xff262b37 };
-        inline const juce::Colour outlineSoft { 0xff1d212b };
+        inline const juce::Colour space      { 0xff05070d }; // the window ("void")
+        inline const juce::Colour panel      { 0xff0b1220 };
+        inline const juce::Colour panelEdge  { 0xff1b2a44 };
+        inline const juce::Colour grid       { 0xff13203a };
 
-        inline const juce::Colour text        { 0xffece9e3 };
-        inline const juce::Colour textDim     { 0xff8d92a0 };
-        inline const juce::Colour textFaint   { 0xff565b68 };
+        inline const juce::Colour orange     { 0xffff8a1f }; // holo orange: things you set
+        inline const juce::Colour amber      { 0xffffc24a }; // orange's highlight
+        inline const juce::Colour cyan       { 0xff2ee6ff }; // ion cyan: the pitch as heard
+        inline const juce::Colour lime       { 0xffc6ff3d }; // acid lime: the flattened result
+        inline const juce::Colour magenta    { 0xffff2e7e }; // alert magenta: recording, problems
 
-        inline const juce::Colour detect      { 0xff5ec8d8 }; // teal
-        inline const juce::Colour target      { 0xffffb54d }; // amber
-        inline const juce::Colour correction  { 0xffa992ff }; // violet
-        inline const juce::Colour warning     { 0xffef6f8e }; // rose
-
-        inline const juce::Colour good        { 0xff7fd49b };
-        inline const juce::Colour bad         { 0xffe5686b };
-
-        inline const juce::Colour scope       { 0xff090b0f };
-        inline const juce::Colour grid        { 0xff1e2633 };
+        inline const juce::Colour text       { 0xffe8f1ff };
+        inline const juce::Colour textDim    { 0xff6f86a8 };
     }
 
     /** Typefaces loaded once and shared by every component (via SharedResourcePointer). */
@@ -60,9 +53,11 @@ namespace Theme
 
         // A tiny tracking (0.02 px at 12 px) makes JUCE switch the font's ligatures off: Azeret Mono's
         // "fi" would otherwise draw as "fı" and "<-" as an arrow.
-        juce::Font body (float height) const    { return make (regular, height, 0.002f); }
+        juce::Font body (float height) const    { return make (medium, height, 0.002f); }   // upright body and status text
         juce::Font label (float height) const   { return make (medium, height, 0.08f); }
         juce::Font heading (float height) const { return make (bold, height, 0.12f); }
+        // Button labels, banners and the title: bold and wide-tracked, drawn sheared (Hud::drawSheared).
+        juce::Font display (float height) const { return make (bold, height, 0.16f); }
 
         juce::Typeface::Ptr regular, medium, bold;
     };

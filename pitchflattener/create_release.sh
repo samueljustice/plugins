@@ -6,7 +6,7 @@
 set -e  # Exit on error
 
 # Configuration
-VERSION="2.4.0"
+VERSION="3.0.0"
 PLUGIN_NAME="PitchFlattener"
 TAG_NAME="pitchflattener-v${VERSION}"
 
@@ -80,13 +80,10 @@ echo "6. Creating release notes..."
 cat > release_artifacts/RELEASE_NOTES.md << EOF
 # PitchFlattener v${VERSION}
 
-## What's New
-- Added About dialog with version information and update checking
-- Improved UI scaling system with proper proportional scaling
-- Fixed tooltip positioning issues with new help text system
-- Simplified preset system to only create default preset
-- All controls now support double-click to reset to default values
-- Hard flatten button repositioned for better layout
+## About
+Pitch Flattener learns one sound and plays it back with its pitch flattened.
+Press LEARN and play the sound once; play it again and the flattened version
+plays in its place. See the manual: pitchflattener/README.md
 
 ## Installation
 
@@ -110,8 +107,6 @@ cat > release_artifacts/RELEASE_NOTES.md << EOF
 
 ## Technologies Used
 - JUCE Framework
-- Rubber Band Library R3 (pitch shifting)
-- pYIN, MPM, reassigned spectral peaks and subharmonic summation (pitch detection)
 
 ## Support
 - Email: sam@sweetjusticesound.com

@@ -31,7 +31,7 @@ If these get some use in your work and you'd like to chip in, toss a coin in the
 |:---:|:---:|
 | **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Adds a pitch-tracked sub and harmonics to bass |
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
-| **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
+| **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Learns a sound and plays it back with its pitch flattened | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="roarschach/docs/hero.gif" width="812" alt="Roarschach">](#roarschach)<br>
 **[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
@@ -129,30 +129,29 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-> Removes pitch movement from Doppler passes, sirens and vibrato.
+> Learns a sound, then plays it back with its pitch flattened.
 
 <p align="center">
-  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
 </p>
 
-Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
+Pitch Flattener takes the pitch movement out of one sound: the sweep from a pass-by, the wail from a siren, the climb from an engine run-up, the wobble from a held note. Press LEARN and play the sound once; it reads the pitch of the whole sound and renders a flat version by speeding the playback up and slowing it down from moment to moment, like a tape, so the pitch comes out flat however fast it bends and the length changes with it. Play the sound again, from the start or from any point in it, and the flat version plays in its place, while other audio passes through. Made for a rack, such as a sound library's DSP rack, or a DAW: learn, then play or render.
 
-- **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
-- **ANALYSE**: play a sound once and it picks the Source Type, learns the sound's pitch line, and follows that line on later plays even where live tracking would hop to another partial
-- **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
-- **Shift Below** leaves everything above a set frequency unshifted, so an engine's fixed resonances don't dive as the correction grows
-- **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
-- **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
-- **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
-- **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
-- **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
+- **Learn by playing**: the sound passes through untouched while it is recorded, and Learn stops by itself after a second of silence
+- **Recognises the sound wherever it starts**, and takes over at the matching moment, with a fixed 0.4 s delay that your host compensates for
+- **Two pitch readings**, one for voices, engines and whines, one for sirens, whistles and higher sounds: it picks the one that flattens better, and you can overrule it with a click
+- **Five targets**: the top of the pitch (never longer than the original), the bottom, the centre (the least change in length), the start, or a note you type in, plus **Amount** to leave some of the movement in
+- **SCOPE** draws the pitch over time exactly; **FLIGHT** flies the sound as a course beside the level lane of the flattened sound
+- **Measured**: in the tests, a 7-semitone pass-by and a siren wailing over 15 semitones both measure 0.00 semitones of movement once flattened
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="pitchflattener/docs/display-engine.png" alt="Pitch Flattener display on an engine pass-by" width="400">
-  <img src="pitchflattener/docs/display-voice.png" alt="Pitch Flattener display on a voice" width="400">
+  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
+</p>
+<p align="center">
+  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT and LINE" width="820">
 </p>
 </details>
 
@@ -308,7 +307,7 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 | Dependency | Used by |
 |---|---|
 | [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Tonal Recall, Stretch Armstrong |
-| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Tonal Recall, Stretch Armstrong |
+| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Tonal Recall, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
 Then, from a project's folder:
