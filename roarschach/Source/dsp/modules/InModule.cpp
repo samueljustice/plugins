@@ -37,6 +37,8 @@ namespace roar
 
         // The learn.
         constexpr double c_firstPitchedSeconds = 0.150, c_firstUnpitchedSeconds = 0.600;
+        constexpr double c_pitchedEvidenceSeconds = 0.050;     // pitched sound that shows the take is a voice
+        constexpr double c_unpitchedMaxGainDb = 12.0;          // the most gain a take heard only as unpitched sound gets
         constexpr double c_expireSeconds = 2.0;
         constexpr double c_supportSeconds = 0.5;
         constexpr double c_completeSeconds = 4.0;
@@ -204,7 +206,10 @@ namespace roar
         if (! m_s.learnt)
             return 0.0;
         const double le = std::max (m_s.loudEndDb, m_s.tempLoudEndDb);
-        return std::clamp (c_targetDb - le, c_minGainDb, c_maxGainDb);
+        // Unpitched sound alone (a rasp, or wind and breathy noise before a line) is lifted by at
+        // most 12 dB until pitched sound has been heard.
+        const double maxGain = m_s.pitchedHeard ? c_maxGainDb : std::min (c_maxGainDb, c_unpitchedMaxGainDb);
+        return std::clamp (c_targetDb - le, c_minGainDb, maxGain);
     }
 
     void InModule::setGainAtOnce()
@@ -232,6 +237,7 @@ namespace roar
         m_s.learnt = keep.learnt;
         m_s.loudEndDb = keep.loudEndDb;
         m_s.evidence = keep.evidence;
+        m_s.pitchedHeard = keep.pitchedHeard;
         clearPass();
         setGainAtOnce();
         std::fill (m_gainTrace.begin(), m_gainTrace.end(), getCurrentTotalGain());
@@ -248,16 +254,18 @@ namespace roar
         m_s.learnt = false;
         m_s.loudEndDb = -150.0;
         m_s.evidence = 0.0;
+        m_s.pitchedHeard = false;
         m_s.autoGainDb = 0.0;
         m_s.first = false;
         m_s.matchActive = false;
         clearPass();
     }
 
-    void InModule::restoreLearning (bool learnt, double levelDb, double evidenceSeconds)
+    void InModule::restoreLearning (bool learnt, double levelDb, double evidenceSeconds, bool pitchedHeard)
     {
         const bool ok = learnt && std::isfinite (levelDb) && std::isfinite (evidenceSeconds);
         m_s.learnt = ok;
+        m_s.pitchedHeard = ok && pitchedHeard;
         m_s.loudEndDb = ok ? std::clamp (levelDb, -70.0, 12.0) : -150.0;
         m_s.evidence = ok ? std::clamp (evidenceSeconds, 0.0, c_completeSeconds) : 0.0;
         m_s.matchActive = false;
@@ -365,6 +373,8 @@ namespace roar
             const int bin = std::clamp (static_cast<int> (std::floor (lvl - c_histLowDb)), 0, c_histBins - 1);
             s.hist[static_cast<size_t> (bin)] += dt;
             (v ? s.pitchedSeconds : s.unpitchedSeconds) += dt;
+            if (s.pitchedSeconds >= c_pitchedEvidenceSeconds)
+                s.pitchedHeard = true;
 
             if (s.learnt || s.pitchedSeconds / c_firstPitchedSeconds + s.unpitchedSeconds / c_firstUnpitchedSeconds >= 1.0)
             {

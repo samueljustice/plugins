@@ -45,7 +45,11 @@ namespace roar
      *               24 dB/s to 0.5 s, 6 dB/s to 2 s and 0.5 dB/s to 10 s, after which it is a
      *               constant. A settings change starts a probe that replaces the match only when
      *               new evidence disagrees by 4 dB after 0.5 s, 3 dB after 1 s or 2 dB after 2 s
-     *               of matched sound; an IN gain move of more than 2 dB re-opens the slow phase.
+     *               of matched sound (with nothing heard since a hint or a clear, a change
+     *               only takes the hint's weight away); an IN gain move of more than 2 dB
+     *               re-opens the slow phase. A preset's hint sets M and counts as 2 s of matched
+     *               sound, fading to nothing at the stop; while it is in force M moves at most
+     *               6 dB/s, and nothing is learnt for the modules' latency plus 100 ms after it.
      *               Level Match Off glides the match to 0 dB over 20 ms (learning continues);
      *               switching it On again learns afresh. Measured before Ride, Push and the
      *               maximizer, so it cannot pump.
@@ -164,8 +168,10 @@ namespace roar
         void restoreLearning (const MatchState& m);
         /** Forget the match (M = 0): a fresh learn. */
         void clearLearning();
-        /** A hint (a preset's match): M = hint, worth 0.5 s of matched sound. */
-        void applyHint (double matchDb);
+        /** A hint (a preset's match): M = hint, worth 2 s of matched sound at first and nothing
+            once the match stops; no fast phase while it is in force. Nothing is learnt for
+            `settleSamples` of signal after it (the chain settling into the loaded settings). */
+        void applyHint (double matchDb, int settleSamples = 0);
         /** The settings key of this chunk (every field of the chain's settings but OUTPUT's own). A
             change starts a probe; with `adopt` the key is taken as the one in force without one. */
         void setSettingsKey (std::uint64_t key, bool adopt = false);
@@ -325,6 +331,7 @@ namespace roar
             bool probing = false;
             double probeSeconds = 0.0, probeDry = 0.0, probeWet = 0.0;
             double priorDb = 0.0, priorWeight = 0.0;
+            int settleFrames = 0;                         // frames not learnt from after a hint
 
             // Counters for the tests (kept across resets).
             int probeAdoptions = 0;

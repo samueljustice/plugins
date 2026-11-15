@@ -111,6 +111,9 @@ public:
     void postLevelHint(double matchDb);
     /** Posts learnt levels to the audio thread, as a session restore does (tests). */
     void postLevelRestore(const roar::LevelState& levels);
+    /** The learnt levels a save writes (message thread): what the audio thread published, with
+        any restore or hint still on its way to it applied on top, in the order they were posted. */
+    roar::LevelState levelsForSave();
 
     // Parameters
     juce::AudioProcessorValueTreeState m_parameters;
@@ -207,18 +210,20 @@ private:
     struct LevelRestoreSlot
     {
         std::atomic<juce::uint32> seq { 0 };
-        std::atomic<int> inLearnt { 0 };
+        std::atomic<int> inLearnt { 0 }, inPitched { 1 };
         std::atomic<double> inDb { -150.0 }, inEvidence { 0.0 };
         std::atomic<double> outDb { 0.0 }, outSeconds { 0.0 }, outDry { 0.0 }, outWet { 0.0 }, outData { 0.0 };
         std::atomic<int> outHaveGainRef { 0 };
         std::atomic<double> outGainRefDb { 0.0 };
         std::atomic<int> outHaveKey { 0 };
         std::atomic<std::uint64_t> outKey { 0 };
+        std::atomic<int> outKind { 0 };          // roar::LevelState::OutKind
     };
     struct LevelHintSlot
     {
         std::atomic<juce::uint32> seq { 0 };
         std::atomic<double> matchDb { 0.0 };
+        std::atomic<std::uint64_t> key { 0 };    // the settings key when the hint was posted
     };
     juce::CriticalSection m_levelRequestLock;
     juce::uint32 m_levelRequestCounter = 0;                 // under m_levelRequestLock

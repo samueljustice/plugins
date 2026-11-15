@@ -24,7 +24,7 @@ namespace roar
         constexpr double c_stopSeconds = 10.0;
         constexpr double c_minMatchDb = -12.0, c_maxMatchDb = 15.0;
         constexpr double c_inMovedDb = 2.0, c_inMovedDataSeconds = 4.0;
-        constexpr double c_hintWeightSeconds = 0.5;
+        constexpr double c_hintWeightSeconds = 2.0;          // a hint's weight in matched seconds, fading to 0 at the stop
         constexpr double c_matchBlendSeconds = 0.020;
         constexpr double c_minTraceGain = 1.0e-3;
 
@@ -488,6 +488,7 @@ namespace roar
         m_s.probeWet = keep.probeWet;
         m_s.priorDb = keep.priorDb;
         m_s.priorWeight = keep.priorWeight;
+        m_s.settleFrames = keep.settleFrames;
         m_s.probeAdoptions = keep.probeAdoptions;
         m_s.matchedFrames = keep.matchedFrames;
         m_s.wetRejectedFrames = keep.wetRejectedFrames;
@@ -562,7 +563,7 @@ namespace roar
         m_m.matchDb = 0.0;
     }
 
-    void OutputModule::applyHint (double matchDb)
+    void OutputModule::applyHint (double matchDb, int settleSamples)
     {
         if (! std::isfinite (matchDb))
             return;
@@ -570,6 +571,7 @@ namespace roar
         m_m.matchDb = clampMatch (matchDb);
         m_s.priorDb = m_m.matchDb;
         m_s.priorWeight = c_hintWeightSeconds;
+        m_s.settleFrames = std::max (0, settleSamples + c_frame - 1) / c_frame;
     }
 
     OutputModule::MatchState OutputModule::getMatchState() const
@@ -609,8 +611,18 @@ namespace roar
         }
         if (key == m.key)
             return;
-        // A settings change: weigh new evidence beside the held match; M does not move meanwhile.
         m.key = key;
+        if (m.dataSeconds <= 0.0)
+        {
+            // Nothing heard since the hint (or the clear): there is nothing to weigh, and a hint
+            // describes the settings it came with. M stays as the starting point and the next
+            // matched sound is learnt with the hold and both fast phases.
+            m_s.probing = false;
+            m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
+            m_s.priorWeight = 0.0;
+            return;
+        }
+        // A settings change: weigh new evidence beside the held match; M does not move meanwhile.
         m_s.probing = true;
         m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
     }
@@ -695,6 +707,11 @@ namespace roar
 
         s.dry20 = dsp::flushTiny (s.dry20 + m_level20Coeff * (dryMs - s.dry20));
         s.wet20 = dsp::flushTiny (s.wet20 + m_level20Coeff * (wetMs - s.wet20));
+        if (s.settleFrames > 0)
+        {
+            --s.settleFrames;   // after a hint: the chain is still settling into the loaded settings
+            return;
+        }
         if (! learn || s.lastActive <= 0.5f)
             return;
         if (10.0 * std::log10 (s.wet20 + 1.0e-30) <= 10.0 * std::log10 (s.dry20 + 1.0e-30) - c_wetWindowDb)
@@ -754,10 +771,14 @@ namespace roar
             m.dryPower += k * (dryMs - m.dryPower);
             m.wetPower += k * (wetMs - m.wetPower);
             const double r = 10.0 * std::log10 ((m.dryPower + 1.0e-30) / (m.wetPower + 1.0e-30));
-            const double rt = clampMatch ((m.dataSeconds * r + s.priorWeight * s.priorDb) / (m.dataSeconds + s.priorWeight));
-            const double rate = m.seconds < c_holdSeconds ? 0.0
-                              : (m.seconds < c_phase1Seconds ? c_phase1DbPerSecond
-                              : (m.seconds < c_phase2Seconds ? c_phase2DbPerSecond : c_slowDbPerSecond));
+            // The hint's weight fades out over the learn, so the stopped match is the data's own.
+            const double pw = s.priorWeight * std::max (0.0, 1.0 - m.seconds / c_stopSeconds);
+            const double rt = clampMatch ((m.dataSeconds * r + pw * s.priorDb) / (m.dataSeconds + pw));
+            double rate = m.seconds < c_holdSeconds ? 0.0
+                        : (m.seconds < c_phase1Seconds ? c_phase1DbPerSecond
+                        : (m.seconds < c_phase2Seconds ? c_phase2DbPerSecond : c_slowDbPerSecond));
+            if (s.priorWeight > 0.0)
+                rate = std::min (rate, c_phase2DbPerSecond);   // a hint is in force: no fast phase over it
             m.matchDb += std::clamp (rt - m.matchDb, -rate * dt, rate * dt);
         }
     }

@@ -47,7 +47,9 @@ namespace roar
      *   - a sound more than 12 dB over the loud end for 150 ms gets a temporary fall (to within
      *     6 dB of it at 80 dB/s) that lets go at 6 dB/s.
      *
-     *   gain = clamp (-16 - max (L, Lt), -18, +24) dB, glided: the first learn with tau 80 ms, then
+     *   gain = clamp (-16 - max (L, Lt), -18, +24) dB (at most +12 dB until 50 ms of pitched
+     *   confident sound have been heard in one pass: wind or breathy noise before a line reads like
+     *   an unpitched performance), glided: the first learn with tau 80 ms, then
      *   falling with tau 30 ms and rising with tau 300 ms. With Auto Level on, Input offsets the
      *   working level by half its value; switching Auto Level from Off to On learns the take again.
      *
@@ -87,7 +89,7 @@ namespace roar
         /** Forget the learnt level: the next confident sound is learnt as a new take. */
         void clearLearning();
         /** Restore a learnt level (a session load): the gain is set to it at once. */
-        void restoreLearning (bool learnt, double levelDb, double evidenceSeconds);
+        void restoreLearning (bool learnt, double levelDb, double evidenceSeconds, bool pitchedHeard = true);
 
         /** The stream for the chunk just processed (valid until the next process()). */
         VoiceFrameView getVoiceView() const { return m_stream.view(); }
@@ -103,6 +105,8 @@ namespace roar
         float getAutoGainDb() const { return static_cast<float> (m_s.autoGainDb * m_s.autoBlend); }
         float getLearnedLevelDb() const { return m_s.learnt ? static_cast<float> (m_s.loudEndDb) : -150.0f; }
         bool isLearnt() const { return m_s.learnt; }
+        /** Pitched sound has been heard in this take (until then the gain is at most +12 dB). */
+        bool hasHeardPitched() const { return m_s.pitchedHeard; }
         float getEvidenceSeconds() const { return static_cast<float> (m_s.evidence); }
         float getFloorDb() const { return static_cast<float> (m_s.floorDb); }
         float getInputLevel() const { return m_s.inputLevel; } // 0..1 linear, smoothed peak (after Input)
@@ -178,6 +182,7 @@ namespace roar
             bool learnt = false;
             double loudEndDb = -150.0;       // L
             double evidence = 0.0;           // E: the most confident seconds one pass has had (<= 4)
+            bool pitchedHeard = false;       // 50 ms of pitched confident sound in one pass
 
             // Pass state.
             std::array<double, c_histBins> hist {};

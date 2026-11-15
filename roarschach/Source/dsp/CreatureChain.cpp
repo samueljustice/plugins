@@ -375,28 +375,47 @@ namespace roar
     {
         m_in.setParams (settings.in);
         m_output.setParams (settings.output);
-        m_in.restoreLearning (levels.inLearnt, levels.inDb, levels.inEvidence);
-        m_output.restoreLearning (levels.out);
+        m_in.restoreLearning (levels.inLearnt, levels.inDb, levels.inEvidence, levels.inPitched);
+        switch (levels.outKind)
+        {
+            case LevelState::OutKind::learnt:
+                m_output.restoreLearning (levels.out);
+                break;
+            case LevelState::OutKind::hint:
+                m_output.applyHint (levels.out.matchDb, hintSettleSamples());
+                m_output.setSettingsKey (settingsKey (settings), true);
+                m_adoptKeyNext = true;
+                break;
+            case LevelState::OutKind::keep:
+                break;
+        }
         refillLevelDelays();
     }
 
-    bool CreatureChain::applyMatchHint (double matchDb, const ChainSettings& settings)
+    bool CreatureChain::applyMatchHint (double matchDb, std::uint64_t hintKey, const ChainSettings& settings)
     {
         const std::uint64_t key = settingsKey (settings);
         const auto m = m_output.getMatchState();
         if (m.dataSeconds > 0.0 && m.haveKey && m.key == key)
             return false;
         m_output.setParams (settings.output);
-        m_output.applyHint (matchDb);
-        m_output.setSettingsKey (key, true);
-        m_adoptKeyNext = true;
+        m_output.applyHint (matchDb, hintSettleSamples());
+        // The hint's own settings are taken as the key in force; this chunk's key is compared with
+        // it (an edit since the preset was loaded drops the hint's weight, nothing heard yet).
+        m_output.setSettingsKey (hintKey, true);
         return true;
+    }
+
+    int CreatureChain::hintSettleSamples() const
+    {
+        return m_moduleLatency + dsp::samplesFor (c_hintSettleSeconds, m_fs);
     }
 
     LevelState CreatureChain::getLevels() const
     {
         LevelState l;
         l.inLearnt = m_in.isLearnt();
+        l.inPitched = m_in.hasHeardPitched();
         l.inDb = m_in.getLearnedLevelDb();
         l.inEvidence = m_in.getEvidenceSeconds();
         l.out = m_output.getMatchState();
@@ -650,6 +669,7 @@ namespace roar
         {
             const auto m = m_output.getMatchState();
             f.levelInLearnt.store (m_in.isLearnt() ? 1 : 0, std::memory_order_relaxed);
+            f.levelInPitched.store (m_in.hasHeardPitched() ? 1 : 0, std::memory_order_relaxed);
             f.levelInDb.store (m_in.getLearnedLevelDb(), std::memory_order_relaxed);
             f.levelInEvidence.store (m_in.getEvidenceSeconds(), std::memory_order_relaxed);
             f.levelOutDb.store (m.matchDb, std::memory_order_relaxed);

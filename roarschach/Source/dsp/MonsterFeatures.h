@@ -68,6 +68,7 @@ namespace roar
         // The learnt levels (IN's take gain and OUTPUT's match), for the session state: written
         // once per chunk, read by getStateInformation. A torn read costs at most one chunk of learning.
         std::atomic<int> levelInLearnt { 0 };
+        std::atomic<int> levelInPitched { 0 };
         std::atomic<double> levelInDb { -150.0 };       // the take's loud end L
         std::atomic<double> levelInEvidence { 0.0 };    // E, seconds
         std::atomic<double> levelOutDb { 0.0 };         // M

@@ -62,7 +62,13 @@ namespace roar
         bool inLearnt = false;
         double inDb = -150.0;          // the take's loud end L
         double inEvidence = 0.0;       // E, seconds
+        bool inPitched = true;         // pitched sound heard in the take (else IN's gain is capped)
         OutputModule::MatchState out;
+        /** What a restore does with `out`: learnt restores it as it is; hint takes out.matchDb as a
+            hint (a state saved before the match heard anything); keep leaves the match as it is (a
+            state that carries no match: the preset's hint already in force stays). */
+        enum class OutKind { learnt, hint, keep };
+        OutKind outKind = OutKind::learnt;
     };
 
     /** The resolved order and the stereo split slot (numModules: the whole chain is mono). */
@@ -131,6 +137,8 @@ namespace roar
         static constexpr double c_fadeCorrelationSeconds = 0.004;
         static constexpr double c_minFadeCorrelation = -0.6;
         static constexpr double c_maxFadeGain = 2.0;
+        /** After a match hint, OUTPUT learns nothing for the modules' latency plus this long. */
+        static constexpr double c_hintSettleSeconds = 0.100;
 
         CreatureChain();
 
@@ -170,9 +178,11 @@ namespace roar
         /** A session restore (audio thread, at the start of a block): the settings' Off to On
             transitions are consumed first, so they cannot clear what is restored. */
         void restoreLevels (const LevelState& levels, const ChainSettings& settings);
-        /** A preset's match hint (audio thread). Ignored when the match already holds data for these
-            settings (re-selecting the current preset). Returns false when ignored. */
-        bool applyMatchHint (double matchDb, const ChainSettings& settings);
+        /** A preset's match hint (audio thread), for the settings whose key is `hintKey` (those of
+            the preset as loaded). Ignored when the match already holds data for the settings in
+            force (re-selecting the current preset). If the settings in force are no longer the
+            preset's, the hint is a starting point without weight. Returns false when ignored. */
+        bool applyMatchHint (double matchDb, std::uint64_t hintKey, const ChainSettings& settings);
         /** The learnt levels now (audio thread, or while not processing). */
         LevelState getLevels() const;
 
@@ -258,6 +268,7 @@ namespace roar
         void startReorder (const Topology& next);
         void publish (const ChainSettings& settings, const float* outL, const float* outR, int n, MonsterFeatures& features);
         void refillLevelDelays();
+        int hintSettleSamples() const;
         static DryPhaseMatch::Settings dryMatchSettings (const ChainSettings& s);
 
         double m_fs = 48000.0;
