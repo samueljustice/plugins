@@ -72,7 +72,7 @@ public:
     void setCaption(const juce::String& text, const juce::Font& font, int height)
     {
         m_caption = text;
-        m_captionFont = font;
+        m_captionFont = std::make_unique<juce::Font>(font);
         m_captionHeight = height;
         repaint();
     }
@@ -192,7 +192,8 @@ public:
 
         if (m_caption.isNotEmpty())
         {
-            g.setFont(m_captionFont);
+            if (m_captionFont != nullptr)
+                g.setFont(*m_captionFont);
             g.setColour(!enabled ? Theme::Colours::inkFaint : isDown || isMouseOver ? Theme::Colours::ink : Theme::Colours::inkDim);
             g.drawText(m_caption, getCaptionBounds(), juce::Justification::centred, false);
         }
@@ -269,6 +270,6 @@ private:
     bool m_muted = false;
     int m_pillSize = 0;
     juce::String m_caption;
-    juce::Font m_captionFont { juce::FontOptions {} };
+    std::unique_ptr<juce::Font> m_captionFont;   // (a theme font, given with the caption)
     int m_captionHeight = 0;
 };

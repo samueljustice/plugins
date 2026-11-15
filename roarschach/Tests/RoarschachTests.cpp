@@ -4166,12 +4166,9 @@ namespace
         testThemeContrast();
         testMoodTintsControls();
 
-        // 5. Captions: at the caption size (Theme::Type::caption, point height) wherever the tile has the
-        //    room, never under 8.25 (CHAMBER's four narrow knobs only), each whole word shown, clear of the
-        //    captions beside it and of the sides of its tile. (Sizes are point heights: the sans's cap
-        //    height is 0.66 of it, so 12.9 pt keeps 5.5 px capitals at 65 %. CHAMBER's 8.25 pt floor gives
-        //    5.4 px capitals at full size, the same as the 9 px-high mono captions this floor replaces;
-        //    its four knobs need a layout of their own to reach the caption size.)
+        // 5. Captions: every one at the caption size (Theme::Type::caption, point height: 5.5 px capitals
+        //    at 65 %), each whole word shown, clear of the captions beside it and of the sides of its tile.
+        //    (CHAMBER's four narrow knobs are placed by their captions to fit.)
         {
             auto p = makeProcessor(48000.0, 512);
             std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
@@ -4432,21 +4429,21 @@ namespace
                             return slider;
                 return nullptr;
             };
-            // A knob's state is drawn by its shape (LookAndFeel::KnobStyle: a filled disc in use, a lighter
-            // arc when it does little, an outline when unused or Off), never by fading it. These checks read
-            // the style on the three ranks lit, weak and unused (Off counts as unused).
-            const auto alphaOf = [&](const char* id)
+            // A knob's state is drawn by its shape, never by fading it (section 11 checks the shapes from
+            // pixels): a solid disc with a brushed arc in use, a fine arc when it does little, an outline
+            // when unused, an outline with no arc when its module is Off. These checks read the state the
+            // strip gives each knob; the knob must stay enabled and opaque (it still turns).
+            using Style = RoarschachLookAndFeel::KnobStyle;
+            const auto styleOf = [&](const char* id) -> int
             {
                 strip.refresh();
                 auto* knob = knobFor(id);
                 if (knob == nullptr || !knob->isEnabled() || knob->getAlpha() < 0.99f)
-                    return -1.0f;
-                using Style = RoarschachLookAndFeel::KnobStyle;
-                const auto style = RoarschachLookAndFeel::getKnobStyle(*knob);
-                return style == Style::full ? 1.0f : style == Style::weak ? 0.7f : 0.45f;
+                    return -1;
+                return static_cast<int>(RoarschachLookAndFeel::getKnobStyle(*knob));
             };
-            const auto is = [](float alpha, float want) { return std::abs(alpha - want) < 0.01f; };
-            const float lit = 1.0f, weak = 0.7f, unused = 0.45f;
+            const auto is = [](int style, Style want) { return style == static_cast<int>(want); };
+            const auto lit = Style::full, weak = Style::weak, unused = Style::unused;
 
             // Every module On, so only the knob's own state dims it.
             const auto allOn = [](RoarschachAudioProcessor& processor)
@@ -4496,10 +4493,10 @@ namespace
             for (const auto& c : cases)
             {
                 setParam(*p, c.condition, c.deadValue);
-                const bool dimmed = is(alphaOf(c.knob), unused);
+                const bool dimmed = is(styleOf(c.knob), unused);
                 const double deadDiff = differ(renderAt(c.condition, c.deadValue, c.knob, 0.0f), renderAt(c.condition, c.deadValue, c.knob, 1.0f));
                 setParam(*p, c.condition, c.liveValue);
-                const bool relit = is(alphaOf(c.knob), lit);
+                const bool relit = is(styleOf(c.knob), lit);
                 const double liveDiff = differ(renderAt(c.condition, c.liveValue, c.knob, 0.0f), renderAt(c.condition, c.liveValue, c.knob, 1.0f));
                 wrongDim += dimmed && relit ? 0 : 1;
                 notNull += deadDiff == 0.0 ? 0 : 1;
@@ -4514,13 +4511,13 @@ namespace
             // The two half-dimmed knobs do a little, not nothing: CHAMBER Edge under 60 % Amount, and
             // OUTPUT Attack while Auto is on.
             setParam(*p, Params::chamber, 50.0f);
-            check(is(alphaOf(Params::chamberDrive), weak), "CHAMBER Edge is half-dimmed at Amount 50");
+            check(is(styleOf(Params::chamberDrive), weak), "CHAMBER Edge is half-dimmed at Amount 50");
             setParam(*p, Params::chamber, 60.0f);
-            check(is(alphaOf(Params::chamberDrive), lit), "CHAMBER Edge is lit from Amount 60");
+            check(is(styleOf(Params::chamberDrive), lit), "CHAMBER Edge is lit from Amount 60");
             setParam(*p, Params::outAuto, 1.0f);
-            check(is(alphaOf(Params::outAttack), weak), "OUTPUT Attack is half-dimmed with Auto on");
+            check(is(styleOf(Params::outAttack), weak), "OUTPUT Attack is half-dimmed with Auto on");
             setParam(*p, Params::outAuto, 0.0f);
-            check(is(alphaOf(Params::outAttack), lit), "OUTPUT Attack is lit with Auto off");
+            check(is(styleOf(Params::outAttack), lit), "OUTPUT Attack is lit with Auto off");
             setParam(*p, Params::outAuto, 1.0f);
 
             // OVERTONE Freq at Amount 0: an exact null in Add (above); in Lean and Replace the low end
@@ -4530,7 +4527,7 @@ namespace
             for (const float mode : { 1.0f, 2.0f })
             {
                 setParam(*p, Params::overtoneMode, mode);
-                check(is(alphaOf(Params::overtoneFreq), weak), "OVERTONE Freq is half-dimmed at Amount 0 outside Add");
+                check(is(styleOf(Params::overtoneFreq), weak), "OVERTONE Freq is half-dimmed at Amount 0 outside Add");
                 const auto renderMode = [&](float freq)
                 {
                     auto q = makeProcessor(sr, 512);
@@ -4546,18 +4543,18 @@ namespace
                 check(differ(low, high) > 1.0e-4 && levelChange < 1.5, "there Freq turns the phase of the low end and little else");
             }
             setParam(*p, Params::overtoneMode, 0.0f);
-            check(is(alphaOf(Params::overtoneFreq), unused), "OVERTONE Freq is dimmed at Amount 0 in Add");
+            check(is(styleOf(Params::overtoneFreq), unused), "OVERTONE Freq is dimmed at Amount 0 in Add");
             setParam(*p, Params::overtone, 4.0f);
 
             // CHAMBER Width stays lit at Amount 0: it still decides where the chain turns stereo.
             setParam(*p, Params::chamber, 0.0f);
-            check(is(alphaOf(Params::chamberWidth), lit), "CHAMBER Width stays lit at Amount 0");
+            check(is(styleOf(Params::chamberWidth), lit), "CHAMBER Width stays lit at Amount 0");
             setParam(*p, Params::chamber, 50.0f);
 
             // A dimmed knob on an Off tile is no dimmer than the tile, and every knob still takes a value.
             setParam(*p, Params::growl, 0.0f);
             setParam(*p, Params::growlOn, 0.0f);
-            check(is(alphaOf(Params::growlRate), unused) && is(alphaOf(Params::growl), unused), "an Off tile dims all its knobs alike");
+            check(is(styleOf(Params::growlRate), Style::off) && is(styleOf(Params::growl), Style::off), "an Off tile draws all its knobs alike, as outlines with no arc");
             setParam(*p, Params::growlOn, 1.0f);
             auto* rate = knobFor(Params::growlRate);
             rate->setValue(40.0, juce::sendNotificationSync);
@@ -4567,8 +4564,259 @@ namespace
             int captionsApart = 0;
             for (auto* c : strip.getOutputTile()->getChildren())
                 if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->getText() == "SHAPE")
-                    captionsApart += RoarschachLookAndFeel::isCaptionLive(*label) == (alphaOf(Params::outClipShape) > 0.5f) ? 0 : 1;
+                    captionsApart += RoarschachLookAndFeel::isCaptionLive(*label) == (styleOf(Params::outClipShape) == static_cast<int>(Style::full)) ? 0 : 1;
             check(captionsApart == 0, "an unused knob's caption changes with it");
+        }
+
+        // 11. Ink on paper: state by shape, contrast from pixels in the palest, a warm and a cold mood,
+        //     targets and type that hold at 65 %, and every colour and font from the theme's roles.
+        {
+            const auto lumAt = [](const juce::Image& image, int x, int y) { return Theme::luminance(image.getPixelAt(x, y).withAlpha(1.0f)); };
+            // In a box of an image: the darkest pixel (the text or mark) against the lightest (its ground).
+            const auto boxContrast = [&](const juce::Image& image, juce::Rectangle<int> box)
+            {
+                box = box.getIntersection(image.getBounds());
+                float lo = 2.0f, hi = -1.0f;
+                for (int y = box.getY(); y < box.getBottom(); ++y)
+                    for (int x = box.getX(); x < box.getRight(); ++x)
+                    {
+                        const float l = lumAt(image, x, y);
+                        lo = std::min(lo, l);
+                        hi = std::max(hi, l);
+                    }
+                return hi < 0.0f ? 0.0f : (hi + 0.05f) / (lo + 0.05f);
+            };
+            // (a component drawn at 2x on the paper it sits on)
+            const auto onPaper = [](juce::Component& c)
+            {
+                juce::Image image(juce::Image::ARGB, c.getWidth() * 2, c.getHeight() * 2, true);
+                juce::Graphics g(image);
+                g.fillAll(Theme::Colours::paper);
+                g.drawImageAt(c.createComponentSnapshot(c.getLocalBounds(), true, 2.0f), 0, 0);
+                return image;
+            };
+            struct Mood { const char* name; float hue, chroma; };
+            const Mood moods[] { { "palest", Theme::c_referenceHue, 0.0f }, { "warm", 28.0f, 0.095f }, { "cold", 240.0f, 0.09f }, { "green", 150.0f, 0.085f } };
+
+            Theme::Fonts fonts;
+            RoarschachLookAndFeel look(fonts);
+
+            // a) Knob states by shape, from pixels: the disc's middle is ink when the knob is in use and
+            //    paper when it is not; the marks thin out from full to weak to unused to off.
+            {
+                int wrong = 0;
+                for (const auto& mood : moods)
+                {
+                    Theme::applyMood(mood.hue, mood.chroma);
+                    look.refreshColours();
+                    std::array<int, 4> marks {};
+                    std::array<float, 4> middle {};
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        juce::Slider knob(juce::Slider::RotaryVerticalDrag, juce::Slider::NoTextBox);
+                        knob.setLookAndFeel(&look);
+                        knob.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
+                        knob.setRange(0.0, 1.0);
+                        knob.setValue(0.75, juce::dontSendNotification);
+                        knob.setSize(52, 52);
+                        RoarschachLookAndFeel::setKnobStyle(knob, static_cast<RoarschachLookAndFeel::KnobStyle>(k));
+                        juce::Image image(juce::Image::ARGB, 104, 104, true);
+                        {
+                            juce::Graphics g(image);
+                            g.fillAll(Theme::Colours::wash);
+                            g.drawImageAt(knob.createComponentSnapshot(knob.getLocalBounds(), true, 2.0f), 0, 0);
+                        }
+                        const float ground = Theme::luminance(Theme::Colours::wash);
+                        for (int y = 0; y < 104; ++y)
+                            for (int x = 0; x < 104; ++x)
+                                marks[static_cast<size_t>(k)] += (ground + 0.05f) / (lumAt(image, x, y) + 0.05f) > 2.0f ? 1 : 0;
+                        // (the middle, off the pointer: a little below and left of the centre)
+                        middle[static_cast<size_t>(k)] = (ground + 0.05f) / (lumAt(image, 46, 58) + 0.05f);
+                        knob.setLookAndFeel(nullptr);
+                    }
+                    const bool ok = middle[0] > 4.5f && middle[1] > 4.5f && middle[2] < 1.3f && middle[3] < 1.3f
+                                 && marks[0] > marks[1] && marks[1] > marks[2] && marks[2] > marks[3];
+                    wrong += ok ? 0 : 1;
+                    if (!ok)
+                        std::printf("    %s: knob marks %d / %d / %d / %d px, middle %.1f / %.1f / %.1f / %.1f\n", mood.name, marks[0], marks[1], marks[2], marks[3],
+                                    static_cast<double>(middle[0]), static_cast<double>(middle[1]), static_cast<double>(middle[2]), static_cast<double>(middle[3]));
+                }
+                check(wrong == 0, "a knob's state is its shape: solid in use, a fine arc when it does little, an outline when unused, no arc when Off");
+            }
+
+            // b) An Off tile, from pixels, in each mood: its values and name 4.5 to 1, its captions and the
+            //    OFF footer 3 to 1 or more (they are the faint ink: 4.5 here too); an On tile's values 7 to 1.
+            {
+                auto p = makeProcessor(48000.0, 512);
+                std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+                auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+                editor.setSize(baseW, baseH);
+                auto& strip = RoarschachEditorInspector::strip(editor);
+                setParam(*p, Params::growlOn, 0.0f);
+                setParam(*p, Params::roarOn, 1.0f);
+                float worstValue = 100.0f, worstCaption = 100.0f, worstName = 100.0f, worstFooter = 100.0f, worstOn = 100.0f;
+                for (const auto& mood : moods)
+                {
+                    Theme::applyMood(mood.hue, mood.chroma);
+                    dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(editor)).refreshColours();
+                    strip.refresh();
+                    for (const bool on : { false, true })
+                    {
+                        auto* tile = strip.getModuleTile(static_cast<int>(on ? Params::ModuleId::roar : Params::ModuleId::growl));
+                        const auto image = onPaper(*tile);
+                        for (const auto& [knob, id] : strip.getKnobs(tile))
+                            for (auto* c : knob->getChildren())
+                                if (auto* box = dynamic_cast<juce::Label*>(c))
+                                {
+                                    const auto r = tile->getLocalArea(box, box->getLocalBounds().withSizeKeepingCentre(std::min(box->getWidth(), 50), 12)) * 2;
+                                    (on ? worstOn : worstValue) = std::min(on ? worstOn : worstValue, boxContrast(image, r));
+                                }
+                        if (on)
+                            continue;
+                        for (auto* c : tile->getChildren())
+                            if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->isVisible())
+                                worstCaption = std::min(worstCaption, boxContrast(image, label->getBounds().withSizeKeepingCentre(label->getWidth(), 10) * 2));
+                        worstName = std::min(worstName, boxContrast(image, juce::Rectangle<int>(50, 7, 40, 12) * 2));
+                        worstFooter = std::min(worstFooter, boxContrast(image, juce::Rectangle<int>(tile->getWidth() / 2 - 12, tile->getHeight() - 19, 24, 9) * 2));
+                    }
+                }
+                std::printf("  an Off tile from pixels, at its worst over four moods: values %.2f, captions %.2f, name %.2f, OFF %.2f (an On tile's values %.2f)\n",
+                            static_cast<double>(worstValue), static_cast<double>(worstCaption), static_cast<double>(worstName),
+                            static_cast<double>(worstFooter), static_cast<double>(worstOn));
+                check(worstValue >= 4.5f && worstName >= 4.5f, "an Off tile's values and name read at 4.5 to 1 in every mood");
+                check(worstCaption >= 3.0f && worstFooter >= 3.0f, "an Off tile's captions and OFF read at 3 to 1 in every mood");
+                check(worstOn >= 7.0f, "an On tile's values read at 7 to 1 in every mood");
+            }
+
+            // c) The readouts, ASLEEP and the hint over the picture: over black (the ink creature), white,
+            //    the cloud's tone and an ember cloud, in each mood, 4.5 to 1 or more (from pixels).
+            {
+                const juce::uint32 grounds[] { 0xff000000, 0xffffffff, Theme::Picture::cloudTone, Theme::Picture::cloudLit, 0xffe9927a, 0xff3a2a2a };
+                float worst = 100.0f;
+                for (const auto& mood : moods)
+                {
+                    Theme::applyMood(mood.hue, mood.chroma);
+                    for (const auto ground : grounds)
+                    {
+                        juce::Image image(juce::Image::ARGB, 1800, 140, true);
+                        juce::Rectangle<float> plates[4];
+                        {
+                            juce::Graphics g(image);
+                            g.fillAll(juce::Colour(ground));
+                            g.addTransform(juce::AffineTransform::scale(2.0f));
+                            plates[0] = MonsterView::drawReadout(g, fonts, "DETAIL +3.5 / -6.0 dB", { 20.0f, 10.0f, 860.0f, 18.0f }, true, false);
+                            plates[1] = MonsterView::drawReadout(g, fonts, "ASLEEP", { 20.0f, 10.0f, 860.0f, 18.0f }, false, true);
+                            plates[2] = MonsterView::drawHint(g, fonts, "Play a voice through it to wake the creature.", { 20.0f, 40.0f, 860.0f, 18.0f });
+                            plates[3] = MonsterView::drawReadout(g, fonts, "F0 --", { 20.0f, 40.0f, 860.0f, 18.0f }, true, true);
+                        }
+                        for (const auto& plate : plates)
+                            worst = std::min(worst, boxContrast(image, (plate.reduced(10.0f, 8.0f) * 2.0f).toNearestInt()));
+                    }
+                }
+                std::printf("  the readouts, ASLEEP and the hint over the picture: %.2f to 1 at their worst\n", static_cast<double>(worst));
+                check(worst >= 4.5f, "the readouts, ASLEEP and the hint read at 4.5 to 1 over any picture, in every mood");
+            }
+            Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
+
+            // d) Targets at 65 %: the On lamps, dice, move chips, mode chips, the AUTO switches and the
+            //    header's buttons click in 16 px or more at the smallest window.
+            {
+                auto p = makeProcessor(48000.0, 512);
+                std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+                auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+                editor.setSize(baseW, baseH);
+                auto& strip = RoarschachEditorInspector::strip(editor);
+                const float least = 16.0f / Editor::c_minScale;
+                int small = 0, seen = 0;
+                const auto target = [&](juce::Component* c, const char* what)
+                {
+                    if (c == nullptr || !c->isVisible())
+                        return;
+                    ++seen;
+                    if (static_cast<float>(std::min(c->getWidth(), c->getHeight())) < least - 0.01f)
+                    {
+                        ++small;
+                        std::printf("    %s is %d x %d (%.1f px at 65 %%)\n", what, c->getWidth(), c->getHeight(), std::min(c->getWidth(), c->getHeight()) * Editor::c_minScale);
+                    }
+                };
+                for (int m = 0; m < Params::numModules; ++m)
+                {
+                    target(strip.getOnButton(m), "an On lamp");
+                    target(strip.getModuleDice(m), "a die");
+                    target(strip.getMoveChip(m), "a move chip");
+                    target(strip.getModeChip(m), "a mode chip");
+                }
+                for (auto* tile : { strip.getInTile(), strip.getOutputTile() })
+                    for (auto* c : tile->getChildren())
+                        if (dynamic_cast<juce::TextButton*>(c) != nullptr)
+                            target(c, "an AUTO switch");
+                for (auto* c : RoarschachEditorInspector::content(editor).getChildren())
+                    if (dynamic_cast<juce::Button*>(c) != nullptr && dynamic_cast<juce::HyperlinkButton*>(c) == nullptr)
+                        target(c, "a header button");
+                std::printf("  %d small controls, the least %.1f design px (16 px at 65 %%)\n", seen, static_cast<double>(least));
+                check(seen >= 60 && small == 0, juce::String(small) + " small controls under 16 px at 65 %");
+            }
+
+            // e) Type at 65 %: the capitals of every text a reader needs are 5.5 px or more (measured
+            //    from the glyphs' outlines).
+            {
+                const auto capitals = [](const juce::Font& f)
+                {
+                    juce::GlyphArrangement glyphs;
+                    glyphs.addLineOfText(f, "H", 0.0f, 0.0f);
+                    juce::Path outline;
+                    glyphs.createPath(outline);
+                    return outline.getBounds().getHeight();
+                };
+                struct Role { const char* what; juce::Font font; };
+                const Role roles[] {
+                    { "captions", fonts.caption(Theme::Type::caption) }, { "values", fonts.value(Theme::Type::value) },
+                    { "mode chips", fonts.value(Theme::Type::chip) }, { "buttons", fonts.label(Theme::Type::button) },
+                    { "module names at their least", fonts.title(Theme::Type::tileTitleMin) }, { "prose", fonts.body(Theme::Type::body) },
+                };
+                int small = 0;
+                juce::String line = "  capitals at 65 %:";
+                for (const auto& r : roles)
+                {
+                    const float px = capitals(r.font) * Editor::c_minScale;
+                    line << "  " << r.what << " " << juce::String(px, 2);
+                    small += px < 5.5f ? 1 : 0;
+                }
+                std::printf("%s px\n", line.toRawUTF8());
+                check(small == 0, juce::String(small) + " text roles under 5.5 px capitals at 65 %");
+            }
+
+            // f) Every colour and font in the editor's sources comes from the theme's roles: no literal
+            //    colour, no font made outside Theme::Fonts (the picture's own renderer and shaders aside).
+            {
+                const auto source = juce::File(__FILE__).getParentDirectory().getParentDirectory().getChildFile("Source");
+                const char* patterns[] { "Colour(0x", "Colour (0x", "fromRGB", "fromFloatRGBA", "fromHSV", "fromHSL", "FontOptions", "juce::Font(",
+                                         "juce::Font (", "Font::plain", "Font::bold", "createSystemTypefaceFor", "Colours::" };
+                int files = 0, found = 0;
+                for (const auto& f : source.findChildFiles(juce::File::findFiles, false, "*.cpp;*.h"))
+                {
+                    const auto name = f.getFileName();
+                    if (name == "Theme.h" || name.startsWith("MonsterRenderer") || name.startsWith("MonsterShaders") || name.startsWith("Creature")
+                        || name.startsWith("LogoSdf") || name.startsWith("NoiseTexture"))
+                        continue;
+                    ++files;
+                    juce::StringArray lines;
+                    lines.addLines(f.loadFileAsString());
+                    for (int i = 0; i < lines.size(); ++i)
+                    {
+                        const auto code = lines[i].upToFirstOccurrenceOf("//", false, false);
+                        for (const char* pattern : patterns)
+                            if (code.contains(pattern) && !(juce::String(pattern) == "Colours::" && (code.contains("Colours::transparentBlack") || code.contains("Theme::Colours::")
+                                                                                                   || code.contains("namespace Theme::Colours"))))
+                            {
+                                ++found;
+                                std::printf("    %s:%d: %s\n", name.toRawUTF8(), i + 1, code.trim().toRawUTF8());
+                            }
+                    }
+                }
+                std::printf("  %d editor sources read for colours and fonts outside the theme\n", files);
+                check(files >= 10 && found == 0, juce::String(found) + " colours or fonts set outside the theme's roles");
+            }
         }
 
         writeUiShots();
@@ -5019,7 +5267,7 @@ namespace
         {
             editor.setMenuParentForSnapshots(&stage);
             RoarschachEditorInspector::showPresetMenu(editor);
-            runLoop(60);
+            runLoop(30);
             juce::Component* menuWindow = nullptr;
             for (auto* c : stage.getChildren())
                 if (c != &editor && c->isVisible())
@@ -5126,8 +5374,9 @@ namespace
             // Silence: the creature falls asleep, and a new instance's hint comes up between the readouts.
             {
                 silent = true;
+                play(1.0);   // (the input level falls silent first: a sound would take the hint away)
                 monster.setHint("Play a voice through it to wake the creature. Pick a preset or roll a die to change it.");
-                play(3.0);
+                play(2.5);
                 const auto picture = editorPicture(2.0f);
                 const auto view = stage.getLocalArea(&monster, monster.getLocalBounds());
                 save(picture.getClippedImage((view.withTop(view.getBottom() - 70) * 2).getIntersection(picture.getBounds())), "hint-asleep@2x.png");
@@ -5135,8 +5384,9 @@ namespace
                 {
                     // ASLEEP's own box: at the right of the bottom row.
                     const auto r = juce::Rectangle<int>(view.getRight() - 90, view.getBottom() - 48, 60, 14);
-                    std::printf("  ASLEEP from pixels: %.2f; the hint: %.2f\n", static_cast<double>(boxContrast(picture, r)),
-                                static_cast<double>(boxContrast(picture, juce::Rectangle<int>(view.getCentreX() - 60, view.getBottom() - 48, 120, 14))));
+                    std::printf("  ASLEEP from pixels: %.2f; the hint (%s): %.2f\n", static_cast<double>(boxContrast(picture, r)),
+                                monster.isHintShowing() ? "showing" : "not showing",
+                                static_cast<double>(boxContrast(picture, juce::Rectangle<int>(view.getCentreX() - 60, view.getBottom() - 46, 120, 10))));
                 }
                 save(picture.getClippedImage(stage.getLocalArea(&monster, monster.getLocalBounds()).withSizeKeepingCentre(560, 400) * 2), "face-asleep@2x.png");
                 silent = false;

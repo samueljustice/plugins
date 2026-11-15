@@ -1345,7 +1345,7 @@ juce::TextLayout RoarschachLookAndFeel::layoutTooltip(const juce::String& tipTex
 juce::Rectangle<int> RoarschachLookAndFeel::getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos,
                                                              juce::Rectangle<int> parentArea)
 {
-    const auto layout = layoutTooltip(tipText, juce::Colours::black);
+    const auto layout = layoutTooltip(tipText, ink);   // (measured only)
     const int w = static_cast<int>(std::ceil(layout.getWidth() + 2.0f * c_tipPadX));
     const int h = static_cast<int>(std::ceil(layout.getHeight() + 2.0f * c_tipPadY));
 

@@ -368,9 +368,9 @@ namespace Theme
 
     //==============================================================================
     /** Type sizes by role (point heights, design px; the window opens at 80-100 % of design size and
-        can go down to 65 %). The cap height of the sans is 0.66 of its point height and of the display
-        face 0.70, so the smallest text a reader needs (captions, values, footer labels at
-        `caption`) keeps a cap height of 5.5 px or more at 65 %. */
+        can go down to 65 %). The capitals of the sans are about 0.65 of its point height and of the
+        display face 0.70, so every text a reader needs (captions, values, mode chips, buttons, module
+        names) keeps capitals of 5.5 px or more at 65 % (the tests measure the glyphs). */
     namespace Type
     {
         inline constexpr float wordmark = 27.0f;   ///< ROARSCHACH in the header
@@ -383,9 +383,9 @@ namespace Theme
         inline constexpr float prose = 12.5f;      ///< dense prose: the About window's quick start and licence (a window of its own, never scaled down)
         inline constexpr float menu = 14.0f;       ///< menu items
         inline constexpr float button = 13.0f;     ///< button labels (capitals)
-        inline constexpr float chip = 12.9f;       ///< a mode chip's choices (capitals, untracked: they are long)
+        inline constexpr float chip = 13.0f;       ///< a mode chip's choices (capitals, untracked: they are long)
         inline constexpr float value = 13.0f;      ///< values under knobs and in footers
-        inline constexpr float caption = 12.9f;    ///< captions, footer labels, slot numbers, badges (the floor)
+        inline constexpr float caption = 13.0f;    ///< captions, footer labels, slot numbers, badges (the floor)
         inline constexpr float credit = 11.5f;     ///< the header's credit line (has room to grow, never needed to read)
     }
 
