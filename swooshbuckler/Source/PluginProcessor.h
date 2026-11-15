@@ -685,6 +685,7 @@ private:
         std::atomic<float>* roomSpread = nullptr, *roomHeight = nullptr, *roomCentre = nullptr;
         std::atomic<float>* direction[ParamIDs::numBuses] {}, *side[ParamIDs::numBuses] {}, *stowDirection = nullptr, *stowSide = nullptr;
         std::atomic<float>* roomHeightVaries = nullptr;
+        std::atomic<float>* hitPosition = nullptr, *hitSpread = nullptr;
         std::atomic<float>* roomLfeMode = nullptr, *roomLfeLevel = nullptr;
         std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;

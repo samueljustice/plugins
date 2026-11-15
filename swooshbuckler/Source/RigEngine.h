@@ -29,7 +29,8 @@
  *                 other) -> low end (sub octave, overtones, lift at the loudest point) -> swirl (phaser + flanger)
  *                 -> envelope filter -> drive. Low end, swirl and filter follow the bus's level and, the stiller
  *                 the faders are, how near the pass is.
- *   stereo beds:  a stereo sound on bus B keeps its width while B's Pass Mode is Bed: its side signal
+ *   stereo beds:  (as loud wide as narrow: the bus is levelled by its mono sum's power, see renderBus.)
+ *                 A stereo sound on bus B keeps its width while B's Pass Mode is Bed: its side signal
  *                 (CargoData::hasSide) rides with the track and flies the same two passes (the same delays at
  *                 each ear), plus on the left and minus on the right, by Width x (1 - Doppler) and by how near
  *                 the middle the pass is (a pass far to one side is a point). It skips the colour chain and is
@@ -96,8 +97,7 @@
  *              choice, or decided by a modulator as the pass starts. Linked, bus B flies bus A's.
  *              Around has no approach: the pass keeps one distance, so it has no doppler bend and no swell of its
  *              own; it holds the level and the brightness a crossing pass has on average (orbitLoudness).
- *   hits       one stream, at the front (a phantom centre, or the centre speaker with Centre Speaker on); with AIM,
- *              at the closest point of the pass or throw they were aimed at.
+ *   hits       see WHERE A HIT LANDS below.
  *   Stowaway   Sub: at the front, equal in L and R, and its stem is kept for an LFE (getSubStem). Wake: on bus A's
  *              path, behind its outgoing pass. Fly: its own passes on its own Flight Path. Dry: straight to L and R.
  *   stereo beds  the side signal stays a left / right pair: at the front, and with Spread on every left and right
@@ -122,6 +122,31 @@
  *              as loud as a main speaker) Discrete adds 3.5 dB under 80 Hz to what the mains' two copies give
  *              together: the Sub is weighted, not doubled. Nothing is ever taken from the mains.
  *
+ * WHERE A HIT LANDS (Hit Position, Hit Spread; at every width from Stereo up). The hits are one sound with one place:
+ *   With the Pass  where the pass it belongs to is, moment by moment, for as long as that pass flies (left / right,
+ *              front / back and height in a room; left / right at Stereo). Which pass: with AIM, the pass or throw
+ *              the hit was aimed at. Without AIM, the loudest pass in flight as the hit starts (the hit gate opening,
+ *              or SYNC HITS' beat), a thrown whoosh before the rig's own; and when that pass has gone while the gate
+ *              is still open, the loudest then. When its pass has gone the hit stays where the pass left it. With
+ *              nothing in flight (the rig stopped and no throw, or no sound on either bus) it is at the front.
+ *              Linked, bus B's passes are bus A's, so a hit that goes with one of B's is where A's is.
+ *   Front      the front at ear level: a phantom centre, or the centre speaker with Centre Speaker on.
+ *   Random     each hit at a place of its own, drawn as it starts from a source of its own (seeded with the engine,
+ *              so the same seed gives the same places): anywhere round the walls, and up towards the speakers
+ *              overhead as far as Height lets it; left to right at Stereo. It stays there until the next hit.
+ * A hit is two objects, the left and the right of its sound (mid + side and mid - side; a mono sound's are the
+ * same), a little apart either side of its place: c_hitApart of the room's half width at Hit Spread 0%, the whole
+ * of it at 100%. Hit Spread also shares each object's power out, at constant power: the left one's over every
+ * speaker on the left, the right one's over every speaker on the right (a centre speaker half each as far as
+ * Centre Speaker lets it, the speakers overhead as far as Height lets them, never the LFE). So 0% is a point at
+ * the hit's place and 100% is every main speaker alike, with a stereo sound's left on the left and its right on
+ * the right. The two objects' sum is not a plain one: its level goes by how far the two share speakers and by
+ * how alike the sound's two sides are (its mid and side powers, measured over the last tenth of a second: see
+ * mixHits), so that whatever Hit Spread is, the hits have the power they have as a point: that of their mono sum,
+ * which is what every track is levelled by (CargoData::autoGain). A sound that is the same on both sides is not
+ * louder as a point than spread out, a wide one is not louder spread out than as a point, and nothing here can
+ * lift a sound: the level is never over 1. At Mono they are the mid alone, in the middle.
+ *
  * Every continuous control is chased by a damped spring (rubber banding).
  * No allocation, locks or I/O on the audio thread.
  */
@@ -141,6 +166,16 @@ public:
     static constexpr float c_lfeMinDb = -40.0f, c_lfeMaxDb = 0.0f;
     /** How long the mains' phase match takes to come in or go out (see renderLfe). */
     static constexpr double c_lfeMatchSeconds = 0.5;
+
+    /** Hit Position: where a hit lands (see the class comment). Hit Spread opens at c_hitSpreadDefault, a little
+        bleed: measured (the Hits test), a hit at the front then has 5.6% of its power outside L and R at 5.1,
+        7.6% at 7.1 and 9.1% at 7.1.4, each of the other speakers 15.5 to 19.4 dB under the whole hit. It has a
+        size, and is still heard where it is. */
+    enum HitPosition { HitWithPass = 0, HitFront, HitRandom, c_hitPositions };
+    static constexpr float c_hitSpreadDefault = 0.2f;
+    /** How far apart the two objects of a hit are at Hit Spread 0%: this much of the room's half width either side
+        of its place (see the class comment). */
+    static constexpr float c_hitApart = 0.1f;
 
     /** Stowaway: what the extra bus is, and its five knobs (the same names in every mode). */
     enum StowMode { StowSub = 0, StowWake, StowFly, StowDry, c_stowModes };
@@ -223,6 +258,8 @@ public:
         bool takeTurns = false;  // A and B: only the louder one speaks, the other ducks under it
         bool linkBuses = false;  // B flies A's doppler passes, with A's Doppler and Width (its own Bend)
         bool hitAim = true;      // fire the hits so their transients land on the pass peaks (gate open)
+        int hitPosition = HitWithPass;         // where a hit lands (see the class comment)
+        float hitSpread = c_hitSpreadDefault;  // how far a hit bleeds into the other speakers (0 a point .. 1 every speaker alike)
         // Peak tremolo: deepens as the level nears its recent peak.
         bool tremOn = false;         // off: the tremolo fades out
         float tremDepth = 0.45f;     // 0..1 (knob; Params::tremDepthAmount gives the dip)
@@ -375,6 +412,16 @@ public:
         float level = 0.0f;                 // 0..1, as the meters read (getBusLevel): its share of its section's level
     };
     ObjectView getObject(int object) const;
+    /** The hits right now (any thread), at every width: where they are (room::Position; at Stereo x alone means
+        anything, at Mono nothing does), Hit Spread as it is in use (with its modulation), how far apart the two
+        objects of a stereo hit are (in x, either side of the place), and how loud they are (0..1, as the meters
+        read). */
+    struct HitView
+    {
+        float x = 0.0f, y = 1.0f, z = 0.0f;
+        float spread = 0.0f, apart = 0.0f, level = 0.0f;
+    };
+    HitView getHitView() const;
 
     // UI (any thread)
     FlightView getFlightView(int index) const;
@@ -585,13 +632,27 @@ private:
     static void roomAir(Head& h, float doppler, float orbit, float fs, bool sides, float shape);
     /** The throws' lane: the speaker gains of the voices in flight (heads: this bus's copies), blended by their
         power. at: where each is, if wanted. False with none in flight (the lane keeps the gains it had). */
-    bool throwGains(const std::array<Head, c_throws>& heads, float widthLaw, room::Gains& gains, room::Position* at) const;
+    bool throwGains(const std::array<Head, c_throws>& heads, float widthLaw, room::Gains& gains, room::Position* at, float* distance = nullptr) const;
     /** x, ramped from gains `from` to gains `to`, added to the room's mix. */
     void addToRoom(const float* x, const room::Gains& from, const room::Gains& to, int frames);
     /** The width in use follows the wanted one (see setWidth); returns the output's fade across this chunk. */
     void stepWidth(int frames, float& fade0, float& fade1);
-    /** The room's settings glide, and the hits move to their place. */
+    /** The room's settings glide. */
     void stepRoom(int frames);
+    /** The hits' place this chunk (Hit Position), and their speakers' gains at the end of it (see hitGains). */
+    void placeHits(int frames);
+    /** The gains of the hits' two lanes, mid and side, on the speakers of the width in use, for a hit at `at`
+        (see the class comment): its two objects' gains l and r on a speaker give the mid l + r and the side
+        l - r there. (Their level together: see mixHits.) */
+    void hitGains(const room::Position& at, float distance, float spread, room::Gains& mid, room::Gains& side) const;
+    /** The hits' two lanes to the speakers (a room: into the mix; Mono and Stereo: into m_hitsOutL and
+        m_hitsOutR), their gains ramped across the chunk, at the level that gives the two objects together the
+        power the hit has as a point: sqrt(mid / (mid + side + c (mid - side))), where mid and side are the
+        sound's mid and side powers and c is how far the two objects share speakers (the sum of l r, 0 .. 1).
+        A mono sound: 1 / sqrt(1 + c). Two objects in the same speakers (c = 1): 1 / sqrt(2) whatever the sound. */
+    void mixHits(int frames);
+    /** Where a Random hit is, from its draws, at the width in use. */
+    room::Position randomHitPlace() const;
     /** A room's mix: every lane to its speakers. */
     void mixRoom(int frames, bool stowSounds, bool stowDry);
     /** Space for a room: see the class comment. Returns false when Space is off (nothing done). */
@@ -732,8 +793,11 @@ private:
         // their power), and whether the last chunk's are known.
         std::array<room::Gains, 3> gain {}, gainTo {};
         bool placed = false;
-        // The passes and throws as objects: where each is at the end of this chunk.
+        // The passes and throws as objects: where each is at the end of this chunk, how far from the listener,
+        // and the Width (its law) the passes flew at.
         std::array<room::Position, 2 + c_throws> at {};
+        std::array<float, 2 + c_throws> atDistance { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+        float lawNow = 0.7f;
         void resetThird();
         // Stereo beds (bus B): the tracks' side signals, their own delay line for the passes to read, what the
         // passes made of them this chunk, how many more samples the line still holds sound for, the amount it
@@ -743,6 +807,8 @@ private:
         int sideHold = 0;
         float sideAmount = 0.0f;
         float sidePre = 0.0f, sidePost = 0.0f, sideMatch = 1.0f;
+        // A stereo bed as loud wide as narrow: the mono sum's power and the sides' (slow means), and the gain.
+        float bedMid = 0.0f, bedSide = 0.0f, bedGain = 1.0f;
     };
 
     /** Stowaway's Filter outside Sub, on one stream: open in the middle of the knob, a low-pass that closes towards
@@ -892,6 +958,7 @@ private:
             int sideTail = 0;      // samples the side filter may still ring for after the last side signal
             float gain = 1.0f;     // the make-up at the end of the last chunk
             float width = 1.0f;    // Width at the end of the last chunk
+            float levelMid = 0.0f, levelSide = 0.0f, level = 1.0f; // as loud wide as narrow: the sum's power and the sides' (slow means), and the gain
             float power = 1.0f, powerDepth = -1.0f, powerChaos = -1.0f, powerFollow = -1.0f; // ridePower, and what it was worked out for
             void reset();
         } dry;
@@ -1065,7 +1132,11 @@ private:
     // Buses
     std::array<BusState, c_maxBuses> m_buses;
     StowState m_stow;
-    std::array<float, c_chunk> m_hitsIn {}, m_hitsL {}, m_hitsR {};
+    // The hits: what the hit tracks play (their mono sum and, for stereo sounds, their side signal), the same two
+    // after the gate (the two lanes the mix places), and at Mono and Stereo what the speakers get of them.
+    std::array<float, c_chunk> m_hitsIn {}, m_hitsSideIn {}, m_hitsMid {}, m_hitsSide {}, m_hitsOutL {}, m_hitsOutR {};
+    bool m_hitsSideFed = false; // a stereo hit track played into m_hitsSideIn this chunk
+    int m_hitsSideHold = 0;     // samples the side lane is still mixed for after the last of them
     sj::Follower m_detect, m_hitsFollower;
     float m_slowEnv = 0.0f;
     int m_talker = 0;          // take turns: 0 = A speaks, 1 = B speaks
@@ -1149,10 +1220,31 @@ private:
     float m_spreadNow = 0.0f, m_heightNow = 1.0f, m_centreNow = 0.0f; // the room's settings, glided
     float m_variesNow = 0.5f;      // Height Varies, glided
     bool m_roomSnap = true;        // nothing to glide from: the next chunk's gains start where they end
-    // The hits: where they are, where they are going (AIM), and their speaker gains at the end of the last chunk.
+    // The hits (see the class comment): where they are and where they are going, the pass they go with, a Random
+    // hit's draws, Hit Spread glided, the mid and side powers of their sound (slow means), and their two lanes'
+    // speaker gains at the end of the last chunk.
     room::Position m_hitsAt, m_hitsTo;
     float m_hitsDistance = 1.0f, m_hitsDistanceTo = 1.0f;
-    room::Gains m_hitsGain {};
+    struct HitFollow
+    {
+        enum Kind { None = 0, Pass, Throw };
+        int kind = None;
+        int bus = 0, index = 0; // Pass: the bus and which of its two passes. Throw: the throw voice
+        float age = 0.0f;       // how far through its pass it was last chunk (it has gone when this falls)
+    };
+    HitFollow m_hitFollow;
+    bool m_hitStarted = false;     // a hit started this chunk (a cue, or the gate opening)
+    bool m_hitWantsLoudest = false; // it goes with the loudest pass in flight (not aimed at one)
+    sj::Random m_hitRng;
+    float m_hitTurn = 0.0f, m_hitHigh = 0.0f; // a Random hit: how far round the room (0..1), how high (0..1)
+    float m_hitSpreadNow = c_hitSpreadDefault;
+    float m_hitMidPower = 0.0f, m_hitSidePower = 0.0f;
+    bool m_hitOnset = false;       // this chunk is a hit starting (far stronger than the mean before it)
+    int m_hitSince = 0;            // samples since then
+    float m_hitLevel = 1.0f;       // the lanes' level at the end of the last chunk (see mixHits)
+    room::Gains m_hitsGain {}, m_hitsSideGain {}, m_hitsGainTo {}, m_hitsSideGainTo {};
+    bool m_hitsPlaced = false;     // the last chunk's gains are known (false: nothing to glide from)
+    std::array<std::atomic<float>, 6> m_hitView {};
     // The sides of a stereo bed: plus on the left speakers, minus on the right (see mixRoom).
     room::Gains m_sidesGain {};
     std::array<float, c_chunk> m_roomMono {}, m_spaceL {}, m_spaceR {}; // the mix as one stream; Space's send

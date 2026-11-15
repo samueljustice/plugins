@@ -80,6 +80,7 @@ namespace Presets
             return true;
         return id == inflate || id == push || id == ceiling || id == rideOn || id == hitSync
             || id == gateMode || id == duckMode || id == takeTurns || id == linkBuses || id == hitAim || id == masterTrim
+            || id == hitPosition // where a hit lands is set to the picture, as Direction and Side are (Hit Spread is part of a look)
             || id.startsWith("trem") // the peak tremolo, like the rest of the output stage // how the rig behaves: kept by presets and Randomise
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id == play || id == keysMode || id == throwLength // the transport, what MIDI keys do, how long a throw is
@@ -175,6 +176,7 @@ namespace Presets
                 p.values[hitBoost] = u(0.0f, 10.0f);
                 p.values[hitRelease] = u(0.15f, 0.6f);
                 p.values[hitDuck] = u(0.2f, 0.8f);
+                p.values[hitSpread] = u(0.0f, 0.5f); // from a point to half shared out: never a hit with no place
                 break;
             case Output:
                 p.values[space] = u(0.05f, 0.6f);

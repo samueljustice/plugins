@@ -30,6 +30,7 @@ const std::vector<juce::String>& ModMatrix::targets()
         for (auto* id : { ParamIDs::direction[0], ParamIDs::direction[1], ParamIDs::stowDirection,
                           ParamIDs::side[0], ParamIDs::side[1], ParamIDs::stowSide })
             ids.emplace_back(id);
+        ids.emplace_back(ParamIDs::hitSpread); // how far a hit bleeds (the speakers' gains glide)
         jassert(ids.size() <= 64);
         return ids;
     }();

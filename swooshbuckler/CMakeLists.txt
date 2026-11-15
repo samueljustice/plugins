@@ -277,6 +277,17 @@ if(SWOOSHBUCKLER_TESTS)
         PRIVATE juce::juce_audio_utils juce::juce_dsp
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
+    # Hits test: where a hit lands. With The Pass (a hit's energy is where its pass's is, on every Flight Path both
+    # ways, and as high; which pass when several fly; the front when none does), Front, Random (thirty hits round
+    # the room, the same from the same seed), Hit Spread (the share outside the nearest speakers at one power), the
+    # same hit as loud from a point to everywhere for mono files and stereo files of every kind, no clicks when
+    # either changes mid-hit, Stereo and Mono, stereo beds brought to a point, and the limiter through the plug-in.
+    juce_add_console_app(SwooshbucklerHits PRODUCT_NAME "SwooshbucklerHits")
+    target_sources(SwooshbucklerHits PRIVATE Tests/HitsTest.cpp)
+    target_include_directories(SwooshbucklerHits PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerHits PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerHits PRIVATE Swooshbuckler)
+
     # Wide test: the plug-in at every room width. The seven layouts accepted (and only those; the app stays
     # Stereo), the AAX plug-in ID of each, the output stage's two limiters (the main channels linked, the LFE on
     # its own) and its latency on every channel, and the whole plug-in at each width carrying the Stereo render

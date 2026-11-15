@@ -126,6 +126,23 @@ namespace ParamIDs
     inline constexpr const char* takeTurns  = "takeTurns";
     inline constexpr const char* linkBuses  = "linkBuses"; // bus B flies bus A's passes, with A's Doppler and Width
     inline constexpr const char* hitAim     = "hitAim";    // fire the hits so their transients land on the buses' pass peaks
+    // Where a hit lands (Stereo and wider), and how far it bleeds into the other speakers.
+    inline constexpr const char* hitPosition = "hitPosition";
+    inline constexpr const char* hitSpread   = "hitSpread";
+    enum HitPositionChoice { HitWithPass = 0, HitFront, HitRandom, numHitPositions };
+    inline constexpr const char* hitPositionNames[numHitPositions] = { "With the Pass", "Front", "Random" };
+    inline constexpr float hitSpreadDefault = 0.2f;
+    inline constexpr const char* hitPositionTip =
+        "Where a hit lands. With the Pass: where the whoosh it belongs to is at that moment, left or right, in "
+        "front or behind, and as high, and it stays with that whoosh as it flies on. With Aim on that is the pass "
+        "the hit was aimed at; with Aim off, the loudest pass in the air as the hit starts. With nothing in the "
+        "air it lands in front. Front: always in front of you, at ear level. Random: each hit at a place of its "
+        "own somewhere round you. At Stereo the hit moves between left and right; at Mono it stays in the middle.";
+    inline constexpr const char* hitSpreadTip =
+        "How far a hit bleeds into the other speakers. 0%: a point at the place it lands. 100%: every speaker "
+        "alike, never the LFE. A stereo hit keeps its left on your left and its right on your right, wider the "
+        "further you turn this up, and stays as loud all the way. At Stereo it is how wide the hit is; at Mono "
+        "it does nothing.";
 
     // Morph (Zynaptiq-style spectral morph between bus A and bus B)
     inline constexpr const char* morphOn     = "morphOn";
@@ -525,6 +542,12 @@ namespace Params
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowSide, 6 }, "Stowaway Side",
                                                           StringArray(ParamIDs::sideNames, ParamIDs::numDirections), 0));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomHeightVaries, 6 }, "Room Height Varies", NormalisableRange<float>(0.0f, 1.0f), 0.5f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        // Where a hit lands, and how far it bleeds.
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::hitPosition, 7 }, "Hit Position",
+                                                          StringArray(ParamIDs::hitPositionNames, ParamIDs::numHitPositions), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitSpread, 7 }, "Hit Spread", NormalisableRange<float>(0.0f, 1.0f), ParamIDs::hitSpreadDefault,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::roomLfeMode, 5 }, "LFE Mode",

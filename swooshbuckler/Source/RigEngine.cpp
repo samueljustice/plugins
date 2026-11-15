@@ -110,6 +110,11 @@ namespace
     // ear level up to that arch).
     constexpr float c_archVaries = 0.25f;
     constexpr std::uint32_t c_placeSeed = 0x51DEu; // a room's own draws start here, from the engine's seed
+    constexpr std::uint32_t c_hitSeed = 0x0417u;   // a Random hit's place: its draws start here, from the engine's seed
+    constexpr float c_hitAlikeSeconds = 0.1f;      // how alike a hit's two sides are: measured over this long
+    constexpr float c_bedLevelSeconds = 0.1f;      // a stereo bed's level against its mono sum: measured, and moved, over this long
+    constexpr float c_hitRandomPan = 0.85f;        // Stereo: a Random hit goes this far to either side at most
+    constexpr float c_hitSideTailSeconds = 0.05f;  // the hits' side lane is mixed this long after the last stereo hit track fed it
     // The part of a pass that is heard: within this much of its window's top (-10 dB). Its path is flown over that.
     constexpr float c_heardLevel = 0.3162f;
     constexpr float c_thirdTailSeconds = 0.25f;  // a bus's throw lane is left to ring out this long after the last throw
@@ -305,6 +310,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     m_rng.seed(m_seed);
     m_placeRng.seed(m_seed ^ c_placeSeed);
     m_stow.fly.rng.seed(m_seed ^ c_flySeed);
+    m_hitRng.seed(m_seed ^ c_hitSeed);
     reset();
 }
 
@@ -355,6 +361,8 @@ void RigEngine::reset()
         bus.sideAmount = 0.0f;
         bus.sidePre = bus.sidePost = 0.0f;
         bus.sideMatch = 1.0f;
+        bus.bedMid = bus.bedSide = 0.0f;
+        bus.bedGain = 1.0f;
         bus.flL.reset();
         bus.flR.reset();
         bus.resetThird();
@@ -438,6 +446,17 @@ void RigEngine::reset()
     m_spaceFoldSet = false;
     m_hitsAt = m_hitsTo = room::Position {};
     m_hitsDistance = m_hitsDistanceTo = 1.0f;
+    m_hitFollow = HitFollow {};
+    m_hitStarted = m_hitWantsLoudest = false;
+    m_hitTurn = m_hitHigh = 0.0f; // (a Random hit draws its place as it starts)
+    m_hitSpreadNow = sj::clamp(m_params.hitSpread, 0.0f, 1.0f);
+    m_hitMidPower = m_hitSidePower = 0.0f;
+    m_hitOnset = false;
+    m_hitSince = 0;
+    m_hitLevel = 1.0f;
+    m_hitsPlaced = false;
+    m_hitsSideFed = false;
+    m_hitsSideHold = 0;
     m_objectLevel.fill(0.0f);
     m_gate = m_hold = 0.0f;
     m_peakRef = 1.0e-3f;
@@ -518,6 +537,7 @@ void RigEngine::reseedNow()
     m_rng.seed(m_seed);
     m_placeRng.seed(m_seed ^ c_placeSeed);
     m_stow.fly.rng.seed(m_seed ^ c_flySeed);
+    m_hitRng.seed(m_seed ^ c_hitSeed);
     for (int t = 0; t < c_tracks; ++t)
         m_rideDrift[static_cast<size_t>(t)].prepare(m_fs, 0.3f + 0.11f * static_cast<float>(t), rideSeed(t));
     const auto waitingThrows = m_throwQueue; // a throw asked for with the restart belongs to the new run
@@ -885,6 +905,9 @@ void RigEngine::renderTracks(int frames)
         std::fill(bus.sideIn.begin(), bus.sideIn.begin() + frames, 0.0f);
     }
     std::fill(m_hitsIn.begin(), m_hitsIn.begin() + frames, 0.0f);
+    std::fill(m_hitsSideIn.begin(), m_hitsSideIn.begin() + frames, 0.0f);
+    m_hitsSideFed = false;
+    m_hitStarted = false;
     std::fill(m_stow.in.begin(), m_stow.in.begin() + frames, 0.0f);
     std::fill(m_stow.throwIn.begin(), m_stow.throwIn.begin() + frames, 0.0f);
     // (The whole of it, not just this chunk's length: chunks differ in length, and Dry goes on reading it for a
@@ -1084,18 +1107,16 @@ void RigEngine::renderTracks(int frames)
                 at -= static_cast<double>(frames);
         }
 
-    // A room: hits that are not aimed play at the front; aimed ones go to where their pass will be (below).
-    auto hitsGoTo = [this](const Head& h, const PathGlide& path)
+    // A hit starts: the pass it goes with (see placeHits). Aimed: the pass or throw it was aimed at.
+    auto hitGoesWith = [this](int kind, int busIndex, int index)
     {
-        const Place place = placeOf(h, 0.5f, 1.0f, path); // the pass at its nearest point
-        m_hitsTo = place.position;
-        m_hitsDistanceTo = place.distance;
+        m_hitFollow.kind = kind;
+        m_hitFollow.bus = busIndex;
+        m_hitFollow.index = index;
+        m_hitFollow.age = 0.0f;
+        m_hitStarted = true;
+        m_hitWantsLoudest = false;
     };
-    if (! aim)
-    {
-        m_hitsTo = room::Position {};
-        m_hitsDistanceTo = 1.0f;
-    }
 
     CargoCue hitCue;
     if (hitSync && m_cargo != nullptr)
@@ -1106,6 +1127,7 @@ void RigEngine::renderTracks(int frames)
             double maxPre = 0.0, maxPost = 0.0;
             hitWindow(maxPre, maxPost);
             m_hitClock += publishCue(hitCue, maxPre, maxPost) * m_sampleRate;
+            m_hitStarted = m_hitWantsLoudest = true; // the beat's hits go with the loudest pass in flight
         }
     }
     else if (aim && m_cargo != nullptr)
@@ -1148,7 +1170,7 @@ void RigEngine::renderTracks(int frames)
                 m_throws[bestThrow].gate = std::max(m_throws[bestThrow].gate, best + maxPost + 0.1);
                 m_lastAimTarget = m_aimClock + best * m_sampleRate;
                 publishCue(hitCue, best, maxPost);
-                hitsGoTo(m_buses[0].throwHeads[bestThrow], m_buses[0].path);
+                hitGoesWith(HitFollow::Throw, 0, static_cast<int>(bestThrow));
             }
             // The rig's own passes: not while it is stopped (only a throw's hits play then).
             const bool ridePasses = bestThrow == m_throws.size() && m_releaseGain > 0.0f;
@@ -1183,7 +1205,7 @@ void RigEngine::renderTracks(int frames)
                 bestHead->aimed = true;
                 m_lastAimTarget = m_aimClock + best * m_sampleRate;
                 publishCue(hitCue, best, maxPost);
-                hitsGoTo(*bestHead, bestBus->path);
+                hitGoesWith(HitFollow::Pass, static_cast<int>(bestBus - m_buses.data()), static_cast<int>(bestHead - bestBus->heads.data()));
             }
         }
     }
@@ -1421,20 +1443,22 @@ void RigEngine::renderTracks(int frames)
         // renderDry, which decide how much of it is heard). Not through the pitch shifter: with VARI off the track
         // plays its mono sum.
         const bool dryStow = onStow && stowMode == StowDry;
-        const bool wantSide = data != nullptr && data->hasSide() && (bus == static_cast<int>(c_sideBus) || dryStow) && vari;
+        // A stereo hit keeps its two sides too: the hits are placed as a left and a right (see hitGains).
+        const bool toHitGate = bus == CargoHold::c_hitsBus;
+        const bool wantSide = data != nullptr && data->hasSide() && (bus == static_cast<int>(c_sideBus) || dryStow || toHitGate) && vari;
         // (A track that has just arrived somewhere that takes no sides brings none with it: they went out with the
         // fade it left by, and must not carry on into bus B.)
         const float sideGain0 = ! wantSide && busFade0 <= 0.0f ? 0.0f : m_sideGain[ti];
         const float sideGain1 = wantSide ? std::min(1.0f, sideGain0 + seconds / c_sideFadeSeconds)
                                          : std::max(0.0f, sideGain0 - seconds / c_sideFadeSeconds);
         m_sideGain[ti] = sideGain1;
-        float* const sideOut = (sideGain0 > 0.0f || sideGain1 > 0.0f) && ! syncedHit ? m_sideScratch.data() : nullptr;
+        float* const sideOut = (sideGain0 > 0.0f || sideGain1 > 0.0f) ? m_sideScratch.data() : nullptr;
         if (syncedHit)
         {
             CargoCue cue = hitCue;
             if (cue.active && ! vari) // heard later by the shifter's latency: fire that much earlier
                 cue.secondsToPeak = std::max(0.0, cue.secondsToPeak - static_cast<double>(m_shifters[ti].getLatencySamples()) / m_sampleRate);
-            m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, cue, m_trackScratch.data(), frames);
+            m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, cue, m_trackScratch.data(), frames, sideOut);
         }
         else
             m_players[ti].render(data, CargoRole::Bed, skip, rate, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames, sideOut);
@@ -1490,8 +1514,10 @@ void RigEngine::renderTracks(int frames)
                 float throwGain = throw0 + (throwTarget - throw0) * frac;
                 if (lifts)
                     throwGain = std::max(0.0f, throwGain - (g0 + (target - g0) * frac));
-                throwDest[i] += m_trackScratch[static_cast<size_t>(i)] * (modeGain0 + (modeGain1 - modeGain0) * frac)
-                                * throwGain * variGain * (busFade0 + (busFade1 - busFade0) * frac);
+                const float lift = (modeGain0 + (modeGain1 - modeGain0) * frac) * throwGain * variGain * (busFade0 + (busFade1 - busFade0) * frac);
+                throwDest[i] += m_trackScratch[static_cast<size_t>(i)] * lift;
+                if (toHits && sideOut != nullptr) // a stereo hit's sides are lifted with it
+                    m_hitsSideIn[static_cast<size_t>(i)] += m_sideScratch[static_cast<size_t>(i)] * lift * (sideGain0 + (sideGain1 - sideGain0) * frac);
             }
         }
         m_throwGain[ti] = throwTarget;
@@ -1512,10 +1538,11 @@ void RigEngine::renderTracks(int frames)
         {
             // The side signal takes the track's fader, ride and fades (not the Fill echoes), and goes as the morph
             // comes in over this track's sound (its own rope, or bus B as a whole): a morph has no sides.
-            const bool morphed = rope[0] == t || rope[1] == t || (rope[1] < 0 && ! onStow);
+            const bool morphed = rope[0] == t || rope[1] == t || (rope[1] < 0 && ! onStow && ! toHitGate);
             const float keep0 = morphed ? 1.0f - morphMixBefore : 1.0f, keep1 = morphed ? 1.0f - morphMix : 1.0f;
-            float* sideDest = onStow ? m_stow.sideIn.data() : m_buses[c_sideBus].sideIn.data();
+            float* sideDest = onStow ? m_stow.sideIn.data() : (toHitGate ? m_hitsSideIn.data() : m_buses[c_sideBus].sideIn.data());
             m_stow.sideFed = m_stow.sideFed || onStow;
+            m_hitsSideFed = m_hitsSideFed || toHitGate;
             for (int i = 0; i < frames; ++i)
             {
                 const float frac = static_cast<float>(i + 1) * invFrames;
@@ -1754,6 +1781,8 @@ void RigEngine::StowState::Dry::reset()
     on = sideOn = false;
     sideTail = 0;
     gain = width = 1.0f;
+    levelMid = levelSide = 0.0f;
+    level = 1.0f;
 }
 
 void RigEngine::StowState::Fly::reset()
@@ -2354,6 +2383,34 @@ void RigEngine::renderDry(int frames)
         if (sides)
             s.side[ii] *= g * (width0 + (d.width - width0) * t);
     }
+    // As loud wide as narrow (as a stereo bed on bus B is: see renderBus): left and right together have the sum's
+    // power plus the sides', and are brought to the sum's. Not at Mono, where these sides fold away exactly.
+    if (sides || d.level < 0.9999f)
+    {
+        float midSq = 0.0f, sideSq = 0.0f;
+        for (int i = 0; i < frames && sides; ++i)
+        {
+            midSq += s.mono[static_cast<size_t>(i)] * s.mono[static_cast<size_t>(i)];
+            sideSq += s.side[static_cast<size_t>(i)] * s.side[static_cast<size_t>(i)];
+        }
+        const float c = starting ? 1.0f : glide(frames, c_bedLevelSeconds, fs);
+        d.levelMid += (midSq * invFrames - d.levelMid) * c;
+        d.levelSide += (sideSq * invFrames - d.levelSide) * c;
+        const float want = m_width == room::Width::Mono || d.levelMid + d.levelSide < 1.0e-12f ? 1.0f : std::sqrt(d.levelMid / (d.levelMid + d.levelSide));
+        const float level0 = starting ? want : d.level;
+        d.level = starting ? want : d.level + (want - d.level) * c;
+        if (! sides && d.level >= 0.9999f)
+            d.level = 1.0f;
+        for (int i = 0; i < frames; ++i)
+        {
+            const float g = level0 + (d.level - level0) * static_cast<float>(i + 1) * invFrames;
+            s.mono[static_cast<size_t>(i)] *= g;
+            if (sides)
+                s.side[static_cast<size_t>(i)] *= g;
+        }
+    }
+    else
+        d.levelMid = d.levelSide = 0.0f;
 }
 
 void RigEngine::StowState::Sub::reset()
@@ -2636,6 +2693,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     const float shape1 = bus.passShape;
     const float shapeStep = (shape1 - shape0) / static_cast<float>(frames);
     const float widthLaw = passWidthLaw(p.width);
+    bus.lawNow = widthLaw;
     float proximity = 0.0f; // of the nearer pass, at the end of this chunk
 
     // A room (see the class comment): l and r are the two passes' lanes, t the throws'. The Flight Path (linked:
@@ -2831,6 +2889,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         {
             const Place place = placeOf(h, pathProgress(h.age, shape1), widthLaw, bus.path);
             bus.at[k] = place.position;
+            bus.atDistance[k] = place.distance;
             roomGains(place.position, place.distance, bus.gainTo[k]);
         }
     }
@@ -2871,7 +2930,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         h.view = passWindow(h.age, 1.0f) * level;
         h.x = h.dir * std::tanh(5.0f * (h.age - 0.5f));
     }
-    if (room && ! throwGains(bus.throwHeads, m_throwWidthLaw, bus.gainTo[2], &bus.at[2]))
+    if (room && ! throwGains(bus.throwHeads, m_throwWidthLaw, bus.gainTo[2], &bus.at[2], &bus.atDistance[2]))
         bus.gainTo[2] = bus.gain[2];
 
     // Stereo beds: what goes into the colour chain, to match the side signal to what comes out of it.
@@ -3202,11 +3261,30 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
 
     // Stereo beds: the side signal comes back in here, past the colours (they work on the mono sum's passes), as
     // loud against the bus as it went in.
+    float bedMidSq = 0.0f, bedSideSq = 0.0f; // the mono sum's passes and the sides, as they leave here
     if (sideHeard)
     {
         float postSq = 0.0f;
         for (int i = 0; i < frames; ++i)
             postSq += bus.l[static_cast<size_t>(i)] * bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)] * bus.r[static_cast<size_t>(i)];
+        // For the bed's level (below), as the speakers will have them. A room: the two passes are lanes that play
+        // the same sound, so where they share speakers they add as one (their gains' product over the speakers,
+        // against the 2 each has alone). Mono: as the two channels fold to one.
+        const bool monoOut = m_width == room::Width::Mono;
+        if (room)
+        {
+            float shared = 0.0f, cross = 0.0f;
+            for (size_t ch = 0; ch < bus.gainTo[0].size(); ++ch)
+                shared += bus.gainTo[0][ch] * bus.gainTo[1][ch];
+            for (int i = 0; i < frames; ++i)
+                cross += bus.l[static_cast<size_t>(i)] * bus.r[static_cast<size_t>(i)];
+            bedMidSq = std::max(0.0f, postSq + shared * cross);
+        }
+        else if (monoOut)
+            for (int i = 0; i < frames; ++i)
+                bedMidSq += (bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)]) * (bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)]);
+        else
+            bedMidSq = postSq;
         const float c = 1.0f - std::exp(-static_cast<float>(frames) / (0.3f * fs));
         bus.sidePre += (sidePreSq / static_cast<float>(frames) - bus.sidePre) * c;
         bus.sidePost += (postSq / static_cast<float>(frames) - bus.sidePost) * c;
@@ -3219,17 +3297,58 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             if (room) // the sides stay a lane of their own
             {
                 bus.sideL[static_cast<size_t>(i)] *= g;
+                bedSideSq += bus.sideL[static_cast<size_t>(i)] * bus.sideL[static_cast<size_t>(i)];
                 continue;
             }
-            bus.l[static_cast<size_t>(i)] += g * bus.sideL[static_cast<size_t>(i)];
-            bus.r[static_cast<size_t>(i)] += g * bus.sideR[static_cast<size_t>(i)];
+            const float sl = g * bus.sideL[static_cast<size_t>(i)], sr = g * bus.sideR[static_cast<size_t>(i)];
+            bus.l[static_cast<size_t>(i)] += sl;
+            bus.r[static_cast<size_t>(i)] += sr;
+            // (Mono: the whole fold with the sides in; what they add to it is taken below.)
+            bedSideSq += monoOut ? (bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)]) * (bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)])
+                                 : sl * sl + sr * sr;
         }
+        if (monoOut)
+            bedSideSq = std::max(0.0f, bedSideSq - bedMidSq);
     }
     else
     {
         bus.sidePre = bus.sidePost = 0.0f;
         bus.sideMatch = 1.0f;
     }
+    // A stereo bed is as loud wide as narrow: the bus is brought to the power its mono sum has alone, as far as
+    // the sides add to it (their power against the mono sum's, slow means). So Width, Doppler and Pass Mode, which
+    // take the sides out, change how wide a bed is and not how loud. (At Mono too: the sides reach each ear at
+    // their own time, so they do not fold away to nothing.)
+    if (sideHeard || bus.bedGain < 0.9999f)
+    {
+        const float c = glide(frames, c_bedLevelSeconds, fs);
+        if (sideHeard)
+        {
+            bus.bedMid += (bedMidSq / static_cast<float>(frames) - bus.bedMid) * c;
+            bus.bedSide += (bedSideSq / static_cast<float>(frames) - bus.bedSide) * c;
+        }
+        else
+            bus.bedSide -= bus.bedSide * c; // the sides have gone: back to the mono sum as it is
+        const float want = bus.bedMid + bus.bedSide < 1.0e-12f ? 1.0f : std::sqrt(bus.bedMid / (bus.bedMid + bus.bedSide));
+        const float g0 = bus.bedGain;
+        bus.bedGain += (want - bus.bedGain) * c;
+        if (! sideHeard && bus.bedGain >= 0.9999f)
+            bus.bedGain = 1.0f;
+        const float step = (bus.bedGain - g0) / static_cast<float>(frames);
+        for (int i = 0; i < frames; ++i)
+        {
+            const auto ii = static_cast<size_t>(i);
+            const float g = g0 + step * static_cast<float>(i + 1);
+            bus.l[ii] *= g;
+            bus.r[ii] *= g;
+            if (room && third)
+                bus.t[ii] *= g;
+            if (room && sideHeard)
+                bus.sideL[ii] *= g;
+        }
+    }
+    else
+        bus.bedMid = bus.bedSide = 0.0f;
 
     // What the mix takes: left and right, or a room's lanes (all four once the throws or a bed's sides sound).
     bus.lanes = room && (third || sideHeard) ? 4 : 2;
@@ -3318,7 +3437,12 @@ void RigEngine::renderHits(int frames)
     const float dt = 1.0f / m_fs;
     float gateMax = 0.0f, hitsMax = 0.0f;
     const bool gateMarks = mode != 3 && ! m_params.hitSync && m_hasHitTracks;
+    const bool gateStarts = mode != 3 && ! m_params.hitSync; // the gate opening is a hit starting (AIM and SYNC HITS cue their own)
     float gateWas = m_gate;
+    // A stereo hit's sides: the second lane (see hitGains), for as long as a stereo hit track plays and a moment after.
+    m_hitsSideHold = m_hitsSideFed ? static_cast<int>(c_hitSideTailSeconds * m_fs) : std::max(0, m_hitsSideHold - frames);
+    const bool sides = m_hitsSideHold > 0;
+    float midSq = 0.0f, sideSq = 0.0f;
     // Stowaway is ducked too, as one stream (before it is placed), in every mode but Sub: a hit wants the low end
     // under it. Leaving for Sub mid-duck, it comes back up at the return time instead of jumping.
     auto& stow = m_stow;
@@ -3366,16 +3490,27 @@ void RigEngine::renderHits(int frames)
         // The hit gate opening (not with AIM or SYNC HITS, which mark their own hits, nor with the gate held open).
         if (gateMarks && gateWas < 0.5f && m_gate >= 0.5f)
             mark(MarkHit, i);
+        if (gateStarts && gateWas < 0.5f && m_gate >= 0.5f)
+            m_hitStarted = m_hitWantsLoudest = true;
         gateWas = m_gate;
         gateMax = std::max(gateMax, m_gate);
 
         const float h = m_hitsIn[ii] * (floorGain + (1.0f - floorGain) * m_gate) * boost;
-        m_hitsL[ii] = h;
-        m_hitsR[ii] = h;
+        m_hitsMid[ii] = h;
+        const float hs = sides ? m_hitsSideIn[ii] * (floorGain + (1.0f - floorGain) * m_gate) * boost : 0.0f;
+        m_hitsSide[ii] = hs;
+        midSq += m_hitsIn[ii] * m_hitsIn[ii];
+        sideSq += m_hitsSideIn[ii] * m_hitsSideIn[ii];
 
         // The gated hits duck both buses, so the hit punches through.
         // The duck follows the gated hits only (a raised Floor keeps the hits under the mix, it doesn't hold the buses down).
-        const float gated = floorGain > 0.0f ? m_hitsIn[ii] * m_gate * boost : h;
+        // (A stereo hit: its two sides together, so one whose sides oppose each other ducks as well as any.)
+        float gated = floorGain > 0.0f ? m_hitsIn[ii] * m_gate * boost : h;
+        if (sides)
+        {
+            const float gatedSide = floorGain > 0.0f ? m_hitsSideIn[ii] * m_gate * boost : hs;
+            gated = std::sqrt(gated * gated + gatedSide * gatedSide);
+        }
         const float hitsLevel = sj::clamp(m_hitsFollower.process(gated) * 3.0f, 0.0f, 1.0f);
         hitsMax = std::max(hitsMax, hitsLevel);
         const float duck = duckDepth * hitsLevel;
@@ -3405,6 +3540,20 @@ void RigEngine::renderHits(int frames)
         // It went silent while ducked: nothing of that duck is left for when it sounds again.
         stow.ducked = false;
         stow.byHits.reset();
+    }
+    // How alike the hits' two sides are (see hitGains): the mid's and the side's power, each a slow mean. Both
+    // die away at the same pace, so in the quiet after a hit they still say what that hit was, and the next
+    // one's own sound outweighs them within its first chunk.
+    // A hit starting (this chunk four times as strong as the mean) is taken as it is, at once: its first
+    // milliseconds are where its peak is, and they must not be weighed as the tail before it was.
+    // From there the mean is over everything since it started, until that is as long as the slow mean looks back.
+    {
+        const float mid = midSq / static_cast<float>(frames), side = sideSq / static_cast<float>(frames);
+        m_hitOnset = mid + side > 4.0f * (m_hitMidPower + m_hitSidePower);
+        m_hitSince = m_hitOnset ? frames : std::min(m_hitSince + frames, 1 << 24);
+        const float c = std::max(glide(frames, c_hitAlikeSeconds, m_fs), static_cast<float>(frames) / static_cast<float>(m_hitSince));
+        m_hitMidPower += (mid - m_hitMidPower) * c;
+        m_hitSidePower += (side - m_hitSidePower) * c;
     }
     // The HIT GATE lamp: the gate, or with AIM (gate held open) the aimed hits themselves, so it flashes on each.
     m_gateView.store(m_params.hitAim ? hitsMax : gateMax, std::memory_order_relaxed);
@@ -3964,6 +4113,7 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
         // which duck it; then it is placed.
         renderStow(frames);
         renderHits(frames);
+        placeHits(frames);
         const bool stowSounds = m_stow.sounding;
         const bool stowDry = stowSounds && m_stow.now.mode == StowDry; // it joins after Space (below), not here
         if (stowSounds)
@@ -3986,17 +4136,22 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
                 float* lanesB[4] = { m_buses[1].l.data(), m_buses[1].r.data(), m_buses[1].t.data(), m_buses[1].sideL.data() };
                 applyTremolo(m_trem[2], lanesB, m_buses[1].lanes, frames, buses);
             }
-            float* hits[2] = { m_hitsL.data(), m_hitsR.data() };
-            applyTremolo(m_trem[3], hits, room ? 1 : 2, frames, m_params.tremTarget == 2);
+            // (The hits: their lane, and a stereo hit's sides with it.)
+            float* hits[2] = { m_hitsMid.data(), m_hitsSide.data() };
+            applyTremolo(m_trem[3], hits, m_hitsSideHold > 0 ? 2 : 1, frames, m_params.tremTarget == 2);
         }
 
         if (room)
             mixRoom(frames, stowSounds, stowDry);
         else
+        {
+            // The hits at their place between left and right (see hitGains): their two lanes into m_hitsOutL and
+            // m_hitsOutR.
+            mixHits(frames);
             for (int i = 0; i < frames; ++i)
             {
                 const auto ii = static_cast<size_t>(i);
-                float l = m_hitsL[ii], r = m_hitsR[ii];
+                float l = m_hitsOutL[ii], r = m_hitsOutR[ii];
                 m_scopes[2].push(0.5f * (l + r));
                 m_sectionSquares[2] += 0.5 * (static_cast<double>(l) * l + static_cast<double>(r) * r);
                 for (int b = 0; b < numBuses; ++b)
@@ -4027,6 +4182,7 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
                 m_mix[0][ii] = l;
                 m_mix[1][ii] = r;
             }
+        }
         // Ride make-up (see rideMakeup): ramped across the chunk. Stowaway in Dry is not in the mix yet (it joins
         // after Space, below), so it takes the same make-up here.
         {
@@ -4250,6 +4406,12 @@ void RigEngine::publishViews()
     }
     object(ObjHits, m_hitsAt, sj::clamp(m_hitsFollower.env * 3.0f, 0.0f, 1.0f));
     {
+        const float apart = c_hitApart + (1.0f - c_hitApart) * m_hitSpreadNow;
+        const float view[6] = { m_hitsAt.x, m_hitsAt.y, m_hitsAt.z, m_hitSpreadNow, apart, sj::clamp(m_hitsFollower.env * 3.0f, 0.0f, 1.0f) };
+        for (size_t i = 0; i < m_hitView.size(); ++i)
+            m_hitView[i].store(view[i], std::memory_order_relaxed);
+    }
+    {
         const bool flying = m_stow.now.mode == StowFly;
         const float level = m_stow.sounding ? sj::clamp(m_stow.env * 3.0f, 0.0f, 1.0f) : 0.0f;
         object(ObjStow1, m_stow.at[0], flying ? m_stow.fly.heads[0].view * level : level);
@@ -4450,7 +4612,7 @@ void RigEngine::roomAir(Head& h, float doppler, float orbit, float fs, bool side
         h.airSL.set(cutoff, fs);
 }
 
-bool RigEngine::throwGains(const std::array<Head, c_throws>& heads, float widthLaw, room::Gains& gains, room::Position* at) const
+bool RigEngine::throwGains(const std::array<Head, c_throws>& heads, float widthLaw, room::Gains& gains, room::Position* at, float* distance) const
 {
     room::Gains power {};
     float total = 0.0f;
@@ -4462,6 +4624,8 @@ bool RigEngine::throwGains(const std::array<Head, c_throws>& heads, float widthL
         const Place place = placeOf(heads[v], pathProgress(u, 1.0f), widthLaw, m_buses[0].path); // a throw flies bus A's path on every bus
         if (at != nullptr)
             at[v] = place.position;
+        if (distance != nullptr)
+            distance[v] = place.distance;
         room::Gains g;
         roomGains(place.position, place.distance, g);
         const float w = passWindow(u, 1.0f) * m_throws[v].level;
@@ -4533,6 +4697,7 @@ void RigEngine::stepWidth(int frames, float& fade0, float& fade1)
                 bus.placed = false;
             }
             m_stow.placed = false;
+            m_hitsPlaced = false;
             m_roomSnap = true;
             m_spaceFoldSet = false;
             m_liveChannels = room::layout(m_width).numChannels;
@@ -4567,12 +4732,276 @@ void RigEngine::stepRoom(int frames)
     m_heightNow += (sj::clamp(m_params.roomHeight, 0.0f, 1.0f) - m_heightNow) * c;
     m_variesNow += (sj::clamp(m_params.roomHeightVaries, 0.0f, 1.0f) - m_variesNow) * c;
     m_centreNow += ((m_params.roomCentre ? 1.0f : 0.0f) - m_centreNow) * c;
-    // The hits: to the front, or to where they were aimed (see renderTracks).
-    const float move = m_roomSnap ? 1.0f : glide(frames, c_hitsMoveSeconds, m_fs);
+}
+
+RigEngine::HitView RigEngine::getHitView() const
+{
+    HitView v;
+    v.x = m_hitView[0].load(std::memory_order_relaxed);
+    v.y = m_hitView[1].load(std::memory_order_relaxed);
+    v.z = m_hitView[2].load(std::memory_order_relaxed);
+    v.spread = m_hitView[3].load(std::memory_order_relaxed);
+    v.apart = m_hitView[4].load(std::memory_order_relaxed);
+    v.level = m_hitView[5].load(std::memory_order_relaxed);
+    return v;
+}
+
+room::Position RigEngine::randomHitPlace() const
+{
+    // Round the walls, where the speakers stand: a place between two speakers is panned between them.
+    const float a = sj::c_twoPi * m_hitTurn;
+    const float x = std::sin(a), y = std::cos(a);
+    if (! m_room)
+        return { c_hitRandomPan * x, 1.0f, 0.0f };
+    const float reach = std::max(std::abs(x), std::abs(y));
+    // Half the hits stay in the lower quarter of the way up: the speakers overhead are for some of them.
+    return { x / reach, y / reach, room::c_archTop * m_hitHigh * m_hitHigh };
+}
+
+void RigEngine::placeHits(int frames)
+{
+    const bool snap = ! m_hitsPlaced;
+    // Whether a bus's passes are in flight: it sounds, and the rig plays. A throw is, while it is active.
+    auto flying = [this](int b) { return m_releaseGain > 0.0f && m_buses[static_cast<size_t>(b)].env >= 0.002f; };
+
+    // The pass the hits go with. It has gone when its head has started the next pass (or the throw is over).
+    auto& f = m_hitFollow;
+    if (f.kind == HitFollow::Pass)
+    {
+        const float age = m_buses[static_cast<size_t>(f.bus)].heads[static_cast<size_t>(f.index)].age;
+        if (age < f.age)
+            f.kind = HitFollow::None;
+        f.age = age;
+    }
+    else if (f.kind == HitFollow::Throw)
+    {
+        const float age = m_buses[0].throwHeads[static_cast<size_t>(f.index)].age;
+        if (! m_throws[static_cast<size_t>(f.index)].active || age < f.age)
+            f.kind = HitFollow::None;
+        f.age = age;
+    }
+    // Not aimed: the loudest pass in flight as the hit starts, a throw first; and the loudest again when that one
+    // has gone while the gate is still open.
+    const bool cued = m_params.hitAim || m_params.hitSync;
+    const bool gone = f.kind == HitFollow::None && ! cued && m_gate >= 0.5f;
+    if ((m_hitStarted && m_hitWantsLoudest) || gone)
+    {
+        float best = 0.0f;
+        HitFollow pick;
+        for (size_t v = 0; v < m_throws.size(); ++v)
+            if (const float w = m_buses[0].throwHeads[v].view; m_throws[v].active && w > best)
+            {
+                best = w;
+                pick.kind = HitFollow::Throw;
+                pick.bus = 0;
+                pick.index = static_cast<int>(v);
+                pick.age = m_buses[0].throwHeads[v].age;
+            }
+        if (pick.kind == HitFollow::None)
+            for (int b = 0; b < c_maxBuses; ++b)
+                for (size_t k = 0; k < 2 && flying(b); ++k)
+                {
+                    const auto& h = m_buses[static_cast<size_t>(b)].heads[k];
+                    if (const float w = h.view * m_buses[static_cast<size_t>(b)].env; w > best)
+                    {
+                        best = w;
+                        pick.kind = HitFollow::Pass;
+                        pick.bus = b;
+                        pick.index = static_cast<int>(k);
+                        pick.age = h.age;
+                    }
+                }
+        f = pick;
+    }
+    m_hitWantsLoudest = false;
+
+    const int position = juce::jlimit(0, static_cast<int>(c_hitPositions) - 1, m_params.hitPosition);
+    if (position == HitRandom && (m_hitStarted || snap))
+    {
+        m_hitTurn = m_hitRng.unipolar();
+        m_hitHigh = m_hitRng.unipolar();
+    }
+    const room::Position front {};
+    if (position == HitRandom)
+    {
+        m_hitsTo = randomHitPlace();
+        m_hitsDistanceTo = 1.0f;
+    }
+    else if (position == HitFront || m_width == room::Width::Mono)
+    {
+        m_hitsTo = front;
+        m_hitsDistanceTo = 1.0f;
+    }
+    else if (f.kind != HitFollow::None)
+    {
+        // With the Pass: where its pass is now. (A room: as the bus placed it this chunk. Stereo: across the field.)
+        const bool thrown = f.kind == HitFollow::Throw;
+        const auto& bus = m_buses[static_cast<size_t>(f.bus)];
+        const size_t slot = thrown ? 2 + static_cast<size_t>(f.index) : static_cast<size_t>(f.index);
+        if (m_room)
+        {
+            m_hitsTo = bus.at[slot];
+            m_hitsDistanceTo = bus.atDistance[slot];
+        }
+        else
+        {
+            const auto& h = thrown ? bus.throwHeads[static_cast<size_t>(f.index)] : bus.heads[static_cast<size_t>(f.index)];
+            m_hitsTo = { passAzimuth(h.age, h.dir, thrown ? m_throwWidthLaw : bus.lawNow), 1.0f, 0.0f };
+            m_hitsDistanceTo = 1.0f;
+        }
+    }
+    else if (m_hitStarted)
+    {
+        // A hit with no pass to go with: the front. (One whose pass has gone stays where the pass left it.)
+        m_hitsTo = front;
+        m_hitsDistanceTo = 1.0f;
+    }
+
+    const float move = snap ? 1.0f : glide(frames, c_hitsMoveSeconds, m_fs);
     m_hitsAt.x += (m_hitsTo.x - m_hitsAt.x) * move;
     m_hitsAt.y += (m_hitsTo.y - m_hitsAt.y) * move;
     m_hitsAt.z += (m_hitsTo.z - m_hitsAt.z) * move;
     m_hitsDistance += (m_hitsDistanceTo - m_hitsDistance) * move;
+    m_hitSpreadNow += (sj::clamp(m_params.hitSpread, 0.0f, 1.0f) - m_hitSpreadNow) * (snap ? 1.0f : glide(frames, c_roomSeconds, m_fs));
+    hitGains(m_hitsAt, m_hitsDistance, m_hitSpreadNow, m_hitsGainTo, m_hitsSideGainTo);
+}
+
+void RigEngine::hitGains(const room::Position& at, float distance, float spread, room::Gains& mid, room::Gains& side) const
+{
+    mid.fill(0.0f);
+    side.fill(0.0f);
+    if (m_width == room::Width::Mono)
+    {
+        // Mono: the hits rest in the middle, as their mid alone (the stereo engine's two channels are folded to one).
+        mid[0] = mid[1] = 1.0f;
+        return;
+    }
+    const room::Width width = m_room ? m_width : room::Width::Stereo;
+    const auto& layout = room::layout(width);
+    const float s = sj::clamp(spread, 0.0f, 1.0f);
+
+    // The two objects as points: either side of the place, and bleeding as any object near the listener does.
+    const float apart = c_hitApart + (1.0f - c_hitApart) * s;
+    const float near = sj::clamp(1.0f - distance, 0.0f, 1.0f);
+    room::PanSettings settings;
+    settings.spread = c_nearSpread * near * near;
+    settings.centre = m_centreNow;
+    settings.height = m_heightNow;
+    room::Gains left, right;
+    room::pan(width, { std::max(-1.0f, at.x - apart), at.y, at.z }, settings, left);
+    room::pan(width, { std::min(1.0f, at.x + apart), at.y, at.z }, settings, right);
+
+    // Shared out: the left object over the speakers on the left, the right one over those on the right, each
+    // speaker alike (a centre speaker half to each, as far as Centre Speaker lets it; the speakers overhead as
+    // far as Height lets them; never the LFE).
+    room::Gains evenLeft {}, evenRight {};
+    float sumLeft = 0.0f, sumRight = 0.0f;
+    const float alike = (m_hitMidPower - m_hitSidePower + 1.0e-12f) / (m_hitMidPower + m_hitSidePower + 1.0e-12f);
+    for (int ch = 0; ch < layout.numChannels; ++ch)
+    {
+        const auto& speaker = room::info(layout.speakers[static_cast<size_t>(ch)]);
+        if (speaker.role == room::Role::Lfe)
+            continue;
+        float weight = speaker.role == room::Role::Height ? m_heightNow : 1.0f;
+        if (ch == layout.centre)
+            weight *= m_centreNow;
+        // (The centre speaker has both objects: a sound that is the same in both adds there as one, so each brings
+        // a quarter of a speaker's share; two unrelated sides bring a half each.)
+        const float toLeft = speaker.x < 0.0f ? 1.0f : (speaker.x > 0.0f ? 0.0f : 0.5f / (1.0f + sj::clamp(alike, 0.0f, 1.0f)));
+        const float toRight = speaker.x > 0.0f ? 1.0f : (speaker.x < 0.0f ? 0.0f : toLeft);
+        evenLeft[static_cast<size_t>(ch)] = weight * toLeft;
+        evenRight[static_cast<size_t>(ch)] = weight * toRight;
+        sumLeft += weight * toLeft;
+        sumRight += weight * toRight;
+    }
+    for (int ch = 0; ch < layout.numChannels; ++ch)
+    {
+        const auto c = static_cast<size_t>(ch);
+        const float l = std::sqrt((1.0f - s) * left[c] * left[c] + s * evenLeft[c] / std::max(sumLeft, 1.0e-9f));
+        const float r = std::sqrt((1.0f - s) * right[c] * right[c] + s * evenRight[c] / std::max(sumRight, 1.0e-9f));
+        mid[c] = l + r;
+        side[c] = l - r;
+    }
+}
+
+void RigEngine::mixHits(int frames)
+{
+    const bool snap = ! m_hitsPlaced;
+    const bool sides = m_hitsSideHold > 0;
+    const int channels = m_room ? m_liveChannels : 2;
+    // The lanes' gains this chunk: towards their targets, never faster than c_gainSeconds from nothing to full
+    // (a hit that starts somewhere else, a change of Hit Position or of width). The side lane's follow even while
+    // it is silent, so the next stereo hit starts where it belongs.
+    room::Gains midFrom = m_hitsGain, sideFrom = m_hitsSideGain;
+    if (snap)
+    {
+        midFrom = m_hitsGain = m_hitsGainTo;
+        sideFrom = m_hitsSideGain = m_hitsSideGainTo;
+    }
+    else
+    {
+        const float mostStep = static_cast<float>(frames) / (c_gainSeconds * m_fs);
+        for (size_t ch = 0; ch < m_hitsGain.size(); ++ch)
+        {
+            m_hitsGain[ch] += sj::clamp(m_hitsGainTo[ch] - m_hitsGain[ch], -mostStep, mostStep);
+            m_hitsSideGain[ch] += sj::clamp(m_hitsSideGainTo[ch] - m_hitsSideGain[ch], -mostStep, mostStep);
+        }
+    }
+    // The two objects together, at the power the hit has as a point (its mid alone, in the middle: twice the mid's
+    // power). With gains l and r on a speaker the mid's is l + r and the side's l - r, so over the speakers the
+    // two have 2 (mid power + side power) + 2 shared (mid power - side power), where shared is the sum of l r:
+    // how far the two are in the same speakers. (At Mono the lanes are the mid alone at 1: nothing to level.)
+    float level = 1.0f;
+    if (m_width != room::Width::Mono)
+    {
+        float shared = 0.0f;
+        for (int ch = 0; ch < channels; ++ch)
+            shared += 0.25f * (m_hitsGain[static_cast<size_t>(ch)] * m_hitsGain[static_cast<size_t>(ch)]
+                               - m_hitsSideGain[static_cast<size_t>(ch)] * m_hitsSideGain[static_cast<size_t>(ch)]);
+        const float mid = m_hitMidPower + 1.0e-12f, side = m_hitSidePower;
+        level = std::sqrt(mid / (mid + side + sj::clamp(shared, 0.0f, 1.0f) * (mid - side)));
+    }
+    // (A hit starting: the level it needs from its first sample; the step is in the quiet before it.)
+    const float levelFrom = snap || m_hitOnset ? level : m_hitLevel;
+    m_hitLevel = level;
+    m_hitsPlaced = true;
+
+    if (m_room)
+    {
+        room::Gains from, to;
+        for (size_t ch = 0; ch < from.size(); ++ch)
+        {
+            from[ch] = midFrom[ch] * levelFrom;
+            to[ch] = m_hitsGain[ch] * level;
+        }
+        addToRoom(m_hitsMid.data(), from, to, frames);
+        if (sides)
+        {
+            for (size_t ch = 0; ch < from.size(); ++ch)
+            {
+                from[ch] = sideFrom[ch] * levelFrom;
+                to[ch] = m_hitsSideGain[ch] * level;
+            }
+            addToRoom(m_hitsSide.data(), from, to, frames);
+        }
+        return;
+    }
+    const float step = 1.0f / static_cast<float>(frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        const auto ii = static_cast<size_t>(i);
+        const float t = static_cast<float>(i + 1) * step;
+        const float g = levelFrom + (level - levelFrom) * t;
+        float l = m_hitsMid[ii] * (midFrom[0] + (m_hitsGain[0] - midFrom[0]) * t);
+        float r = m_hitsMid[ii] * (midFrom[1] + (m_hitsGain[1] - midFrom[1]) * t);
+        if (sides)
+        {
+            l += m_hitsSide[ii] * (sideFrom[0] + (m_hitsSideGain[0] - sideFrom[0]) * t);
+            r += m_hitsSide[ii] * (sideFrom[1] + (m_hitsSideGain[1] - sideFrom[1]) * t);
+        }
+        m_hitsOutL[ii] = l * g;
+        m_hitsOutR[ii] = r * g;
+    }
 }
 
 void RigEngine::mixRoom(int frames, bool stowSounds, bool stowDry)
@@ -4598,16 +5027,15 @@ void RigEngine::mixRoom(int frames, bool stowSounds, bool stowDry)
         now = next;
     };
 
-    // The hits: one lane.
+    // The hits: their lane, and a stereo hit's sides (see hitGains).
     {
-        room::Gains to;
-        roomGains(m_hitsAt, m_hitsDistance, to);
-        lane(m_hitsL.data(), m_hitsGain, to, m_roomSnap);
+        const bool sides = m_hitsSideHold > 0;
+        mixHits(frames);
         for (int i = 0; i < frames; ++i)
         {
-            const float h = m_hitsL[static_cast<size_t>(i)];
+            const float h = m_hitsMid[static_cast<size_t>(i)], hs = sides ? m_hitsSide[static_cast<size_t>(i)] : 0.0f;
             m_scopes[SectionHits].push(h);
-            m_sectionSquares[SectionHits] += static_cast<double>(h) * h;
+            m_sectionSquares[SectionHits] += static_cast<double>(h) * h + static_cast<double>(hs) * hs;
             m_roomMono[static_cast<size_t>(i)] = h;
         }
     }

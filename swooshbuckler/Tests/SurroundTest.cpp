@@ -791,6 +791,8 @@ int main(int argc, char* argv[])
                 scene.p.levels[0] = 0.01f; // bus A all but silent: what is heard is the hits
                 scene.p.buses[0].path = static_cast<int>(room::Path::Through);
                 scene.p.hitAim = aim;
+                scene.p.hitPosition = aim ? RigEngine::HitWithPass : RigEngine::HitFront;
+                scene.p.hitSpread = 0.0f;
                 scene.p.hitSense = 1.0f;
                 scene.p.hitDuck = 0.0f;
                 scene.start(width);
@@ -814,10 +816,13 @@ int main(int argc, char* argv[])
             };
             const auto aimed = heard(true), plain = heard(false);
             std::cout << "         hits: not aimed, " << num(plain.rear) << " of their power behind (object y " << num(plain.yLeast) << " .. " << num(plain.yMost)
-                      << "); aimed at passes that go Through, " << num(aimed.rear) << " (y " << num(aimed.yLeast) << " .. " << num(aimed.yMost) << ")" << std::endl;
-            check(plain.total > 0.0 && plain.rear < 0.02 && plain.yLeast > 0.999f, "hits that are not aimed play at the front");
-            check(aimed.total > 0.0 && aimed.rear > 0.3 && aimed.rear < 0.7 && aimed.depth < 0.05,
-                  "AIM: the hits play where their pass is at its closest (beside the listener: half in front, half behind)");
+                      << "); aimed at passes that go Through, " << num(aimed.rear) << " (y " << num(aimed.yLeast) << " .. " << num(aimed.yMost)
+                      << ", on average " << num(aimed.depth) << " from the listener's side)" << std::endl;
+            check(plain.total > 0.0 && plain.rear < 0.02 && plain.yLeast > 0.999f, "Hit Position Front: the hits play at the front");
+            // (Hit Position With the Pass: a hit lands where its pass is at its closest and goes on with it, so most
+            // of its power is beside the listener and its tail is further down the room. The Hits test measures it.)
+            check(aimed.total > 0.0 && aimed.rear > 0.3 && aimed.rear < 0.7 && aimed.depth < 0.4,
+                  "AIM: the hits land where their pass is at its closest (beside the listener: half in front, half behind)");
         }
         // The tremolo on the buses and on everything: the room shakes.
         for (int target : { 0, 1 })

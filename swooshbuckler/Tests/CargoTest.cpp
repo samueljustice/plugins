@@ -1634,16 +1634,18 @@ int main(int argc, char* argv[])
               "stereo bed: on bus B at Doppler 0% it comes out wide (left against right " + juce::String(bedWide.correlation, 2)
                   + ", the same sound as a mono file " + juce::String(bedMono.correlation, 2) + ")");
         // Folded to mono, the mono file's sound is all there: what the fold adds is the little of the side signal
-        // that the time difference between the ears lets through while a pass is off centre.
+        // that the time difference between the ears lets through while a pass is off centre. (A bed is as loud wide
+        // as narrow in stereo, so its fold is under the mono file's by what its sides add in stereo: 3 dB for two
+        // unrelated sides, never more for a file the hold keeps as stereo by much.)
         const double folds = monoDifference(bedMono, bedWide);
-        check(folds < -6.0 && bedWide.monoRms > 0.98 * bedMono.monoRms && bedWide.monoRms < 1.15 * bedMono.monoRms,
+        check(folds < -6.0 && bedWide.monoRms > 0.7 * bedMono.monoRms && bedWide.monoRms < 1.15 * bedMono.monoRms,
               "stereo bed: folded to mono nothing cancels (" + juce::String(bedWide.monoRms, 4) + " against the mono file's "
                   + juce::String(bedMono.monoRms, 4) + ", difference " + juce::String(folds, 1) + " dB)");
 
         const auto colouredWide = renderRig(wideFile, 1, 0.0f, 1.0f, 0, true);
         const auto colouredMono = renderRig(monoFile, 1, 0.0f, 1.0f, 0, true);
         check(colouredWide.correlation < colouredMono.correlation - 0.3 && colouredWide.correlation > -0.1
-                  && colouredWide.monoRms > 0.98 * colouredMono.monoRms,
+                  && colouredWide.monoRms > 0.7 * colouredMono.monoRms,
               "stereo bed: it stays wide through Low End, Swirl and Filter, and never goes out of phase ("
                   + juce::String(colouredWide.correlation, 2) + " against " + juce::String(colouredMono.correlation, 2) + ")");
 
@@ -1664,11 +1666,9 @@ int main(int argc, char* argv[])
         const auto flyMono = renderRig(monoFile, 1, 0.0f, 1.0f, 1, false);
         const auto busAWide = renderRig(wideFile, 0, 0.0f, 1.0f, 0, true);
         const auto busAMono = renderRig(monoFile, 0, 0.0f, 1.0f, 0, true);
-        const auto hitWide = renderRig(wideFile, CargoHold::c_hitsBus, 0.0f, 1.0f, 0, true);
-        const auto hitMono = renderRig(monoFile, CargoHold::c_hitsBus, 0.0f, 1.0f, 0, true);
-        check(flyWide.l == flyMono.l && flyWide.r == flyMono.r && busAWide.l == busAMono.l && busAWide.r == busAMono.r
-                  && hitWide.l == hitMono.l && hitWide.r == hitMono.r,
-              "stereo: Fly-By passes, bus A and the hits play the mono sum, sample for sample what the mono file gives");
+        // (A stereo hit keeps its two sides: the Hits test measures it.)
+        check(flyWide.l == flyMono.l && flyWide.r == flyMono.r && busAWide.l == busAMono.l && busAWide.r == busAMono.r,
+              "stereo: Fly-By passes and bus A play the mono sum, sample for sample what the mono file gives");
 
         // Turning the width away while the bed plays: Width, Pass Mode, Doppler and the track's bus each changed in
         // one go, mid-stream. The sound is smooth (low-passed noise), so a step in the side signal would be the

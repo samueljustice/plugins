@@ -93,6 +93,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     m_raw.takeTurns = raw(ParamIDs::takeTurns);
     m_raw.linkBuses = raw(ParamIDs::linkBuses);
     m_raw.hitAim = raw(ParamIDs::hitAim);
+    m_raw.hitPosition = raw(ParamIDs::hitPosition);
+    m_raw.hitSpread = raw(ParamIDs::hitSpread);
     m_raw.tremOn = raw(ParamIDs::tremOn);
     m_raw.tremDepth = raw(ParamIDs::tremDepth);
     m_raw.tremRate = raw(ParamIDs::tremRate);
@@ -501,6 +503,9 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.takeTurns = m_raw.takeTurns->load() > 0.5f;
     p.linkBuses = m_raw.linkBuses->load() > 0.5f;
     p.hitAim = m_raw.hitAim->load() > 0.5f;
+    static_assert(static_cast<int>(ParamIDs::numHitPositions) == static_cast<int>(RigEngine::c_hitPositions), "the same Hit Positions");
+    p.hitPosition = juce::jlimit(0, ParamIDs::numHitPositions - 1, juce::roundToInt(m_raw.hitPosition->load()));
+    p.hitSpread = modValue(m_raw.hitSpread);
     p.tremOn = m_raw.tremOn->load() > 0.5f;
     p.tremDepth = modValue(m_raw.tremDepth);
     p.tremRate = modValue(m_raw.tremRate);
@@ -2017,7 +2022,8 @@ juce::String SwooshbucklerAudioProcessor::describeSettings() const
       << ". Energy " << text(ParamIDs::energy) << ", Rate " << text(ParamIDs::rate) << ", Fill " << text(ParamIDs::fill)
       << ", Chaos " << text(ParamIDs::chaos) << ", Pitch " << text(ParamIDs::pitch) << ", Space " << text(ParamIDs::space)
       << ". Pass A " << text(ParamIDs::passMode[0]) << ", Pass B " << text(ParamIDs::passMode[1])
-      << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim) << ".";
+      << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim)
+      << ", Hits " << text(ParamIDs::hitPosition) << ", Hit Spread " << text(ParamIDs::hitSpread) << ".";
     return d;
 }
 

@@ -335,8 +335,10 @@ A wide ambience should stay wide. When a stereo sound plays on **Bus B** with **
 - **Doppler** decides how much of the width is heard. At 0% the bed is as wide as the file; as Doppler rises it folds in towards the moving point, and at 100% it is the same single point a mono file gives.
 - **Width** scales it too: at 0% everything sits in the middle, mono. A pass that has travelled far to one side narrows on its way out, so the bed is never wider than its source.
 - Low End, Swirl, Filter and Drive work on the mono sum, as they do for every sound; the width is added back after them at a matching level.
-- Bus A, the Hits, thrown whooshes and Fly-By passes always play the mono sum: a fly-by is one point going past. So do a track with **Vari** off and a sound that is being morphed.
-- [Stowaway](#stowaway) in **Dry** keeps a stereo sound's width as well, by its own Width knob.
+- **A bed is as loud wide as narrow.** The bus is held at the level its mono sum has alone, so Doppler, Width and Pass change how wide a bed is and not how loud it is (within 0.1 dB, measured with files whose two sides are alike, unrelated and half opposed, at Mono, Stereo, 5.1 and 7.1.4). Every track is levelled by its mono sum, so a wide file and a mono one sit at the same level whichever way they are played. One thing follows: if something after the plug-in folds a Stereo take to mono, a wide bed comes out lower than a narrow one by what its sides carried (3 dB for a bed whose two sides have nothing in common). The plug-in's own Mono width is levelled for mono.
+- Bus A, thrown whooshes and Fly-By passes always play the mono sum: a fly-by is one point going past. So do a track with **Vari** off and a sound that is being morphed.
+- A stereo sound on the **Hits** keeps its two sides: see [where a hit lands](#where-a-hit-lands).
+- [Stowaway](#stowaway) in **Dry** keeps a stereo sound's width as well, by its own Width knob, and is as loud wide as narrow in the same way.
 - A mono file is not touched by any of this. A session stores the extra stereo information only for the sounds that have it.
 
 Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
@@ -491,6 +493,26 @@ Sessions saved before Aim existed open with it off, so they keep the gate they w
 | **Aim** | on / off (on) | Aims the hits at the pass peaks (see above). |
 | **Sync Hits** | on / off (off), with Aim off | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
 
+#### Where a hit lands
+
+Two settings decide where a hit is heard and how big it is. They have no control on the panel yet: they are host parameters, **Hit Position** and **Hit Spread**, in your host's parameter and automation lists. Hit Spread can also be wired to a modulator, and Randomise sets it.
+
+**Hit Position**
+
+- **With the Pass** (where it starts): the hit lands where the whoosh it belongs to is at that moment, and stays with that whoosh as it flies on, so a whoosh and its impact are one event in one place. In a surround room that is left or right, in front or behind, and as high as the pass is. At Stereo the hit moves between left and right with its pass: it lands in the middle, where a pass is closest, and its tail goes the way the pass goes.
+  - Which whoosh: with **Aim** on, the pass or the thrown whoosh the hit was aimed at. With Aim off, the loudest pass in the air as the hit starts (as the gate opens, or on Sync Hits' beat), a thrown whoosh before the rig's own passes; if that pass ends while the gate is still open, the hits move on to the loudest one then.
+  - When its pass has ended, a hit that is still ringing stays where the pass left it. With nothing in the air (no sound on either bus, or the rig stopped and nothing thrown) a hit lands in front.
+  - With **Link** on, Bus B's passes are Bus A's, so the hit is where Bus A's pass is. Stowaway's passes are never followed.
+  - All the hit tracks are one sound with one place: when the next hit starts, whatever is left of the last one moves to the new place with it (over about a hundredth of a second, without a click).
+- **Front**: always in front of you at ear level: between left and right, or from the centre speaker with Centre Speaker on.
+- **Random**: each hit lands at a place of its own: somewhere round the walls of the room, and up towards the speakers overhead as far as Height lets it (half of them stay low); at Stereo somewhere between left and right. It stays there until the next hit. The places come from the rig's seed, so Follow Host, and Same Batch Again in Render Variations, give the same places again, and every whoosh of a batch gets its own.
+
+**Hit Spread** (0 to 100%, 20% where it starts) is how far a hit bleeds into the other speakers. At 0% it is a point at the place it lands. At 100% it is in every speaker alike: the speakers overhead as far as Height lets them, the centre speaker only with Centre Speaker on, never the LFE. In between it is part of each, and the whole hit is as loud wherever the knob is (the same within 0.1 dB of power; a loudness meter reads up to 0.8 dB more at 100% in a room, because it counts the speakers beside you for more). At 20% a hit in front has 6% of its power outside the two front speakers at 5.1, 8% at 7.1 and 9% at 7.1.4, each of the other speakers 15 to 19 dB under the whole hit: it has a size, and is still heard where it lands.
+
+**Stereo hits.** A stereo hit is placed as two sounds, its left and its right, a little apart either side of its place: a tenth of the room's half width at 0%, further apart as Hit Spread rises, and at 100% its left is in every speaker on your left and its right in every speaker on your right. So turning Hit Spread down narrows a stereo hit smoothly to a point; it never snaps to mono. It is as loud all the way: at a point it is its mono sum, exactly as loud as every track is levelled to be, and spread out its two sides together are held to that same level, measured from the sound itself as it plays. Hits whose two sides are alike, unrelated or half opposed, and mono ones, all stay within 0.1 dB of power from 0 to 100%, and bringing a hit to a point costs no extra limiting. (A file whose two sides cancel is kept as its louder side when you load it, so it cannot vanish.) At Stereo, Hit Spread is therefore how wide a stereo hit is: 100% is as wide as the file. A hit track with **Vari** off plays its mono sum.
+
+At Mono neither setting does anything: the hits are in the middle. Hit Position stays as you set it when you load a preset or Randomise.
+
 The strip along the bottom of the panel shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed. The gate light, Aim, Sync Hits and the Gate and Duck boxes are at the left of the panel; the seven knobs sit under Bus A's.
 
 ### Output
@@ -541,7 +563,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
 <img src="docs/images/cables.png" width="1520" alt="Cables">
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
-- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), each bus's and Stowaway's **Direction** and **Side** (a wire there decides pass by pass, see [Flight Paths](#flight-paths)), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, Height Varies, LFE Level, or the modulators' own knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), **Hit Spread** (a host parameter for now: see [where a hit lands](#where-a-hit-lands)), each bus's and Stowaway's **Direction** and **Side** (a wire there decides pass by pass, see [Flight Paths](#flight-paths)), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, Height Varies, LFE Level, or the modulators' own knobs.
 - Each wire leaves a **plug**, a small coloured dot on the right of the knob's rim, and draws a thin ring outside the knob's value ring, in the modulator's colour, showing how far it moves the knob. Several wires on one knob stack their rings outwards, and a dot on the rings shows where the modulation has the value at this moment:
   - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
   - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
@@ -748,7 +770,7 @@ Changing the path glides over a quarter of a second. With **Link** on, Bus B fli
 
 **Render Variations** gives every whoosh of a batch a way, a side and a height of its own, so a batch has whooshes going both ways and passing on both sides; a Direction or Side you have set is kept for all of them.
 
-**Everything else in the room.** The hits play in front: in the middle (between left and right, or from the centre speaker with Centre Speaker on), or, with **Aim**, where the pass they are aimed at is closest. A thrown whoosh flies the bus's path like a pass. Stowaway in **Sub** stays in the middle in front, in **Wake** trails Bus A's pass on its path, in **Fly** flies its own Flight Path, and in **Dry** stays in front, untouched. A stereo bed on Bus B keeps its width, spread over the speakers on each side by Spread.
+**Everything else in the room.** A hit lands where its whoosh is and flies on with it, or in front, or somewhere of its own, by **Hit Position**, and bleeds into the other speakers by **Hit Spread**, which is its own and not the room strip's Spread: see [where a hit lands](#where-a-hit-lands). A thrown whoosh flies the bus's path like a pass. Stowaway in **Sub** stays in the middle in front, in **Wake** trails Bus A's pass on its path, in **Fly** flies its own Flight Path, and in **Dry** stays in front, untouched. A stereo bed on Bus B keeps its width, spread over the speakers on each side by Spread.
 
 ### Space in the room
 
@@ -912,7 +934,7 @@ The five Stowaway presets switch Stowaway on and set its Mode and knobs. A prese
 
 The other seven leave Stowaway's switch where it is, and put its Mode back to Sub and its knobs back where they start.
 
-**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck), Space, and Stowaway's five knobs (never its Mode or its switch). It also rolls each bus's and Stowaway's [Flight Path](#flight-paths), which is heard in a surround room. Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those controls move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
+**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Hit Spread (between 0 and 50%), Space, and Stowaway's five knobs (never its Mode or its switch). It also rolls each bus's and Stowaway's [Flight Path](#flight-paths), which is heard in a surround room. Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those controls move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
 
 Presets and Randomise set the sound, not your session. They leave these alone:
 
@@ -920,7 +942,7 @@ Presets and Randomise set the sound, not your session. They leave these alone:
 - Inflate, Push, Ceiling, Trim and the Peak Tremolo
 - the room strip: Spread, Height, Height Varies, Centre Speaker, LFE Mode and LFE Level
 - each bus's and Stowaway's Direction and Side
-- Auto Ride, Follow Master, Aim, Sync Hits, the Gate and Duck modes, Take Turns and Link
+- Auto Ride, Follow Master, Aim, Sync Hits, Hit Position, the Gate and Duck modes, Take Turns and Link
 - the Master track, each track's bus and the morph's ropes
 - the morph's On switch, wander, shape and speed
 - Play, the Keys menu and Throw Length
