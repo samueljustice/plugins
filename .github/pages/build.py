@@ -199,10 +199,10 @@ page = f"""<!doctype html>
   nav a:hover {{ color: var(--paper); }}
   nav span {{ color: var(--red); margin-right: 8px; }}
 
-  .entry {{ display: grid; grid-template-columns: 250px 1fr; gap: 0 56px; padding: 72px 0; border-bottom: 1px solid var(--rule); scroll-margin-top: 48px; }}
-  .entry header {{ position: sticky; top: 76px; align-self: start; }}
+  .entry {{ display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 48px; padding: 72px 0; border-bottom: 1px solid var(--rule); scroll-margin-top: 48px; }}
+  .entry header {{ position: sticky; top: 76px; align-self: start; min-width: 0; }}
   .no {{ display: block; color: var(--red); margin-bottom: 14px; }}
-  h2 {{ font: 800 clamp(34px, 3.6vw, 46px)/.95 var(--display); letter-spacing: -.03em; margin: 0 0 16px; }}
+  h2 {{ font: 800 clamp(32px, 3vw, 40px)/.98 var(--display); letter-spacing: -.03em; margin: 0 0 16px; overflow-wrap: anywhere; }}
   .wip {{ display: inline-block; color: var(--red); border: 1px solid var(--red); padding: 3px 8px 2px; margin-bottom: 16px; }}
   .formats {{ color: var(--dim); margin: 0 0 18px; }}
   .links {{ margin: 0; display: flex; gap: 18px; }}
@@ -219,7 +219,7 @@ page = f"""<!doctype html>
   .entry.plain {{ display: block; }}
   .entry.plain img {{ max-width: 100%; height: auto; }}
 
-  footer {{ padding: 64px 0 96px; display: grid; grid-template-columns: 250px 1fr; gap: 0 56px; }}
+  footer {{ padding: 64px 0 96px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 48px; }}
   footer h3 {{ font: 800 26px/1 var(--display); letter-spacing: -.02em; margin: 0; }}
   footer p {{ margin: 0 0 1em; max-width: 40em; }}
   footer sub {{ font-size: 15px; vertical-align: baseline; color: var(--dim); }}
