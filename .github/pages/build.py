@@ -176,6 +176,8 @@ page = f"""<!doctype html>
 
   .top {{ padding: 72px 0 36px; }}
   .top .label {{ color: var(--dim); margin: 0 0 18px; }}
+  .top .label a {{ color: var(--paper); text-decoration: none; border-bottom: 1px solid var(--red); }}
+  .top .label a:hover {{ color: var(--red); }}
   h1 {{ font: 800 clamp(54px, 11vw, 148px)/.88 var(--display); letter-spacing: -.045em; margin: 0; }}
   h1 em {{ font-style: normal; color: var(--red); }}
   .wave {{ display: block; width: 100%; height: 60px; margin: 26px 0 22px; }}
@@ -258,7 +260,7 @@ page = f"""<!doctype html>
 <body>
 <div class="wrap">
   <div class="top">
-    <p class="label">Samuel Justice · audio plug-ins</p>
+    <p class="label">Samuel Justice · audio plug-ins · <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a></p>
     <h1>Sammy J's<br><em>Plugins</em></h1>
     {wave}
     <p class="tagline">{html.escape(tagline)}</p>
