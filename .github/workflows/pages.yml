@@ -1,0 +1,54 @@
+name: Pages
+
+# Publishes the root README as the project's website (samueljustice.github.io/plugins), so visitors see the
+# landing page first instead of the repository's file list. GitHub renders the README (same as on the repo
+# page) and .github/pages/build.py wraps it. Runs when the README changes, and after the installer workflow
+# (whose README update is pushed by the bot, which doesn't trigger push workflows).
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - .github/pages/**
+      - .github/workflows/pages.yml
+  workflow_run:
+    workflows: [Build and Release Sammy J Installer]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: main
+    - name: Render the README
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api markdown -f mode=gfm -f context="$GITHUB_REPOSITORY" -f text="$(cat README.md)" > "$RUNNER_TEMP/readme.html"
+        python3 .github/pages/build.py "$RUNNER_TEMP/readme.html" site "$GITHUB_REPOSITORY"
+    - uses: actions/configure-pages@v5
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - id: deployment
+      uses: actions/deploy-pages@v4
