@@ -98,6 +98,9 @@ struct CargoData
     double sampleRate = 48000.0;
     std::vector<CargoRegion> regions;
     float autoGain = 1.0f;
+    /** How much of the sound's power (mono sum plus side signal, over its regions) the mono sum has: 1 without a
+        side signal, 0.5 for two unrelated sides. Filled by analyse(). */
+    float midShare = 1.0f;
     juce::String name;              // file name (or "Pasted")
 
     // Filled by SampleClassifier on load and kept across edits (makeEdited copies them).

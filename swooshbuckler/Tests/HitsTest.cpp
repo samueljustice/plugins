@@ -15,6 +15,7 @@
 //   loudness   the same hit at Hit Spread 0, 25, 50 and 100% reads the same (plain power and BS.1770) whether its file
 //              is mono, stereo with two sides alike, stereo with two unrelated sides, stereo with opposed sides, or
 //              stereo with sides half opposed: at Mono, Stereo, 5.1, 7.1 and 7.1.4
+//   level      a stereo hit's level neither steps during a steady sound nor dips as a hit starts
 //   clicks     nothing steps when Hit Position or Hit Spread change during a hit
 //   stereo     at Stereo a hit pans with its pass; at Mono neither control does anything; Front with a mono hit is
 //              what the hits were before they had a place
@@ -132,9 +133,28 @@ namespace
         return b;
     }
 
+    // A low tone whose right side is a quarter cycle from its left, so left squared plus right squared is its
+    // loudness squared at every sample: what the hits' level does to it can be read sample by sample.
+    //   swell  a steady sound that swells and dies away again and again (it loops without a seam)
+    //   boom   a burst every quarter second that starts with its two sides opposed
+    juce::AudioBuffer<float> quarterTone(bool boom)
+    {
+        juce::AudioBuffer<float> b(2, static_cast<int>(c_fs * 4.0));
+        for (int i = 0; i < b.getNumSamples(); ++i)
+        {
+            const double t = i / c_fs, inBurst = std::fmod(t, 0.25);
+            const double a = boom ? 0.8 * std::exp(-inBurst / 0.04) * std::min(1.0, (0.25 - inBurst) / 0.01)
+                                  : 0.2 * (1.0 + 0.95 * std::sin(c_twoPi * 2.5 * t)) * (1.0 + 0.95 * std::sin(c_twoPi * 5.75 * t));
+            const double turn = c_twoPi * 80.0 * (boom ? inBurst : t);
+            b.setSample(0, i, static_cast<float>(a * std::sin(turn + 0.25 * 3.141592653589793)));
+            b.setSample(1, i, static_cast<float>(a * std::sin(turn - 0.25 * 3.141592653589793)));
+        }
+        return b;
+    }
+
     struct Sources
     {
-        juce::File hissA, hissB, longHit, tone;
+        juce::File hissA, hissB, longHit, tone, swell, boom;
         juce::File burst[c_kinds], steady[c_kinds];
     };
 
@@ -329,6 +349,8 @@ namespace
         s.hissB = writeWav(folder, "hissB", hiss(2));
         s.longHit = writeWav(folder, "longHit", longHit());
         s.tone = writeWav(folder, "tone", stereoTone());
+        s.swell = writeWav(folder, "swell", quarterTone(false));
+        s.boom = writeWav(folder, "boom", quarterTone(true));
         for (int k = 0; k < c_kinds; ++k)
         {
             s.burst[k] = writeWav(folder, "burst" + juce::String(k), kindOf(k, false));
@@ -816,6 +838,86 @@ int main(int argc, char* argv[])
         std::cout << "         the most a hit's level moves with Hit Spread: " << num(worstPower) << " dB of plain power, " << num(worstLoudness) << " dB of BS.1770 loudness" << std::endl;
         check(worstPower < 0.5, "every kind of file, every width: the power stays within 0.5 dB from a point to everywhere");
         check(worstLoudness < 1.0, "and the BS.1770 loudness within 1 dB (the speakers beside you count 1.5 dB up in that reading)");
+    }
+
+    //==================================================================================================================
+    if (wanted("level"))
+    {
+        std::cout << "A stereo hit's level is steady from its first sample" << std::endl;
+        // The sounds here have left squared plus right squared equal to their loudness squared, sample by sample
+        // (see quarterTone). At Stereo with Hit Spread 100% left is the sound's left and right its right, at the
+        // hits' level, so that sum, taken from the output, is the loudness times the level.
+        auto play = [&](const juce::File& file, room::Width width, float spread)
+        {
+            Scene scene;
+            scene.load(2, file, CargoHold::c_hitsBus);
+            scene.hold.setSkipSilence(2, false);
+            scene.p.chaos = 0.0f;
+            scene.p.hitAim = false;
+            scene.p.gateMode = 3;
+            scene.p.hitPosition = RigEngine::HitFront;
+            scene.p.hitSpread = spread;
+            scene.start(width);
+            Take take;
+            scene.run(take, static_cast<int>(12.0 * c_fs / c_block));
+            return take;
+        };
+        // A steady sound that swells: nothing in it steps, so neither may its level. The largest change from one
+        // sample to the next, against how loud it is there.
+        {
+            const auto take = play(src.swell, room::Width::Stereo, 1.0f);
+            std::vector<float> a(take.ch[0].size());
+            for (size_t i = 0; i < a.size(); ++i)
+                a[i] = std::sqrt(take.ch[0][i] * take.ch[0][i] + take.ch[1][i] * take.ch[1][i]);
+            float top = 0.0f, worst = 0.0f;
+            for (const float v : a)
+                top = std::max(top, v);
+            for (size_t i = static_cast<size_t>(2.0 * c_fs); i < a.size(); ++i)
+                worst = std::max(worst, std::abs(a[i] - a[i - 1]) / std::max(a[i - 1], 0.05f * top));
+            std::cout << "         a sound that swells, Hit Spread 100%: the largest change from one sample to the next is " << num(100.0 * worst, 2) << "% of its level" << std::endl;
+            check(top > 0.0f && worst < 0.01f, "a steady stereo sound on the hits: its level never steps");
+        }
+        // Bursts that start with their two sides opposed. At Front, left plus right is the sound's mono sum times
+        // the hits' level (the side signal is as much up on one side as down on the other), and at Mono the output
+        // is that mono sum alone: so the two, over the same samples, give the level. Each burst's first 3 ms
+        // against its 10 to 20 ms.
+        const auto mono = play(src.boom, room::Width::Mono, 1.0f);
+        for (const float spread : { 1.0f, RigEngine::c_hitSpreadDefault })
+        {
+            const auto take = play(src.boom, room::Width::Stereo, spread);
+            const auto& m = mono.ch[0];
+            float top = 0.0f;
+            for (const float v : m)
+                top = std::max(top, std::abs(v));
+            double worst = 0.0, sum = 0.0;
+            int bursts = 0;
+            const size_t ms = static_cast<size_t>(c_fs / 1000.0);
+            auto levelOver = [&](size_t from, size_t to)
+            {
+                double wide = 0.0, narrow = 0.0;
+                for (size_t k = from; k < to; ++k)
+                {
+                    const double both = static_cast<double>(take.ch[0][k]) + take.ch[1][k];
+                    wide += both * both;
+                    narrow += static_cast<double>(m[k]) * m[k];
+                }
+                return db(wide / std::max(narrow, 1.0e-30));
+            };
+            for (size_t i = static_cast<size_t>(2.0 * c_fs); i + 30 * ms < m.size(); ++i)
+            {
+                // (A burst's mono sum starts from nothing and is at its first crest 3 ms on.)
+                if (! (std::abs(m[i + 3 * ms]) > 0.3f * top && std::abs(m[i]) > 0.02f * top && std::abs(m[i - 2 * ms]) < 0.01f * top))
+                    continue;
+                const double least = levelOver(i, i + 3 * ms) - levelOver(i + 10 * ms, i + 20 * ms);
+                worst = std::max(worst, std::abs(least));
+                sum += least;
+                ++bursts;
+                i += 100 * ms;
+            }
+            std::cout << "         bursts that start with their sides opposed, Hit Spread " << juce::roundToInt(100.0f * spread) << "%: over " << bursts
+                      << " bursts the level of the first 3 ms is at most " << num(worst, 2) << " dB from the level 10 to 20 ms on (on average " << num(sum / std::max(1, bursts), 2) << " dB)" << std::endl;
+            check(bursts >= 20 && worst < 1.0, "a stereo hit starts at the level it goes on at (Hit Spread " + juce::String(juce::roundToInt(100.0f * spread)) + "%)");
+        }
     }
 
     //==================================================================================================================

@@ -141,7 +141,8 @@
  * Centre Speaker lets it, the speakers overhead as far as Height lets them, never the LFE). So 0% is a point at
  * the hit's place and 100% is every main speaker alike, with a stereo sound's left on the left and its right on
  * the right. The two objects' sum is not a plain one: its level goes by how far the two share speakers and by
- * how alike the sound's two sides are (its mid and side powers, measured over the last tenth of a second: see
+ * how alike the sound's two sides are (its mid and side powers, measured over the last tenth of a second, a hit
+ * starting from what its files are as a whole: see renderHits and
  * mixHits), so that whatever Hit Spread is, the hits have the power they have as a point: that of their mono sum,
  * which is what every track is levelled by (CargoData::autoGain). A sound that is the same on both sides is not
  * louder as a point than spread out, a wide one is not louder spread out than as a point, and nothing here can
@@ -1239,8 +1240,10 @@ private:
     float m_hitTurn = 0.0f, m_hitHigh = 0.0f; // a Random hit: how far round the room (0..1), how high (0..1)
     float m_hitSpreadNow = c_hitSpreadDefault;
     float m_hitMidPower = 0.0f, m_hitSidePower = 0.0f;
-    bool m_hitOnset = false;       // this chunk is a hit starting (far stronger than the mean before it)
-    int m_hitSince = 0;            // samples since then
+    float m_hitMidShare = 1.0f;    // the mid's share of the two (kept through the quiet; 1: a mono sound)
+    float m_hitsFileMid = 0.0f, m_hitsFileAll = 0.0f; // this chunk's hit tracks: their files' mid share, by how loud each plays
+    bool m_hitOnset = false;       // this chunk is a hit starting out of the quiet
+    int m_hitSince = 0;            // samples the means are over since a hit started
     float m_hitLevel = 1.0f;       // the lanes' level at the end of the last chunk (see mixHits)
     room::Gains m_hitsGain {}, m_hitsSideGain {}, m_hitsGainTo {}, m_hitsSideGainTo {};
     bool m_hitsPlaced = false;     // the last chunk's gains are known (false: nothing to glide from)

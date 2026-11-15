@@ -112,6 +112,7 @@ namespace
     constexpr std::uint32_t c_placeSeed = 0x51DEu; // a room's own draws start here, from the engine's seed
     constexpr std::uint32_t c_hitSeed = 0x0417u;   // a Random hit's place: its draws start here, from the engine's seed
     constexpr float c_hitAlikeSeconds = 0.1f;      // how alike a hit's two sides are: measured over this long
+    constexpr float c_hitCarrySeconds = 0.02f;     // a hit starting: what its files are as a whole counts as this much of it
     constexpr float c_bedLevelSeconds = 0.1f;      // a stereo bed's level against its mono sum: measured, and moved, over this long
     constexpr float c_hitRandomPan = 0.85f;        // Stereo: a Random hit goes this far to either side at most
     constexpr float c_hitSideTailSeconds = 0.05f;  // the hits' side lane is mixed this long after the last stereo hit track fed it
@@ -451,6 +452,8 @@ void RigEngine::reset()
     m_hitTurn = m_hitHigh = 0.0f; // (a Random hit draws its place as it starts)
     m_hitSpreadNow = sj::clamp(m_params.hitSpread, 0.0f, 1.0f);
     m_hitMidPower = m_hitSidePower = 0.0f;
+    m_hitMidShare = 1.0f;
+    m_hitsFileMid = m_hitsFileAll = 0.0f;
     m_hitOnset = false;
     m_hitSince = 0;
     m_hitLevel = 1.0f;
@@ -907,6 +910,7 @@ void RigEngine::renderTracks(int frames)
     std::fill(m_hitsIn.begin(), m_hitsIn.begin() + frames, 0.0f);
     std::fill(m_hitsSideIn.begin(), m_hitsSideIn.begin() + frames, 0.0f);
     m_hitsSideFed = false;
+    m_hitsFileMid = m_hitsFileAll = 0.0f;
     m_hitStarted = false;
     std::fill(m_stow.in.begin(), m_stow.in.begin() + frames, 0.0f);
     std::fill(m_stow.throwIn.begin(), m_stow.throwIn.begin() + frames, 0.0f);
@@ -1550,6 +1554,13 @@ void RigEngine::renderTracks(int frames)
                                * (g0 + (target - g0) * frac) * variGain * (rope0 + (rope1 - rope0) * frac)
                                * (sideGain0 + (sideGain1 - sideGain0) * frac) * (keep0 + (keep1 - keep0) * frac);
             }
+        }
+        // What the hit tracks' files are as a whole, by how loud each plays (see renderHits).
+        if (toHitGate && data != nullptr)
+        {
+            const float heard = std::max(target, throwTarget);
+            m_hitsFileAll += heard * heard;
+            m_hitsFileMid += heard * heard * (wantSide ? data->midShare : 1.0f);
         }
         m_gain[ti] = target;
     }
@@ -3541,19 +3552,35 @@ void RigEngine::renderHits(int frames)
         stow.ducked = false;
         stow.byHits.reset();
     }
-    // How alike the hits' two sides are (see hitGains): the mid's and the side's power, each a slow mean. Both
-    // die away at the same pace, so in the quiet after a hit they still say what that hit was, and the next
-    // one's own sound outweighs them within its first chunk.
-    // A hit starting (this chunk four times as strong as the mean) is taken as it is, at once: its first
-    // milliseconds are where its peak is, and they must not be weighed as the tail before it was.
-    // From there the mean is over everything since it started, until that is as long as the slow mean looks back.
+    // How alike the hits' two sides are (see hitGains): the mid's and the side's power, each a slow mean, and from
+    // them the mid's share of the two. The share is kept through the quiet after a hit (it still says what that
+    // hit was).
+    // A hit starting (this chunk four times as strong as the mean): a few milliseconds of a sound say little of
+    // how alike its sides are (a low note whose sides are a quarter cycle apart starts all mid or all side), and
+    // the hit's peak is in them. So it starts from what its files are as a whole (CargoData::midShare, by how loud
+    // each track plays), counted as c_hitCarrySeconds of this sound, and the mean is over that and everything
+    // since, until that is as long as the slow mean looks back.
     {
         const float mid = midSq / static_cast<float>(frames), side = sideSq / static_cast<float>(frames);
-        m_hitOnset = mid + side > 4.0f * (m_hitMidPower + m_hitSidePower);
-        m_hitSince = m_hitOnset ? frames : std::min(m_hitSince + frames, 1 << 24);
+        const float now = mid + side, mean = m_hitMidPower + m_hitSidePower;
+        m_hitOnset = false;
+        if (now > 1.0e-12f && now > 4.0f * mean)
+        {
+            const float share = m_hitsFileAll > 0.0f ? m_hitsFileMid / m_hitsFileAll : m_hitMidShare;
+            m_hitMidPower = share * now;
+            m_hitSidePower = (1.0f - share) * now;
+            m_hitSince = static_cast<int>(c_hitCarrySeconds * m_fs);
+            m_hitOnset = mean < 1.0e-4f * now; // out of the quiet (see mixHits)
+        }
+        m_hitSince = std::min(m_hitSince + frames, 1 << 24);
         const float c = std::max(glide(frames, c_hitAlikeSeconds, m_fs), static_cast<float>(frames) / static_cast<float>(m_hitSince));
         m_hitMidPower += (mid - m_hitMidPower) * c;
         m_hitSidePower += (side - m_hitSidePower) * c;
+        const float both = m_hitMidPower + m_hitSidePower;
+        if (both > 1.0e-12f)
+            m_hitMidShare = m_hitMidPower / both;
+        else if (both < 1.0e-30f)
+            m_hitMidPower = m_hitSidePower = 0.0f;
     }
     // The HIT GATE lamp: the gate, or with AIM (gate held open) the aimed hits themselves, so it flashes on each.
     m_gateView.store(m_params.hitAim ? hitsMax : gateMax, std::memory_order_relaxed);
@@ -4896,7 +4923,7 @@ void RigEngine::hitGains(const room::Position& at, float distance, float spread,
     // far as Height lets them; never the LFE).
     room::Gains evenLeft {}, evenRight {};
     float sumLeft = 0.0f, sumRight = 0.0f;
-    const float alike = (m_hitMidPower - m_hitSidePower + 1.0e-12f) / (m_hitMidPower + m_hitSidePower + 1.0e-12f);
+    const float alike = 2.0f * m_hitMidShare - 1.0f;
     for (int ch = 0; ch < layout.numChannels; ++ch)
     {
         const auto& speaker = room::info(layout.speakers[static_cast<size_t>(ch)]);
@@ -4958,10 +4985,10 @@ void RigEngine::mixHits(int frames)
         for (int ch = 0; ch < channels; ++ch)
             shared += 0.25f * (m_hitsGain[static_cast<size_t>(ch)] * m_hitsGain[static_cast<size_t>(ch)]
                                - m_hitsSideGain[static_cast<size_t>(ch)] * m_hitsSideGain[static_cast<size_t>(ch)]);
-        const float mid = m_hitMidPower + 1.0e-12f, side = m_hitSidePower;
-        level = std::sqrt(mid / (mid + side + sj::clamp(shared, 0.0f, 1.0f) * (mid - side)));
+        const float mid = m_hitMidShare, side = 1.0f - m_hitMidShare; // (their share of the two: see renderHits)
+        level = std::sqrt(mid / std::max(1.0e-9f, 1.0f + sj::clamp(shared, 0.0f, 1.0f) * (mid - side)));
     }
-    // (A hit starting: the level it needs from its first sample; the step is in the quiet before it.)
+    // (A hit starting out of the quiet: the level it needs from its first sample; the step is in the quiet before it.)
     const float levelFrom = snap || m_hitOnset ? level : m_hitLevel;
     m_hitLevel = level;
     m_hitsPlaced = true;
