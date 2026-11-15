@@ -444,7 +444,8 @@ A third mover. Stowaway's tracks fly their own doppler passes, apart from Bus A'
 | **Low End** | 0% | Adds a note an octave under its low band, its overtones, and a low lift of up to 5 dB. |
 | **Filter** | Open | The same tilt as in Wake: a low-pass below the middle, open in the middle, a high-pass above it. |
 | **Drive** | 0% | Thickens it. It works against the sound's own level, so it does the same to a quiet sound as to a loud one, and it does not turn it up. |
-| **Width** | 100% | How far across the stereo field each pass travels. At 0% the passes stay in the middle (they still swell and bend). |
+| **Width** | 100% | How far across the stereo field each pass travels. At 0% the passes stay in the middle (they still swell and bend). In a surround room: how much of its Flight Path a pass travels. |
+| **Flight Path** (a menu at the left of the plate's strip) | Across | Where its passes fly in a surround room: **Across**, **Through**, **Overhead** or **Around**, apart from the buses' paths. It rests unless the room is Quad or wider and the Mode is Fly. See [Flight Paths](#flight-paths). |
 
 - **Its passes are its own.** How close each one comes and which way it goes are drawn from a random source of Fly's own, started from the same seed as the rest of the rig. So a bounce or a set of [Variations](#render-variations) repeats exactly, and nothing Fly does moves Bus A's or Bus B's passes.
 - **The colours come first.** Low End, Filter and Drive act on the sound before it flies, so the pass carries them with it.
@@ -536,7 +537,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
 <img src="docs/images/cables.png" width="1520" alt="Cables">
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
-- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, or the modulators' own knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, LFE Level, or the modulators' own knobs.
 - Each wire leaves a **plug**, a small coloured dot on the right of the knob's rim, and draws a thin ring outside the knob's value ring, in the modulator's colour, showing how far it moves the knob. Several wires on one knob stack their rings outwards, and a dot on the rings shows where the modulation has the value at this moment:
   - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
   - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
@@ -728,7 +729,7 @@ Each bus has a **Flight Path** menu at the left of its strip, and Stowaway has o
 | **Overhead** | Up over your head, from the front to behind you. The speakers overhead carry it at 7.1.2 and 7.1.4; in a room without them it is heard at ear level. |
 | **Around** | Once round you, at the same distance all the way. A pass is at its loudest halfway round, which is behind you. |
 
-Each pass picks its own direction (left to right or right to left, front to back or back to front). Changing the path glides over a quarter of a second. With **Link** on, Bus B flies Bus A's passes on Bus A's path, and its menu shows the chain link. **Randomise** and the bus dice roll the paths.
+Each pass picks its own direction (left to right or right to left, front to back or back to front). Changing the path glides over a quarter of a second. With **Link** on, Bus B flies Bus A's passes on Bus A's path, and its menu shows the chain link. **Randomise** and the dice of Bus A, Bus B and Stowaway roll the paths, and a preset puts them back to Across.
 
 **Everything else in the room.** The hits play in front: in the middle (between left and right, or from the centre speaker with Centre Speaker on), or, with **Aim**, where the pass they are aimed at is closest. A thrown whoosh flies the bus's path like a pass. Stowaway in **Sub** stays in the middle in front, in **Wake** trails Bus A's pass on its path, in **Fly** flies its own Flight Path, and in **Dry** stays in front, untouched. A stereo bed on Bus B keeps its width, spread over the speakers on each side by Spread.
 
@@ -868,12 +869,13 @@ The five Stowaway presets switch Stowaway on and set its Mode and knobs. A prese
 
 The other seven leave Stowaway's switch where it is, and put its Mode back to Sub and its knobs back where they start.
 
-**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck), Space, and Stowaway's five knobs (never its Mode or its switch). Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those knobs move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
+**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck), Space, and Stowaway's five knobs (never its Mode or its switch). It also rolls each bus's and Stowaway's [Flight Path](#flight-paths), which is heard in a surround room. Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those controls move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
 
 Presets and Randomise set the sound, not your session. They leave these alone:
 
 - your tracks, their levels and each track's pitch and Vari
 - Inflate, Push, Ceiling, Trim and the Peak Tremolo
+- the room strip: Spread, Height, Centre Speaker, LFE Mode and LFE Level
 - Auto Ride, Follow Master, Aim, Sync Hits, the Gate and Duck modes, Take Turns and Link
 - the Master track, each track's bus and the morph's ropes
 - the morph's On switch, wander, shape and speed
@@ -1040,7 +1042,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerStowaway`, `SwooshbucklerRoom`, `SwooshbucklerSurround`, `SwooshbucklerWide`, `SwooshbucklerSpaceLfe`, `SwooshbucklerOutput`, `SwooshbucklerFiles`, `SwooshbucklerExport`, `SwooshbucklerApp`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerStowaway`, `SwooshbucklerRoom`, `SwooshbucklerSurround`, `SwooshbucklerWide`, `SwooshbucklerSpaceLfe`, `SwooshbucklerOutput`, `SwooshbucklerFiles`, `SwooshbucklerExport`, `SwooshbucklerApp`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats. Add `-DSAMMYJ_AAX=ON` to build the AAX as well (unsigned, so it loads only in Pro Tools Developer until it is signed).
 
 ### Version
 
