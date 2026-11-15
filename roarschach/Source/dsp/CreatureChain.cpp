@@ -424,26 +424,39 @@ namespace roar
 
     std::uint64_t CreatureChain::settingsKey (const ChainSettings& s)
     {
+        // What can change the sound: IN, then each module that is On, in the order the audio takes
+        // it, with its own settings. A module that is Off passes its input untouched wherever it
+        // sits, so its slot and its knobs are left out: moving or editing it is not a new sound
+        // and must not start OUTPUT's probe (or drop a preset's hint), and the same On modules in
+        // the same order give the same key whatever slots the Off ones hold.
         KeyHash k;
         k << s.in.trimDb << s.in.autoLevel;
-        k << s.pitch.on << s.pitch.pitchSemitones << s.pitch.size << s.pitch.drive << s.pitch.mode << s.pitch.formant;
-        k << s.clean.on << s.clean.contain << s.clean.gate << s.clean.tone;
-        k << s.deess.on << s.deess.amount << s.deess.mode;
-        k << s.detail.on << s.detail.low << s.detail.high << s.detail.speed;
-        k << s.vocoder.on << s.vocoder.gravel << s.vocoder.octave << s.vocoder.formantShiftBands;
-        k << s.ring.on << s.ring.amount << s.ring.freqHz << s.ring.ratio << s.ring.carrier << s.ring.track << s.ring.mode << s.ring.body;
-        k << s.shimmer.on << s.shimmer.amount << s.shimmer.rateHz << s.shimmer.mode;
-        k << s.growl.on << s.growl.depth << s.growl.rateHz << s.growl.shape << s.growl.character;
-        k << s.swirl.on << s.swirl.amount << s.swirl.rateHz << s.swirl.circuit << s.swirl.motion;
-        k << s.roar.on << s.roar.drive << s.roar.tone << s.roar.voicing;
-        k << s.ensemble.on << s.ensemble.amount << s.ensemble.width << s.ensemble.voices << s.ensemble.motion;
-        k << s.tame.on << s.tame.amount;
-        k << s.sub.on << s.sub.level << s.sub.drive << s.sub.reg << s.sub.character;
-        k << s.overtone.on << s.overtone.amount << s.overtone.freqOct << s.overtone.pattern << s.overtone.mode;
-        k << s.chamber.on << s.chamber.amount << s.chamber.resonance << s.chamber.edge << s.chamber.width
-          << s.chamber.room << s.chamber.speaker << s.chamber.boom;
-        for (const int p : s.positions)
-            k << p;
+        const auto order = Params::resolveOrder (s.positions);
+        for (const int module : order)
+        {
+            if (! s.isOn (module))
+                continue;
+            k << module;
+            switch (static_cast<Params::ModuleId> (module))
+            {
+                case Params::ModuleId::pitch:    k << s.pitch.pitchSemitones << s.pitch.size << s.pitch.drive << s.pitch.mode << s.pitch.formant; break;
+                case Params::ModuleId::clean:    k << s.clean.contain << s.clean.gate << s.clean.tone; break;
+                case Params::ModuleId::deess:    k << s.deess.amount << s.deess.mode; break;
+                case Params::ModuleId::detail:   k << s.detail.low << s.detail.high << s.detail.speed; break;
+                case Params::ModuleId::vocoder:  k << s.vocoder.gravel << s.vocoder.octave << s.vocoder.formantShiftBands; break;
+                case Params::ModuleId::ring:     k << s.ring.amount << s.ring.freqHz << s.ring.ratio << s.ring.carrier << s.ring.track << s.ring.mode << s.ring.body; break;
+                case Params::ModuleId::shimmer:  k << s.shimmer.amount << s.shimmer.rateHz << s.shimmer.mode; break;
+                case Params::ModuleId::growl:    k << s.growl.depth << s.growl.rateHz << s.growl.shape << s.growl.character; break;
+                case Params::ModuleId::swirl:    k << s.swirl.amount << s.swirl.rateHz << s.swirl.circuit << s.swirl.motion; break;
+                case Params::ModuleId::roar:     k << s.roar.drive << s.roar.tone << s.roar.voicing; break;
+                case Params::ModuleId::ensemble: k << s.ensemble.amount << s.ensemble.width << s.ensemble.voices << s.ensemble.motion; break;
+                case Params::ModuleId::tame:     k << s.tame.amount; break;
+                case Params::ModuleId::sub:      k << s.sub.level << s.sub.drive << s.sub.reg << s.sub.character; break;
+                case Params::ModuleId::overtone: k << s.overtone.amount << s.overtone.freqOct << s.overtone.pattern << s.overtone.mode; break;
+                case Params::ModuleId::chamber:  k << s.chamber.amount << s.chamber.resonance << s.chamber.edge << s.chamber.width
+                                                   << s.chamber.room << s.chamber.speaker << s.chamber.boom; break;
+            }
+        }
         return k.h;
     }
 

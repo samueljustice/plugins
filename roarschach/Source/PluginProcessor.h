@@ -171,7 +171,6 @@ private:
     void render(juce::AudioBuffer<float>& buffer, bool bypassed);
     void applyLevelRequests(const roar::ChainSettings& settings);
     void checkPassBoundary(int numSamples);
-    void checkLevelNotifications();
     void handlePendingReset(bool bypassed);
     void delayDry(const juce::AudioBuffer<float>& buffer, int start, int numSamples, int numInputs, int numOutChannels);
     void applyBypassFade(juce::AudioBuffer<float>& buffer, int start, int numSamples, int numChannels, float target);
@@ -231,17 +230,12 @@ private:
     LevelHintSlot m_levelHint;
     juce::uint32 m_levelApplied = 0;                        // audio thread: the last request applied
     std::atomic<juce::uint32> m_levelAppliedPublished { 0 }; // ... once a chunk has published its result
-    std::atomic<juce::uint32> m_levelPosted { 0 };          // the last request posted
 
     // Passes (audio thread): the transport starting, or the playhead jumping, begins one.
     bool m_wasPlaying = false;
     bool m_haveLastTime = false;
     juce::int64 m_lastTime = 0;
     int m_lastBlockSize = 0;
-
-    // The host is told once when IN learns a take and once when the match stops (message thread).
-    bool m_levelTracked = false;
-    bool m_lastInLearnt = false, m_lastMatchStopped = false;
 
     // Raw parameter values, in Params::all order (looked up once).
     std::array<std::atomic<float>*, Params::numParameters> m_values {};

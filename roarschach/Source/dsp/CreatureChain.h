@@ -96,7 +96,7 @@ namespace roar
      *
      * Levels: IN learns the take's working level and OUTPUT the chain's gain at it (both kept
      * across resets and passes, saved with the session: restoreLevels, publish). Every chunk the
-     * settings key (an FNV-1a hash of every setting but OUTPUT's own) goes to OUTPUT; a change
+     * settings key (an FNV-1a hash of IN's settings and of each On module's, in order) goes to OUTPUT; a change
      * starts its probe.
      *
      * Order (spec §3.1): the modules sorted by (position, defaultIndex), read once per chunk. The
@@ -186,7 +186,8 @@ namespace roar
         /** The learnt levels now (audio thread, or while not processing). */
         LevelState getLevels() const;
 
-        /** The settings key: 64-bit FNV-1a over every field of the settings except OUTPUT's. */
+        /** The settings key: 64-bit FNV-1a over IN's settings and, in the order the audio takes them,
+         *  the On modules and their settings (Off modules and OUTPUT's own are left out). */
         static std::uint64_t settingsKey (const ChainSettings& settings);
 
         /** The requested topology for these settings (pure function, also used by tests). */

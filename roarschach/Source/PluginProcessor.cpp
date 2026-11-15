@@ -284,7 +284,6 @@ void RoarschachAudioProcessor::postLevelHint(double matchDb)
     // edited before the audio thread applies it, the hint is a starting point only.
     m_levelHint.key.store(roar::CreatureChain::settingsKey(readSettings()), std::memory_order_relaxed);
     m_levelHint.seq.store(n, std::memory_order_release);
-    m_levelPosted.store(n, std::memory_order_release);
 }
 
 void RoarschachAudioProcessor::postLevelRestore(const roar::LevelState& l)
@@ -308,7 +307,6 @@ void RoarschachAudioProcessor::postLevelRestore(const roar::LevelState& l)
     r.outKey.store(l.out.key, std::memory_order_relaxed);
     r.outKind.store(static_cast<int>(l.outKind), std::memory_order_relaxed);
     r.seq.store(n, std::memory_order_release);
-    m_levelPosted.store(n, std::memory_order_release);
 }
 
 void RoarschachAudioProcessor::applyLevelRequests(const roar::ChainSettings& settings)
@@ -476,20 +474,6 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
             applyHint();
     }
     return l;
-}
-
-void RoarschachAudioProcessor::checkLevelNotifications()
-{
-    // Message thread. Not while a restore or a hint is on its way (the published values are about
-    // to be replaced: that is a load, not a learn).
-    const bool inLearnt = m_features.levelInLearnt.load(std::memory_order_relaxed) != 0;
-    const bool stopped = m_features.levelOutSeconds.load(std::memory_order_relaxed) >= 10.0 - 1.0e-6;
-    const bool settled = m_levelAppliedPublished.load(std::memory_order_acquire) == m_levelPosted.load(std::memory_order_acquire);
-    if (m_levelTracked && settled && ((inLearnt && !m_lastInLearnt) || (stopped && !m_lastMatchStopped)))
-        m_hostDisplay.post(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true));
-    m_levelTracked = true;
-    m_lastInLearnt = inLearnt;
-    m_lastMatchStopped = stopped;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::createParameterLayout()
@@ -739,7 +723,6 @@ void RoarschachAudioProcessor::CreatureClock::timerCallback()
     const float dt = static_cast<float>((now - m_last) * 0.001);
     m_last = now;
     m_processor.stepCreature(dt);   // (clamped to half a second inside: a stalled thread doesn't jump it)
-    m_processor.checkLevelNotifications();
 }
 
 bool RoarschachAudioProcessor::isCreatureFrozen() const
@@ -852,7 +835,9 @@ void RoarschachAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     state.setProperty(c_pluginVersion, JucePlugin_VersionString, nullptr);
 
     // The learnt levels: what the audio thread published, with a restore or a hint still on its
-    // way to it applied on top.
+    // way to it applied on top. Like the creature's growth they are carried along whenever the
+    // host saves and never reported as a change: sound alone must not mark a session as edited
+    // (a session opened and played would otherwise ask to be saved on closing).
     {
         const auto l = levelsForSave();
         state.setProperty(c_levelInLearnt, l.inLearnt ? 1 : 0, nullptr);
