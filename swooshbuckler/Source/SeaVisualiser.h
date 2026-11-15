@@ -60,6 +60,14 @@ public:
     int getFootHeight() const { return m_foot; }
     /** Where the plan of the room goes (the lower left of the water), in this component's coordinates. */
     juce::Rectangle<float> roomPlanArea() const;
+    /** At Mono and Stereo, a note in the plan's place saying why the room strip under it rests: its first line,
+        then the rest. Empty: none (a room). */
+    void setRestNote(const juce::String& note);
+    const juce::String& getRestNote() const { return m_restNote; }
+    /** Where that note sits (the lower left of the water), in this component's coordinates. */
+    juce::Rectangle<float> restNoteArea() const;
+    /** Over the plan of the room, its own tooltip; elsewhere the sea's. */
+    juce::String getTooltip() override;
     /** How far the plan of the room shows: 0 at Mono and Stereo, 1 in a room (it fades in and out). For the tests. */
     float roomShown() const { return m_roomShown; }
     /** The plan's lamp for a speaker (a processing channel of the room shown), 0 dark .. 1 at full level. For the tests. */
@@ -164,6 +172,8 @@ private:
     void paintRoom(juce::Graphics&);
     int m_foot = 0;
     room::Width m_planWidth = room::Width::Stereo;
+    juce::String m_restNote;
+    void paintRestNote(juce::Graphics&);
     float m_roomShown = 0.0f;
     bool m_inRoom = false;
     std::array<float, room::c_maxChannels> m_lamps {};

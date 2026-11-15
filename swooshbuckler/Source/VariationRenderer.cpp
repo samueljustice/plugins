@@ -54,9 +54,9 @@ juce::String VariationRenderer::namesName(Names names)
 {
     switch (names)
     {
-        case Names::DateAndTime:         return "Date And Time";
-        case Names::PresetAndCounter:    return "Preset And Counter";
-        case Names::BatchNameAndCounter: return "Batch Name And Counter";
+        case Names::DateAndTime:         return "Date and Time";
+        case Names::PresetAndCounter:    return "Preset and Counter";
+        case Names::BatchNameAndCounter: return "Batch Name and Counter";
         case Names::Counter:
         default:                         return "Counter";
     }
@@ -66,10 +66,10 @@ juce::String VariationRenderer::filesName(Files files)
 {
     switch (files)
     {
-        case Files::OneWithMarkers: return "One File With Markers";
+        case Files::OneWithMarkers: return "One File with Markers";
         case Files::Both:           return "Both";
         case Files::PerVariation:
-        default:                    return "One File Per Variation";
+        default:                    return "One File per Variation";
     }
 }
 
@@ -248,9 +248,9 @@ juce::String VariationRenderer::oneFileTooBigText(const Job& job)
 {
     const bool aiff = job.options.type == TapeRecorder::FileType::Aiff;
     return aiff ? juce::String("One AIFF file with all of them would be over 2 GB, more than AIFF can hold. Make fewer or shorter variations, "
-                               "choose WAV or FLAC in Settings, Multi-Mono files, or One File Per Variation.")
+                               "choose WAV or FLAC in Settings, Multi-Mono files, or One File per Variation.")
                 : juce::String("One file with all of them would be over 4 GB, too big for markers. Make fewer or shorter variations, "
-                               "choose FLAC in Settings, Multi-Mono files, or One File Per Variation.");
+                               "choose FLAC in Settings, Multi-Mono files, or One File per Variation.");
 }
 
 juce::String VariationRenderer::roughSize(double bytes)

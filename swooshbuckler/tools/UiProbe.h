@@ -14,7 +14,8 @@
 //                   does not start with a capital
 //
 // The rule for capitals: control names, captions, buttons, menus and their items, tags and titles are in Title
-// Case (short joining words stay small: "Keep the Last", "One File per Whoosh"); sentences are in sentence case;
+// Case (short joining words stay small, and a capitalised one inside a name is a fault too: "Keep the Last",
+// "One File per Whoosh", never "One File Per Whoosh"); sentences are in sentence case;
 // nothing is in capitals but single letters (A, B, M, S) and acronyms (GR, LFO, MIDI).
 
 #include <JuceHeader.h>
@@ -226,6 +227,11 @@ namespace UiProbe
         for (int i = 0; i < words.size(); ++i)
         {
             const auto& w = words[i];
+            // Both ways: a short joining word inside a name is small ("One File per Whoosh", never "Per"). A single
+            // letter is a name of its own (bus "A"), not the word "a"; "Is" is a verb, which a title may capitalise.
+            // A choice between named states ("Morph On / Off") names them: they are not joining words.
+            if (! startsLower(w) && w.length() > 1 && w != "Is" && ! text.contains("/") && isSmallWord(w.toLowerCase()) && i > 0 && i < words.size() - 1)
+                return "\"" + w + "\" should be small";
             if (! startsLower(w) || isUnit(w) || w.containsAnyOf("0123456789"))
                 continue;
             if (isSmallWord(w) && i > 0 && i < words.size() - 1)

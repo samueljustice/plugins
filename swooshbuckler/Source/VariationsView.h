@@ -34,6 +34,13 @@ public:
 
     /** Open Takes was pressed. */
     std::function<void()> onOpenTakes;
+    /** Set the Room was pressed: the panel has closed, and the window shows where the room's controls are. */
+    std::function<void()> onShowRoom;
+    /** For a room (Channels Quad and wider): how the room is set, the line under the Channels row. Empty below Quad. */
+    juce::String roomLine() const;
+    /** What a first-time user would not expect of these files: a room the speakers do not play (so not heard), and
+        speakers that will be silent (C with Centre Speaker off, an LFE with nothing to play). Empty when none. */
+    juce::String roomNote() const;
     /** A text box has finished with the keyboard (Return / Escape): hand it back to the rig. */
     std::function<void()> onKeyboardDone;
 
@@ -42,7 +49,7 @@ public:
     /** The sentence under the menus that says what the chosen What Varies gives. */
     static juce::String whatVariesSentence(VariationRenderer::Mode mode, float amount);
 
-    static constexpr int c_panelWidth = 760, c_panelHeight = 590;
+    static constexpr int c_panelWidth = 760, c_panelHeight = 628;
 
     /** What Channel Order and File Layout do (their tooltips here and in Settings, after the name). */
     static constexpr const char* c_channelOrderTip =
@@ -53,7 +60,7 @@ public:
         "order you get.";
     static constexpr const char* c_fileLayoutTip =
         "Interleaved: one file that holds every channel. Multi-Mono: a mono file for each channel, its name ending in the speaker "
-        "as Pro Tools names it (Whoosh_0001.L.wav, Whoosh_0001.C.wav ...). The Takes list shows a set as one take.";
+        "as Pro Tools names it (Whoosh_001.L.wav, Whoosh_001.C.wav ...). The Takes list shows a set as one take.";
 
 private:
     void timerCallback() override;
@@ -78,9 +85,10 @@ private:
     juce::Slider m_amount;
     juce::TextButton m_choose { "Choose..." }, m_dated { "Dated Folder" };
     juce::TextButton m_render { "Render" }, m_cancel { "Cancel" }, m_show, m_openTakes { "Open Takes" }, m_close { "Close" };
+    juce::TextButton m_showRoom { "Set the Room" }; // Channels a room: closes the panel and points at the room's controls
     std::unique_ptr<juce::FileChooser> m_chooser;
 
-    juce::Rectangle<int> m_panel, m_folderText, m_firstText, m_getText, m_variesText, m_bar, m_status, m_amountValue, m_lengthUnit, m_gapUnit, m_orderText;
+    juce::Rectangle<int> m_panel, m_folderText, m_firstText, m_getText, m_variesText, m_bar, m_status, m_amountValue, m_lengthUnit, m_gapUnit, m_orderText, m_roomText;
     std::array<juce::Rectangle<int>, 14> m_captions;
     VariationRenderer::Progress m_shown;
     juce::String m_shownPlan;          // the choices the batch shown was made with (or Render was refused for)

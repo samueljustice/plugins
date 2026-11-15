@@ -148,6 +148,9 @@ void SeaVisualiser::analyse()
 
 void SeaVisualiser::step(float dt)
 {
+    // Under a panel that covers the window the sea holds still: a dimmed picture, not 60 repaints a second behind it.
+    if (Theme::isCovered(*this))
+        return;
     // The sea keeps its own rate: 60 a second however fast the screen is, and after five seconds of quiet 20 a
     // second - a big picture that costs little when there is nothing to show. The time between steps is gathered
     // up and handed on whole, so the swell rolls at the same speed whichever rate it is running at.
@@ -808,8 +811,9 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
         area = area.withX(juce::jlimit(8.0f, juce::jmax(8.0f, w - textW - 8.0f), area.getX())).withY(juce::jmax(8.0f, area.getY()));
 
         // Down out of the way of anything it lands on, and then of anything already placed.
-        const juce::Rectangle<float> keepOut[] = { m_titleBox, m_recBox, m_reserved, m_roomShown > 0.01f ? roomPlanArea() : juce::Rectangle<float>() };
-        area = clearOf(area, keepOut, 4, placed.data(), static_cast<int>(numPlaced));
+        const juce::Rectangle<float> keepOut[] = { m_titleBox, m_recBox, m_reserved, m_roomShown > 0.01f ? roomPlanArea() : juce::Rectangle<float>(),
+                                                   m_restNote.isNotEmpty() && m_roomShown < 0.99f ? restNoteArea() : juce::Rectangle<float>() };
+        area = clearOf(area, keepOut, 5, placed.data(), static_cast<int>(numPlaced));
         if (numPlaced < placed.size())
             placed[numPlaced++] = area;
 
@@ -945,6 +949,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
     paintStowaway(g, h);
     paintComets(g, w);
     paintRoom(g);
+    paintRestNote(g);
 
     // The panel's name, and the recording lamp. The time itself is on the tape's own button in the header, so
     // there is one of it in the window.
@@ -1045,6 +1050,53 @@ juce::Rectangle<float> SeaVisualiser::roomPlanArea() const
     const float h = static_cast<float>(getHeight() - m_foot);
     const float side = juce::jlimit(80.0f, 124.0f, h * 0.38f);
     return { c_frame + 11.0f, h - c_frame - 9.0f - side, side, side };
+}
+
+void SeaVisualiser::setRestNote(const juce::String& note)
+{
+    if (note == m_restNote)
+        return;
+    m_restNote = note;
+    repaint();
+}
+
+juce::Rectangle<float> SeaVisualiser::restNoteArea() const
+{
+    // In the plan's corner, as wide as three lines need and clear of the morph pad's dock at the lower right.
+    const float h = static_cast<float>(getHeight() - m_foot);
+    constexpr float noteW = 236.0f, noteH = 50.0f;
+    return { c_frame + 11.0f, h - c_frame - 9.0f - noteH, noteW, noteH };
+}
+
+void SeaVisualiser::paintRestNote(juce::Graphics& g)
+{
+    // A quiet plate in the water, fading out as the plan of a room fades in: its first line, then the rest.
+    const float alpha = 1.0f - m_roomShown;
+    if (m_restNote.isEmpty() || alpha < 0.01f)
+        return;
+    namespace TC = Theme::Colours;
+    const auto plate = restNoteArea();
+    g.setColour(TC::well.withAlpha(0.78f * alpha));
+    Theme::Plate::fill(g, plate, Theme::Cut::control);
+    g.setColour(TC::edgeDark.withAlpha(alpha));
+    Theme::Plate::stroke(g, plate, Theme::Cut::control);
+    auto inner = plate.reduced(8.0f, 5.0f);
+    const auto head = m_restNote.upToFirstOccurrenceOf("\n", false, false);
+    const auto rest = m_restNote.fromFirstOccurrenceOf("\n", false, false);
+    g.setColour(TC::textDim.withAlpha(alpha));
+    Theme::fitText(g, head, inner.removeFromTop(14.0f), m_fonts.caption(), juce::Justification::centredLeft, Theme::Fit::Sentence);
+    Theme::fitLines(g, rest, inner.toNearestInt(), m_fonts.caption(), TC::textFaint.withAlpha(alpha));
+}
+
+juce::String SeaVisualiser::getTooltip()
+{
+    // The plan of the room explains itself when the mouse is over it.
+    if (m_roomShown > 0.5f && roomPlanArea().contains(getMouseXYRelative().toFloat()))
+        return "The Room From Above\nThe front of the room is at the top and you are the hull in the middle. Each speaker is a lamp on "
+               "the walls (the ones overhead on the inner square, the LFE the square under the room), lit as it plays. Each sound is a dot: "
+               "the buses, throws, hits and Stowaway in their colours, a higher one drawn nearer the middle. The speaker meters in "
+               "Output give the same levels in numbers.";
+    return juce::SettableTooltipClient::getTooltip();
 }
 
 juce::Point<float> SeaVisualiser::planPoint(juce::Rectangle<float> roomBox, float x, float y, float z)

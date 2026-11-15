@@ -34,12 +34,13 @@
 //                             and the Takes list with a 7.1.4 take, a Stereo fold, a Multi-Mono set and 7.1.4 variations
 //   settings-app.png settings-app-51.png settings-app-714.png settings-app-714-folded.png audio-device-51.png
 //   audio-device-714.png audio-device-714-folded.png window-app-folded.png footer-app-folded.png
-//                             the app, played from a pretend audio device: Listening in Settings (Stereo, 5.1, 7.1.4,
+//                             the app, played from a pretend audio device: Speakers in Settings (Stereo, 5.1, 7.1.4,
 //                             and 7.1.4 on a two-output device), the audio device dialog, and the footer saying it is folded
 //   window-app.png room-strip-app.png room-strip-app-714.png
-//                             the app's room strip, its Room Width a menu (at Stereo, and at 7.1.4)
+//                             the app's room strip, its Speakers a menu (at Stereo, and at 7.1.4)
 //   window-room-stereo.png room-strip-stereo.png bus-a-stereo.png
 //                             the room strip, the Flight Paths and the rest of the window at Stereo, where they rest
+//                             (the sea's note in the plan's place says why)
 //   window-51.png sea-51.png room-strip-51.png output-51.png sea-plan-51.png
 //                             a 5.1 track: the strip lit, the speaker meters, the plan of the room (Centre Speaker on)
 //   window-714-<path>.png sea-714-<path>.png sea-plan-714-<path>.png   (across, through, overhead, around)
@@ -47,8 +48,17 @@
 //                             a 7.1.4 track with both buses on each Flight Path: the comets, the plan, the meters
 //   window-714-stowaway-fly.png stowaway-fly-714.png sea-714-stowaway-fly.png
 //                             Stowaway's Fly going Around in a 7.1.4 room, its plate open with its Flight Path
+//   window-714-stowaway-fly-folded.png stowaway-fly-714-folded.png
+//                             the same plate folded: its note names Fly's Flight Path and way
+//   window-51-lfe-unfed.png room-strip-51-lfe-unfed.png variations-51-lfe-unfed.png
+//                             LFE Mode Discrete with Stowaway off: the strip's cue and fix, and Render Variations' note
+//   window-714-held.png bus-a-714-held.png bus-b-714-linked.png
+//                             bus A held to Through, Front to Back, on the Right; bus B linked, showing bus A's
+//   window-714-direction-wired.png bus-a-714-direction-wired.png
+//                             a modulator wired to bus A's Direction: the key it picks now marked in its colour
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
+//   speakers-dialog.png       the app asking before a change of Speakers empties the Last 60 s memory
 //
 // --sea adds one crop of the sea at each of its moments (a hit, a throw, a ripple with the swell up, recording,
 // the constellation showing) and prints what a frame of it costs to paint at 1x and 2x. --constellation holds
@@ -871,6 +881,21 @@ int main(int argc, char* argv[])
                     shots.crop(window, "output-51", ed.m_sections[3].bounds);
                     planCrop(window, "sea-plan-51");
                 }
+                // Discrete with Stowaway off: nothing feeds the LFE, and the strip says so where LFE Level was, with the
+                // fix; Render Variations says it too, under its Channels.
+                set(ParamIDs::roomLfeMode, 1.0f);
+                rig.run(0.3);
+                {
+                    const auto window = shots.shoot("window-51-lfe-unfed");
+                    shots.crop(window, "room-strip-51-lfe-unfed", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    auto& v = ed.m_variations;
+                    v.setVisible(true);
+                    v.toFront(false);
+                    rig.run(0.2);
+                    shots.shoot("variations-51-lfe-unfed", &v);
+                    v.setVisible(false);
+                }
+                set(ParamIDs::roomLfeMode, static_cast<float>(ParamIDs::numLfeModes - 1));
 
                 widen(room::Width::Surround714);
                 set(ParamIDs::roomSpread, 0.25f);
@@ -891,6 +916,30 @@ int main(int argc, char* argv[])
                     }
                 }
 
+                // Direction and Side held: bus A Through, front to back, on your right, with a modulator deciding bus A's
+                // Direction pass by pass; Link on, so bus B shows (and flies) bus A's. Then back as they were.
+                {
+                    set(ParamIDs::flightPath[0], 1.0f);
+                    set(ParamIDs::direction[0], 1.0f);
+                    set(ParamIDs::side[0], 2.0f);
+                    set(ParamIDs::linkBuses, 1.0f);
+                    rig.run(1.0);
+                    const auto held = shots.shoot("window-714-held");
+                    shots.crop(held, "bus-a-714-held", ed.m_sections[0].bounds);
+                    shots.crop(held, "bus-b-714-linked", ed.m_sections[1].bounds);
+                    const int wire = proc.getMods().connect(3, ParamIDs::direction[0], 1.0f);
+                    ed.m_wires.rebuild();
+                    rig.run(1.0);
+                    ed.m_wires.rebuild();
+                    shots.crop(shots.shoot("window-714-direction-wired"), "bus-a-714-direction-wired", ed.m_sections[0].bounds.withTrimmedTop(80));
+                    proc.getMods().disconnect(wire);
+                    ed.m_wires.rebuild();
+                    for (auto* id : { ParamIDs::direction[0], ParamIDs::side[0], ParamIDs::linkBuses })
+                        proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                    paths(0);
+                    rig.run(0.3);
+                }
+
                 // Stowaway's Fly in the room, its plate open with its own Flight Path.
                 proc.setTrackBus(1, CargoHold::c_stowBus);
                 proc.setStowawayOn(true);
@@ -903,6 +952,12 @@ int main(int argc, char* argv[])
                     shots.crop(window, "stowaway-fly-714", ed.m_stowPanel);
                     shots.crop(window, "sea-714-stowaway-fly", ed.m_sea.getBounds());
                 }
+                // Folded: its note names Fly's Flight Path and way.
+                set(ParamIDs::stowDirection, 2.0f);
+                proc.setStowawayPanel(0);
+                rig.run(1.0);
+                shots.crop(shots.shoot("window-714-stowaway-fly-folded"), "stowaway-fly-714-folded", ed.m_stowPanel);
+                set(ParamIDs::stowDirection, 0.0f);
                 proc.setStowawayOn(false);
                 proc.setTrackBus(1, -1);
                 set(ParamIDs::stowMode, 0.0f);
@@ -1040,8 +1095,17 @@ int main(int argc, char* argv[])
         run(1.0);
         settingsShot("settings-app");                     // Stereo on the first two of sixteen outputs
         {
-            const auto window = shots.shoot("window-app");   // the room strip in the app: Room Width is a menu
+            const auto window = shots.shoot("window-app");   // the room strip in the app: Speakers is a menu
             shots.crop(window, "room-strip-app", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+        }
+        {
+            // Changing Speakers while the Last 60 s memory holds something asks first (the change empties it).
+            std::unique_ptr<juce::AlertWindow> dialog(ed.makeSpeakersDialog(room::Width::Surround51));
+            UiProbe::Recorder recorder;
+            const auto image = recorder.paint(*dialog, rig.scale);
+            shots.report("speakers-dialog", recorder);
+            if (options.images)
+                save(image, options.out.getChildFile("speakers-dialog.png"));
         }
         listen(room::Width::Surround51);
         settingsShot("settings-app-51");                  // 5.1: outputs 1 to 6 switched on for it

@@ -37,7 +37,10 @@
 #include "Parameters.h"
 
 #include <cmath>
+#include <functional>
+#include <map>
 #include <set>
+#include <tuple>
 #include <iostream>
 
 namespace
@@ -605,7 +608,7 @@ int main(int argc, char* argv[])
                                && ! registry.isDefault();
             registry.resetToDefaults();
             check(moved && registry.isDefault() && registry.find(randomiseKey) == Shortcuts::Action::Randomise,
-                  "keys: a key given to another action is taken off the one that had it, and Reset To Defaults puts them all back");
+                  "keys: a key given to another action is taken off the one that had it, and Reset to Defaults puts them all back");
         }
         // The keys are kept in the settings file.
         {
@@ -914,7 +917,7 @@ int main(int argc, char* argv[])
                         std::cout << "         " << k->caption << ": box " << k->getBounds().toString() << ", ring " << ring << std::endl;
                 }
                 const int count = static_cast<int>(knobs.size());
-                check(count >= 40 && whole == count && primary >= 20 && small == 3 && primary + small < count,
+                check(count >= 40 && whole == count && primary >= 20 && small == 4 && primary + small < count,
                       "knobs: all " + juce::String(count) + " are one of three wheels (" + juce::String(primary) + " primary, "
                           + juce::String(count - primary - small) + " secondary, " + juce::String(small)
                           + " small), whole in their boxes with the dial clear of the caption and the value," + at);
@@ -1027,12 +1030,16 @@ int main(int argc, char* argv[])
                 {
                     const auto strip = ed.m_sectionScopes[i]->getBounds();
                     const auto& panel = ed.m_sections[i].bounds;
-                    // (a bus's starts after its Flight Path menu, which sits at the strip's left end)
-                    const int path = i < ed.m_flightPath.size() ? ed.m_flightPath[i].getRight() + 8 - (panel.getX() + 12) : 0;
+                    // (a bus's starts after its Flight Path menu and its Direction and Side, which sit at the strip's left end,
+                    // in that order, inside the panel and clear of each other)
+                    const bool bus = i < ed.m_flightPath.size();
+                    const int path = bus ? ed.m_side[i]->getRight() + 10 - (panel.getX() + 12) : 0;
                     strips = strips && panel.contains(strip) && strip.getWidth() >= panel.getWidth() - 32 - path && strip.getBottom() > panel.getBottom() - 12
                              && strip.getHeight() >= 14 && strip.getRight() == panel.getRight() - 12
-                             && (i >= ed.m_flightPath.size() || (panel.contains(ed.m_flightPath[i].getBounds()) && ed.m_flightPath[i].getRight() < strip.getX()
-                                                                 && panel.contains(ed.m_flightPathLabel[i]) && ed.m_flightPathLabel[i].getRight() < ed.m_flightPath[i].getX()));
+                             && (! bus || (panel.contains(ed.m_flightPath[i].getBounds()) && panel.contains(ed.m_flightPathLabel[i])
+                                           && ed.m_flightPathLabel[i].getRight() < ed.m_flightPath[i].getX()
+                                           && ed.m_flightPath[i].getRight() < ed.m_direction[i]->getX() && ed.m_direction[i]->getRight() < ed.m_side[i]->getX()
+                                           && ed.m_side[i]->getRight() < strip.getX() && panel.contains(ed.m_side[i]->getBounds())));
                     for (auto* k : knobs)
                         strips = strips && ! (k->getParentComponent() == &ed.m_content && k->getBounds().intersects(strip));
                 }
@@ -1683,7 +1690,8 @@ int main(int argc, char* argv[])
         auto* spread = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomSpread]);
         auto* height = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomHeight]);
         auto* lfeLevel = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomLfeLevel]);
-        const std::vector<juce::Component*> stripControls { spread, height, &ed.m_roomCentre, &ed.m_lfeMode, lfeLevel };
+        auto* varies = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomHeightVaries]);
+        const std::vector<juce::Component*> stripControls { spread, height, varies, &ed.m_roomCentre, &ed.m_lfeMode, lfeLevel };
         auto lookOf = [](juce::Component* c) { return Theme::getLook(*c); };
         auto tipOf = [](juce::Component* c) { auto* t = dynamic_cast<juce::SettableTooltipClient*>(c); return t != nullptr ? t->getTooltip() : juce::String(); };
         const auto& out = ed.m_sections[3].bounds;
@@ -1759,7 +1767,7 @@ int main(int argc, char* argv[])
             for (auto* c : stripControls)
                 boxes.push_back(ed.m_content.getLocalArea(c, c->getLocalBounds()));
             inside = inside && ed.m_roomWidth.getParentComponent() == &ed.m_roomStrip
-                     && ed.m_content.getLocalArea(&ed.m_roomWidth, ed.m_roomWidth.getLocalBounds()) == ed.m_roomWidthReadout;
+                     && ed.m_roomWidthReadout.contains(ed.m_content.getLocalArea(&ed.m_roomWidth, ed.m_roomWidth.getLocalBounds()));
             for (auto* c : stripControls)
                 inside = inside && c->getParentComponent() == &ed.m_roomStrip;
             for (size_t i = 0; i < boxes.size(); ++i)
@@ -1769,9 +1777,9 @@ int main(int argc, char* argv[])
                     inside = inside && ! boxes[i].intersects(boxes[j]);
             }
             check(inside, "room: the strip is the sea's foot (" + juce::String(strip.getHeight()) + " px), every control on it and clear of the others, the morph pad docked above it");
-            check(lfeLevel->hasMark() && std::abs(lfeLevel->getMark() - ParamIDs::lfeLevelUnityDb) < 1.0e-6
-                      && lfeLevel->getTextFromValue(ParamIDs::lfeLevelUnityDb).contains("Unity"),
-                  "room: LFE Level marks its reference point on the dial and in its read-out (" + lfeLevel->getTextFromValue(ParamIDs::lfeLevelUnityDb) + ")");
+            check(lfeLevel->hasMark() && std::abs(lfeLevel->getMark() - ParamIDs::lfeLevelMainsDb) < 1.0e-6
+                      && lfeLevel->getTextFromValue(ParamIDs::lfeLevelMainsDb).contains("(Mains)"),
+                  "room: LFE Level marks its reference point on the dial and in its read-out (" + lfeLevel->getTextFromValue(ParamIDs::lfeLevelMainsDb) + ")");
             check(ModMatrix::targetIndex(ParamIDs::roomSpread) >= 0 && ModMatrix::targetIndex(ParamIDs::roomHeight) >= 0
                       && ModMatrix::targetIndex(ParamIDs::roomLfeLevel) < 0 && ModMatrix::targetIndex(ParamIDs::flightPath[0]) < 0,
                   "room: Spread and Height take a wire (LFE Level and the Flight Paths do not)");
@@ -2048,6 +2056,265 @@ int main(int argc, char* argv[])
             sized.open();
             sized.run(1.5);
             checkTexts("the window at 7.1.4, at " + juce::String(scale, 2), *sized.editor, 1.0f, scale);
+        }
+    }
+
+
+    // Words and flow ---------------------------------------------------------------------------------------------
+    std::cout << "Words and flow" << std::endl;
+    {
+        // The capitals checker works both ways: a capitalised joining word inside a name is a fault too.
+        {
+            using UiProbe::capitalsFault;
+            const auto label = Theme::Fit::Whole;
+            bool both = true;
+            for (const char* text : { "One File Per Whoosh", "Date And Time", "Reset To Defaults", "Linked To A", "Left To Right", "Loudest In Front" })
+                both = both && capitalsFault(text, label).isNotEmpty();
+            for (const char* text : { "One File per Whoosh", "Date and Time", "Reset to Defaults", "Linked to A", "Bus A Doppler", "Morph On / Off",
+                                      "Save, Then Change", "Swooshbuckler 2.0 Is Available" })
+                both = both && capitalsFault(text, label).isEmpty();
+            check(both, "capitals: a small joining word written with a capital inside a name is caught (\"One File Per Whoosh\"), and names, single "
+                        "letters and named choices (\"On / Off\") are not");
+        }
+
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        DemoSounds::loadInto(proc);
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        proc.setPlaying(true);
+        rig.run(0.5);
+        auto widen = [&](room::Width width)
+        {
+            auto layout = proc.getBusesLayout();
+            layout.outputBuses.getReference(0) = room::channelSet(width);
+            proc.setBusesLayout(layout);
+            proc.prepareToPlay(c_fs, c_block);
+            rig.block.setSize(room::layout(width).numChannels, c_block);
+            rig.run(0.2);
+        };
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto value = [&](const char* id) { return juce::roundToInt(proc.getState().getRawParameterValue(id)->load()); };
+        auto textsOf = [](juce::Component& c)
+        {
+            UiProbe::Recorder r;
+            r.paint(c, 1.0f, 1.0f);
+            juce::StringArray all;
+            for (const auto& t : r.texts)
+                all.add(t.text);
+            return all;
+        };
+        std::function<void(juce::Component&, juce::StringArray&)> tipsOf = [&tipsOf](juce::Component& c, juce::StringArray& tips)
+        {
+            if (auto* t = dynamic_cast<juce::TooltipClient*>(&c))
+                tips.add(t->getTooltip());
+            for (auto* child : c.getChildren())
+                tipsOf(*child, tips);
+        };
+
+        // One name for one thing: what you listen on is Speakers, what a file gets is Channels; "Room Width" and
+        // "Listening" are on screen nowhere, and Render Variations has no plain "Width" (the bus knobs' word).
+        {
+            juce::StringArray seen = textsOf(ed);
+            ed.m_settings.refresh();
+            ed.m_settings.setVisible(true);
+            seen.addArray(textsOf(ed.m_settings));
+            ed.m_settings.setVisible(false);
+            ed.m_variations.setVisible(true);
+            rig.run(0.1);
+            const auto variations = textsOf(ed.m_variations);
+            seen.addArray(variations);
+            ed.m_variations.setVisible(false);
+            juce::StringArray tips;
+            tipsOf(ed, tips);
+            bool retired = true;
+            for (const auto& text : seen)
+                retired = retired && ! text.contains("Room Width") && text != "Listening";
+            for (const auto& tip : tips)
+                retired = retired && ! tip.contains("Room Width") && ! tip.contains("Listening");
+            check(retired && seen.contains("Speakers") && variations.contains("Channels") && ! variations.contains("Width"),
+                  "words: what you listen on is called Speakers and what a file gets Channels, everywhere; \"Room Width\" and \"Listening\" appear in no "
+                  "text or tooltip, and Render Variations has no \"Width\" (" + juce::String(seen.size()) + " texts, " + juce::String(tips.size()) + " tooltips)");
+        }
+
+        // At Stereo the room rests and says so in place: a note in the sea where the plan goes, drawn; a resting
+        // control's reason comes with the first tier of its tooltip; Render Variations says a room's files are
+        // made with the room as set, not heard.
+        {
+            auto* spread = ed.m_controls[ParamIDs::roomSpread];
+            const auto note = ed.m_sea.getRestNote();
+            const auto drawn = textsOf(ed.m_sea);
+            const auto first = ed.m_tooltips.summary(*spread, spread->getTooltip()); // the first tier (getTipFor needs a foreground app)
+            check(note.contains("rests at Stereo") && note.contains("Render Variations") && drawn.contains("The room strip rests at Stereo.")
+                      && first.contains("It rests at Stereo") && first.contains("Render Variations") && ! first.contains("Double-click"),
+                  "resting: at Stereo the sea says in place why the strip rests and that Render Variations still uses it; a resting knob says why "
+                  "from the first tier of its tooltip");
+            ed.m_variations.setVisible(true);
+            ed.m_variations.m_width.setSelectedId(static_cast<int>(room::Width::Surround51) + 1, juce::sendNotificationSync);
+            rig.run(0.1);
+            const auto room = ed.m_variations.roomLine(), said = ed.m_variations.roomNote();
+            check(room.contains("Flight Paths A Across") && room.contains("Spread 0%") && said.contains("Not heard on your Stereo speakers")
+                      && said.contains("C and the LFE will be silent (Centre Speaker Off, LFE Mode Off)") && ed.m_variations.m_showRoom.isVisible(),
+                  "render: Channels 5.1 from a Stereo rig says the room as set, that it is not heard, and that C and the LFE will be silent; Set the "
+                  "Room is there");
+            ed.m_variations.m_width.setSelectedId(static_cast<int>(room::Width::Stereo) + 1, juce::sendNotificationSync);
+            rig.run(0.1);
+            check(ed.m_variations.roomLine().isEmpty() && ed.m_variations.roomNote().isEmpty() && ! ed.m_variations.m_showRoom.isVisible(),
+                  "render: at Stereo Channels there is no room to speak of");
+            ed.m_variations.setVisible(false);
+        }
+
+        // Direction and Side: a click chooses, the keys follow the path (Across at Stereo), Side rests on Across.
+        {
+            auto& direction = *ed.m_direction[0];
+            auto& side = *ed.m_side[0];
+            set(ParamIDs::flightPath[0], 1.0f); // Through: at Stereo still drawn as Across
+            rig.run(0.1);
+            const auto key = direction.keyArea(2).getCentre();
+            direction.mouseDown(mouseAt(direction, key, key, false));
+            direction.mouseUp(mouseAt(direction, key, key, false));
+            const bool chosen = value(ParamIDs::direction[0]) == ParamIDs::DirectionBackwards && direction.words() == "Right to Left"
+                                && ed.m_tooltips.summary(direction, direction.getTooltip()).contains("Right to Left");
+            const bool sideRests = Theme::getLook(side) == Theme::Look::Resting && Theme::getLook(direction) == Theme::Look::Normal;
+            proc.getHistory().undo();
+            check(chosen && sideRests && value(ParamIDs::direction[0]) == ParamIDs::DirectionRandom,
+                  "direction: a click on a key chooses it (\"Right to Left\" at Stereo, where every pass flies across) and Undo takes it back; Side rests");
+            widen(room::Width::Surround714);
+            const bool through = direction.getPath() == 1 && direction.wordsFor(1) == "Front to Back" && Theme::getLook(side) == Theme::Look::Normal
+                                 && side.wordsFor(2) == "Right";
+            set(ParamIDs::flightPath[0], 3.0f);
+            rig.run(0.1);
+            check(through && direction.wordsFor(1) == "Clockwise" && side.wordsFor(1) == "Loudest in Front",
+                  "direction: in a room the keys and their words follow the Flight Path (Through: Front to Back, Right; Around: Clockwise, "
+                  "Loudest in Front)");
+
+            // Linked: bus B shows (and flies) bus A's path, way and side, and keeps its own for when Link goes off.
+            set(ParamIDs::flightPath[1], 0.0f);
+            set(ParamIDs::direction[0], 1.0f);
+            set(ParamIDs::linkBuses, 1.0f);
+            rig.run(0.1);
+            auto& bDirection = *ed.m_direction[1];
+            const auto bKey = bDirection.keyArea(2).getCentre();
+            bDirection.mouseDown(mouseAt(bDirection, bKey, bKey, false));
+            const bool shown = ed.m_flightPath[1].getSelectedId() == 4 && bDirection.shownChoice() == 1 && bDirection.getPath() == 3
+                               && value(ParamIDs::direction[1]) == 0 && value(ParamIDs::flightPath[1]) == 0
+                               && Theme::getLook(bDirection) == Theme::Look::Linked && Theme::getLook(ed.m_flightPath[1]) == Theme::Look::Linked;
+            set(ParamIDs::linkBuses, 0.0f);
+            rig.run(0.1);
+            check(shown && ed.m_flightPath[1].getSelectedId() == 1 && bDirection.shownChoice() == 0 && bDirection.getPath() == 0,
+                  "link: bus B's Flight Path and Direction show bus A's (Around, Clockwise) while linked, take no clicks, and go back to its own");
+
+            // A wire decides: the switch takes it like a knob, and marks the key its modulator picks now.
+            const int wire = proc.getMods().connect(3, ParamIDs::direction[0], 1.0f);
+            ed.m_wires.rebuild();
+            rig.run(0.5);
+            ed.m_wires.rebuild();
+            const int picked = direction.wiredChoice();
+            proc.getMods().disconnect(wire);
+            ed.m_wires.rebuild();
+            rig.run(0.1);
+            check(wire >= 0 && (picked == 1 || picked == 2) && direction.wiredChoice() == -1,
+                  "direction: a wire lands on it like on a knob and marks the key its modulator picks (" + juce::String(picked) + ")");
+            for (auto* id : { ParamIDs::flightPath[0], ParamIDs::direction[0] })
+                set(id, 0.0f);
+        }
+
+        // The LFE: Discrete with Stowaway off is said in place, with the fix; the fix is one undo step.
+        {
+            widen(room::Width::Surround51);
+            set(ParamIDs::roomLfeMode, 1.0f);
+            rig.run(0.1);
+            auto* level = ed.m_controls[ParamIDs::roomLfeLevel];
+            const bool said = ! level->isVisible() && ed.m_lfeFix.isVisible() && ed.m_lfeCue.isNotEmpty()
+                              && textsOf(ed.m_roomStrip).contains("Nothing Feeds the LFE") && ed.m_lfeMode.getTooltip().contains("Nothing feeds the LFE");
+            ed.m_lfeFix.onClick(); // what a click on it does
+            rig.run(0.1);
+            const bool fixed = proc.isStowawayOn() && proc.getStowawayMode() == ParamIDs::StowSub && ! ed.m_lfeFix.isVisible() && level->isVisible();
+            proc.getHistory().undo();
+            rig.run(0.1);
+            check(said && fixed && ! proc.isStowawayOn() && ed.m_lfeFix.isVisible(),
+                  "lfe: Discrete with Stowaway off says \"Nothing Feeds the LFE\" where LFE Level was, with Use Stowaway Sub; it switches Stowaway on in "
+                  "Sub, and one Undo takes it back");
+            const auto reads = ed.m_controls[ParamIDs::roomLfeLevel];
+            check(dynamic_cast<WheelKnob*>(reads)->getTextFromValue(ParamIDs::lfeLevelMainsDb) == "-10.0 dB (Mains)",
+                  "lfe: -10 dB reads as the level of the mains (\"-10.0 dB (Mains)\"), not \"Unity\"");
+            set(ParamIDs::roomLfeMode, 0.0f);
+        }
+
+        // Stowaway folded on Fly names its Flight Path and way.
+        {
+            set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly));
+            set(ParamIDs::stowFlightPath, 2.0f);
+            set(ParamIDs::stowDirection, 1.0f);
+            proc.setStowawayOn(true);
+            proc.setStowawayPanel(0);
+            rig.run(0.5);
+            const auto note = ed.stowawayNote(ParamIDs::StowFly, true);
+            proc.setStowawayOn(false);
+            check(note == "A third mover, flying Overhead, front to back.", "stowaway: folded on Fly, its note names the path and the way (\"" + note + "\")");
+        }
+
+        // A change of Speakers asks first only when the Last 60 s memory holds something.
+        check(! ed.asksBeforeChangingSpeakers() || proc.hasRetro(), "speakers: asks before a change only when the memory holds something");
+
+        // A panel over the window: with the rig playing, nothing under it repaints (the sea, the lanes, the scopes,
+        // the meters and the ride hold still behind the dimming), and it all moves again once the panel closes. Every
+        // repaint asked for in the window passes through the content component on its way up, so a counter in its
+        // place (a cached image that keeps nothing) sees each one: those inside the open panel, and the footer's
+        // toast line, are the panel's and the toast's own; any other is something under the panel repainting.
+        {
+            struct RepaintCounter final : juce::CachedComponentImage
+            {
+                std::vector<juce::Rectangle<int>> areas;
+                void paint(juce::Graphics&) override {}
+                bool invalidateAll() override { areas.push_back({ 0, 0, Editor::c_width, Editor::c_height }); return true; }
+                bool invalidate(const juce::Rectangle<int>& r) override { areas.push_back(r); return true; }
+                void releaseResources() override {}
+            };
+            widen(room::Width::Stereo);
+            proc.setPlaying(true);
+            rig.run(0.5);
+            auto behind = [&](juce::Component* panel, juce::Rectangle<int> plate, double seconds)
+            {
+                if (panel != nullptr)
+                {
+                    panel->setVisible(true);
+                    panel->toFront(false);
+                }
+                rig.run(0.2); // the frame that notices the panel
+                auto* counter = new RepaintCounter();
+                ed.m_content.setCachedComponentImage(counter); // (the content owns it now)
+                rig.run(seconds);
+                int under = 0;
+                for (const auto& r : counter->areas)
+                    if (! plate.contains(r) && ! ed.m_footer.contains(r) && ! ed.m_toastPlate.getBounds().contains(r) && r != ed.m_content.getLocalBounds())
+                        ++under;
+                ed.m_content.setCachedComponentImage(nullptr);
+                if (panel != nullptr)
+                    panel->setVisible(false);
+                rig.run(0.2);
+                return under;
+            };
+            juce::String counts;
+            bool held = true;
+            int least = 1 << 30; // the fewest repaints the window asked for in a second with no panel, just before each
+            for (const auto& [panel, plate, name] : { std::tuple<juce::Component*, juce::Rectangle<int>, const char*> { &ed.m_variations, ed.m_variations.m_panel, "Render Variations" },
+                                                      { &ed.m_settings, ed.m_settings.m_panel, "Settings" }, { &ed.m_takes, ed.m_takes.m_panel, "Takes" },
+                                                      { &ed.m_about, ed.m_about.m_panel, "About" } })
+            {
+                least = juce::jmin(least, behind(nullptr, {}, 1.0));
+                const int under = behind(panel, plate, 1.0);
+                held = held && under == 0;
+                counts << name << " " << under << ", ";
+            }
+            check(held && least > 60 && ! Theme::isCovered(ed.m_sea),
+                  "panels: over a playing rig nothing under Render Variations, Settings, Takes or About repaints in a second (" + counts
+                      + "with none open at least " + juce::String(least) + "), and it all moves again when the panel closes");
         }
     }
 

@@ -267,9 +267,9 @@ public:
     void setAccent(juce::Colour c) { m_accent = c; repaint(); }
     /** The colour of what this knob follows while it is Linked (Theme::Look). */
     void setLinkColour(juce::Colour c) { m_linkColour = c; repaint(); }
-    /** What a Linked knob says in place of its value ("Linked To A"). */
+    /** What a Linked knob says in place of its value ("Linked to A"). */
     void setLinkText(const juce::String& text) { m_linkText = text; repaint(); }
-    /** A reference point on its travel (LFE Level's Unity): a short tick outside the ring at that value. */
+    /** A reference point on its travel (LFE Level's Mains): a short tick outside the ring at that value. */
     void setMark(double value) { m_mark = value; m_hasMark = true; repaint(); }
     bool hasMark() const { return m_hasMark; }
     double getMark() const { return m_mark; }

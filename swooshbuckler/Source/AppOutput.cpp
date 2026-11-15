@@ -3,6 +3,9 @@
 #include "PluginProcessor.h"
 #include "Theme.h"
 
+#include <functional>
+#include <utility>
+
 //==============================================================================
 // AppOutput
 
@@ -296,7 +299,7 @@ juce::String AppAudio::dialogText(room::Width width, const juce::BigInteger& act
     const auto nameAt = [&](int slot) { return juce::String(room::info(room.speakers[static_cast<size_t>(order[static_cast<size_t>(slot)])]).name); };
     const juce::String glue = juce::String::charToString(0x00a0); // a number stays on the line of its speaker
     juce::String s;
-    s << "Listening: " << room.name << ", ";
+    s << "Speakers: " << room.name << ", ";
     if (width == room::Width::Mono)
         s << "one channel, played on the first two outputs switched on.";
     else if (on >= room.numChannels)
@@ -347,6 +350,7 @@ AppAudio::DevicePanel::DevicePanel(juce::AudioDeviceManager& devices, Swooshbuck
 {
     addAndMakeVisible(m_selector);
     m_devices.addChangeListener(this);
+    relabel();
     refresh();
     fit();
     startTimer(500); // the fold's status follows the device as it starts again
@@ -357,8 +361,29 @@ AppAudio::DevicePanel::~DevicePanel()
     m_devices.removeChangeListener(this);
 }
 
+void AppAudio::DevicePanel::relabel()
+{
+    // JUCE's own captions are sentences with colons ("Sample rate:"); the rest of the app names its controls in
+    // Title Case. Its labels are made again whenever the device changes, so this runs after each change.
+    static const std::pair<const char*, const char*> names[] = {
+        { "Output:", "Output" }, { "Device:", "Device" }, { "Input:", "Input" }, { "Active output channels:", "Outputs Used" },
+        { "Active input channels:", "Inputs Used" }, { "Sample rate:", "Sample Rate" }, { "Audio buffer size:", "Buffer Size" },
+        { "Audio device type:", "Device Type" }, { "Active MIDI inputs:", "MIDI Inputs" }, { "MIDI Output:", "MIDI Output" } };
+    std::function<void(juce::Component&)> walk = [&walk](juce::Component& c)
+    {
+        if (auto* label = dynamic_cast<juce::Label*>(&c))
+            for (const auto& [from, to] : names)
+                if (label->getText() == from)
+                    label->setText(to, juce::dontSendNotification);
+        for (auto* child : c.getChildren())
+            walk(*child);
+    };
+    walk(m_selector);
+}
+
 void AppAudio::DevicePanel::refresh()
 {
+    relabel();
     juce::BigInteger active;
     int available = 0;
     if (auto* device = m_devices.getCurrentAudioDevice())
@@ -403,7 +428,10 @@ void AppAudio::DevicePanel::resized()
 void AppAudio::DevicePanel::childBoundsChanged(juce::Component* child)
 {
     if (child == &m_selector)
+    {
+        relabel();
         fit();
+    }
 }
 
 void AppAudio::DevicePanel::paint(juce::Graphics& g)

@@ -1226,14 +1226,14 @@ int main(int argc, char* argv[])
             const auto range = p.proc.getState().getParameterRange(ParamIDs::roomLfeLevel);
             const bool modeOk = mode != nullptr && mode->getCurrentValueAsText() == "Off" && mode->getNumSteps() == RigEngine::c_lfeModes
                              && mode->getName(64) == "LFE Mode";
-            const bool levelOk = level != nullptr && level->getCurrentValueAsText() == "-10.0 dB (Unity)"
+            const bool levelOk = level != nullptr && level->getCurrentValueAsText() == "-10.0 dB (Mains)"
                               && level->getText(level->convertTo0to1(-18.5f), 64) == "-18.5 dB"
-                              && juce::approximatelyEqual(level->convertFrom0to1(level->getValueForText("Unity")), RigEngine::c_lfeReferenceDb)
+                              && juce::approximatelyEqual(level->convertFrom0to1(level->getValueForText("Mains")), RigEngine::c_lfeReferenceDb)
                               && juce::approximatelyEqual(range.start, RigEngine::c_lfeMinDb) && juce::approximatelyEqual(range.end, RigEngine::c_lfeMaxDb)
-                              && juce::approximatelyEqual(ParamIDs::lfeLevelUnityDb, RigEngine::c_lfeReferenceDb);
+                              && juce::approximatelyEqual(ParamIDs::lfeLevelMainsDb, RigEngine::c_lfeReferenceDb);
             std::cout << "         LFE Mode reads " << mode->getCurrentValueAsText() << ", LFE Level reads " << level->getCurrentValueAsText() << std::endl;
             check(modeOk, "LFE Mode: Off, Discrete, Mixdown; Off to start with");
-            check(levelOk, "LFE Level: -40 .. 0 dB, starts at -10 dB and reads \"(Unity)\" there; \"Unity\" typed in finds it");
+            check(levelOk, "LFE Level: -40 .. 0 dB, starts at -10 dB and reads \"(Mains)\" there; \"Mains\" typed in finds it");
             check(Presets::isSessionParameter(ParamIDs::roomLfeMode) && Presets::isSessionParameter(ParamIDs::roomLfeLevel),
                   "LFE Mode and Level belong to the session (no preset or Randomise moves them)");
         }

@@ -59,7 +59,7 @@ public:
     static constexpr double c_minRideSeconds = 1.0, c_maxRideSeconds = 120.0; // Whole Ride: how long each file is
     static constexpr double c_ridePreRollSeconds = 2.0;                     // Whole Ride: played first and thrown away
     static constexpr double c_rideFadeInSeconds = 0.01, c_rideFadeOutSeconds = 0.05;
-    static constexpr double c_maxGapSeconds = 10.0;                         // One File With Markers: the silence between
+    static constexpr double c_maxGapSeconds = 10.0;                         // One File with Markers: the silence between
     static constexpr double c_endFadeSeconds = 0.01;                        // the fade at the very end of every whoosh
     static constexpr float c_silence = 1.0e-4f;                             // -80 dBFS: under this the front of a whoosh is cut off
     static constexpr const char* c_closestLabel = "Closest";                // the marker at a whoosh's closest (loudest) moment
@@ -85,12 +85,12 @@ public:
         std::uint32_t batchSeed = 1;           // the batch's number
         juce::File folder;                     // made if it isn't there
         Names names = Names::Counter;
-        juce::String name { "Swooshbuckler" }; // Counter, Date And Time: the take name
-        juce::String preset { "Default" };     // Preset And Counter
-        juce::String batchName;                // Batch Name And Counter
-        juce::Time when;                       // Date And Time: the stamp
+        juce::String name { "Swooshbuckler" }; // Counter, Date and Time: the take name
+        juce::String preset { "Default" };     // Preset and Counter
+        juce::String batchName;                // Batch Name and Counter
+        juce::Time when;                       // Date and Time: the stamp
         Files files = Files::PerVariation;
-        double gapSeconds = 0.5;               // One File With Markers: the silence between two variations
+        double gapSeconds = 0.5;               // One File with Markers: the silence between two variations
         double rate = 48000.0;                 // the rate the rig renders at, and the files' rate
         /** The room the variations are rendered in, natively, whatever the live rig's track or audio device is:
             the second rig is prepared at this width (Mono and Stereo play the stereo engine, Quad and wider the
@@ -116,7 +116,7 @@ public:
         juce::String stem;        // the name before the number: "Whoosh", "Whoosh_2026-11-13_1432", "Jet Passes"
         int firstNumber = 1;      // one past the highest number the folder already has under that name
         int lastNumber = 1;
-        juce::File combined;      // One File With Markers / Both: the one file, "<stem>_All" or the next free "<stem>_All_2"
+        juce::File combined;      // One File with Markers / Both: the one file, "<stem>_All" or the next free "<stem>_All_2"
         juce::String firstName;   // "<stem>_001"
     };
     static Plan planOf(const Job& job);
@@ -144,7 +144,7 @@ public:
         int files = 0;               // files on disk: each file of a Multi-Mono set counts
         double soundSeconds = 0.0;   // every variation, and the gaps of the one file
         double renderSeconds = 0.0;  // going by how fast the last batch went on this machine
-        double oneFileBytes = 0.0;   // One File With Markers / Both: how big the one file comes to, each file of it
+        double oneFileBytes = 0.0;   // One File with Markers / Both: how big the one file comes to, each file of it
                                      // for a Multi-Mono set (0 otherwise)
         double totalBytes = 0.0;     // every file of the batch, uncompressed (FLAC comes to less); 0 = not worked out
         int filesPerTake = 1;        // the channels of a Multi-Mono set, else 1

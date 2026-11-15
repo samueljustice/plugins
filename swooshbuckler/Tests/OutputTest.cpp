@@ -1539,7 +1539,7 @@ int main(int argc, char* argv[])
         check(std::abs(typed("10") + 10.0f) < 1.0e-6f && std::abs(typed("-10") + 10.0f) < 1.0e-6f && std::abs(typed("18.5 dB") + 18.5f) < 1.0e-6f,
               "a level typed without its minus sign is that many dB down (\"10\" is -10 dB, as \"-10\" is)");
         check(juce::exactlyEqual(typed("0"), 0.0f) && juce::exactlyEqual(typed("-0.0 dB"), 0.0f) && juce::exactlyEqual(typed("90"), ParamIDs::lfeLevelMinDb)
-              && juce::exactlyEqual(typed("unity"), ParamIDs::lfeLevelUnityDb) && juce::exactlyEqual(typed("-10.0 dB (Unity)"), ParamIDs::lfeLevelUnityDb),
+              && juce::exactlyEqual(typed("unity"), ParamIDs::lfeLevelMainsDb) && juce::exactlyEqual(typed("-10.0 dB (Mains)"), ParamIDs::lfeLevelMainsDb),
               "0 is 0 dB, past the bottom stops at the bottom, Unity is found");
         Plug plug(src, room::Width::Surround51, {});
         auto* param = plug.proc.getState().getParameter(ParamIDs::roomLfeLevel);

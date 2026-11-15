@@ -413,7 +413,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
     addAndMakeVisible(m_keysList);
     m_resetKeys.setColour(juce::TextButton::buttonOnColourId, TC::flight);
     m_resetKeys.setWantsKeyboardFocus(false);
-    m_resetKeys.setTooltip("Reset To Defaults\nPuts every key back to the one it started with.");
+    m_resetKeys.setTooltip("Reset to Defaults\nPuts every key back to the one it started with.");
     m_resetKeys.onClick = [this]
     {
         m_keysList.stopListening();
@@ -500,7 +500,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
     }
     m_layouts[0].setTooltip("Interleaved\nOne file that holds every channel.");
     m_layouts[1].setTooltip("Multi-Mono\nOne mono file for each channel, its name ending in the speaker as Pro Tools names it "
-                            "(Whoosh_0001.L.wav, Whoosh_0001.C.wav ...). The Takes list shows a set as one take.");
+                            "(Whoosh_001.L.wav, Whoosh_001.C.wav ...). The Takes list shows a set as one take.");
 
     {
         const char* typeTips[] = { "WAV\nThe most widely read format. The only one that can hold 32-bit float.",
@@ -590,8 +590,8 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the Last button can save after the fact. The sound is held in memory from the first time "
                      "the rig plays: about " + juce::String(23 * value) + " MB at a 48 kHz recording rate, " + juce::String(46 * value) + " MB at 96 kHz and "
                      + juce::String(92 * value) + " MB at 192 kHz for Stereo, never more than 512 MB. In a room it is never more than "
-                     + juce::String(TapeRecorder::c_maxRetroBytesRoom / 1000000) + " MB for each Swooshbuckler: a minute of 5.1 or 7.1 at 48 kHz, "
-                     "50 seconds of 7.1.4, less at higher rates. Where that holds less, the Last button shows the real length. Changing it empties what is held.");
+                     + juce::String(TapeRecorder::c_maxRetroBytesRoom / 1000000) + " MB for each Swooshbuckler, which at 48 kHz is 2:30 of Quad, 1:40 of 5.1, "
+                     "1:15 of 7.1, a minute of 7.1.2 and 50 seconds of 7.1.4, less at higher rates. Where that holds less, the Last button shows the real length. Changing it empties what is held.");
         b.onClick = [this, value] { m_owner.m_processor.setRetroMinutes(value); refresh(); };
     }
 
@@ -618,8 +618,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
                                                  : juce::String()));
             b.onClick = [this, width]
             {
-                if (! m_owner.m_processor.setListening(width))
-                    m_owner.toast("Click the tape to disarm it, then change Listening");
+                m_owner.changeSpeakers(width);
                 refresh();
             };
         }
@@ -845,7 +844,9 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
 {
     g.fillAll(TC::window.withAlpha(0.8f));
-    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Settings", "The tape, the audio device and the keys", TC::brass,
+    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Settings",
+                                 SwooshbucklerAudioProcessor::showAudioSettings ? "The tape, your speakers, the audio device and the keys"
+                                                                                : "The tape and the keys", TC::brass,
                                  *m_owner.m_fonts, Icons::Icon::Settings);
 
     const auto& f = *m_owner.m_fonts;
@@ -910,7 +911,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
 
     // Listening: the app's choice, or in a host the track's width as a read-out.
     g.setColour(TC::textDim);
-    Theme::fitText(g, "Listening", m_listenCaption, f.caption(), juce::Justification::centredLeft);
+    Theme::fitText(g, "Speakers", m_listenCaption, f.caption(), juce::Justification::centredLeft);
     if (p.isApp())
     {
         const auto line = SwooshbucklerAudioProcessor::listeningLine(p.getListening(), p.getDeviceOutputs(), p.getDeviceOutputsAvailable());
@@ -1343,7 +1344,6 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_morphPad.laneColourFor = [this](int track) { return m_hold.laneColour(track); };
     m_content.addAndMakeVisible(m_sea);
     m_sea.onClick = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(400, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
-    m_sea.setTooltip("The Sea\nWhat the rig sends out: the sound rolls away as waves, and each doppler pass is a comet across the sky. Click it (or press space) to swell every track up.");
     m_sea.setFootHeight(c_roomFootH);
 
     // The room strip, on the sea's foot. Its plate keeps clicks off the sea; the controls sit on it.
@@ -1357,18 +1357,15 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             const int id = m_roomWidth.getSelectedId();
             if (id <= 0 || id - 1 == static_cast<int>(m_processor.getListening()))
                 return;
-            if (! m_processor.setListening(static_cast<room::Width>(id - 1)))
-            {
-                toast("Click the tape to disarm it, then change Room Width");
-                m_roomWidth.setSelectedId(static_cast<int>(m_processor.getListening()) + 1, juce::dontSendNotification);
-            }
-            if (m_settings.isVisible())
-                m_settings.refresh();
+            // The menu shows what is played until the change is made (it may be asked about first).
+            m_roomWidth.setSelectedId(static_cast<int>(m_processor.getListening()) + 1, juce::dontSendNotification);
+            changeSpeakers(static_cast<room::Width>(id - 1));
         };
         m_roomStrip.addChildComponent(m_roomWidth);
 
         // (The knobs are made like every other, then put on the strip's plate.)
-        for (const auto& [id, name] : { std::pair<const char*, const char*> { ParamIDs::roomSpread, "Spread" }, { ParamIDs::roomHeight, "Height" } })
+        for (const auto& [id, name] : { std::pair<const char*, const char*> { ParamIDs::roomSpread, "Spread" }, { ParamIDs::roomHeight, "Height" },
+                                        { ParamIDs::roomHeightVaries, "Varies" } })
         {
             auto& knob = addKnob(id, name, TC::output, {});
             knob.setSize(WheelKnob::Size::Small);
@@ -1385,8 +1382,15 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         m_lfeModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::roomLfeMode, m_lfeMode);
         auto& lfeLevel = addKnob(ParamIDs::roomLfeLevel, "LFE Level", TC::stowaway, {});
         lfeLevel.setSize(WheelKnob::Size::Small);
-        lfeLevel.setMark(ParamIDs::lfeLevelUnityDb); // where the LFE plays as loud as a main speaker
+        lfeLevel.setMark(ParamIDs::lfeLevelMainsDb); // where the LFE plays in line with the main speakers
         m_roomStrip.addAndMakeVisible(lfeLevel);
+        // Nothing feeds the LFE: the fix, one click away (shown in LFE Level's place while it is so).
+        m_lfeFix.setColour(juce::TextButton::buttonOnColourId, TC::brass);
+        m_lfeFix.setWantsKeyboardFocus(false);
+        m_lfeFix.setTooltip("Use Stowaway Sub\nDiscrete plays Stowaway's Sub in the LFE, and Stowaway is off or not in Sub, so nothing reaches "
+                            "the LFE. This switches Stowaway on in Sub mode (one undo step). Or choose Mixdown in LFE Mode, which needs nothing else.");
+        m_lfeFix.onClick = [this] { fixLfeFeed(); };
+        m_roomStrip.addChildComponent(m_lfeFix);
     }
 
     // Morph: the pad sits over the output view (the waves show through) while it's switched on.
@@ -1655,6 +1659,32 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_stowPath.setWantsKeyboardFocus(false);
     m_content.addChildComponent(m_stowPath);
     m_stowPathAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::stowFlightPath, m_stowPath);
+    // Direction and Side beside each: three keys that show which way and which side, in the bus's colour. They take
+    // wires like a knob, so they are in m_controls (the wires find their targets there).
+    {
+        auto make = [this, &p](PassSwitch::Kind kind, const char* id, juce::Colour accent, const juce::String& caption, bool child)
+        {
+            auto sw = std::make_unique<PassSwitch>(kind, accent);
+            sw->caption = caption;
+            if (auto* param = p.getState().getParameter(id))
+                sw->attach(*param);
+            if (child)
+                m_content.addChildComponent(*sw);
+            else
+                m_content.addAndMakeVisible(*sw);
+            m_controls[id] = sw.get();
+            return sw;
+        };
+        const juce::Colour busColours[] = { TC::busA, TC::busB };
+        for (size_t b = 0; b < m_direction.size(); ++b)
+        {
+            const juce::String bus = "Bus " + juce::String(ParamIDs::busNames[b]);
+            m_direction[b] = make(PassSwitch::Kind::Direction, ParamIDs::direction[b], busColours[b], bus + " Direction", false);
+            m_side[b] = make(PassSwitch::Kind::Side, ParamIDs::side[b], busColours[b], bus + " Side", false);
+        }
+        m_stowDirection = make(PassSwitch::Kind::Direction, ParamIDs::stowDirection, TC::stowaway, "Stowaway Direction", true);
+        m_stowSide = make(PassSwitch::Kind::Side, ParamIDs::stowSide, TC::stowaway, "Stowaway Side", true);
+    }
 
     {
         const auto& engine = p.getEngine();
@@ -1759,6 +1789,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addChildComponent(m_takes);
     m_content.addChildComponent(m_variations);
     m_variations.onOpenTakes = [this] { showTakes(); };
+    m_variations.onShowRoom = [this]
+    {
+        toast("The room: the strip under the sea, and Flight Path, Direction and Side in each bus's panel");
+    };
     m_variations.onKeyboardDone = [this] { grabKeyboardFocus(); };
     m_takes.onStatus = [this](const juce::String& text) { toast(text); };
     m_content.addChildComponent(m_about);
@@ -1990,9 +2024,9 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_morphButton.setBounds(m_sea.getRight() - 20 - 100, m_sea.getY() + 12, 100, 22);
     m_sea.setReservedArea(m_sea.getLocalArea(&m_morphButton, m_morphButton.getLocalBounds()));
 
-    // The room strip on the sea's foot, in three groups with a rule between them: the room (its width), where a
-    // sound goes in it (Spread, Height, Centre Speaker), and the LFE (Mode, Level). Each control has its name over
-    // it, or (a knob) beside it.
+    // The room strip on the sea's foot, in three groups with a rule between them: the speakers (the room's width),
+    // where a sound goes in it (Spread, Height, Height Varies, Centre Speaker), and the LFE (Mode, Level). Each
+    // control has its name over it, or (a knob) beside it.
     {
         const auto sea = m_sea.getBounds();
         m_roomStrip.setBounds(sea.getX() + 4, sea.getBottom() - 4 - c_roomFootH, sea.getWidth() - 8, c_roomFootH);
@@ -2002,17 +2036,23 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         // (Worked out in the window's coordinates; the controls are the strip's own children.)
         const auto on = m_roomStrip.getPosition();
         auto place = [on](juce::Component& c, juce::Rectangle<int> r) { c.setBounds(r - on); };
-        m_roomWidthCaption = { x0 + 18, captionY, 104, textRow };
-        m_roomWidthReadout = { x0 + 18, menuY, 104, menuH };
-        place(m_roomWidth, m_roomWidthReadout);
-        m_roomRules = { x0 + 130, x0 + 402 };
-        place(*m_controls[ParamIDs::roomSpread], { x0 + 138, knobY, 76, knobH });
-        place(*m_controls[ParamIDs::roomHeight], { x0 + 224, knobY, 76, knobH });
-        m_roomCentreCaption = { x0 + 310, captionY, 84, textRow };
-        place(m_roomCentre, { x0 + 310, menuY + 3, Lay::stowSwitchW, 16 });
-        m_lfeModeCaption = { x0 + 410, captionY, 84, textRow };
-        place(m_lfeMode, { x0 + 410, menuY, 84, menuH });
-        place(*m_controls[ParamIDs::roomLfeLevel], { x0 + 504, knobY, 124, knobH });
+        m_roomWidthCaption = { x0 + 16, captionY, 92, textRow };
+        m_roomWidthReadout = { x0 + 16, menuY, 92, menuH };
+        place(m_roomWidth, m_roomWidthReadout.withWidth(74));
+        m_roomRules = { x0 + 114, x0 + 418 };
+        place(*m_controls[ParamIDs::roomSpread], { x0 + 120, knobY, 70, knobH });
+        place(*m_controls[ParamIDs::roomHeight], { x0 + 192, knobY, 70, knobH });
+        place(*m_controls[ParamIDs::roomHeightVaries], { x0 + 264, knobY, 68, knobH });
+        m_roomCentreCaption = { x0 + 334, captionY, 80, textRow };
+        place(m_roomCentre, { x0 + 334, menuY + 3, Lay::stowSwitchW, 16 });
+        m_lfeModeCaption = { x0 + 424, captionY, 76, textRow };
+        place(m_lfeMode, { x0 + 424, menuY, 76, menuH });
+        const juce::Rectangle<int> level { x0 + 506, knobY, 128, knobH };
+        place(*m_controls[ParamIDs::roomLfeLevel], level);
+        // In LFE Level's place while nothing feeds the LFE: its name in brass over the fix (or what to do).
+        m_lfeCueCaption = { level.getX(), captionY, level.getWidth(), textRow };
+        m_lfeCueLine = { level.getX(), menuY, level.getWidth(), menuH };
+        place(m_lfeFix, m_lfeCueLine.withWidth(112));
     }
 
     // A knob in its cell: the wheel of its size, whole, in the middle of the room it is given.
@@ -2113,16 +2153,20 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
             m_sections[i].subtitleRight = m_sectionDice[i + 1]->getX() - 8;
 
         // The scope strips: what each section sends on, along the bottom of its panel. A bus's starts with its Flight
-        // Path (Output's is placed with the meters).
+        // Path, then which way (Direction) and which side (Side) its passes take: one group (Output's is placed with
+        // the meters).
         for (size_t i = 0; i < m_sectionScopes.size(); ++i)
         {
             const auto& panel = m_sections[i].bounds;
             int x = panel.getX() + Lay::pad;
             if (i < m_flightPath.size())
             {
-                m_flightPathLabel[i] = { x, panel.getY() + Lay::stripY - 1, c_pathLabelW, 18 };
-                m_flightPath[i].setBounds(x + c_pathLabelW + 4, panel.getY() + Lay::stripY - 1, c_pathMenuW, 18);
-                x = m_flightPath[i].getRight() + 8;
+                const int y = panel.getY() + Lay::stripY - 1;
+                m_flightPathLabel[i] = { x, y, c_pathLabelW, 18 };
+                m_flightPath[i].setBounds(x + c_pathLabelW + 4, y, c_pathMenuW, 18);
+                m_direction[i]->setBounds(m_flightPath[i].getRight() + 6, y, c_passSwitchW, 18 + static_cast<int>(PassSwitch::c_wireRow));
+                m_side[i]->setBounds(m_direction[i]->getRight() + 4, y, c_passSwitchW, 18 + static_cast<int>(PassSwitch::c_wireRow));
+                x = m_side[i]->getRight() + 10;
             }
             m_sectionScopes[i]->setBounds(x, panel.getY() + Lay::stripY, panel.getRight() - Lay::pad - x, Lay::stripH);
         }
@@ -2261,7 +2305,9 @@ void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
     {
         m_stowPathLabel = { m_stowStrip.getX(), m_stowStrip.getCentreY() - 9, c_pathLabelW, 18 };
         m_stowPath.setBounds(m_stowPathLabel.getRight() + 4, m_stowPathLabel.getY(), c_pathMenuW, 18);
-        m_stowStrip = m_stowStrip.withLeft(m_stowPath.getRight() + 8);
+        m_stowDirection->setBounds(m_stowPath.getRight() + 6, m_stowPathLabel.getY(), c_passSwitchW, 18 + static_cast<int>(PassSwitch::c_wireRow));
+        m_stowSide->setBounds(m_stowDirection->getRight() + 4, m_stowPathLabel.getY(), c_passSwitchW, 18 + static_cast<int>(PassSwitch::c_wireRow));
+        m_stowStrip = m_stowStrip.withLeft(m_stowSide->getRight() + 8);
     }
     m_stowScope->setBounds(m_stowStrip);
 
@@ -2288,6 +2334,9 @@ void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
     };
     show(m_stowOn, true);
     show(m_stowPath, openLayout);
+    // (Like the wheels, Direction and Side show once the plate has opened past them.)
+    show(*m_stowDirection, openLayout && m_stowDirection->getRight() <= inside);
+    show(*m_stowSide, openLayout && m_stowSide->getRight() <= inside);
     show(m_stowMode, m_stowMode.getRight() <= die.getX() - 4 || ! openLayout);
     show(die, openLayout && die.getX() >= m_stowMode.getRight() + 4);
     show(lock, openLayout && die.isVisible());
@@ -2311,14 +2360,28 @@ void SwooshbucklerAudioProcessorEditor::setStowawayOpen(bool open)
     m_processor.setStowawayPanel(open ? 1 : 0);
 }
 
-juce::String SwooshbucklerAudioProcessorEditor::stowawayNote(int mode, bool on)
+juce::String SwooshbucklerAudioProcessorEditor::stowawayNote(int mode, bool on) const
 {
     if (! on)
         return "Off. Switch it on for an extra bus.";
     switch (mode)
     {
         case ParamIDs::StowWake: return "A trail behind each of Bus A's passes.";
-        case ParamIDs::StowFly:  return "A third mover, with passes of its own.";
+        case ParamIDs::StowFly:
+        {
+            // Folded, the plate hides Fly's Flight Path, Direction and Side: the note says what they are.
+            const auto width = m_processor.getRoomWidth();
+            if (width == room::Width::Mono)
+                return "A third mover, with passes of its own.";
+            auto choice = [this](const char* id) { return juce::roundToInt(m_processor.getState().getRawParameterValue(id)->load()); };
+            const int path = width >= room::Width::Quad ? juce::jlimit(0, ParamIDs::numFlightPaths - 1, choice(ParamIDs::stowFlightPath)) : 0;
+            const int way = choice(ParamIDs::stowDirection);
+            juce::String note = width >= room::Width::Quad ? "A third mover, flying " + juce::String(ParamIDs::flightPathNames[path])
+                                                           : juce::String("A third mover, flying across");
+            note << (way == ParamIDs::DirectionRandom ? juce::String(", each pass its own way.")
+                                                      : ", " + juce::String(Params::directionLabel(path, way)).toLowerCase() + ".");
+            return note;
+        }
         case ParamIDs::StowDry:  return "Riding only, straight to the output.";
         default:                 return "Low end only, swelling with Bus A.";
     }
@@ -2368,12 +2431,17 @@ void SwooshbucklerAudioProcessorEditor::showStowaway(float dt)
         m_processor.setStowawayPanel(1);
     m_stowWasOn = on;
     m_stowOpen.to(m_processor.getStowawayPanel() == 1 ? 1.0f : 0.0f, Motion::Ms::overlayIn);
-    if (m_stowOpen.step(dt))
+    if (dt > 0.0f && m_stowOpen.step(dt))
         layoutBottomRow();
 
     // The looks follow the switch and the Mode: off, everything on the plate rests (it can still be set up); on,
     // a wheel that does nothing in this Mode rests, and each wheel's tooltip says what it does here.
-    const int shown = (on ? 1 : 0) + 2 * mode;
+    // (Fly's note on the folded plate names its Flight Path and way in the room: they are in the key too.)
+    auto choice = [this](const char* id) { return juce::roundToInt(m_processor.getState().getRawParameterValue(id)->load()); };
+    const int shown = (on ? 1 : 0) + 2 * mode
+                    + (mode == ParamIDs::StowFly ? 16 * (1 + choice(ParamIDs::stowFlightPath) + 4 * choice(ParamIDs::stowDirection)
+                                                         + 16 * static_cast<int>(m_processor.getRoomWidth()))
+                                                 : 0);
     if (shown == m_stowShown)
         return;
     m_stowShown = shown;
@@ -2663,8 +2731,10 @@ void SwooshbucklerAudioProcessorEditor::refreshShortcuts()
     m_swell.setKeyHint(swellKey);
     m_footerHint = "Drop sounds into Tracks, press Play, arm the tape and let it ride. Hold Swell"
                    + (swellKey.isEmpty() ? juce::String() : " (or " + swellKey + ")") + " to push.";
-    m_sea.setTooltip(swellKey.isEmpty() ? juce::String("The Sea\nClick it to swell every track up.")
-                                        : "The Sea\nClick it (or press " + swellKey + ") to swell every track up.");
+    // (The sea's own tooltip: what it shows, and the swell. The plan of the room has one of its own, in the sea.)
+    m_sea.setTooltip("The Sea\nWhat the rig sends out: the sound rolls away as waves, and each doppler pass is a comet across the sky. "
+                     + (swellKey.isEmpty() ? juce::String("Click it to swell every track up.")
+                                           : "Click it (or press " + swellKey + ") to swell every track up."));
     m_content.repaint();
 }
 
@@ -3453,7 +3523,7 @@ void SwooshbucklerAudioProcessorEditor::showAimControls()
 void SwooshbucklerAudioProcessorEditor::RoomStrip::paint(juce::Graphics& g)
 {
     // On the sea's foot (the frame's plate, painted by the sea): the rules between the groups, the names over the
-    // menus and the switch, and in a host the room's width as a read-out.
+    // menus and the switch, in a host the room's width as plain lettering, and the LFE's cue when nothing feeds it.
     auto& o = owner;
     const auto& f = *o.m_fonts;
     const auto at = getPosition();
@@ -3474,20 +3544,31 @@ void SwooshbucklerAudioProcessorEditor::RoomStrip::paint(juce::Graphics& g)
         Theme::fitText(g, text, local(box), f.caption(), juce::Justification::centredLeft);
     };
     g.setColour(TC::textDim);
-    Theme::fitText(g, "Room Width", local(o.m_roomWidthCaption), f.caption(), juce::Justification::centredLeft);
+    Theme::fitText(g, "Speakers", local(o.m_roomWidthCaption), f.caption(), juce::Justification::centredLeft);
     caption("Centre Speaker", o.m_roomCentreCaption, o.m_roomCentre);
     caption("LFE Mode", o.m_lfeModeCaption, o.m_lfeMode);
 
     if (! o.m_processor.isApp())
     {
-        // A host's track decides: its width, and that it comes from the track.
-        const auto box = local(o.m_roomWidthReadout).toFloat();
-        SwooshLookAndFeel::drawWell(g, box, Theme::Cut::small);
-        auto inner = box.reduced(8.0f, 0.0f);
+        // A host's track decides: its width, and that it comes from the track. Plain lettering, not a box: it is
+        // read, not set (the strip's tooltip says how to change it).
+        auto box = local(o.m_roomWidthReadout).toFloat();
         g.setColour(TC::text);
-        Theme::fitText(g, room::layout(o.m_processor.getRoomWidth()).name, inner.removeFromLeft(38.0f), f.control(), juce::Justification::centredLeft);
+        Theme::fitText(g, room::layout(o.m_processor.getRoomWidth()).name, box.removeFromLeft(36.0f), f.control(), juce::Justification::centredLeft);
         g.setColour(TC::textFaint);
-        Theme::fitText(g, "From Track", inner, f.caption(), juce::Justification::centredRight);
+        Theme::fitText(g, "From Track", box, f.caption(), juce::Justification::centredLeft);
+    }
+
+    if (o.m_lfeCue.isNotEmpty())
+    {
+        // Nothing feeds the LFE: said in brass where LFE Level was, over the button that mends it (or what to do).
+        g.setColour(TC::brass);
+        Theme::fitText(g, "Nothing Feeds the LFE", local(o.m_lfeCueCaption), f.caption(), juce::Justification::centredLeft);
+        if (! o.m_lfeFix.isVisible())
+        {
+            g.setColour(TC::textDim);
+            Theme::fitText(g, o.m_lfeCue, local(o.m_lfeCueLine), f.caption(), juce::Justification::centredLeft, Theme::Fit::Sentence);
+        }
     }
 }
 
@@ -3496,19 +3577,21 @@ juce::String SwooshbucklerAudioProcessorEditor::flightPathTip()
 {
     return "Where this bus's passes fly in a room. Across: from one side to the other, in front of you. Through: from "
            "the front to the back, past one side of you. Overhead: up over your head, from the front to behind you. "
-           "Around: round you, from in front, down one side, behind you and back. Each pass picks its own direction "
-           "and side unless the bus's Direction and Side hold it to one.";
+           "Around: round you, from in front, down one side, behind you and back. Direction and Side, beside it, "
+           "choose which way its passes go and which side of you they take.";
 }
 
 juce::String SwooshbucklerAudioProcessorEditor::roomRestReason(const juce::String& control) const
 {
-    // Why it does nothing now: the room is too narrow, or this room has no such speaker. Empty: it is in use.
+    // Why it is not heard now: the room is too narrow, or this room has no such speaker. Empty: it is in use.
+    // At Mono and Stereo the room's controls still shape a room that Render Variations renders, so they say so.
     const auto width = m_processor.getRoomWidth();
     const juce::String name = room::layout(width).name;
-    const juce::String widen = m_processor.isApp() ? juce::String("Choose a room in Room Width to use it.")
-                                                   : juce::String("Give the track a surround width (Quad to 7.1.4) in the host to use it.");
     if (width < room::Width::Quad)
-        return "It rests at " + name + ": it works in a room, from Quad to 7.1.4. " + widen;
+        return "It rests at " + name + ": it is heard in a room, Quad and wider. "
+               + (m_processor.isApp() ? juce::String("Choose Quad or wider in Speakers to hear it. ")
+                                      : juce::String("Give the track a surround width in the host to hear it. "))
+               + "It still shapes what Render Variations makes when its Channels are Quad or wider.";
     const auto& layout = room::layout(width);
     if (control == "lfe" && layout.lfe < 0)
         return "It rests: " + name + " has no LFE. It works at 5.1 and wider.";
@@ -3525,18 +3608,38 @@ juce::String SwooshbucklerAudioProcessorEditor::roomRestReason(const juce::Strin
     return {};
 }
 
+juce::String SwooshbucklerAudioProcessorEditor::roomRestNote() const
+{
+    // The note in the sea at Mono and Stereo, where the plan of the room is drawn in a room: why the strip under it
+    // rests, what wakes it, and that Render Variations still uses it. A first line, then the rest.
+    const auto width = m_processor.getRoomWidth();
+    if (width >= room::Width::Quad)
+        return {};
+    return "The room strip rests at " + juce::String(room::layout(width).name) + ".\n"
+           + (m_processor.isApp() ? juce::String("Choose Quad or wider in Speakers to hear it. ")
+                                  : juce::String("It is heard when the track is Quad or wider. "))
+           + "Render Variations uses it for files of Quad and wider.";
+}
+
 void SwooshbucklerAudioProcessorEditor::showRoom()
 {
-    // The room's controls follow its width (and Link, and Stowaway's Mode): each rests when it does nothing, and
-    // its tooltip says why. Output makes room for the speaker meters above Stereo.
+    // The room's controls follow its width (and Link, and Stowaway, and what feeds the LFE): each rests when it is
+    // not heard, and its tooltip says why from its first line. Output makes room for the speaker meters above Stereo.
     const auto width = m_processor.getRoomWidth();
     const bool app = m_processor.isApp(), inRoom = width >= room::Width::Quad;
     const bool linked = m_processor.getState().getRawParameterValue(ParamIDs::linkBuses)->load() > 0.5f;
     const bool fly = m_processor.getStowawayMode() == ParamIDs::StowFly;
     const bool centreOn = m_processor.getState().getRawParameterValue(ParamIDs::roomCentre)->load() > 0.5f;
     const bool lfeOn = juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::roomLfeMode)->load()) != 0;
-    const juce::String key = juce::String(static_cast<int>(width)) + (app ? "a" : "h") + (linked ? "l" : "") + (fly ? "f" : "") + (lfeOn ? "s" : "")
-                             + (centreOn ? "c" : "") + juce::String(static_cast<int>(m_processor.getListening()));
+    const auto feed = m_processor.getLfeFeed();
+    auto choice = [this](const char* id) { return juce::roundToInt(m_processor.getState().getRawParameterValue(id)->load()); };
+    // The paths each switch is drawn for: at Mono and Stereo every pass flies across. Bus B linked flies bus A's.
+    const int pathA = inRoom ? choice(ParamIDs::flightPath[0]) : 0;
+    const int pathB = inRoom ? choice(linked ? ParamIDs::flightPath[0] : ParamIDs::flightPath[1]) : 0;
+    const int pathS = inRoom ? choice(ParamIDs::stowFlightPath) : 0;
+    juce::String key;
+    key << static_cast<int>(width) << (app ? "a" : "h") << (linked ? "l" : "") << (fly ? "f" : "") << (lfeOn ? "s" : "") << (centreOn ? "c" : "")
+        << static_cast<int>(m_processor.getListening()) << "/" << static_cast<int>(feed) << "/" << pathA << pathB << pathS;
     if (key == m_roomShown)
         return;
     const bool first = m_roomShown.isEmpty();
@@ -3549,56 +3652,94 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
         return name + "\n" + what + (reason.isNotEmpty() ? "\n" + reason : juce::String());
     };
 
-    // Room Width: the app's choice (Listening), or the track's width as a read-out.
+    // Speakers: the app's choice, or the track's width as plain lettering.
     m_roomWidth.setVisible(app);
     m_roomWidth.setSelectedId(static_cast<int>(m_processor.getListening()) + 1, juce::dontSendNotification);
-    m_roomWidth.setTooltip("Room Width\nWhat you are listening on, from Mono to 7.1.4: the same choice as Listening in Settings. "
-                           "Above Stereo every pass, throw and hit flies through the room. The tape and Render Variations record "
-                           "the room as it is played.");
-    m_roomStrip.setTooltip(app ? juce::String("The Room\nWhere the rig plays: its width, how sounds spread through it, and the LFE.")
-                               : "The Room\nIn a plug-in the track decides the room's width: this track is " + juce::String(room::layout(width).name)
-                                     + ". Change the track's width in the host to change it. The rest of the strip sets how sounds spread "
-                                       "through the room and what the LFE plays.");
+    m_roomWidth.setTooltip("Speakers\nWhat you are listening on, from Mono to 7.1.4 (the same choice as in Settings). Quad and wider is a "
+                           "room: every pass, throw and hit flies through it, and the strip and each bus's Flight Path wake up. "
+                           "The tape records what you hear; Render Variations has its own Channels.");
+    m_roomStrip.setTooltip(app ? juce::String("The Room\nWhere the rig plays: your speakers, how sounds spread through the room, and the LFE.")
+                               : "The Room\nIn a plug-in the track decides the speakers: this track is " + juce::String(room::layout(width).name)
+                                     + " (From Track). Change the track's width in the host to change it. The rest of the strip sets how sounds "
+                                       "spread through the room and what the LFE plays.");
+    m_sea.setRestNote(roomRestNote());
 
     const auto rest = roomRestReason({});
     const auto restHeight = roomRestReason("height"), restCentre = roomRestReason("centre"), restLfe = roomRestReason("lfe");
     auto* spread = m_controls[ParamIDs::roomSpread];
     auto* height = m_controls[ParamIDs::roomHeight];
+    auto* varies = m_controls[ParamIDs::roomHeightVaries];
     auto* lfeLevel = m_controls[ParamIDs::roomLfeLevel];
     look(*spread, rest);
     spread->setTooltip(tip("Room Spread", "How far each sound spreads into the other speakers. 0%: each pass is heard where it is. "
                                           "100%: it fills the room, still leaning towards where it is. Passes close to you spread "
                                           "a little more on their own.", rest));
     look(*height, restHeight);
-    height->setTooltip(tip("Room Height", "How high the sounds go: how much of a pass going Overhead, and of Space, reaches the "
-                                          "speakers overhead. 0%: everything stays at ear level.", restHeight));
+    height->setTooltip(tip("Room Height", "How high the sounds go: how much of a pass's height, and of Space, reaches the speakers "
+                                          "overhead. 0%: everything stays at ear level. Height Varies, beside it, sets how high each "
+                                          "pass flies.", restHeight));
+    look(*varies, restHeight);
+    varies->setTooltip(tip("Height Varies", ParamIDs::heightVariesTip, restHeight));
     look(m_roomCentre, restCentre);
     m_roomCentre.setButtonText(centreOn ? "On" : "Off");
     m_roomCentre.setTooltip(tip("Centre Speaker", "Off (how a new session starts): sounds in the middle come from left and right "
                                                   "together, so the centre speaker stays clear for dialogue. On: the centre speaker "
                                                   "plays them. Switching glides, with no click.", restCentre));
+    // LFE Mode, and LFE Level; while Discrete has nothing to play, LFE Level makes way for the cue and its fix.
+    const bool unfed = restLfe.isEmpty() && SwooshbucklerAudioProcessor::lfeIsUnfed(feed);
+    const auto unfedReason = unfed ? SwooshbucklerAudioProcessor::lfeFeedReason(feed) : juce::String();
     look(m_lfeMode, restLfe);
-    m_lfeMode.setTooltip(tip("LFE Mode", ParamIDs::lfeModeTip, restLfe));
+    m_lfeMode.setTooltip(tip("LFE Mode", ParamIDs::lfeModeTip, restLfe.isNotEmpty() ? restLfe : unfedReason));
     // (LFE Level also rests while LFE Mode is Off: there is nothing for it to turn up.)
     const auto restLevel = restLfe.isNotEmpty() || lfeOn ? restLfe : juce::String("It rests: LFE Mode is Off, so the LFE plays nothing. Choose Discrete or Mixdown to use it.");
     look(*lfeLevel, restLevel);
     lfeLevel->setTooltip(tip("LFE Level", ParamIDs::lfeLevelTip, restLevel));
+    m_lfeCue = ! unfed ? juce::String()
+             : feed == SwooshbucklerAudioProcessor::LfeFeed::NoSubTrack ? juce::String("Send a track to Stowaway.")
+                                                                        : juce::String("Stowaway is off or not in Sub.");
+    lfeLevel->setVisible(! unfed);
+    m_lfeFix.setVisible(unfed && feed == SwooshbucklerAudioProcessor::LfeFeed::NoSub);
+    m_roomStrip.setTooltip(m_roomStrip.getTooltip() + (unfed ? "\n" + unfedReason : juce::String()));
 
-    // Flight Path: each bus's (bus B's linked to A's while Link is on), and Stowaway's for Fly.
+    // Flight Path, Direction and Side: each bus's (bus B's linked to A's while Link is on), and Stowaway's for Fly.
+    const juce::String atStereo = width == room::Width::Stereo ? " At Stereo every pass flies across: Direction still chooses which way." : "";
+    const auto restSide = [&](int path) { return rest.isNotEmpty() ? rest : path == 0 ? juce::String("It rests: Across has no sides. It works on Through, Overhead and Around.")
+                                                                                 : juce::String(); };
+    const auto restDirection = width == room::Width::Mono
+                                   ? juce::String("It rests at Mono: one speaker has no left or right. It works from Stereo up, and Render Variations uses it for wider files.")
+                                   : juce::String();
     for (size_t b = 0; b < m_flightPath.size(); ++b)
     {
-        auto& menu = m_flightPath[b];
         const bool linkedB = b == 1 && linked;
+        const juce::String bus = "Bus " + juce::String(ParamIDs::busNames[b]);
+        const juce::String linkedWhy = "While Link is on, bus B flies bus A's passes: this shows bus A's, and bus B keeps its own for when Link is off.";
+        auto& menu = m_flightPath[b];
         Theme::setLook(menu, linkedB ? Theme::Look::Linked : (rest.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
-        menu.setTooltip(tip("Bus " + juce::String(ParamIDs::busNames[b]) + " Flight Path", flightPathTip(),
-                            linkedB ? juce::String("While Link is on, bus B flies bus A's passes, on bus A's Flight Path.")
-                                    : rest.isNotEmpty() ? rest + (width == room::Width::Stereo ? " At Stereo every pass flies across, left to right." : "") : juce::String()));
+        menu.setTooltip(tip(bus + " Flight Path", flightPathTip(), linkedB ? linkedWhy : rest.isNotEmpty() ? rest + atStereo : juce::String()));
+        const int path = b == 0 ? pathA : pathB;
+        auto& direction = *m_direction[b];
+        direction.setPath(path);
+        Theme::setLook(direction, linkedB ? Theme::Look::Linked : (restDirection.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
+        direction.setTooltip(tip(bus + " Direction", ParamIDs::directionTip, linkedB ? linkedWhy : restDirection));
+        auto& side = *m_side[b];
+        side.setPath(path);
+        const auto sideWhy = restSide(path);
+        Theme::setLook(side, linkedB ? Theme::Look::Linked : (sideWhy.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
+        side.setTooltip(tip(bus + " Side", ParamIDs::sideTip, linkedB ? linkedWhy : sideWhy));
     }
-    const auto restStow = rest.isNotEmpty() ? rest
-                                            : (fly ? juce::String() : juce::String("It rests: it is for Fly, Stowaway's own passes. The other modes do not fly."));
+    const juce::String notFly = "It rests: it is for Fly, Stowaway's own passes. The other modes do not fly.";
+    const auto restStow = rest.isNotEmpty() ? rest : (fly ? juce::String() : notFly);
     Theme::setLook(m_stowPath, restStow.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting);
     m_stowPath.setTooltip(tip("Stowaway Flight Path", "Where Fly's own passes go in a room: Across, Through, Overhead or Around, "
-                                                      "as a bus's Flight Path.", restStow));
+                                                      "as a bus's Flight Path. Stowaway is not part of Link.", restStow));
+    m_stowDirection->setPath(pathS);
+    const auto restStowWay = restDirection.isNotEmpty() ? restDirection : (fly ? juce::String() : notFly);
+    Theme::setLook(*m_stowDirection, restStowWay.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting);
+    m_stowDirection->setTooltip(tip("Stowaway Direction", ParamIDs::directionTip, restStowWay));
+    m_stowSide->setPath(pathS);
+    const auto restStowSide = ! fly && rest.isEmpty() ? notFly : restSide(pathS);
+    Theme::setLook(*m_stowSide, restStowSide.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting);
+    m_stowSide->setTooltip(tip("Stowaway Side", ParamIDs::sideTip, restStowSide));
 
     // The speaker meters, in Output; the plan of the room is the sea's own.
     m_speakerMeters->setWidth(width);
@@ -3609,6 +3750,108 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
     m_content.repaint(m_sections[0].bounds);
     m_content.repaint(m_sections[1].bounds);
     m_content.repaint(m_stowPanel);
+}
+
+void SwooshbucklerAudioProcessorEditor::showLinkedFlight()
+{
+    // Bus B with Link on flies bus A's passes: its Pass, Flight Path, Direction and Side show bus A's. Its own stay
+    // stored (the menus are let go of their parameters meanwhile) and come back when Link goes off.
+    auto& state = m_processor.getState();
+    const bool linked = state.getRawParameterValue(ParamIDs::linkBuses)->load() > 0.5f;
+    auto choice = [&state](const char* id) { return juce::roundToInt(state.getRawParameterValue(id)->load()); };
+    if (linked != m_flightLinked)
+    {
+        m_flightLinked = linked;
+        if (linked)
+        {
+            m_passModeAttachment[1].reset();
+            m_flightPathAttachment[1].reset();
+            for (auto* menu : { &m_passMode[1], &m_flightPath[1] })
+                menu->onChange = [this, menu]
+                {
+                    // A choice made here while linked changes nothing: say why, and show bus A's again.
+                    toast("Bus B flies bus A's passes while Link is on. Switch Link off to set bus B's own.");
+                    const auto* id = menu == &m_passMode[1] ? ParamIDs::passMode[0] : ParamIDs::flightPath[0];
+                    menu->setSelectedId(juce::roundToInt(m_processor.getState().getRawParameterValue(id)->load()) + 1, juce::dontSendNotification);
+                };
+        }
+        else
+        {
+            for (auto* menu : { &m_passMode[1], &m_flightPath[1] })
+                menu->onChange = nullptr;
+            m_passModeAttachment[1] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(state, ParamIDs::passMode[1], m_passMode[1]);
+            m_flightPathAttachment[1] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(state, ParamIDs::flightPath[1], m_flightPath[1]);
+        }
+    }
+    if (linked)
+    {
+        m_passMode[1].setSelectedId(choice(ParamIDs::passMode[0]) + 1, juce::dontSendNotification);
+        m_flightPath[1].setSelectedId(choice(ParamIDs::flightPath[0]) + 1, juce::dontSendNotification);
+    }
+    m_direction[1]->setShown(linked ? choice(ParamIDs::direction[0]) : -1);
+    m_side[1]->setShown(linked ? choice(ParamIDs::side[0]) : -1);
+}
+
+juce::AlertWindow* SwooshbucklerAudioProcessorEditor::makeSpeakersDialog(room::Width width)
+{
+    const auto last = m_processor.retroLabel();
+    auto* window = new juce::AlertWindow("Change Speakers?",
+                                         "The rig starts again in " + juce::String(room::layout(width).name) + ", and " + last
+                                             + " starts again empty: what it holds now cannot be saved afterwards.",
+                                         juce::MessageBoxIconType::NoIcon, this);
+    window->addButton("Save, Then Change", 2, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Change", 1);
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    return window;
+}
+
+void SwooshbucklerAudioProcessorEditor::changeSpeakers(room::Width width)
+{
+    // The app only (a host's track decides). A change starts the rig again at the new width, which empties the Last
+    // 60 s memory: when it holds something, ask first, with the way to keep it.
+    if (width == m_processor.getListening())
+        return;
+    auto apply = [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), width]
+    {
+        if (safe == nullptr)
+            return;
+        if (! safe->m_processor.setListening(width))
+            safe->toast("Click the tape to disarm it, then change Speakers");
+        safe->m_roomWidth.setSelectedId(static_cast<int>(safe->m_processor.getListening()) + 1, juce::dontSendNotification);
+        if (safe->m_settings.isVisible())
+            safe->m_settings.refresh();
+    };
+    if (! asksBeforeChangingSpeakers())
+    {
+        apply(); // armed and recording, the change is refused anyway (and says why)
+        return;
+    }
+    auto* window = makeSpeakersDialog(width);
+    window->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), apply](int result)
+        {
+            if (safe == nullptr || result == 0)
+                return;
+            if (result == 2)
+                safe->saveRetro();
+            apply();
+            safe->grabKeyboardFocus(); // the keys go back to the rig
+        }), true);
+}
+
+void SwooshbucklerAudioProcessorEditor::fixLfeFeed()
+{
+    // Discrete with nothing to play: Stowaway on, in Sub, as one step that Undo takes back.
+    EditHistory::Group group(m_processor.getHistory(), "Use Stowaway Sub");
+    if (auto* mode = m_processor.getState().getParameter(ParamIDs::stowMode))
+    {
+        mode->beginChangeGesture();
+        mode->setValueNotifyingHost(mode->convertTo0to1(static_cast<float>(ParamIDs::StowSub)));
+        mode->endChangeGesture();
+    }
+    m_processor.setStowawayOn(true);
+    toast(m_processor.hasTrackOnStowaway() ? juce::String("Stowaway is on in Sub: its Sub now plays in the LFE.")
+                                           : juce::String("Stowaway is on in Sub. Send it a track (a lane's bus tag) and its Sub plays in the LFE."));
 }
 
 
@@ -3645,7 +3888,7 @@ void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
         if (auto* knob = dynamic_cast<WheelKnob*>(it->second))
         {
             knob->setLinkColour(TC::busA);
-            knob->setLinkText("Linked To A");
+            knob->setLinkText("Linked to A");
         }
         Theme::setLook(*it->second, linked ? Theme::Look::Linked : Theme::Look::Normal);
     }
@@ -3661,13 +3904,26 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     const float dt = m_frameTime > 0.0 ? juce::jlimit(0.0f, Motion::c_maxStep, static_cast<float>(frameNow - m_frameTime))
                                        : 1.0f / 60.0f;
     m_frameTime = frameNow;
-    m_clock.tick(dt);
+    // While a panel covers the window (Settings, Takes, Render Variations, About) nothing under it moves: what
+    // shows through its dimming is a still picture, and nothing behind it repaints frame after frame. The panels
+    // keep their own timers, the header still counts takes and a batch's progress, and a toast still rises and fades.
+    const bool covered = isCovered();
+    if (covered != static_cast<bool>(m_content.getProperties().getWithDefault(Theme::coveredProperty, false)))
+    {
+        m_content.getProperties().set(Theme::coveredProperty, covered);
+        if (! covered)
+            m_content.repaint(); // everything as it is now
+    }
+    if (! covered)
+        m_clock.tick(dt);
 
     showLinkedKnobs();
+    showLinkedFlight();
     showAimControls();
-    showStowaway(dt);
+    showStowaway(covered ? 0.0f : dt); // (a plate easing open or shut waits for the panel to close)
     showRoom();
-    m_speakerMeters->step(dt);
+    if (! covered)
+        m_speakerMeters->step(dt);
     {
         // Peak Tremolo off: its knobs and menus rest (hollow), but stay usable so it can be set up before switching it on.
         const bool on = m_processor.getState().getRawParameterValue(ParamIDs::tremOn)->load() > 0.5f;
@@ -3684,7 +3940,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     }
     if ((++m_morphSyncTick % 6) == 0)
         syncMorphPad();
-    if ((m_morphSyncTick & 1) == 0)
+    if ((m_morphSyncTick & 1) == 0 && ! covered)
         m_rideStrip->step();
     {
         // Follow Master rests (hollow, still usable) until Auto Ride is on and a track is the Master.
@@ -3808,7 +4064,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
         }
 
     const float gate = m_processor.getEngine().getHitGate();
-    if (std::abs(gate - m_gate) > 0.01f)
+    if (! covered && std::abs(gate - m_gate) > 0.01f)
     {
         m_gate = gate;
         m_content.repaint(m_gateLamp.expanded(10));
@@ -3817,6 +4073,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
     // Meters. The processor hands over the deepest reduction and the highest level since the last look, so nothing
     // between two frames is missed; the fall-back and the peak holds run on the clock, not on frames or buffers.
+    if (! covered)
     {
         const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
         const float dt = static_cast<float>(juce::jlimit(0.0, 0.25, now - m_meterTime));

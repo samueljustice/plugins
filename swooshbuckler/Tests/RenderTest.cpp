@@ -7,8 +7,8 @@
 //   - The rig that is rendered from is left exactly as it was.
 //   - Cancelling part-way keeps the finished files and leaves nothing half-written.
 //   - Numbers carry on after the files a folder already has; the files follow the tape's format.
-//   - File names: Counter, Date And Time, Preset And Counter, Batch Name And Counter.
-//   - One File With Markers: one file, a marker named after each variation at its start, the gap between them,
+//   - File names: Counter, Date and Time, Preset and Counter, Batch Name and Counter.
+//   - One File with Markers: one file, a marker named after each variation at its start, the gap between them,
 //     the same sound as the separate files; Both; AIFF markers and FLAC comments; never written over.
 //   - Whole Ride: files of exactly the length asked for that do not start from silence, repeat and differ.
 //   - One Whoosh, My Settings, New Passes: ten whooshes whose loudest points and levels spread, each carrying on
@@ -554,7 +554,7 @@ namespace
             for (const auto& shape : held)
                 toRight += shape.leftToRight() ? 1 : 0;
             for (const auto& file : filesIn(heldFolder))
-                said += TapeRecorder::readDescription(file).contains(choice == 1 ? "This whoosh: Left To Right." : "This whoosh: Right To Left.") ? 1 : 0;
+                said += TapeRecorder::readDescription(file).contains(choice == 1 ? "This whoosh: Left to Right." : "This whoosh: Right to Left.") ? 1 : 0;
             check(held.size() == 8 && toRight == (choice == 1 ? 8 : 0) && said == 8,
                   juce::String("variety: with Direction on ") + Params::directionLabel(0, choice) + " every whoosh of a batch goes that way, and says so (" + juce::String(toRight) + " of 8 left to right)");
             direction->setValueNotifyingHost(direction->getDefaultValue());
@@ -738,7 +738,7 @@ int main(int argc, char* argv[])
                   "defaults: My Settings, New Passes");
             check(job.each == VariationRenderer::Each::OneWhoosh && job.names == VariationRenderer::Names::Counter
                       && job.files == VariationRenderer::Files::PerVariation && job.gapSeconds == 0.5 && job.rideSeconds == 10.0,
-                  "defaults: One Whoosh, Counter names, One File Per Variation, a gap of 0.5 s, rides of 10 s");
+                  "defaults: One Whoosh, Counter names, One File per Variation, a gap of 0.5 s, rides of 10 s");
             {
                 juce::StringArray words;
                 for (int i = 0; i < 3; ++i)
@@ -880,7 +880,7 @@ int main(int argc, char* argv[])
             check(VariationRenderer::planOf(job).firstName == "AB Take_001", "names: a typed name keeps only what a file name may have");
         }
 
-        // One File With Markers: every variation in one file, a marker with its name at the start of each, a gap between.
+        // One File with Markers: every variation in one file, a marker with its name at the start of each, a gap between.
         {
             using Files = VariationRenderer::Files;
             const auto separateFolder = out.getChildFile("one-separate"), oneFolder = out.getChildFile("one");

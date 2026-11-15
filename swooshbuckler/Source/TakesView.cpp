@@ -165,7 +165,8 @@ juce::String TakesView::getTooltip()
         case Zone::Star: return "Keep\nStarred takes stay in this list when it is full. Without a star, the oldest take leaves the list first; its file stays where it is.";
         case Zone::Show: return Theme::localiseShortcuts("Show\nShows this file in the Finder / Explorer.");
         case Zone::Bin:  return "Delete\nMoves this file to the system trash and takes it off the list.";
-        case Zone::Body: return Theme::localiseShortcuts("Take\nClick to hear it: it plays over the rig and is not recorded. Click again to stop. "
+        case Zone::Body: return Theme::localiseShortcuts("Take\nClick to hear it: it plays over the rig and is not recorded. A take wider than your speakers is folded "
+                                                         "down to them and held under the Ceiling. Click again to stop. "
                                                          "Drag it out to the Finder / Explorer, or straight onto a track in your DAW.");
         case Zone::None: break;
     }

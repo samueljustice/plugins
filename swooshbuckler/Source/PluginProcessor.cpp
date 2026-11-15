@@ -1973,7 +1973,7 @@ juce::String SwooshbucklerAudioProcessor::describeRoom(room::Width width) const
         auto* param = m_state.getParameter(id);
         return param != nullptr ? param->getCurrentValueAsText() : juce::String();
     };
-    // A Flight Path with the way and the side its passes are held to, where they are: "Through (Front To Back, Left)".
+    // A Flight Path with the way and the side its passes are held to, where they are: "Through (Front to Back, Left)".
     auto flight = [this, &text](const char* pathId, const char* directionId, const char* sideId)
     {
         auto choice = [this](const char* id) { return juce::roundToInt(m_state.getRawParameterValue(id)->load()); };
@@ -1987,7 +1987,8 @@ juce::String SwooshbucklerAudioProcessor::describeRoom(room::Width width) const
     };
     juce::String d;
     d << "Flight Paths A " << flight(ParamIDs::flightPath[0], ParamIDs::direction[0], ParamIDs::side[0])
-      << ", B " << flight(ParamIDs::flightPath[1], ParamIDs::direction[1], ParamIDs::side[1])
+      << ", B " << (m_raw.linkBuses != nullptr && m_raw.linkBuses->load() > 0.5f ? juce::String("as A (Link)")
+                                                                                 : flight(ParamIDs::flightPath[1], ParamIDs::direction[1], ParamIDs::side[1]))
       << ", Stowaway " << flight(ParamIDs::stowFlightPath, ParamIDs::stowDirection, ParamIDs::stowSide)
       << ". Spread " << text(ParamIDs::roomSpread) << ", Height " << text(ParamIDs::roomHeight) << ", Height Varies " << text(ParamIDs::roomHeightVaries)
       << ", Centre Speaker " << text(ParamIDs::roomCentre) << ", LFE " << text(ParamIDs::roomLfeMode);

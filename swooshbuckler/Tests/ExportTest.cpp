@@ -478,7 +478,7 @@ int main(int argc, char* argv[])
                   name + ": a Closest marker at the whoosh's loudest moment (" + (closest.empty() ? juce::String("none") : num(closest[0].frame / c_fs, 3) + " s")
                       + ", loudest 50 ms centred at " + num(peak / c_fs, 3) + " s), in every file of its set");
 
-            // One File With Markers: a named marker at the start of each variation, in every file of a set.
+            // One File with Markers: a named marker at the start of each variation, in every file of a set.
             const auto all = readFile(base.getChildFile("pt").getChildFile("Whoosh_All.wav"));
             const auto cues = TapeRecorder::readCues(base.getChildFile("pt").getChildFile("Whoosh_All.wav"));
             const auto gap = juce::roundToInt(0.25 * c_fs);
@@ -721,11 +721,11 @@ int main(int argc, char* argv[])
                 const double left = part(each, { "L", "Lss", "Lsr" }), right = part(each, { "R", "Rss", "Rsr" });
                 (left > right ? onLeft : onRight) += 1;
                 const auto text = TapeRecorder::readDescription(job.folder.getChildFile(stem + ".L.wav"));
-                const bool back = text.contains("This whoosh: Front To Back"), front = text.contains("This whoosh: Back To Front");
+                const bool back = text.contains("This whoosh: Front to Back"), front = text.contains("This whoosh: Back to Front");
                 toBack += back ? 1 : 0;
                 toFront += front ? 1 : 0;
                 // What the file says about itself is what is in it.
-                said += (back || front) && text.contains(left > right ? "To Front, Left." : "To Front, Right.") != text.contains(left > right ? "To Back, Left." : "To Back, Right.") ? 1 : 0;
+                said += (back || front) && text.contains(left > right ? "to Front, Left." : "to Front, Right.") != text.contains(left > right ? "to Back, Left." : "to Back, Right.") ? 1 : 0;
             }
             check(onLeft >= 2 && onRight >= 2 && toBack >= 2 && toFront >= 2,
                   "a batch of twelve Through whooshes at 7.1 passes on both sides (" + juce::String(onLeft) + " on the left, " + juce::String(onRight) + " on the right) and goes both ways ("
@@ -743,9 +743,9 @@ int main(int argc, char* argv[])
                 const auto stem = "Whoosh_" + juce::String(i).paddedLeft('0', 3);
                 auto each = shares(job.folder, W::Surround71, stem);
                 held += part(each, { "R", "Rss", "Rsr" }) > 2.0 * part(each, { "L", "Lss", "Lsr" })
-                        && TapeRecorder::readDescription(job.folder.getChildFile(stem + ".L.wav")).contains("This whoosh: Front To Back, Right.") ? 1 : 0;
+                        && TapeRecorder::readDescription(job.folder.getChildFile(stem + ".L.wav")).contains("This whoosh: Front to Back, Right.") ? 1 : 0;
             }
-            check(held == 6, "with Side on Right and Direction on Front To Back every whoosh of a batch passes on the right, front to back (" + juce::String(held) + " of 6)");
+            check(held == 6, "with Side on Right and Direction on Front to Back every whoosh of a batch passes on the right, front to back (" + juce::String(held) + " of 6)");
             rig.set(ParamIDs::side[0], 0.0f);
             rig.set(ParamIDs::direction[0], 0.0f);
             rig.set(ParamIDs::flightPath[0], 0.0f);

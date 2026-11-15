@@ -468,18 +468,18 @@ int main(int argc, char* argv[])
                 return AppAudio::dialogText(w, active, available).replaceCharacter(juce::juce_wchar(0x00a0), ' ');
             };
             check(text(W::Surround714, first(12), 12)
-                      == "Listening: 7.1.4, 12 outputs. The speakers play on these outputs: 1 L, 2 R, 3 C, 4 LFE, 5 Lss, 6 Rss, 7 Lsr, 8 Rsr, 9 Ltf, 10 Rtf, 11 Ltr, 12 Rtr.",
+                      == "Speakers: 7.1.4, 12 outputs. The speakers play on these outputs: 1 L, 2 R, 3 C, 4 LFE, 5 Lss, 6 Rss, 7 Lsr, 8 Rsr, 9 Ltf, 10 Rtf, 11 Ltr, 12 Rtr.",
                   "the dialog numbers 7.1.4's outputs in the same order");
             juce::BigInteger picked; // outputs 3, 4 and 9 to 12 of sixteen, switched on by hand
             picked.setRange(2, 2, true);
             picked.setRange(8, 4, true);
-            check(text(W::Surround51, picked, 16) == "Listening: 5.1, 6 outputs. The speakers play on these outputs: 3 L, 4 R, 9 C, 10 LFE, 11 Ls, 12 Rs.",
+            check(text(W::Surround51, picked, 16) == "Speakers: 5.1, 6 outputs. The speakers play on these outputs: 3 L, 4 R, 9 C, 10 LFE, 11 Ls, 12 Rs.",
                   "outputs picked by hand: the dialog names the outputs the speakers really play on");
             check(text(W::Surround51, first(2), 2)
-                      == "Listening: 5.1, 6 outputs. The speakers go out in this order, lowest output first: L R C LFE Ls Rs.\n"
+                      == "Speakers: 5.1, 6 outputs. The speakers go out in this order, lowest output first: L R C LFE Ls Rs.\n"
                          "Playing 5.1 folded to stereo: this audio device has 2 outputs. Switch on more outputs below, or choose a device that has them.",
                   "too few outputs: the dialog gives the order and says it is folded");
-            check(text(W::Mono, first(2), 2) == "Listening: Mono, one channel, played on the first two outputs switched on.", "the dialog for Mono");
+            check(text(W::Mono, first(2), 2) == "Speakers: Mono, one channel, played on the first two outputs switched on.", "the dialog for Mono");
         }
         check(Proc::listeningLine(W::Surround714, 2, 2)
                   == "Playing 7.1.4 folded to stereo: this audio device has 2 outputs. The tape and Render Variations still get all 12 channels.",

@@ -7,6 +7,7 @@
 #include "ModPanel.h"
 #include "MorphPad.h"
 #include "Motion.h"
+#include "PassSwitch.h"
 #include "PluginProcessor.h"
 #include "Presets.h"
 #include "SeaVisualiser.h"
@@ -34,15 +35,16 @@
  *   header : title | transport: follow host, play, new | presets: undo, redo, presets, A / B, randomise, its history, keep
  *            | tape: the tape, last 60 s, variations, takes | settings
  *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | the sea (what the rig sends out), with the
- *            room strip on its frame's foot: Room Width, Spread, Height, Centre Speaker, LFE Mode, LFE Level
+ *            room strip on its frame's foot: Speakers, Spread, Height, Height Varies, Centre Speaker, LFE Mode, LFE Level
  *   row 2  : RIDE | BUS A (aggressive)  ->  BUS B (smooth, ducked and filtered by A)
  *   row 3  : HITS (gated at the loudest moments; its knobs under bus A's)  ->  OUTPUT
  *   row 4  : STOWAWAY (the extra bus: a slim plate that opens to show its knobs) | MODULATION: four modulators;
  *            drag a jack onto any knob to wire it (MegaMod style)
  *
- * The room (Quad and wider): the strip under the sea lights up (at Mono and Stereo it rests, saying why), each
- * bus has its Flight Path at the left of its scope strip (Stowaway's, for Fly, in its open plate), the sea draws a
- * plan of the room, and Output gains a meter for every speaker under its four knobs.
+ * The room (Quad and wider): the strip under the sea lights up (at Mono and Stereo it rests, and a note in the sea
+ * says why), each bus has its Flight Path, Direction and Side at the left of its scope strip (Stowaway's, for Fly,
+ * in its open plate; folded, its note names them), the sea draws a plan of the room, and Output gains a meter for
+ * every speaker under its four knobs.
  *
  * One 12 px gutter between panels and around the window; bus A, bus B, the Hits and Stowaway share one knob column
  * pitch. Stowaway is optional, so its plate folds: folded it is its nameplate, switch, Mode and scope, and
@@ -187,7 +189,7 @@ private:
     private:
         SwooshbucklerAudioProcessorEditor& m_owner;
         ShortcutsList m_keysList;
-        juce::TextButton m_resetKeys { "Reset To Defaults" };
+        juce::TextButton m_resetKeys { "Reset to Defaults" };
         juce::Rectangle<int> m_keysCaption, m_keysHint;
         juce::TextButton m_choose { "Choose..." }, m_reveal { "Show" }, m_close { "Close" }, m_desktop { "Desktop" }, m_audio { "Audio Device..." };
         std::array<juce::TextButton, 3> m_types, m_bits;
@@ -203,7 +205,7 @@ private:
         juce::TextEditor m_name, m_creator;
         std::array<juce::TextButton, 2> m_nameStyles;
         std::array<juce::TextButton, 3> m_retroLengths;
-        // Listening (the app): what you are listening on, Mono to 7.1.4. In a host a read-out: the track decides.
+        // Speakers (the app): what you are listening on, Mono to 7.1.4. In a host a read-out: the track decides.
         std::array<juce::TextButton, room::c_numWidths> m_listen;
         juce::Rectangle<int> m_listenCaption, m_listenRow, m_listenLine;
         std::unique_ptr<juce::FileChooser> m_chooser;
@@ -268,6 +270,8 @@ private:
     /** The bottom row: Stowaway's plate as far open as it is now, and Modulation in the width that leaves. */
     void layoutBottomRow();
     void timerCallback() override;
+    /** A panel that covers the whole window is open (Settings, Takes, Render Variations, About). */
+    bool isCovered() const { return m_settings.isVisible() || m_takes.isVisible() || m_variations.isVisible() || m_about.isVisible(); }
 
     WheelKnob& addKnob(const char* paramId, const juce::String& caption, juce::Colour accent, const juce::String& tip);
     void toggleLog();
@@ -408,8 +412,9 @@ private:
     /** The frame's share of Stowaway: the plate easing open or shut, and its looks following the switch and Mode. */
     void showStowaway(float dt);
     static juce::String stowawayKnobTip(int control, int mode, bool on);
-    /** One line (or two) saying what Stowaway is right now: shown on the folded plate. */
-    static juce::String stowawayNote(int mode, bool on);
+    /** One line (or two) saying what Stowaway is right now: shown on the folded plate. Fly in a room names its
+        Flight Path and, when held to one, its way. */
+    juce::String stowawayNote(int mode, bool on) const;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_gateModeAttachment, m_duckModeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_takeTurnsAttachment;
     juce::Rectangle<int> m_gateModeLabel, m_duckModeLabel;
@@ -420,10 +425,12 @@ private:
     // A little waveform in each section's title bar: bus A, bus B, hits, output.
     std::array<std::unique_ptr<SectionScope>, 4> m_sectionScopes;
 
-    // The room (Quad and wider). The strip on the sea's foot: Room Width (the app's Listening, or in a host the
-    // track's width as a read-out), Spread, Height, Centre Speaker, LFE Mode, LFE Level. Flight Path at the left
-    // of each bus's scope strip, and Stowaway's (Fly) at the left of its open plate's. The speaker meters in Output.
-    // At Mono and Stereo all of it rests (still usable), each control's tooltip saying why.
+    // The room (Quad and wider). The strip on the sea's foot: Speakers (the app's menu, or in a host the track's
+    // width as plain lettering), Spread, Height, Height Varies, Centre Speaker, LFE Mode, LFE Level (or, while
+    // nothing feeds the LFE, a line saying so and the fix). Flight Path, Direction and Side at the left of each bus's
+    // scope strip, and Stowaway's (Fly) at the left of its open plate's. The speaker meters in Output. At Mono and
+    // Stereo it rests (still usable: Render Variations uses it for a room), a note in the sea saying so in place,
+    // each control's tooltip saying why from its first line.
     struct RoomStrip : public juce::Component, public juce::SettableTooltipClient
     {
         explicit RoomStrip(SwooshbucklerAudioProcessorEditor& o) : owner(o) {}
@@ -432,19 +439,42 @@ private:
     };
     RoomStrip m_roomStrip { *this };
     static constexpr int c_roomFootH = 48;   // the sea's foot: the strip's plate
-    juce::ComboBox m_roomWidth;              // the app: Mono .. 7.1.4 (Listening); hidden in a host
+    juce::ComboBox m_roomWidth;              // Speakers, in the app: Mono .. 7.1.4; hidden in a host
     juce::ToggleButton m_roomCentre;         // Centre Speaker, a switch that says On or Off
     juce::ComboBox m_lfeMode;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_roomCentreAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_lfeModeAttachment;
     juce::Rectangle<int> m_roomWidthCaption, m_roomWidthReadout, m_roomCentreCaption, m_lfeModeCaption;
+    // Nothing feeds the LFE (Discrete with no Sub to play): LFE Level makes way for a line saying so and, when a
+    // click can mend it, a button that does (Stowaway on, in Sub).
+    juce::TextButton m_lfeFix { "Use Stowaway Sub" };
+    juce::Rectangle<int> m_lfeCueCaption, m_lfeCueLine;
+    juce::String m_lfeCue;                   // the line under "Nothing Feeds the LFE" (empty: the LFE is fed or off)
+    void fixLfeFeed();
+    /** Speakers, in the app: changes what the rig plays in. When the Last 60 s memory holds something (a change
+        empties it) it asks first, offering to save it. */
+    void changeSpeakers(room::Width width);
+    /** Whether a change of Speakers asks first now: the memory holds something and the tape is not recording
+        (recording, the change is refused anyway, and says why). */
+    bool asksBeforeChangingSpeakers() const { return ! m_processor.isRecording() && m_processor.hasRetro(); }
+    /** That question, built and not yet shown (the caller owns it). */
+    juce::AlertWindow* makeSpeakersDialog(room::Width width);
     std::array<int, 2> m_roomRules {};       // the x of the rules between the strip's three groups
     std::array<juce::ComboBox, ParamIDs::numBuses> m_flightPath;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, ParamIDs::numBuses> m_flightPathAttachment;
     std::array<juce::Rectangle<int>, ParamIDs::numBuses> m_flightPathLabel;
     static constexpr int c_pathLabelW = 58, c_pathMenuW = 84; // "Flight Path", and its menu wide enough for "Overhead"
+    // Direction and Side beside each Flight Path (bus A, bus B, Stowaway): modulation targets, so they are in
+    // m_controls too.
+    std::array<std::unique_ptr<PassSwitch>, ParamIDs::numBuses> m_direction, m_side;
+    std::unique_ptr<PassSwitch> m_stowDirection, m_stowSide;
+    static constexpr int c_passSwitchW = 60;  // three keys of 20
     juce::ComboBox m_stowPath;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_stowPathAttachment;
+    /** Bus B while Link is on: its Pass, Flight Path, Direction and Side show bus A's (what B flies), and go back
+        to B's own when Link goes off. */
+    void showLinkedFlight();
+    bool m_flightLinked = false;
     juce::Rectangle<int> m_stowPathLabel;
     std::unique_ptr<SpeakerMeters> m_speakerMeters;
     juce::String m_roomShown;                // what the room's looks and tooltips were last set for
@@ -455,6 +485,8 @@ private:
     void layoutOutput(bool room);
     /** Why a room control rests now (empty: it is in use), for its tooltip. */
     juce::String roomRestReason(const juce::String& control) const;
+    /** The note the sea shows at Mono and Stereo in the plan's place (empty in a room). */
+    juce::String roomRestNote() const;
     static juce::String flightPathTip();
     void syncMorphPad();
     int m_morphSyncTick = 0;

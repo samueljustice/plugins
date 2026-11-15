@@ -169,6 +169,8 @@ private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override { refresh(); }
     void timerCallback() override { refresh(); }
     void refresh();
+    /** JUCE's captions in the app's own words and capitals. */
+    void relabel();
     void fit();
     int textHeight() const;
     static constexpr int c_margin = 18, c_title = 44, c_orderHeight = 34, c_warningHeight = 34, c_gap = 8, c_foot = 24;

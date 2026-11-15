@@ -319,6 +319,8 @@ public:
     double getRetroSecondsKept() const { return m_recorder.getRetroCapacitySeconds(); }
     /** The memory the saved last minutes have taken: none until the first Play, arm or sound. Message thread. */
     std::int64_t getRetroBytes() const { return m_recorder.getRetroBytes(); }
+    /** The Last 60 s memory holds something that a change of Speakers (a re-prepare at another width) would empty. */
+    bool hasRetro() const { return m_recorder.hasRetro(); }
     /** "Last 60 s", "Last 3 Min", or the real length when the memory cap holds less: "Last 55 s", "Last 3:42". */
     juce::String retroLabel() const;
     bool getAutoRecord() const;

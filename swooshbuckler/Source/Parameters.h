@@ -87,15 +87,15 @@ namespace ParamIDs
     inline constexpr int numLfeModes = 3;
     inline constexpr const char* lfeModeNames[numLfeModes] = { "Off", "Discrete", "Mixdown" };
     inline constexpr float lfeLevelMinDb = -40.0f, lfeLevelMaxDb = 0.0f;
-    inline constexpr float lfeLevelUnityDb = -10.0f; // a calibrated room plays the LFE 10 dB hotter: here it is as loud as a main speaker
+    inline constexpr float lfeLevelMainsDb = -10.0f; // a calibrated room plays the LFE 10 dB hotter: here it is as loud as a main speaker
     // Tooltips for the LFE controls (for the room strip).
     inline constexpr const char* lfeModeTip =
         "What plays from the LFE (the subwoofer channel). Off: nothing. Discrete: Stowaway's Sub, when Stowaway is "
         "on in Sub mode; it stays in the front speakers too, so nothing is lost without a subwoofer. Mixdown: the "
-        "low end of the whole mix. Either way only what is under 120 Hz. Only at 5.1 and wider.";
+        "low end of the whole mix, with nothing else to set up. Either way only what is under 120 Hz. Only at 5.1 and wider.";
     inline constexpr const char* lfeLevelTip =
-        "How loud the LFE is. At -10 dB (marked Unity) it plays as loud as the main speakers do in a calibrated "
-        "room, which turns the LFE up by 10 dB. Higher adds weight; 0 dB is 10 dB louder than the mains.";
+        "How loud the LFE is. At -10 dB (marked Mains, and by the tick on the knob) it plays in line with the main "
+        "speakers in a calibrated room, which turns the LFE up by 10 dB. Higher adds weight; 0 dB is 10 dB louder than the mains.";
 
     // Stowaway: one extra bus beside A and B. A Mode menu, and five knobs that keep their names and places in
     // every mode (what each does, and how it reads, follows the mode: see Params::stowText).
@@ -161,7 +161,7 @@ namespace ParamIDs
 namespace Params
 {
     /** What a Direction choice is called on a Flight Path (0 Across, 1 Through, 2 Overhead, 3 Around): "Random",
-        then "Left To Right" / "Right To Left", "Front To Back" / "Back To Front", "Clockwise" / "Anticlockwise". */
+        then "Left to Right" / "Right to Left", "Front to Back" / "Back to Front", "Clockwise" / "Anticlockwise". */
     inline const char* directionLabel(int path, int choice)
     {
         if (choice != ParamIDs::DirectionForwards && choice != ParamIDs::DirectionBackwards)
@@ -169,14 +169,14 @@ namespace Params
         const bool forwards = choice == ParamIDs::DirectionForwards;
         switch (path)
         {
-            case 0:  return forwards ? "Left To Right" : "Right To Left";
+            case 0:  return forwards ? "Left to Right" : "Right to Left";
             case 3:  return forwards ? "Clockwise" : "Anticlockwise";
-            default: return forwards ? "Front To Back" : "Back To Front";
+            default: return forwards ? "Front to Back" : "Back to Front";
         }
     }
 
     /** What a Side choice is called on a Flight Path: "Random", then "Left" / "Right" (Through, Overhead) or
-        "Loudest In Front" / "Loudest Behind" (Around). Across has no sides: nullptr. */
+        "Loudest in Front" / "Loudest Behind" (Around). Across has no sides: nullptr. */
     inline const char* sideLabel(int path, int choice)
     {
         if (path == 0)
@@ -184,7 +184,7 @@ namespace Params
         if (choice != ParamIDs::SideLeft && choice != ParamIDs::SideRight)
             return "Random";
         const bool first = choice == ParamIDs::SideLeft;
-        return path == 3 ? (first ? "Loudest In Front" : "Loudest Behind") : (first ? "Left" : "Right");
+        return path == 3 ? (first ? "Loudest in Front" : "Loudest Behind") : (first ? "Left" : "Right");
     }
 
     /** Track fader: 30 dB of travel in dB, the last 5% fading to silence. */
@@ -255,19 +255,20 @@ namespace Params
             return juce::String(juce::roundToInt(hz)) + " Hz";
         return (hz < 9950.0f ? juce::String(hz / 1000.0f, 1) : juce::String(juce::roundToInt(hz / 1000.0f))) + " kHz";
     }
-    /** How LFE Level reads: "-10.0 dB (Unity)" at the reference, so it is easy to find; "-18.5 dB" elsewhere. */
+    /** How LFE Level reads: "-10.0 dB (Mains)" at the reference (where the LFE plays in line with the main speakers in a
+        calibrated room), so it is easy to find; "-18.5 dB" elsewhere. */
     inline juce::String lfeLevelText(float db)
     {
         const float v = std::round(std::clamp(db, ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb) * 10.0f) / 10.0f;
         const juce::String text = juce::String(v, 1) + " dB";
-        return std::abs(v - ParamIDs::lfeLevelUnityDb) < 0.05f ? text + " (Unity)" : text;
+        return std::abs(v - ParamIDs::lfeLevelMainsDb) < 0.05f ? text + " (Mains)" : text;
     }
     /** What a typed LFE Level means. The level is never above 0 dB, so a number typed without its minus sign is
-        read as that many dB down ("10" is -10 dB, not a clamp to 0); "Unity" finds the reference. */
+        read as that many dB down ("10" is -10 dB, not a clamp to 0); "Mains" (or "Unity") finds the reference. */
     inline float lfeLevelFromText(const juce::String& text)
     {
-        if (text.containsIgnoreCase("unity"))
-            return ParamIDs::lfeLevelUnityDb;
+        if (text.containsIgnoreCase("mains") || text.containsIgnoreCase("unity"))
+            return ParamIDs::lfeLevelMainsDb;
         const float typed = text.retainCharacters("-.0123456789").getFloatValue();
         return juce::jlimit(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, -std::abs(typed));
     }
@@ -529,7 +530,7 @@ namespace Params
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::roomLfeMode, 5 }, "LFE Mode",
                                                           StringArray(ParamIDs::lfeModeNames, ParamIDs::numLfeModes), 0));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomLfeLevel, 5 }, "LFE Level",
-                                       NormalisableRange<float>(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, 0.1f), ParamIDs::lfeLevelUnityDb,
+                                       NormalisableRange<float>(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, 0.1f), ParamIDs::lfeLevelMainsDb,
                                        AudioParameterFloatAttributes().withLabel("dB")
                                            .withStringFromValueFunction([](float v, int) { return lfeLevelText(v); })
                                            .withValueFromStringFunction([](const String& t) { return lfeLevelFromText(t); })));

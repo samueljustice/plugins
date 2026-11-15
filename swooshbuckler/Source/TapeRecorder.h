@@ -211,6 +211,9 @@ public:
     void allocateRetroIfAsked();
     /** Whether the memory has been asked for (useRetro), or was never on demand. Any thread. */
     bool isRetroInUse() const { return m_retroInUse.load(); }
+    /** Whether the retro buffer holds anything: it has been written since it was last emptied (a re-prepare at
+        another width or rate, a change of its length). Any thread. */
+    bool hasRetro() const { return m_retroTotal.load() > 0; }
     /** The retro buffer's memory, in bytes (0 until it is taken). Message thread. */
     std::int64_t getRetroBytes() const;
 
