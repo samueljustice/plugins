@@ -415,9 +415,11 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName' \
-          | grep -E '^bundle-v' | grep -vxF "bundle-v$VERSION" \
-          | while read -r t; do
-              echo "Deleting $t"
-              gh release delete "$t" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
-            done
+        # Keep this installer and the one before it: a page someone still has open, or a cached copy, links to
+        # the previous files for a while, and those links must keep working.
+        old=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[].tagName' \
+                | { grep -E '^bundle-v' || true; } | { grep -vxF "bundle-v$VERSION" || true; } | tail -n +2)
+        for t in $old; do
+          echo "Deleting $t"
+          gh release delete "$t" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+        done

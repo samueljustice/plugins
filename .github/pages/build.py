@@ -266,8 +266,8 @@ page = f"""<!doctype html>
 
   <div class="get" id="get">
     <div class="buttons">
-      <a class="button fill" href="{html.escape(mac)}"><small>Get them all</small>Download for macOS</a>
-      <a class="button" href="{html.escape(win)}"><small>Get them all</small>Download for Windows</a>
+      <a class="button fill" id="get-mac" href="{html.escape(mac)}"><small>Get them all</small>Download for macOS</a>
+      <a class="button" id="get-win" href="{html.escape(win)}"><small>Get them all</small>Download for Windows</a>
     </div>
     <div>
       <ul class="inside">{inside_html}</ul>
@@ -298,6 +298,24 @@ page = f"""<!doctype html>
   <figure><img alt=""></figure>
   <div class="bar"><span class="caption"></span><span class="count"></span></div>
 </div>
+<script>
+// The download buttons carry the installer that was newest when this page was built. A new installer replaces
+// the old release, so ask GitHub for the newest one now and point the buttons at it (a page left open, or a
+// cached copy, would otherwise link to files that are gone). If the lookup fails the built-in links stay.
+(function () {{
+  if (!window.fetch) return;
+  fetch('https://api.github.com/repos/{repo}/releases/latest', {{ headers: {{ Accept: 'application/vnd.github+json' }} }})
+    .then(function (r) {{ return r.ok ? r.json() : null; }})
+    .then(function (release) {{
+      if (!release || !/^bundle-v/.test(release.tag_name || '')) return;
+      (release.assets || []).forEach(function (a) {{
+        if (/macOS\\.dmg$/.test(a.name)) document.getElementById('get-mac').href = a.browser_download_url;
+        if (/Windows-Installer\\.exe$/.test(a.name)) document.getElementById('get-win').href = a.browser_download_url;
+      }});
+    }})
+    .catch(function () {{}});
+}})();
+</script>
 <script>
 // Clicking a picture opens it here, with the rest of that plug-in's pictures to step through.
 (function () {{
