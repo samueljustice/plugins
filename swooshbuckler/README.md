@@ -2,7 +2,7 @@
 
 A whoosh-making rig. Drop in up to ten sounds, press play, and Swooshbuckler rides the faders across them so the layers swell, pass by and fall away. You get a steady stream of doppler passes, swells, hits and tails. Arm the tape and it records every one into a single file, skipping the silence. All that's left is to pick out the good ones.
 
-Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in (both platforms) and an Audio Unit (macOS).
+Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in (both platforms), an Audio Unit (macOS) and an AAX plug-in for Pro Tools. It plays in Mono, in Stereo, or in a surround room up to 7.1.4, with every pass flying through the room: see [Surround](#surround).
 
 <img src="docs/screenshot.png" width="1520" alt="Swooshbuckler">
 
@@ -22,6 +22,7 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
   - [Settings and recording](#settings-and-recording)
   - [About](#about)
 - [In a DAW](#in-a-daw)
+- [Surround](#surround)
 - [Presets and Randomise](#presets-and-randomise)
 - [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi)
 - [Tips](#tips)
@@ -212,6 +213,7 @@ The sea at the top right pictures what the rig is sending out. It is the largest
 - While the tape records, a blinking cherry lamp and the word **Rec** show in the corner. The time itself is on the tape's own button in the header, so there is one of it in the window.
 - **Click the water** for a short swell, and a ripple where you clicked. Holding Swell raises the swell itself.
 - With no sounds loaded the sea is calm, with one line telling you what to do.
+- **The room strip** along the foot of the sea holds the room's own controls: Room Width, Spread, Height, Centre Speaker, LFE Mode and LFE Level. At Mono and Stereo they rest; in a surround room they light up, and a plan of the room appears in the lower left of the water. See [Surround](#surround).
 - **Morph** (top right) shows or hides the [morph pad](#morph-pad). It reads **Morph On** in green while the morph is switched on.
 
 ### Morph pad
@@ -340,7 +342,7 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | Control | Default (A / B) | What it does |
 |---|---|---|
 | **Doppler** | 55% / 40% | How dramatic each pass is: how close it comes, how much it swells and brightens as it goes by, and (with Bend) how far its pitch bends. |
-| **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. When a pass is off to one side, the ear turned away from it hears it a little duller (only the top end, so a mono fold-down is as solid as without it). |
+| **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. When a pass is off to one side, the ear turned away from it hears it a little duller (only the top end, so a mono fold-down is as solid as without it). In a surround room: how much of its Flight Path a pass travels. |
 | **Bend** | 70% / 60% | How much the pitch bends as a pass goes by: it rises on the way in and drops as the pass goes by, like a real fly-by (the rise is the bigger of the two), up to a race-car scream and drop. It changes the pitch only: how the pass swells and brightens is set by Doppler. |
 | **Low End** | 35% / 30% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. The sub octave follows the lowest part of the sound (about 40 to 120 Hz) and holds still on noise, so it stays a note and not a rumble. |
 | **Swirl** | 30% / 30% | Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps as the passes come and go. Its level is matched, so it changes the colour, not the loudness. |
@@ -351,6 +353,7 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Pass** (in each title bar) | Bed / Bed | How the bus's two doppler passes follow each other. **Bed**: they overlap, one coming in as the other goes out, so the bus keeps a steady level. Best for beds, air and long energy files. The two are at different pitches while they overlap, which thickens noise and can sound like two notes on a tone. **Fly-By**: one pass at a time, with a long approach, the peak at its closest point and a shorter tail, so each sound is heard once and at one pitch. The level dips between passes (by about 10 dB) without going silent, and the passes are a little louder to make up for it, so a bus is about as loud in either mode. Best for a single clear whoosh, for tones, and for sounds with a sharp start. The passes peak at the same moments in both, so Aim, Link and the sea work the same, and switching mid-pass glides. With Link on, Bus B uses Bus A's Pass and its own menu is dimmed. |
 | **Link** (in B's title bar) | off | Bus B flies the same doppler passes as Bus A: at the same moment, as close, in the same direction, with A's Doppler, Width and Pass. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can bend more or less. While linked, B's own Doppler, Width and Pass show a chain link in Bus A's colour and can't be moved, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
 | **Take Turns** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount (at 0% Ducked it does nothing), so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
+| **Flight Path** (at the left of the bus's strip) | Across / Across | Where the bus's passes fly in a surround room: **Across**, **Through**, **Overhead** or **Around**. It rests at Mono and Stereo, where every pass flies across. With Link on, Bus B flies Bus A's path. See [Flight Paths](#flight-paths). |
 
 Ducked and Filtered are what Bus A does to Bus B, so they sit in a tinted group of their own at the right of Bus B, marked **From Bus A**. While Link is on, Bus B's Doppler and Width read **Linked To A** in place of their own values.
 
@@ -509,6 +512,8 @@ The last stage before your speakers and the tape. At its left is the **Peak Trem
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
 
+**In a surround room** Space, Inflate, Push and Ceiling move up to the top of the panel and a row of **speaker meters** appears under them, one for each speaker of the room. GR and Out stay where they are. See [The speaker meters](#the-speaker-meters).
+
 **How the limiter lets go.** A short over, such as a hit, is let go within a few hundredths of a second, so it doesn't leave a dip in the sound behind it. Reduction that lasts, such as a long loud swell or a heavy low end, is held steadily and let go over about a second, so the swell keeps its shape and the bass stays clean.
 
 ### Modulation
@@ -559,7 +564,9 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 | **File Type** | WAV / AIFF / FLAC (WAV) | FLAC is lossless and about half the size. Every type carries a description of how the take was made; WAV files also get markers (see [Recording](#recording)). |
 | **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. 16-Bit files are dithered, so quiet fades end in a faint steady hiss and not in grit. |
 | **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate, filtered so the extra high end is taken out cleanly and held to the Ceiling again. A note in the panel says which is happening. It can't be changed while the tape is armed. |
-| **Channels** | Stereo / Mono (Stereo) | Mono folds the output to one channel, for sounds you'll pan yourself. |
+| **Channels** | the room's width / Stereo / Mono (the room's width) | What the tape and Last 60 s write. The first button is the room as you hear it (**Stereo**, **5.1**, **7.1.4** and so on). **Stereo** is shown in a room wider than Stereo and folds it down to two channels as it records; **Mono** folds to one channel, for sounds you'll pan yourself. A fold is held under the Ceiling and says so in the file's description. See [Fold-downs](#fold-downs). |
+| **Channel Order** | Pro Tools (Film) / SMPTE / WAV (Pro Tools (Film)) | The order of the channels in a 5.1 or wider file. The line under it spells out the order you get. See [Channel Order](#channel-order). It rests below 5.1 and for Multi-Mono. |
+| **File Layout** | Interleaved / Multi-Mono (Interleaved) | One file that holds every channel, or one mono file per channel, named the Pro Tools way. See [Multi-Mono](#multi-mono). Channel Order and File Layout are one setting, shared with Render Variations. |
 | **Auto-Arm on Opening** | (off) | Arms the tape as soon as Swooshbuckler opens. So you never miss the first good take. |
 | **Skip Silence** | (on) | On: the armed tape leaves the quiet stretches out (see [Recording](#recording)). Off: the tape rolls all the time, for one continuous take. You can switch it during a take. |
 | **One File per Whoosh** | (off) | On: the armed tape closes its file each time a whoosh has ended and opens the next one for the next whoosh (see [Recording](#recording)). Off: one file for the whole take. Switching it while the tape is armed closes the open take and arms again. |
@@ -567,7 +574,8 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 | **Creator** | (empty) | Who made the recording, written into every file. Empty: Samuel Justice. |
 | **File Names** | Counter / Date and Time (Counter) | Counter: `Name_0001`, `Name_0002` and so on. Date and Time: `Name_2026-11-07_16-32-10`, good for single long takes. |
 | **Keep the Last** | 1 Minute / 3 Minutes / 5 Minutes (1 Minute) | How much the Last button can save after the fact. The sound is held in memory all the time: about 23 MB a minute at a 48 kHz recording rate, 46 MB at 96 kHz and 92 MB at 192 kHz, so 5 minutes at 192 kHz is about 460 MB. Changing it empties what is held. |
-| **Audio Device...** | | The app only: the audio output, sample rate and buffer size. |
+| **Listening** | Mono / Stereo / Quad / 5.1 / 7.1 / 7.1.2 / 7.1.4 (Stereo) | The app only: what you are listening on, which is the room the rig plays in. The same choice as Room Width on the room strip. The line under it says which output plays which speaker, or that the room is folded to stereo because the audio device has too few outputs. It can't be changed while the tape records. In a plug-in this row is a read-out: the track decides. See [Surround](#surround). |
+| **Audio Device...** | | The app only: the audio output, which of its outputs are switched on, the sample rate and buffer size. See [A multichannel interface in the app](#a-multichannel-interface-in-the-app). |
 | **Shortcuts** | | Down the right-hand side: every action with the key it has now. Click a row and press a key to change it. See [Changing the keys](#changing-the-keys). |
 
 #### Recording
@@ -578,10 +586,11 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 - **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the preset, and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags.
 - **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After Stop the tape keeps the whole tail, and once the rig has come to rest the tape stops rolling until the next Play. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
 - **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
-- **Last 60 s.** Swooshbuckler always keeps the last minute of output while it plays (or the last 3 or 5 minutes: **Keep the Last** in Settings, at the memory cost given there). Click Last 60 s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate and Channels.
+- **Last 60 s.** Swooshbuckler always keeps the last minute of output while it plays (or the last 3 or 5 minutes: **Keep the Last** in Settings, at the memory cost given there). Click Last 60 s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate, Channels, Channel Order and File Layout. In a wide room it holds at most 512 MB, which is about 58 seconds of 7.1.4 at 192 kHz or about 3 minutes 50 seconds at 48 kHz; the button then shows the real length ("Last 58 s").
 - **What's recorded** is the final output, after Space and the limiter: exactly what you hear.
 - **File names** look like `Jet Passes_0007.wav`: the Take Name from Settings (or the preset's name), then a four-digit counter. The counter carries on for as long as Swooshbuckler is open and never takes a number that a file in the folder already has. Set **File Names** to Date and Time for names like `Jet Passes_2026-11-07_16-32-10.wav`. Last 60 s files end in `_retro`.
-- File Type, Bit Depth, Sample Rate and Channels are fixed when you arm, so changes apply to the next take.
+- File Type, Bit Depth, Sample Rate, Channels, Channel Order and File Layout are fixed when you arm, so changes apply to the next take.
+- **In a surround room** the tape records every speaker of the room, LFE included, as you hear it. FLAC holds at most 8 channels in one file, so 7.1.2 and 7.1.4 in FLAC need Multi-Mono; Settings says so in red and the tape will not start until it is changed.
 
 #### Takes
 
@@ -594,6 +603,7 @@ Click **Takes** in the header (or a "Saved ..." message) to open the list of thi
 | Star | Keeps the take in the list. When the list is full the oldest take without a star leaves first. Leaving the list never deletes a file. |
 | Waveform and name | Click to hear the take; click again, or another take, to stop. It plays over whatever the rig is doing, after the tape, so it is never recorded. A line shows where it is. Drag the row out to the Finder or Explorer, or straight onto a track in your DAW, to copy the file there. |
 | Tag and length | What it is (Tape, Whoosh, Last 60s, Variation, or Variations for one file that holds a whole batch) and how long. A file that has been moved or deleted since reads Missing. |
+| Width | The take's width ("Stereo", "5.1", "7.1.4"), or "Stereo Fold" for a take folded down as it was recorded (its tooltip says from what). A Multi-Mono set is one take: it plays as one, drags out as all its files, and the bin takes all of them. A take wider than what you are listening on is folded down to play, held under the Ceiling. |
 | **Show** | Shows the file in the Finder or Explorer. |
 | Bin | Moves the file to the system trash and takes it off the list. |
 
@@ -617,6 +627,8 @@ The batch renders in the background, much faster than real time (on the machine 
 | **Batch** | **New Batch Every Time** (where it starts): every Render makes variations you have not had before. **Repeat Last Batch**: the same variations as the last batch again, sample for sample (16-bit files differ only in their dither), as long as your settings and sounds are the same: handy for the same whooshes in another file type, or with one knob changed. **Repeat Batch...** lists the last six batches by name, date and time. Repeating a batch also sets How Many, What Each File Is, Length and What Varies back to what that batch had. |
 | **File Names** | What the files are called: **Counter** (where it starts: `Whoosh_001`, after the Take Name from Settings, or the preset's), **Date And Time** (`Whoosh_2026-11-13_1432_001`), **Preset And Counter** (`Jet Passes_001`) or **Batch Name And Counter** (a name you type in **Batch Name**: `Dragon Wings_001`; typing a name there chooses this for you). A batch that reaches 1000 gets four digits. The line under the folder shows what the first file will be called. Nothing is ever written over: numbers carry on after the files already in the folder. |
 | **Files** | **One File Per Variation** (where it starts), **One File With Markers**: every variation in one long file (`<name>_All`, or `<name>_All_2` and so on if that is taken), with a marker at the start of each named after the variation and **Gap** seconds of silence between them (0.5 s to start, up to 10 s), or **Both**. WAV files get cue points with labels and AIFF files markers, which DAWs and editors show; FLAC has no markers, so there the names and times are written into the file's comments. A WAV or AIFF file has no room for markers at 4 GB or more, so a long file that big is not started (FLAC has no such limit). In [Takes](#takes) the long file is one take. |
+| **Width** | The room the variations are rendered in, from Mono to 7.1.4. Each file is made at that width from the start, whatever your track or audio device is, so the same batch can be had in Mono, Stereo, 5.1 and 7.1.4. It starts at the width the rig plays at. |
+| **Channel Order** and **File Layout** | The same setting as in Settings: see [Channel Order](#channel-order) and [Multi-Mono](#multi-mono). The line under them spells out the order, or the file endings, you get. |
 | **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays. |
 | **Render** | Starts the batch. |
 | **Cancel** | Stops it. The files already made are kept, and the long file is closed with the variations it has; the one in hand is dropped, so nothing half-written is left. |
@@ -627,7 +639,7 @@ Before you press Render the panel says what you will get: the first file's name 
 
 While a batch renders the panel shows a progress bar with the percentage, which variation it is on ("37 of 100" and its name) and roughly how long is left. You can close the panel; the header button keeps showing the percentage, and the status line says when the batch is done. When it has finished the panel says what was made and where, with the batch's number in small print underneath.
 
-The file type, bit depth, sample rate and mono or stereo are the tape's, from Settings. Every file carries a description: which variation of which batch it is, the batch's number, and the value of every control it was made with, so a favourite can be dialled in again by hand.
+The file type, bit depth and sample rate are the tape's, from Settings; the width is the panel's own. A batch is rendered in memory before it is written, so a long Whole Ride at 7.1.4 and 192 kHz takes a lot of it (about 1.1 GB for a 120 second file). Every file carries a description: which variation of which batch it is, the batch's number, and the value of every control it was made with, so a favourite can be dialled in again by hand.
 
 If the rig has nothing to play (no samples loaded and every lane muted, say) the batch stops with a message and writes no files.
 
@@ -658,7 +670,8 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 ## In a DAW
 
-- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3 or AU), then open the window and drop your sounds in.
+- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3, AU, or AAX in Pro Tools), then open the window and drop your sounds in.
+- **The track's width is the room's.** On a mono track it plays Mono, on a stereo track Stereo, and on a Quad, 5.1, 7.1, 7.1.2 or 7.1.4 track it plays in that surround room. See [Surround](#surround).
 - **Follow Host** (in the header, on by default) starts and stops the rig with the transport. Every start begins the ride from the same place, so a bounce of the same project is the same every time, including the modulators and the morph's Wander.
 - **The tail is bounced too.** Swooshbuckler tells the host its tail can last up to 6.5 seconds, so a bounce or a freeze that respects plug-in tails keeps the ring-out after the transport stops.
 - **Play is a parameter.** Automate it to start and stop the rig at exact places, with Follow Host on or off.
@@ -668,6 +681,174 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 - **Where recordings go**: the tape, Last 60 s and Render Variations write files to the folder set in [Settings](#settings-and-recording) (the Desktop unless you change it), not into the DAW project. Drag a take from **Takes** straight onto a DAW track. The plug-in's output is also just audio on the track: bounce or record it there as you would any instrument.
 - **Keys**: the single-key shortcuts work while the Swooshbuckler window has the keyboard (click in it first). Some hosts keep keys such as the space bar and Return for their own transport.
 - Follow Host, the play state, Keys and Throw Length are saved with the project. The settings in Settings, and learned MIDI controllers, are shared by every project and the app.
+
+## Surround
+
+Swooshbuckler plays in a room of speakers as well as in stereo. In a surround room every pass, throw and hit is a sound with a place in the room, and the passes really travel: from one side to the other in front of you, from the front to the back past you, up over your head, or once round you. This is the thing a panner can't do quickly by hand: each pass flies its own way, with its doppler, its swell and its brightness all following where it is.
+
+### The widths
+
+| Width | Speakers |
+|---|---|
+| **Mono** | C |
+| **Stereo** | L R |
+| **Quad** | L R Ls Rs |
+| **5.1** | L C R Ls Rs, LFE |
+| **7.1** | L C R, the sides Lss Rss, the rears Lsr Rsr, LFE |
+| **7.1.2** | 7.1 and two speakers overhead, Ltm Rtm |
+| **7.1.4** | 7.1 and four speakers overhead, Ltf Rtf (front) and Ltr Rtr (rear) |
+
+**Mono and Stereo** are the stereo rig as it always was, with the ear delays and the shading of the ear turned away; Mono is its mono render. The room's controls rest there, and their tooltips say why. **Quad and wider** are rooms: the passes fly through them as below. 7.1.2 is the widest Dolby Atmos bed, so use it (or 5.1 or 7.1) for a track that feeds an Atmos bed; a 7.1.4 track can't.
+
+**Choosing the width.** In a DAW the track decides: the room is the width of the track the plug-in sits on, and the room strip shows it with **From Track** beside it. To change it, change the track (in Pro Tools, make an instrument track of that format). In the app, **Room Width** on the room strip and **Listening** in Settings are the same choice: what you are listening on, Stereo when the app is new and remembered after that. It can't be changed while the tape records, and changing it empties what Last 60 s was holding.
+
+### The room strip
+
+<img src="docs/images/room-strip.png" width="652" alt="The room strip at 7.1.4">
+
+Along the foot of the sea. Every control on it is a host parameter, so it can be automated; Spread and Height can be wired to the modulators too. They belong to your session: presets, Randomise and the dice leave them alone.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Room Width** | Mono to 7.1.4 (Stereo) | The app: what you are listening on. A plug-in: a read-out of the track's width. |
+| **Spread** | 0–100% (0%) | How far each sound spreads into the other speakers. At 0% a pass is heard where it is; at 100% it fills the room, still leaning towards where it is. Passes close to you spread a little more on their own, so a pass going by is never a hard jump from one speaker to the next. |
+| **Height** | 0–100% (100%) | How high the sounds go: how much of a pass going Overhead, and of Space, reaches the speakers overhead. At 0% everything stays at ear level. It works at 7.1.2 and 7.1.4 and rests at the other widths. |
+| **Centre Speaker** | Off / On (Off) | Off: a sound in the middle comes from left and right together, so the centre speaker stays clear for dialogue. On: the centre speaker plays it. Switching glides, with no click. From 5.1 up. |
+| **LFE Mode** | Off / Discrete / Mixdown (Off) | What plays from the LFE, the subwoofer channel. See [The LFE](#the-lfe). From 5.1 up. |
+| **LFE Level** | −40 to 0 dB (−10 dB, marked Unity) | How loud the LFE is. It rests while LFE Mode is Off. |
+
+### Flight Paths
+
+Each bus has a **Flight Path** menu at the left of its strip, and Stowaway has one of its own in its open plate, for its passes in Fly. The bus's **Width** knob is how much of the path a pass travels.
+
+| Flight Path | Where the passes go |
+|---|---|
+| **Across** (the default) | From one side to the other, in front of you. A closer pass comes nearer to you. |
+| **Through** | From the front to the back, past you, off to one side. |
+| **Overhead** | Up over your head, from the front to behind you. The speakers overhead carry it at 7.1.2 and 7.1.4; in a room without them it is heard at ear level. |
+| **Around** | Once round you, at the same distance all the way. A pass is at its loudest halfway round, which is behind you. |
+
+Each pass picks its own direction (left to right or right to left, front to back or back to front). Changing the path glides over a quarter of a second. With **Link** on, Bus B flies Bus A's passes on Bus A's path, and its menu shows the chain link. **Randomise** and the bus dice roll the paths.
+
+**Everything else in the room.** The hits play in front: in the middle (between left and right, or from the centre speaker with Centre Speaker on), or, with **Aim**, where the pass they are aimed at is closest. A thrown whoosh flies the bus's path like a pass. Stowaway in **Sub** stays in the middle in front, in **Wake** trails Bus A's pass on its path, in **Fly** flies its own Flight Path, and in **Dry** stays in front, untouched. A stereo bed on Bus B keeps its width, spread over the speakers on each side by Spread.
+
+### Space in the room
+
+[Space](#output)'s reverb comes back from every speaker of the room, a little different from each, so the room sounds like a room and not like two speakers. It leans towards where the sound has been over the last moment or so, half of it spread evenly; the speakers overhead get their share by Height, the centre speaker only with Centre Speaker on, and the LFE none. Space's echoes stay in front, in L and R.
+
+### The LFE
+
+| LFE Mode | What plays from the LFE |
+|---|---|
+| **Off** (the default) | Nothing, for mixers who make their own LFE. |
+| **Discrete** | Stowaway's Sub, while Stowaway is on in Sub mode. It stays in the front speakers as well, so nothing is lost without a subwoofer, or in a narrower fold. |
+| **Mixdown** | The low end of the whole mix. |
+
+Either way only what is under 120 Hz plays, through a steep filter, and the main speakers are given the same delay in the low end, so the LFE and the mains stay in step.
+
+**LFE Level and the reference level.** A calibrated room plays the LFE 10 dB louder than a main speaker. So at **−10 dB**, the mark on the knob labelled **Unity**, the LFE is as loud as the main speakers; higher adds weight, and 0 dB is 10 dB over the mains. A number typed into the knob is read as dB down ("10" is −10 dB). In Discrete at Unity, a room that sends the low end of every speaker to the subwoofer hears the sub about 3.5 dB fuller than without the LFE, because the LFE and the front speakers both carry it, in phase.
+
+The LFE has its own limiter, so a loud sub never pulls the rest of the room down. Inflate is not used on it (it would add sound above the filter); Push is, so it keeps its balance with the mains.
+
+### The output stage in a room
+
+Inflate, Push, the limiter and its Ceiling work the same at every width. Each side of the room is treated as the stereo channel it stands in for, so a pass gets the same Inflate and the same limiting in 7.1.4 as in Stereo. The limiter uses one gain for all the main speakers, holds every speaker under the Ceiling, and the LFE has its own. A sound spread over several speakers reaches the Ceiling as their sum, so each of those speakers' own peaks sit a little under it: watch GR to see the limiter working. Trim, Master Trim and Peak Tremolo act on every speaker alike. With the same settings a room is as loud as Stereo; a loudness meter that weights the surrounds as the broadcast standard does reads up to about 1 dB more.
+
+### The speaker meters
+
+<img src="docs/images/output-room.png" width="604" alt="Output at 7.1.4 with the speaker meters">
+
+In a room Output shows a meter for each speaker, on the same scale as Out, each with its name under it and a line holding its recent peak: the front speakers L C R first, then the surrounds, then the speakers overhead, and the LFE last, in green, with a small bar beside it for its own limiter. A speaker that plays nothing (the centre with Centre Speaker off, the LFE with LFE Mode Off) stays dark.
+
+### The room on the sea
+
+<img src="docs/images/sea-room.png" width="652" alt="The sea at 7.1.4, passes flying Overhead">
+
+In a room the comets fly where the passes are: the front of the room is out towards the horizon and the back near the ship, and a pass high up flies high. In the lower left of the water a plan of the room shows it from above:
+
+<img src="docs/images/room-plan.png" width="131" alt="The plan of the room">
+
+- **The ship's hull** in the middle is you.
+- **A lamp for each speaker** on the walls, lighting with what it plays. The speakers overhead are on the inner square (7.1.2 and 7.1.4), and the LFE is the square green lamp under the room.
+- **A dot for each sound**, with a short trail: the passes in their bus's colour, throws in brass, the hits in cherry and Stowaway in kelp green. A sound higher up is drawn nearer the middle.
+
+### Exporting at any width
+
+- **The tape and Last 60 s** record the room as you hear it, every speaker and the LFE. **Channels** in Settings can fold it down to Stereo or Mono as it records: see [Fold-downs](#fold-downs).
+- **Render Variations** has a **Width** of its own and renders each file at that width from the start, whatever your track or audio device is: the way to get the same batch in Mono, Stereo, 5.1 and 7.1.4. See [Render Variations](#render-variations).
+- **WAV, AIFF and FLAC** all work. FLAC holds at most 8 channels in one file, so 7.1.2 and 7.1.4 in FLAC need Multi-Mono. A WAV in the SMPTE / WAV order carries the speaker positions in its header; every file names its channels in its description (iXML in a WAV, the comment in an AIFF, the CHANNELS tag in a FLAC).
+
+#### Channel Order
+
+For 5.1 and wider files, in Settings and in Render Variations (one setting, shared). The line under it spells out the order you get, so nobody has to remember it.
+
+| Width | **Pro Tools (Film)** (the default): the order of a Pro Tools track | **SMPTE / WAV**: the order most other programs read |
+|---|---|---|
+| 5.1 | L C R Ls Rs LFE | L R C LFE Ls Rs |
+| 7.1 | L C R Lss Rss Lsr Rsr LFE | L R C LFE Lsr Rsr Lss Rss |
+| 7.1.2 | L C R Lss Rss Lsr Rsr LFE Ltm Rtm | L R C LFE Lsr Rsr Lss Rss Ltm Rtm |
+| 7.1.4 | L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr | L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr |
+
+Stereo is L R and Quad L R Ls Rs in both. A WAV in the Pro Tools (Film) order can't carry speaker positions in its header (no position list in the WAV format describes that order), so it has none, and only its description names its channels.
+
+#### Multi-Mono
+
+**Multi-Mono** writes one mono file per speaker, each ending with its speaker the Pro Tools way, so Pro Tools takes a set in as one clip: `Whoosh_0001.L.wav`, `Whoosh_0001.C.wav` and so on.
+
+| Width | File endings |
+|---|---|
+| Stereo | .L .R |
+| Quad | .L .R .Ls .Rs |
+| 5.1 | .L .C .R .Ls .Rs .LFE |
+| 7.1 | .L .C .R .Lss .Rss .Lsr .Rsr .LFE |
+| 7.1.2 | the 7.1 endings and .Ltm .Rtm |
+| 7.1.4 | the 7.1 endings and .Ltf .Rtf .Ltr .Rtr |
+
+Mono is one file with no ending. A set has no order of its own, so Channel Order rests for Multi-Mono. In Takes a set is one take.
+
+### Fold-downs
+
+A fold-down plays or writes a room on fewer speakers by mixing them together. Swooshbuckler folds one step at a time, each step turning the speakers it joins down 3 dB:
+
+- 7.1.4 to 7.1.2: the front and rear overhead speakers of each side join into one.
+- The speakers overhead to 7.1: the front ones into L and R, the rear ones into the rear surrounds, Ltm and Rtm into the sides.
+- 7.1 to 5.1: each side's side and rear surround into Ls or Rs.
+- 5.1 to Quad: the centre into L and R.
+- Quad to Stereo: Ls into L, Rs into R. So 5.1 to Stereo is the usual broadcast fold.
+- Stereo to Mono: half of L and R together. Mono from a room always goes by way of Stereo.
+
+The LFE is left out of a fold to a width without one: in Discrete the sub is in the front speakers already, and in Mixdown it is made from them. Folds happen when the tape writes **Stereo** or **Mono** from a wider room, when the app plays a room on an audio device with too few outputs, and when Takes plays a wider take than you are listening on. Every fold you hear or write is held under the Ceiling, and a folded file says in its description what it was folded from ("Folded down from 7.1.4 to Stereo, held under the Ceiling.").
+
+**What it cannot do**
+
+- **A surround take folded to stereo will not match the stereo render.** Stereo has the ear delays and the shading of the ear turned away; the room doesn't, and the fold steps leave the reverb about 2 dB quieter. For stereo files, render at Stereo with Render Variations.
+- **A narrow take cannot be made wider.** A Stereo take stays Stereo; render the room with Render Variations at the width you want.
+- **It is channel-based only:** no Dolby Atmos objects, no ADM metadata, no binaural or Ambisonics. The four Flight Paths are fixed; there are no drawn paths.
+- A sound in one speaker loses 3 dB at each fold step it goes through: a sound in one overhead speaker of 7.1.2 is 9 dB down in Stereo.
+
+### Pro Tools and other hosts
+
+Pro Tools (AAX) is the host surround is made for. Make an **instrument track** of the width you want (mono, stereo, quad, 5.1, 7.1, 7.1.2 or 7.1.4) and insert Swooshbuckler on it: each width is a plug-in of its own to Pro Tools, so it is offered on every one of those tracks. The VST3 and the AU offer the same seven widths, so other hosts that give an instrument a surround track can use them too, but surround is only checked in Pro Tools.
+
+### A multichannel interface in the app
+
+1. Open **Settings** and choose what you are listening on in **Listening** (or Room Width on the room strip).
+2. Click **Audio Device...**, choose the interface, and switch on its outputs for the room's speakers. The dialog shows each speaker with the output number it will play from. Swooshbuckler switches on as many as the room needs when you choose a new device; outputs you switched off by hand stay off.
+3. The speakers go to the outputs that are switched on, lowest first, in this order:
+
+| Width | Outputs in turn |
+|---|---|
+| Mono | the same sound on 1 and 2 |
+| Stereo | L R |
+| Quad | L R Ls Rs |
+| 5.1 | L R C LFE Ls Rs |
+| 7.1 | L R C LFE Lss Rss Lsr Rsr |
+| 7.1.2 | L R C LFE Lss Rss Lsr Rsr Ltm Rtm |
+| 7.1.4 | L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr |
+
+That is the usual wiring of a 5.1, 7.1 or Atmos monitoring room, so most rooms need nothing more. A room wired another way is re-routed in the interface's own mixer. Settings spells the order out too.
+
+If the device has fewer outputs switched on than the room has speakers, you hear the room folded down to stereo on the first two outputs, held under the Ceiling, and Settings and the status line say so in brass. The tape and Render Variations still get every speaker.
 
 ## Presets and Randomise
 

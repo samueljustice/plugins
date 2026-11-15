@@ -113,7 +113,10 @@ target_sources(Swooshbuckler
 target_include_directories(Swooshbuckler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 # Our own standalone app (Source/StandaloneApp.cpp): a normal native window without JUCE's Options bar.
-target_sources(Swooshbuckler_Standalone PRIVATE Source/StandaloneApp.cpp)
+# (Only when the app is one of the formats: -DSWOOSHBUCKLER_FORMATS="VST3;AU" builds without it.)
+if(TARGET Swooshbuckler_Standalone)
+    target_sources(Swooshbuckler_Standalone PRIVATE Source/StandaloneApp.cpp)
+endif()
 
 target_compile_definitions(Swooshbuckler
     PUBLIC

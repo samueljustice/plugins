@@ -55,7 +55,8 @@
 // --docs writes, instead of all of the above, exactly the pictures the manual uses, under the names it uses
 // (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
 // bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
-// cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png). Run it as
+// cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png, and for surround room-strip.png,
+// output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
@@ -275,6 +276,53 @@ namespace
                 ed.syncMorphPad();
                 ed.m_morphPad.ropesMoved();
                 rig.run(0.2);
+            }
+
+            // Surround: the track made 7.1.4 (as a host would), Centre Speaker on, the LFE on Mixdown and a little
+            // Spread, so every lamp and meter has something to show. The room strip, Output with the speaker
+            // meters, and the sea with its plan of the room while the passes fly Overhead; then back to Stereo.
+            {
+                auto widen = [&](room::Width width)
+                {
+                    auto layout = proc.getBusesLayout();
+                    layout.outputBuses.getReference(0) = room::channelSet(width);
+                    proc.setBusesLayout(layout);
+                    proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+                    rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+                };
+                auto set = [&](const char* id, float plain)
+                {
+                    auto* param = proc.getState().getParameter(id);
+                    param->setValueNotifyingHost(param->convertTo0to1(plain));
+                };
+                auto paths = [&](int path)
+                {
+                    for (auto* id : ParamIDs::flightPath)
+                        set(id, static_cast<float>(path));
+                };
+                widen(room::Width::Surround714);
+                set(ParamIDs::roomCentre, 1.0f);
+                set(ParamIDs::roomLfeMode, static_cast<float>(ParamIDs::numLfeModes - 1)); // Mixdown: the LFE meter moves
+                set(ParamIDs::roomSpread, 0.25f);
+                paths(0);
+                rig.run(3.0);
+                {
+                    const auto window = shots.shoot("window-room");
+                    shots.crop(window, "room-strip", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    shots.crop(window, "output-room", ed.m_sections[3].bounds, 2);
+                }
+                paths(2); // Overhead: the tops light on the plan
+                rig.run(2.4);
+                {
+                    const auto window = shots.shoot("window-room-overhead");
+                    shots.crop(window, "sea-room", ed.m_sea.getBounds(), 2);
+                    shots.crop(window, "room-plan", ed.m_content.getLocalArea(&ed.m_sea, ed.m_sea.roomPlanArea().getSmallestIntegerContainer()), 6);
+                }
+                for (auto* id : { ParamIDs::roomCentre, ParamIDs::roomLfeMode, ParamIDs::roomSpread })
+                    proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                paths(0);
+                widen(room::Width::Stereo);
+                rig.run(0.5);
             }
 
             // Three wires with the cables showing: the Linked, Resting and Disabled looks, as the manual describes.

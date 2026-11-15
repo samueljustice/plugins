@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Surround, up to 7.1.4
+
+- **Seven widths: Mono, Stereo, Quad, 5.1, 7.1, 7.1.2 and 7.1.4.** Mono and Stereo are the stereo rig as before. From Quad up the rig plays in a room, and every pass, throw and hit is a sound with a place in it.
+- **The passes fly through the room.** Each bus has a **Flight Path**: **Across** (side to side in front of you), **Through** (front to back, past you), **Overhead** (up over your head) or **Around** (once round you). Each pass picks its own direction, and the bus's Width is how much of the path it travels. Stowaway's Fly has a Flight Path of its own. Randomise and the dice roll the paths.
+- **In a host the track decides the width**: put Swooshbuckler on a 5.1 instrument track and it plays 5.1. Pro Tools (AAX) is the host it is made for; the VST3 and the AU offer the same widths.
+- **In the app, Listening in Settings chooses it** (and Room Width on the room strip, the same choice), Stereo to start with. The Audio Device dialog shows which output plays which speaker. With fewer outputs than the room has speakers you hear a stereo fold, held under the Ceiling, and Settings and the status line say so.
+- **A room strip along the foot of the sea**: Room Width, **Spread** (how far each sound spreads into the other speakers), **Height** (how much reaches the speakers overhead), **Centre Speaker** (Off to start with, so the centre stays clear for dialogue), **LFE Mode** and **LFE Level**. They rest at Mono and Stereo, and say why.
+- **The LFE: Off, Discrete or Mixdown.** Off to start with. Discrete plays Stowaway's Sub and keeps it in the front speakers too; Mixdown plays the low end of the whole mix. Only what is under 120 Hz, with its own limiter. LFE Level is marked at Unity, −10 dB, where the LFE is as loud as the main speakers in a calibrated room.
+- **Space fills the room.** Its reverb comes back from every speaker, leaning towards where the sound has been, and from the speakers overhead by Height.
+- **The output stage works the same at every width.** Inflate, Push and the limiter treat each side of the room as the stereo channel it stands for, so a pass gets the same character in 7.1.4 as in Stereo. One limiter gain holds every speaker under the Ceiling, and the LFE has a limiter of its own.
+- **Speaker meters and a plan of the room.** In a room Output shows a meter for every speaker, the LFE last with its own limiter bar, and the sea shows a plan of the room from above, with a lamp for each speaker and a dot for each sound. The comets fly where the passes are.
+- **Files at any width.** The tape and Last 60 s record every speaker; Settings can fold them to Stereo or Mono as they record, and a folded file says so. Render Variations has a **Width** of its own and renders straight at any width. **Channel Order** for 5.1 and wider, Pro Tools (Film) to start with or SMPTE / WAV, with a line that spells out the order you get. **Multi-Mono** writes one file per speaker, ending .L .C .R .Ls .Rs .LFE and so on, which Pro Tools takes in as one clip, and Takes shows a set as one take.
+- **Fold-downs** use fixed mixes, a step at a time, and every fold you hear or write is held under the Ceiling.
+
+### Other changes
+
 - **A calmer sea.** The lines of the sea stay where they are and only the waves travel along them, more slowly than before. The lines used to slide away to the horizon all the time, which made the whole picture rush backwards.
 - **Render Variations: just type a name.** The Batch Name box is always there to type in, and typing a name sets File Names to Batch Name And Counter for you.
 - **Render Variations: every whoosh is a whoosh of its own.** With My Settings, New Passes your settings stay exactly as they are, and each whoosh of a batch carries on through your sounds from where the last one stopped, the way the rig does when you press Throw several times in a row. The first starts at each track's flag. Whole Ride files carry on from one to the next in the same way.
