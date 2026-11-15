@@ -1008,7 +1008,60 @@ namespace detail
     }
 } // namespace detail
 
+namespace
+{
+    SfxAnalysis analyseSounding(const float* mono, int numSamples, double sampleRate, SfxMethod method);
+}
+
 SfxAnalysis analyseSfx(const float* mono, int numSamples, double sampleRate, SfxMethod method)
+{
+    // A selection often starts before the sound does, or runs on after it. Silence has no pitch,
+    // and counted in, it would make a short sound in a long selection look unpitched. So only the
+    // stretch that sounds is analysed, and the silence either side is put back as frames with no
+    // pitch: the line keeps its place in time, and the length is that of the whole selection.
+    if (mono == nullptr || numSamples <= 0 || sampleRate <= 0.0)
+        return analyseSounding(mono, numSamples, sampleRate, method);
+
+    float peak = 0.0f;
+    for (int i = 0; i < numSamples; ++i)
+        peak = std::max(peak, std::abs(mono[i]));
+    const float gate = peak * 0.003f;   // 50 dB under the loudest sample
+    int first = 0, last = numSamples;
+    if (peak > 0.0f)
+    {
+        while (first < numSamples && std::abs(mono[first]) <= gate)
+            ++first;
+        while (last > first && std::abs(mono[last - 1]) <= gate)
+            --last;
+    }
+
+    const double hopSeconds = SfxAnalysis().hopSeconds;
+    const int hop = std::max(1, static_cast<int>(std::lround(hopSeconds * sampleRate)));
+    const int margin = static_cast<int>(0.02 * sampleRate);
+    first = std::max(0, first - margin) / hop * hop;   // on a frame boundary, so the frames keep their times
+    last = std::min(numSamples, last + margin);
+    // Only worth it for real silence (a tenth of a second or more at either end).
+    const int least = static_cast<int>(0.1 * sampleRate);
+    if (peak <= 0.0f || (first < least && numSamples - last < least) || last - first < hop)
+        return analyseSounding(mono, numSamples, sampleRate, method);
+    if (first < least)
+        first = 0;
+    if (numSamples - last < least)
+        last = numSamples;
+
+    auto out = analyseSounding(mono + first, last - first, sampleRate, method);
+    if (! out.valid || std::abs(out.hopSeconds - hopSeconds) > 1.0e-9)
+        return analyseSounding(mono, numSamples, sampleRate, method);   // too short to say on its own
+
+    out.hz.insert(out.hz.begin(), static_cast<std::size_t>(first / hop), 0.0f);
+    out.hz.insert(out.hz.end(), static_cast<std::size_t>((numSamples - last) / hop), 0.0f);
+    out.durationSeconds = static_cast<double>(numSamples) / sampleRate;
+    return out;
+}
+
+namespace
+{
+SfxAnalysis analyseSounding(const float* mono, int numSamples, double sampleRate, SfxMethod method)
 {
     SfxAnalysis out;
     if (mono == nullptr || numSamples <= 0 || sampleRate <= 0.0)
@@ -1128,6 +1181,7 @@ SfxAnalysis analyseSfx(const float* mono, int numSamples, double sampleRate, Sfx
     out.valid = true;
     return out;
 }
+}   // namespace
 
 //==============================================================================
 MatchResult match(const MusicAnalysis& music, const SfxAnalysis& sfx, const MatchOptions& options)

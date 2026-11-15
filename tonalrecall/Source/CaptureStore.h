@@ -147,8 +147,8 @@ public:
     void snapshot(Slot slot, SlotSnapshot& out, std::vector<float>* peaks = nullptr) const;
     // The captured mono audio, buffer order (tests and later analysis).
     void copyAudio(Slot slot, std::vector<float>& out) const;
-    // The captured audio channel by channel (one or two channels), where the slot keeps it: the
-    // sound effect does, so that auditions and edits can be heard in stereo. Empty otherwise.
+    // The captured audio channel by channel (one or two channels, as it arrived), so that what
+    // was learned can be played back, and auditions heard, in stereo. Empty when nothing is held.
     void copyChannels(Slot slot, std::vector<std::vector<float>>& out) const;
 
     // Everything back to a fresh process (disarmed, empty). Tests only.
@@ -176,7 +176,7 @@ private:
 
         // Guarded by lock.
         float* buffer = nullptr;
-        float* channel[2] { nullptr, nullptr };   // separate channels, for slots that keep them
+        float* channel[2] { nullptr, nullptr };   // the separate channels
         int channels = 0;                         // how many of them hold audio
         float* peaks = nullptr;
         double sampleRate = 0.0;
@@ -227,7 +227,7 @@ private:
     std::array<SlotData, kNumSlots> m_slots;
     std::atomic<bool> m_allocated { false };
     std::unique_ptr<float[]> m_storage;
-    std::unique_ptr<float[]> m_channelStorage;   // the effect slot's separate channels
+    std::unique_ptr<float[]> m_channelStorage;   // each slot's separate channels
     std::unique_ptr<float[]> m_peakStorage;
 };
 

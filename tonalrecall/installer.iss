@@ -2,7 +2,7 @@
 ; Built by .github/workflows/build-release_tonalrecall.yml, which passes the version:
 ;   iscc /DMyAppVersion=1.2.3 installer.iss
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.2.2"
 #endif
 #define MyAppName "Tonal Recall"
 #define MyAppPublisher "Sammy J"

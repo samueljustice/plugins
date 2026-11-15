@@ -37,6 +37,13 @@ namespace
 
     bool sameRate(double a, double b) noexcept { return a > 0.0 && std::abs(a - b) < 0.5; }
     bool sameBend(double a, double b) noexcept { return std::abs(a - b) < 1.0e-9; }
+
+    // Two plans that would stamp exactly the same audio (so they have the same level).
+    bool sameStamp(const StampPlan& a, const StampPlan& b) noexcept
+    {
+        return a.learnedMono == b.learnedMono && sameRate(a.sampleRate, b.sampleRate) && sameBend(a.staticSemitones, b.staticSemitones)
+            && sameBend(a.curveHopSeconds, b.curveHopSeconds) && a.preserveFormants == b.preserveFormants && a.curve == b.curve;
+    }
 }
 
 bool MatchOptions::operator==(const MatchOptions& o) const noexcept
@@ -50,7 +57,8 @@ bool MatchOptions::operator==(const MatchOptions& o) const noexcept
         return false;
     return target == o.target && pitchClass == o.pitchClass && octaveShift == o.octaveShift && sameBend(bend, o.bend)
         && sameBend(glide, o.glide)
-        && method == o.method && preserveFormants == o.preserveFormants && stampEnabled == o.stampEnabled;
+        && method == o.method && preserveFormants == o.preserveFormants && stampEnabled == o.stampEnabled
+        && trimEnabled == o.trimEnabled;
 }
 
 MatchOptions MatchOptions::withStyle(Style style) const noexcept
@@ -142,6 +150,7 @@ MatchHub::~MatchHub()
     {
         std::lock_guard<std::mutex> lock(m_threadMutex);
         m_stop = true;
+        m_stopping.store(true, std::memory_order_release);
     }
     m_wake.notify_all();
     if (m_thread.joinable())
@@ -154,6 +163,7 @@ void MatchHub::retain()
     if (m_refs++ == 0)
     {
         m_stop = false;
+        m_stopping.store(false, std::memory_order_release);
         m_thread = std::thread([this] { threadLoop(); });
     }
 }
@@ -166,9 +176,11 @@ void MatchHub::release()
         if (m_refs == 0 || --m_refs > 0)
             return;
         m_stop = true;
+        m_stopping.store(true, std::memory_order_release);
         finished = std::move(m_thread);
     }
     // An analysis in progress finishes first (it cannot be interrupted); what it found is kept.
+    // A measurement of the level in progress is abandoned.
     m_wake.notify_all();
     if (finished.joinable())
         finished.join();
@@ -187,20 +199,26 @@ void MatchHub::setOptions(const MatchOptions& requested)
         std::lock_guard<std::mutex> lock(m_mutex);
         if (o == m_options)
             return;
+        bool newPlan = false;
         if (o.method != m_options.method)
-            m_sfxDirty = true;
+            m_sfxDirty = newPlan = true;
         if (o.target != m_options.target || o.pitchClass != m_options.pitchClass || o.octaveShift != m_options.octaveShift
             || ! sameBend(o.bend, m_options.bend) || ! sameBend(o.glide, m_options.glide) || o.preserveFormants != m_options.preserveFormants)
-            m_matchDirty = true;
+            m_matchDirty = newPlan = true;
         {
             // Hand adjustments change the curve too.
             auto withTheirEdits = m_options;
             withTheirEdits.edits = o.edits;
             if (! (withTheirEdits == m_options))
-                m_matchDirty = true;
+                m_matchDirty = newPlan = true;
         }
+        // (Stamp and TRIM switch what is done with the plan, not the plan: no new one, and the
+        // level measured for it stands.)
+        if (newPlan)
+            wantNewPlan();
         m_options = o;
         m_stampEnabled.store(o.stampEnabled, std::memory_order_release);
+        m_trimEnabled.store(o.trimEnabled, std::memory_order_release);
         bump();
     }
     {
@@ -228,7 +246,40 @@ void MatchHub::snapshot(HubSnapshot& out) const
     out.sfxOffsetInMusicSeconds = out.offsetKnown ? static_cast<double>(m_sfxStart - m_musicStart) / m_musicRate : 0.0;
     out.planReady = m_planGeneration.load(std::memory_order_acquire) != 0;
     out.sfxChannels = m_sfxChannels;
+    out.musicChannels = m_musicChannels;
     out.styleAfterMidi = m_styleAfterMidi;
+    const auto plan = m_planGeneration.load(std::memory_order_acquire);
+    out.trimKnown = plan != 0 && m_measuredFor == plan;
+    out.trimMeasuring = plan != 0 && ! out.trimKnown;
+    out.levels = out.trimKnown ? m_levels : core::StampLevels {};
+    out.trimDb = out.trimKnown ? m_levels.trimDb() : 0.0f;
+}
+
+bool MatchHub::trimFor(std::uint64_t planGeneration, float& gain) const noexcept
+{
+    if (planGeneration == 0)
+        return false;
+    const auto word = m_trimWord.load(std::memory_order_acquire);
+    if ((word >> 32) != (planGeneration & 0xffffffffull))
+        return false;
+    if (! m_trimEnabled.load(std::memory_order_acquire))
+    {
+        gain = 1.0f;
+        return true;
+    }
+    const auto bits = static_cast<std::uint32_t>(word & 0xffffffffull);
+    std::memcpy(&gain, &bits, sizeof(gain));
+    return true;
+}
+
+void MatchHub::publishTrimLocked(std::uint64_t planGeneration, const core::StampLevels& levels)
+{
+    m_measuredFor = planGeneration;
+    m_levels = levels;
+    const float gain = levels.trim();   // 1 when it could not be measured: the limiter is there
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &gain, sizeof(bits));
+    m_trimWord.store(((planGeneration & 0xffffffffull) << 32) | bits, std::memory_order_release);
 }
 
 bool MatchHub::tryAcquirePlan(std::shared_ptr<const StampPlan>& out) const noexcept
@@ -327,7 +378,16 @@ void MatchHub::recomputeMatchLocked()
         p->targetMidi = m_match.targetMidi;
         plan = std::move(p);
     }
+    // A plan that stamps exactly what the measured one did (an option that ended up changing
+    // nothing) takes its level over instead of being measured again.
+    const bool sameLevel = plan != nullptr && m_measuredPlan != nullptr && sameStamp(*plan, *m_measuredPlan);
+    const auto kept = plan;
     publishPlanLocked(std::move(plan));
+    if (sameLevel)
+    {
+        publishTrimLocked(kept->generation, m_levels);
+        m_measuredPlan = kept;
+    }
     m_matchDirty = false;
     bump();
 }
@@ -368,8 +428,8 @@ bool MatchHub::workOnce()
             m_slots[index].audioHash = 0;
             if (isMusic ? m_hasMusic : m_hasSfx)
             {
-                if (isMusic) { m_music = {}; m_hasMusic = false; m_musicTimeline = false; }
-                else         { m_sfx = {}; m_hasSfx = false; m_sfxAudio.reset(); m_sfxChannels.reset(); m_sfxTimeline = false; m_options.edits.clear(); m_editsBelongTo = 0; }
+                if (isMusic) { m_music = {}; m_hasMusic = false; m_musicTimeline = false; m_musicChannels.reset(); }
+                else         { m_sfx = {}; m_hasSfx = false; m_sfxAudio.reset(); m_sfxChannels.reset(); m_sfxTimeline = false; m_options.edits.clear(); m_editsBelongTo = 0; m_measuredPlan.reset(); }
                 m_matchDirty = true;
                 bump();
                 did = true;
@@ -379,9 +439,9 @@ bool MatchHub::workOnce()
 
         auto audio = std::make_shared<std::vector<float>>();
         store.copyAudio(slot, *audio);
+        // The channels as they arrived, for playing back (the analysis uses only the sum).
         auto separate = std::make_shared<std::vector<std::vector<float>>>();
-        if (! isMusic)
-            store.copyChannels(slot, *separate);
+        store.copyChannels(slot, *separate);
         const auto hash = hashAudio(*audio);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -413,6 +473,7 @@ bool MatchHub::workOnce()
             m_musicRate = snap.sampleRate;
             m_musicTimeline = snap.timelineKnown;
             m_musicStart = snap.captured.start;
+            m_musicChannels = std::move(separate);
         }
         else
         {
@@ -484,7 +545,67 @@ bool MatchHub::workOnce()
         }
         freeUnusedPlansLocked();
     }
+
+    if (measureLevels())
+        did = true;
     return did;
+}
+
+bool MatchHub::measureLevels()
+{
+    // The plan to measure: the current one, if its level is not known yet.
+    std::shared_ptr<const StampPlan> plan;
+    std::shared_ptr<const std::vector<std::vector<float>>> channels;
+    std::uint64_t wanted = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_matchDirty || m_sfxDirty)
+            return false;   // a newer plan comes first
+        m_planLock.lock();
+        plan = m_plan;
+        m_planLock.unlock();
+        if (plan == nullptr || plan->generation == m_measuredFor)
+            return false;
+        channels = m_sfxChannels;
+        wanted = m_planWanted.load(std::memory_order_acquire);
+    }
+
+    // The long part, without any lock. Dragging the curve publishes plans many times a second, so
+    // the measurement gives up as soon as anything would make it stale: options that change the
+    // plan, a new capture on either side, a reset, or the thread being stopped.
+    auto& store = CaptureStore::instance();
+    const auto musicGeneration = store.generation(Slot::Music);
+    const auto sfxGeneration = store.generation(Slot::Sfx);
+    const auto stale = [&]
+    {
+        return m_stopping.load(std::memory_order_acquire) || m_planWanted.load(std::memory_order_acquire) != wanted
+            || m_planGeneration.load(std::memory_order_acquire) != plan->generation
+            || store.generation(Slot::Music) != musicGeneration || store.generation(Slot::Sfx) != sfxGeneration;
+    };
+
+    core::Stamper::Setup setup;
+    setup.sampleRate = plan->sampleRate;
+    setup.staticSemitones = plan->staticSemitones;
+    setup.curveHopSeconds = plan->curveHopSeconds;
+    setup.curve = plan->curve;
+    setup.learned = plan->learnedMono;
+    setup.preserveFormants = plan->preserveFormants;
+    core::StampLevels levels;
+    if (channels != nullptr && ! channels->empty())
+        levels = core::measureStamp(setup, *channels, stale);
+    const bool abandoned = stale();
+    setup.learned.reset();
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // Abandoned, or overtaken by a newer plan: the next pass measures that one. A measurement
+    // that simply could not be made (nothing to measure) is published as it is, with no trim.
+    if (! abandoned && m_planGeneration.load(std::memory_order_acquire) == plan->generation)
+    {
+        publishTrimLocked(plan->generation, levels);
+        m_measuredPlan = plan;
+        bump();
+    }
+    return true;
 }
 
 void MatchHub::threadLoop()
@@ -506,7 +627,7 @@ void MatchHub::threadLoop()
 bool MatchHub::waitUntilIdle(double timeoutSeconds)
 {
     // Two passes that found nothing to do, both started after this call: everything the store
-    // and the options held at the call has been analysed and matched.
+    // and the options held at the call has been analysed, matched and measured.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeoutSeconds);
     const auto start = m_idlePasses.load(std::memory_order_acquire);
     while (m_idlePasses.load(std::memory_order_acquire) < start + 2)
@@ -527,8 +648,14 @@ void MatchHub::resetForTesting()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     ++m_epoch;
+    wantNewPlan();   // a measurement in progress is dropped too
     m_options = {};
     m_stampEnabled.store(true, std::memory_order_release);
+    m_trimEnabled.store(true, std::memory_order_release);
+    m_measuredFor = 0;
+    m_levels = {};
+    m_measuredPlan.reset();
+    m_trimWord.store(0, std::memory_order_release);
     m_music = {};
     m_sfx = {};
     m_match = {};
@@ -538,6 +665,7 @@ void MatchHub::resetForTesting()
     m_musicTimeline = m_sfxTimeline = false;
     m_musicStart = m_sfxStart = 0;
     m_sfxChannels.reset();
+    m_musicChannels.reset();
     m_sfxAudio.reset();
     m_sfxDirty = m_matchDirty = false;
     for (auto& s : m_slots)
