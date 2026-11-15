@@ -72,15 +72,21 @@ namespace
             return line;
 
         // One continuous line. A sound's pitch can sweep fast (a ricochet falls more than 100
-        // semitones a second) but it does not leap; a leap in the reading is the tracker stepping
-        // to another partial or another octave. Each leap is taken out and everything after it
-        // moved by the same amount, so the line carries the sound's movement with no steps for
-        // the flattener to act on. A sound that really does leap again and again (a yelping
-        // siren snapping back to the bottom of each sweep) would send that correction running
-        // away, so when the leaps do not roughly cancel out the reading is kept as it is.
+        // semitones a second) but it does not leap, and a leap in the reading is nearly always
+        // the tracker changing its mind: stepping to another partial or another octave, or a
+        // voice breaking into a growl whose period is many times longer while its tone stays
+        // where it was. Flattened as read, a leap becomes a lurch in speed, which is the worst
+        // thing this plug-in can do to a sound. So each leap is taken out and everything after it
+        // moved by the same amount: the line carries the sound's movement with no steps.
+        //
+        // The one sound that really does leap is a sweep that snaps back and starts again (a
+        // yelping siren). Taking its leaps out would stack every sweep on top of the last, and
+        // the line would climb without end; that shows as a mended line that travels much further
+        // than the reading did, and then the reading is kept as it is.
         {
             std::vector<float> mended(raw);
-            float offset = 0.0f, before = 0.0f, furthest = 0.0f;
+            float offset = 0.0f, before = 0.0f;
+            float rawLow = 1.0e9f, rawHigh = -1.0e9f, mendedLow = 1.0e9f, mendedHigh = -1.0e9f;
             int at = -1, leaps = 0;
             for (int f = 0; f < frames; ++f)
             {
@@ -90,7 +96,8 @@ namespace
                 const float here = raw[uf];
                 if (at >= 0)
                 {
-                    const float allowed = 2.5f + 0.3f * static_cast<float>(f - at - 1);
+                    // Across a gap in the reading the pitch may have moved on a little, no more.
+                    const float allowed = 2.5f + std::min(4.0f, 0.1f * static_cast<float>(f - at - 1));
                     if (std::abs(here - before) > allowed)
                     {
                         offset -= here - before;
@@ -99,10 +106,13 @@ namespace
                 }
                 before = here;
                 at = f;
-                furthest = std::max(furthest, std::abs(offset));
                 mended[uf] = here + offset;
+                rawLow = std::min(rawLow, here);
+                rawHigh = std::max(rawHigh, here);
+                mendedLow = std::min(mendedLow, mended[uf]);
+                mendedHigh = std::max(mendedHigh, mended[uf]);
             }
-            if (furthest <= 14.0f)
+            if (leaps > 0 && mendedHigh - mendedLow <= (rawHigh - rawLow) + 6.0f)
             {
                 raw = std::move(mended);
                 line.leaps = leaps;

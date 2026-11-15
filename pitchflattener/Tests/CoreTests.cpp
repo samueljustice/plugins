@@ -259,6 +259,56 @@ void testVibrato()
           "flattened to its centre it keeps its length within 2%");
 }
 
+void testVoiceBreak()
+{
+    beginCase("a voice that breaks into a growl: the reading leaps, the flattening must not");
+    // A scream rising from 500 to 700 Hz, then a growl: the same tone, but pulsing at a
+    // thirteenth of the pitch, which is what a tracker then reads.
+    const double sr = kRate;
+    const auto n = static_cast<std::size_t>(4.0 * sr);
+    std::vector<float> sound(n);
+    double phase = 0.0;
+    std::uint32_t seed = 88172645u;
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        const double t = static_cast<double>(i) / sr;
+        const bool growl = t >= 0.8;
+        const double tone = t < 0.8 ? 500.0 * std::exp2(std::log2(700.0 / 500.0) * t / 0.8) : 700.0;
+        const double hz = growl ? tone / 13.0 : tone;
+        phase += kTwoPi * hz / sr;
+        double v = 0.0;
+        if (growl)
+            for (int h = 1; h <= 40; ++h)   // a dense series with its weight around the old tone
+                v += std::exp(-0.5 * std::pow((h - 13.0) / 5.0, 2.0)) * std::sin(phase * h + 0.7 * h * h);
+        else
+            for (int h = 1; h <= 6; ++h)
+                v += std::sin(phase * h) / h;
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+        sound[i] = static_cast<float>(0.2 * v + 0.01 * (static_cast<double>(seed) / 2147483648.0 - 1.0));
+    }
+    const auto r = run(sound);
+    check(r.result.valid, "it was flattened");
+    if (! r.result.valid) return;
+    const auto* line = r.analysis.picked();
+    float biggestStep = 0.0f, low = 1.0e9f, high = -1.0e9f, readLow = 1.0e9f, readHigh = -1.0e9f;
+    for (std::size_t f = 0; f < line->midi.size(); ++f)
+    {
+        if (f > 0) biggestStep = std::max(biggestStep, std::abs(line->midi[f] - line->midi[f - 1]));
+        low = std::min(low, line->midi[f]); high = std::max(high, line->midi[f]);
+        if (line->trackedHz[f] > 0.0f)
+        {
+            const auto m = static_cast<float>(hzToMidi(line->trackedHz[f]));
+            readLow = std::min(readLow, m); readHigh = std::max(readHigh, m);
+        }
+    }
+    std::printf("    -> %s line; the reading spans %s, the line used spans %s with %d leaps taken out; length %.2f s -> %.2f s\n", r.analysis.pick == 0 ? "harmonic" : "ridge",
+                st(readHigh - readLow).c_str(), st(high - low).c_str(), line->leaps, sound.size() / kRate, r.result.channels[0].size() / kRate);
+    check(biggestStep < 0.5f, "the line used never steps by half a semitone between frames: " + st(biggestStep));
+    check(high - low < 9.0f, "and spans the scream's rise (5.8 st), not the leap: " + st(high - low));
+    const double ratio = static_cast<double>(r.result.channels[0].size()) / static_cast<double>(sound.size());
+    check(ratio > 0.6 && ratio <= 1.01, "so the flattened sound is not stretched or squeezed out of shape: " + std::to_string(ratio));
+}
+
 void testNothingToFlatten()
 {
     beginCase("noise and silence: nothing to flatten");
@@ -336,6 +386,7 @@ int main()
     testRicochet();
     testRunUp();
     testVibrato();
+    testVoiceBreak();
     testNothingToFlatten();
     testMapAndOptions();
     std::printf("\n%d checks, %d failed\n", g_checks, g_failed);

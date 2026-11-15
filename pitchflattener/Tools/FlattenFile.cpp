@@ -55,6 +55,10 @@ int main(int argc, char** argv)
             for (std::size_t f = 0; f < line.trackedHz.size(); ++f)
                 csv << names[k] << ',' << (static_cast<double>(f) + 0.5) * line.hopSeconds << ',' << line.trackedHz[f] << '\n';
         }
+        // The line the flattener would use (leaps out, gaps bridged, smoothed), to compare with the readings.
+        if (const auto* used = analysis.picked())
+            for (std::size_t f = 0; f < used->midi.size(); ++f)
+                csv << "used" << ',' << (static_cast<double>(f) + 0.5) * used->hopSeconds << ',' << midiToHz(used->midi[f]) << '\n';
     }
     for (int k = 0; k < kNumTrackers; ++k)
     {
