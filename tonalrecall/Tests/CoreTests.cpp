@@ -3,11 +3,13 @@
 
 #include "core/Analysis.h"
 #include "core/HindsightTracker.h"
+#include "core/PeakLimiter.h"
 #include "core/Stamper.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <numbers>
 #include <random>
@@ -924,6 +926,153 @@ void testStamp()
 }
 }
 
+void testSafety();
+void testSafety()
+{
+    using core::PeakLimiter;
+    const double sr = 48000.0;
+
+    beginCase("safety: the limiter leaves quiet audio alone");
+    {
+        PeakLimiter limiter(sr, 2);
+        const int n = 20000, delay = limiter.delaySamples();
+        std::vector<float> left(n), right(n), l0, r0;
+        for (int i = 0; i < n; ++i)
+        {
+            left[static_cast<std::size_t>(i)] = 0.6f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 220.0 * i / sr));
+            right[static_cast<std::size_t>(i)] = 0.9f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 331.0 * i / sr));
+        }
+        l0 = left;
+        r0 = right;
+        float* ch[2] { left.data(), right.data() };
+        for (int at = 0; at < n; at += 777)
+        {
+            float* part[2] { ch[0] + at, ch[1] + at };
+            limiter.process(part, std::min(777, n - at));
+        }
+        const bool same = std::equal(left.begin() + delay, left.end(), l0.begin()) && std::equal(right.begin() + delay, right.end(), r0.begin());
+        check(same, "below the ceiling the audio comes out bit for bit, " + std::to_string(delay) + " samples late");
+        check(limiter.maxReductionDb() <= 0.0f, "and the limiter reports that it did nothing");
+    }
+
+    beginCase("safety: nothing gets past the ceiling");
+    {
+        PeakLimiter limiter(sr, 2);
+        const int n = 96000;
+        std::vector<float> left(n), right(n);
+        std::uint32_t seed = 12345u;
+        const auto noise = [&] { seed = seed * 1664525u + 1013904223u; return static_cast<float>(static_cast<double>(seed >> 8) / 8388608.0 - 1.0); };
+        for (int i = 0; i < n; ++i)
+        {
+            // Loud noise, a far louder burst, single-sample spikes, and a low tone well over full scale.
+            const float burst = (i > 30000 && i < 31000) ? 8.0f : 1.0f;
+            float v = 1.4f * burst * noise() + 1.6f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 45.0 * i / sr));
+            if (i % 7919 == 0)
+                v = 30.0f;
+            left[static_cast<std::size_t>(i)] = v;
+            right[static_cast<std::size_t>(i)] = 0.5f * v + 0.7f * noise();
+        }
+        float* ch[2] { left.data(), right.data() };
+        for (int at = 0; at < n; at += 1024)
+        {
+            float* part[2] { ch[0] + at, ch[1] + at };
+            limiter.process(part, std::min(1024, n - at));
+        }
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i)
+            peak = std::max({ peak, std::abs(left[static_cast<std::size_t>(i)]), std::abs(right[static_cast<std::size_t>(i)]) });
+        check(peak <= PeakLimiter::kCeiling, "the highest sample is at or under -0.1 dBFS: " + std::to_string(peak));
+        check(peak > 0.9f * PeakLimiter::kCeiling, "and it is not turned down more than it has to be: " + std::to_string(peak));
+        check(limiter.maxReductionDb() > 20.0f, "the limiter reports what it did: " + std::to_string(limiter.maxReductionDb()) + " dB");
+    }
+
+    beginCase("safety: one peak is ramped down to, not stepped");
+    {
+        PeakLimiter limiter(sr, 1);
+        const int n = 20000, delay = limiter.delaySamples();
+        std::vector<float> x(n, 0.5f);
+        x[5000] = 2.0f;   // the peak, on a steady level so the gain can be read off the output
+        float* ch[1] { x.data() };
+        limiter.process(ch, n);
+        float biggestStep = 0.0f;
+        for (int i = delay + 1; i < n; ++i)
+            if (i != 5000 + delay && i != 5001 + delay)
+                biggestStep = std::max(biggestStep, std::abs(x[static_cast<std::size_t>(i)] - x[static_cast<std::size_t>(i - 1)]));
+        check(std::abs(x[static_cast<std::size_t>(5000 + delay)]) <= PeakLimiter::kCeiling, "the peak itself is held");
+        check(biggestStep < 0.5f * 0.02f, "around it the level moves by under 2% a sample: " + std::to_string(biggestStep / 0.5f * 100.0f) + "%");
+        check(std::abs(x[static_cast<std::size_t>(n - 1)] - 0.5f) < 0.01f, "and it has let go a third of a second later");
+    }
+
+    beginCase("safety: the trim is measured and does the limiter's work for it");
+    {
+        // A loud, rich tone close to full scale whose partials are lined up to keep its peaks as
+        // low as they can be (as a normalised or limited recording's are): any shift raises them.
+        const int n = static_cast<int>(sr * 2.0);
+        std::vector<float> effect(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i)
+        {
+            double v = 0.0;
+            for (int h = 1; h <= 16; ++h)
+                v += std::sin(2.0 * 3.14159265358979 * 110.0 * h * i / sr - 3.14159265358979 * h * (h - 1) / 16.0);
+            effect[static_cast<std::size_t>(i)] = static_cast<float>(v);
+        }
+        float peak = 0.0f;
+        for (const float v : effect)
+            peak = std::max(peak, std::abs(v));
+        for (auto& v : effect)
+            v *= 0.985f / peak;
+
+        core::Stamper::Setup setup;
+        setup.sampleRate = sr;
+        setup.channels = 1;
+        setup.staticSemitones = 3.0;
+
+        const std::vector<std::vector<float>> channels { effect };
+        const auto levels = core::measureStamp(setup, channels);
+        check(levels.complete, "the stamp was measured");
+        check(std::abs(levels.inputPeak - 0.985f) < 1.0e-4f, "the effect's own peak is reported: " + std::to_string(levels.inputPeak));
+        std::printf("    -> shifted peak %.3f (%+.2f dB against the effect), trim %.2f dB\n", static_cast<double>(levels.outputPeak),
+                    20.0 * std::log10(static_cast<double>(levels.outputPeak / levels.inputPeak)), static_cast<double>(levels.trimDb()));
+        check(levels.outputPeak > PeakLimiter::kCeiling, "shifted, it would go over full scale: " + std::to_string(levels.outputPeak));
+        check(levels.trim() < 1.0f && levels.trimDb() < 0.0f, "so a trim is asked for: " + std::to_string(levels.trimDb()) + " dB");
+
+        const auto run = [&](float trim, float& outPeak, float& reduction)
+        {
+            auto s = setup;
+            s.trim = trim;
+            core::Stamper stamper(s);
+            std::vector<float> out(effect);
+            out.resize(effect.size() + static_cast<std::size_t>(stamper.latencySamples()), 0.0f);
+            float* ch[1] { out.data() };
+            stamper.process(ch, static_cast<int>(out.size()));
+            outPeak = 0.0f;
+            for (const float v : out)
+                outPeak = std::max(outPeak, std::abs(v));
+            reduction = stamper.limiterReductionDb();
+        };
+
+        float trimmedPeak = 0.0f, trimmedReduction = 0.0f, untrimmedPeak = 0.0f, untrimmedReduction = 0.0f;
+        run(levels.trim(), trimmedPeak, trimmedReduction);
+        run(1.0f, untrimmedPeak, untrimmedReduction);
+        check(trimmedPeak <= PeakLimiter::kCeiling && trimmedPeak > 0.99f * PeakLimiter::kCeiling,
+              "with the trim the peak lands on the ceiling: " + std::to_string(trimmedPeak));
+        check(trimmedReduction < 0.01f, "and the limiter has nothing to do: " + std::to_string(trimmedReduction) + " dB");
+        check(untrimmedPeak <= PeakLimiter::kCeiling, "without the trim the limiter still holds it: " + std::to_string(untrimmedPeak));
+        check(untrimmedReduction > 0.1f, "and reports that it had to: " + std::to_string(untrimmedReduction) + " dB");
+
+        int asked = 0;
+        const auto stopped = core::measureStamp(setup, channels, [&] { return ++asked > 3; });
+        check(! stopped.complete && stopped.trim() >= 1.0f, "a cancelled measurement says so and asks for no trim");
+
+        // A quiet effect needs nothing.
+        auto quiet = channels;
+        for (auto& v : quiet[0])
+            v *= 0.25f;
+        const auto quietLevels = core::measureStamp(setup, quiet);
+        check(quietLevels.complete && quietLevels.trim() >= 1.0f && quietLevels.trimDb() >= 0.0f, "a quiet effect is left at its level");
+    }
+}
+
 int main()
 {
     testMusic();
@@ -932,6 +1081,7 @@ int main()
     testFollow();
     testMovement();
     testStamp();
+    testSafety();
     std::printf("\n%d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

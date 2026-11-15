@@ -5,6 +5,7 @@
 #include "TonalRecallBinaryData.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 
@@ -178,7 +179,7 @@ private:
 juce::String signedNumber(double v, int decimals)
 {
     const double scale = std::pow(10.0, decimals);
-    const double rounded = std::round(v * scale) / scale;
+    const double rounded = std::round(v * scale) / scale + 0.0;   // (+ 0.0: no "-0" for a value just under zero)
     return (rounded >= 0.0 ? "+" : "") + juce::String(rounded, decimals);
 }
 
@@ -352,6 +353,17 @@ public:
             setButtonText(s);
     }
 
+    // A transport mark drawn ahead of the text (drawn, not a character, so no font can lack it).
+    enum class Icon { None, Play, Stop };
+    void setIcon(Icon icon)
+    {
+        if (icon != m_icon)
+        {
+            m_icon = icon;
+            repaint();
+        }
+    }
+
     void paintButton(juce::Graphics& g, bool over, bool down) override
     {
         const auto r = getLocalBounds().toFloat();
@@ -418,7 +430,30 @@ public:
         }
 
         const auto textColour = (enabled ? m_text : m_text.withMultipliedAlpha(0.45f)).interpolatedWith(Palette::background, m_onAmount);
-        if (m_sub.isEmpty())
+        if (m_icon != Icon::None)
+        {
+            // The mark and the text, centred together.
+            const auto f = font(m_weight, m_size, m_tracking);
+            const float textW = std::ceil(juce::GlyphArrangement::getStringWidth(f, getButtonText()));
+            const float mark = 7.0f, gap = 7.0f;
+            if (mark + gap + textW > r.getWidth() - 12.0f)
+                g_overflows.fetch_add(1, std::memory_order_relaxed);   // too close to the frame to read as inside it
+            const float x = std::round(r.getCentreX() - 0.5f * (mark + gap + textW));
+            const float cy = r.getCentreY();
+            g.setColour(textColour);
+            if (m_icon == Icon::Play)
+            {
+                juce::Path triangle;
+                triangle.addTriangle(x, cy - 4.0f, x, cy + 4.0f, x + mark, cy);
+                g.fillPath(triangle);
+            }
+            else
+            {
+                g.fillRect(x, cy - 3.5f, mark, mark);
+            }
+            drawText(g, getButtonText(), { x + mark + gap, r.getY(), textW + 1.0f, r.getHeight() }, juce::Justification::centredLeft, f, textColour);
+        }
+        else if (m_sub.isEmpty())
         {
             drawText(g, getButtonText(), r, juce::Justification::centred, font(m_weight, m_size, m_tracking), textColour);
         }
@@ -442,11 +477,77 @@ private:
     juce::String m_sub;
     bool m_plain = false;
     juce::Justification m_plainJust = juce::Justification::centred;
+    Icon m_icon = Icon::None;
 
     Motion m_motion { *this };
     float m_onAmount = 0.0f, m_overAmount = 0.0f;
     double m_lastPaint = 0.0, m_flashStart = 0.0;
     bool m_painted = false, m_pulsing = false, m_beacon = false;
+};
+
+//==============================================================================
+// TRIM: a switch that also says what it is doing. A lamp at the left (lit while on, breathing
+// while the stamp's level is being measured), the name, and at the right the figure: how far the
+// stamp is turned down, or OFF. It is not filled when on, like the other switches, so that it
+// does not compete with Stamp above it.
+
+class TrimButton : public juce::Button
+{
+public:
+    TrimButton() : juce::Button("TRIM")
+    {
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        setWantsKeyboardFocus(false);
+        setMouseClickGrabsKeyboardFocus(false);
+    }
+
+    // figure: what the right-hand side says. alert: it is drawn in amber (off, and the stamp would
+    // go over full scale).
+    void show(bool measuring, const juce::String& figure, bool alert)
+    {
+        if (measuring != m_measuring || figure != m_figure || alert != m_alert)
+        {
+            m_measuring = measuring;
+            m_figure = figure;
+            m_alert = alert;
+            m_motion.animateWhile(m_measuring);
+            repaint();
+        }
+    }
+
+    void paintButton(juce::Graphics& g, bool over, bool down) override
+    {
+        const auto r = getLocalBounds().toFloat();
+        const bool on = getToggleState();
+        const float cut = std::min(6.0f, r.getHeight() * 0.25f);
+        drawFrame(g, r, cut, down ? Palette::tealLine : juce::Colours::transparentBlack,
+                  over ? Palette::teal : on ? Palette::tealLine.brighter(0.25f) : Palette::tealLine);
+
+        auto inner = r.reduced(10.0f, 0.0f);
+        // The lamp: the same block as the warning strip's marker.
+        const auto lamp = juce::Rectangle<float>(inner.getX(), r.getCentreY() - 5.0f, 5.0f, 10.0f);
+        if (on)
+        {
+            g.setColour(Palette::teal.withAlpha(m_measuring ? 0.3f + 0.7f * pulse(1.6) : 1.0f));
+            g.fillRect(lamp);
+        }
+        else
+        {
+            g.setColour(Palette::tealLine.brighter(0.4f));
+            g.drawRect(lamp, 1.0f);
+        }
+        inner.removeFromLeft(12.0f);
+
+        const auto f = font(Weight::Medium, 9.5f, 0.12f);
+        drawText(g, getButtonText(), inner.removeFromLeft(40.0f), juce::Justification::centredLeft, f, Palette::tealText);
+        const auto figureColour = m_alert ? Palette::amber : on && ! m_measuring && m_figure.startsWith("-") ? Palette::text : Palette::dim;
+        drawText(g, m_figure, inner, juce::Justification::centredRight, f, figureColour);
+    }
+
+private:
+    juce::String m_figure;
+    bool m_measuring = false, m_alert = false;
+    Motion m_motion { *this };
 };
 
 //==============================================================================
@@ -661,6 +762,154 @@ private:
 };
 
 //==============================================================================
+// A playhead: a line that moves across a scan while what it shows is being heard. It lies over the
+// scan (and takes no clicks), maps time to x exactly as the picture under it does, and repaints
+// only the strip it leaves and the strip it moves to.
+//
+// The audio thread reports a position once a block. Blocks arrive a few tens of milliseconds
+// apart (and in bursts in some hosts), so the line is not drawn where the last block left it: it
+// runs on by the clock between blocks and is drawn gently back towards the reports, which keeps
+// it gliding instead of stepping.
+
+class PlayheadLayer : public juce::Component, private juce::Timer
+{
+public:
+    // How the picture under it maps time to x (in this component's coordinates).
+    struct Map
+    {
+        float x0 = 0.0f, width = 0.0f, top = 0.0f, height = 0.0f;
+        double duration = 0.0;   // seconds across the width
+        bool valid = false;
+        bool operator!=(const Map& o) const noexcept
+        {
+            const auto moved = [](double a, double b) { return std::abs(a - b) > 1.0e-6; };
+            return moved(x0, o.x0) || moved(width, o.width) || moved(top, o.top) || moved(height, o.height) || moved(duration, o.duration)
+                || valid != o.valid;
+        }
+    };
+
+    struct Reading
+    {
+        bool show = false;
+        double seconds = 0.0;
+        bool moving = false;          // advancing in real time
+        std::int64_t atNs = 0;        // when it was reported (steady clock)
+        juce::Colour colour;
+        bool strong = true;           // a bright, heavier line (false: a quiet one)
+    };
+
+    PlayheadLayer() { setInterceptsMouseClicks(false, false); }
+
+    std::function<Reading()> read;
+    // Where the line is now, for a readout (negative seconds: no line).
+    std::function<void(double seconds)> onMoved;
+
+    void setMap(const Map& map)
+    {
+        if (map != m_map)
+        {
+            m_map = map;
+            repaint();
+        }
+    }
+
+    // The editor's timer calls this; while there is a line to move, the layer runs its own
+    // 60 Hz timer, and stops it when the line goes.
+    void poll()
+    {
+        if (! isTimerRunning())
+            tick();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (! m_showing)
+            return;
+        const float x = m_x;
+        const float top = m_map.top, h = m_map.height;
+        // A faint glow either side, the line, and a small notch at its head.
+        g.setColour(m_colour.withAlpha(m_strong ? 0.14f : 0.08f));
+        g.fillRect(x - 4.0f, top, 8.0f, h);
+        g.setColour(m_strong ? m_colour : m_colour.withAlpha(0.75f));
+        const float w = m_strong ? 2.0f : 1.0f;
+        g.fillRect(x - 0.5f * w, top, w, h);
+        juce::Path notch;
+        notch.addTriangle(x - 4.0f, top, x + 4.0f, top, x, top + 5.0f);
+        g.fillPath(notch);
+    }
+
+private:
+    void timerCallback() override { tick(); }
+
+    static std::int64_t steadyNs()
+    {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+    void tick()
+    {
+        const auto r = read ? read() : Reading {};
+        const bool show = r.show && m_map.valid && m_map.duration > 0.0 && m_map.width > 0.0f;
+        const bool moving = g_motionOn.load(std::memory_order_relaxed);
+        const double t = nowSeconds();
+        const double dt = std::clamp(t - m_lastTick, 0.0, 0.1);
+        m_lastTick = t;
+
+        if (show)
+        {
+            // Where the report says the sound is now: as reported, moved on by the time since
+            // (never by more than about a block, in case reports stop coming).
+            double target = r.seconds;
+            if (r.moving && moving)
+                target += std::clamp(static_cast<double>(steadyNs() - r.atNs) * 1.0e-9, 0.0, 0.05);
+            if (! m_showing || ! moving || ! r.moving || std::abs(target - m_seconds) > 0.25)
+                m_seconds = target;   // a new start, a jump, or a held moment: straight there
+            else
+            {
+                m_seconds += dt;
+                m_seconds += (target - m_seconds) * 0.2;
+            }
+            m_seconds = std::clamp(m_seconds, 0.0, m_map.duration);
+        }
+
+        const float x = m_map.x0 + m_map.width * static_cast<float>(m_seconds / std::max(1.0e-9, m_map.duration));
+        if (show != m_showing || (show && (std::abs(x - m_x) >= 0.2f || r.colour != m_colour || r.strong != m_strong)))
+        {
+            const auto strip = [this](float at)
+            {
+                return juce::Rectangle<float>(at - 6.0f, m_map.top - 1.0f, 12.0f, m_map.height + 2.0f).getSmallestIntegerContainer();
+            };
+            if (m_showing)
+                repaint(strip(m_x));
+            m_showing = show;
+            m_x = x;
+            m_colour = r.colour;
+            m_strong = r.strong;
+            if (m_showing)
+                repaint(strip(m_x));
+        }
+        if (onMoved)
+            onMoved(m_showing ? m_seconds : -1.0);
+
+        if (show && moving)
+        {
+            if (! isTimerRunning())
+                startTimerHz(60);
+        }
+        else
+        {
+            stopTimer();
+        }
+    }
+
+    Map m_map;
+    bool m_showing = false, m_strong = true;
+    double m_seconds = 0.0, m_lastTick = 0.0;
+    float m_x = 0.0f;
+    juce::Colour m_colour = Palette::text;
+};
+
+//==============================================================================
 // Editing tools the user picked, kept for the life of the process so a reopened window agrees.
 
 struct EditTools
@@ -716,7 +965,6 @@ public:
     std::function<void(const std::vector<core::CurvePoint>&)> onChange;
     std::function<void(double seconds, double semitones)> onHold;   // sustain the sound here at this shift
     std::function<void(double seconds)> onRelease;                  // play on from here
-    std::function<double()> playhead;                               // seconds, negative when silent
     std::function<void(const std::vector<core::CurvePoint>& before)> onEdited;   // an edit finished: what it replaced
     std::function<void(int style)> onStyle;                         // one of the offered curves was picked
     std::function<void(bool redo)> onUndoKey;
@@ -753,7 +1001,6 @@ public:
     }
 
     bool isDragging() const noexcept { return m_gesture; }
-    void notePlayback() { m_motion.animateFor(0.5); }
 
     void paint(juce::Graphics& g) override
     {
@@ -831,15 +1078,6 @@ public:
                 g.setColour(Palette::amber);
                 g.fillRect(label.getX(), label.getBottom() - 1.0f, 44.0f, 1.0f);
             }
-        }
-
-        // The audition's play position.
-        const double playing = playhead ? playhead() : -1.0;
-        if (playing >= 0.0)
-        {
-            g.setColour(Palette::text.withAlpha(0.85f));
-            g.fillRect(xFor(playing) - 0.5f, plot.getY(), 1.0f, plot.getHeight());
-            m_motion.animateFor(0.2);   // keeps itself moving while there is sound
         }
 
         // A marker on the line under the mouse: "pull here" (a ring), or "draw here" (a cross).
@@ -1186,7 +1424,6 @@ private:
     juce::Point<float> m_dragFrom;
     double m_strokeFrom = 0.0;
     double m_readoutSeconds = -1.0, m_readoutValue = 0.0, m_readoutAfter = 0.0;
-    Motion m_motion { *this };
 };
 
 //==============================================================================
@@ -1196,7 +1433,8 @@ namespace PanelLayout
 {
     constexpr int pad = 12;
     constexpr int titleY = 12, titleH = 24;
-    constexpr int scanY = 46, scanH = 240;
+    constexpr int scanY = 46, scanH = 210;
+    constexpr int transportY = 262, transportH = 24;   // the play buttons and the time, under the scan
     constexpr int bigY = 294, bigH = 30;
     constexpr int dimY = 326, dimH = 14;
     constexpr int labelY = 350, labelH = 12;
@@ -1218,12 +1456,20 @@ public:
         addAndMakeVisible(m_learn);
         addAndMakeVisible(m_clear);
         addAndMakeVisible(m_scan);
+        addAndMakeVisible(m_playhead);
+        m_playhead.onMoved = [this](double seconds) { showPlayTime(seconds); };
     }
 
     std::function<void()> onLearn, onClear;
 
     // Marks Learn as the next thing to press.
     void setBeacon(bool shouldBeckon) { m_learn.setBeacon(shouldBeckon); }
+
+    // What a play button can do now.
+    enum class PlayState { Unavailable, Idle, Waiting, Playing };
+
+    // The editor's timer: moves the playhead on.
+    void pollPlayhead() { m_playhead.poll(); }
 
     void paint(juce::Graphics& g) override
     {
@@ -1242,6 +1488,7 @@ public:
                  juce::Justification::centredLeft, font(Weight::Regular, 10.0f, 0.08f), Palette::dim.withMultipliedAlpha(bigIn));
         drawText(g, m_chipLabel, { static_cast<float>(pad), static_cast<float>(labelY), w - 2.0f * pad, static_cast<float>(labelH) },
                  juce::Justification::centredLeft, font(Weight::Medium, 9.0f, 0.2f), Palette::dim);
+        paintTransport(g);
     }
 
     void resized() override
@@ -1252,9 +1499,99 @@ public:
         top.removeFromRight(6);
         m_learn.setBounds(top.removeFromRight(92));
         m_scan.setBounds(pad, scanY, getWidth() - 2 * pad, scanH);
+        m_playhead.setBounds(m_scan.getBounds());
     }
 
 protected:
+    static void showPlayButton(ConsoleButton& b, PlayState state, const juce::String& label, const juce::String& tip)
+    {
+        b.setEnabled(state != PlayState::Unavailable);
+        b.setToggleState(state == PlayState::Waiting || state == PlayState::Playing, juce::dontSendNotification);
+        b.setPulsing(state == PlayState::Waiting);
+        b.setIcon(state == PlayState::Playing ? ConsoleButton::Icon::Stop : ConsoleButton::Icon::Play);
+        b.setLabel(state == PlayState::Playing ? juce::String("STOP") : state == PlayState::Waiting ? juce::String("ARMED") : label);
+        if (b.getTooltip() != tip)
+            b.setTooltip(tip);
+    }
+
+    // The transport row under the scan: the play buttons at the left (laid out by each panel, which
+    // says where they end), then a track that fills as the clip plays, and its time at the right.
+    juce::Rectangle<int> transportArea() const
+    {
+        using namespace PanelLayout;
+        return { m_transportLeft, transportY, getWidth() - pad - m_transportLeft, transportH };
+    }
+
+    void setClipLength(double seconds)
+    {
+        if (std::abs(seconds - m_clipSeconds) > 1.0e-6)
+        {
+            m_clipSeconds = seconds;
+            repaint(transportArea());
+        }
+    }
+
+    void setPlayColour(juce::Colour colour)
+    {
+        if (colour != m_playColour)
+        {
+            m_playColour = colour;
+            repaint(transportArea());
+        }
+    }
+
+    void showPlayTime(double seconds)
+    {
+        // Repainted when what it shows changes: the time to the hundredth, or the track by a pixel.
+        const auto shown = seconds < 0.0 ? -1 : static_cast<int>(std::floor(seconds * 100.0));
+        const auto trackW = static_cast<double>(std::max(1, transportArea().getWidth() - 140));
+        const auto pixel = seconds < 0.0 || m_clipSeconds <= 0.0 ? -1 : static_cast<int>(trackW * std::clamp(seconds / m_clipSeconds, 0.0, 1.0));
+        if (shown != m_shownTime || pixel != m_shownPixel)
+        {
+            m_shownTime = shown;
+            m_shownPixel = pixel;
+            m_playSeconds = seconds;
+            repaint(transportArea());
+        }
+    }
+
+    static juce::String timeText(double seconds)
+    {
+        return juce::String(std::floor(std::max(0.0, seconds) * 100.0) / 100.0, 2);
+    }
+
+    void paintTransport(juce::Graphics& g)
+    {
+        if (m_clipSeconds <= 0.0)
+            return;
+        const auto area = transportArea().toFloat();
+        const bool playing = m_playSeconds >= 0.0;
+        const auto f = font(Weight::Medium, 10.0f, 0.1f);
+        const juce::String text = playing ? timeText(m_playSeconds) + " / " + timeText(m_clipSeconds) + " S" : timeText(m_clipSeconds) + " S";
+        const float textW = std::ceil(juce::GlyphArrangement::getStringWidth(f, text)) + 1.0f;
+        const auto textArea = juce::Rectangle<float>(area.getRight() - textW, area.getY(), textW, area.getHeight());
+        drawText(g, text, textArea, juce::Justification::centredRight, f, playing ? m_playColour : Palette::dim);
+
+        // The track: a hairline from the buttons to the time, filled as far as the clip has played.
+        const float x0 = area.getX() + 12.0f, x1 = textArea.getX() - 12.0f, cy = std::round(area.getCentreY());
+        if (x1 - x0 < 24.0f)
+            return;
+        g.setColour(Palette::rule.brighter(0.15f));
+        g.fillRect(x0, cy, x1 - x0, 1.0f);
+        g.fillRect(x1 - 1.0f, cy - 3.0f, 1.0f, 7.0f);
+        if (playing)
+        {
+            const float at = x0 + (x1 - x0) * static_cast<float>(std::clamp(m_playSeconds / m_clipSeconds, 0.0, 1.0));
+            g.setColour(m_playColour);
+            g.fillRect(x0, cy, at - x0, 1.0f);
+            g.fillRect(at - 1.0f, cy - 3.0f, 2.0f, 7.0f);
+        }
+        else
+        {
+            g.fillRect(x0, cy - 3.0f, 1.0f, 7.0f);
+        }
+    }
+
     // Learn button and scan message from the store's state; true if the scan shows a message.
     bool showSlotState(const SlotSnapshot& s, bool busy, bool learned, const juce::String& instruction)
     {
@@ -1325,6 +1662,11 @@ protected:
     ScanDisplay m_scan;
     juce::String m_big, m_dim, m_chipLabel;
     juce::Colour m_bigColour = Palette::text;
+    PlayheadLayer m_playhead;
+    int m_transportLeft = PanelLayout::pad;   // where the play buttons end
+    double m_clipSeconds = -1.0, m_playSeconds = -1.0;
+    int m_shownTime = -1, m_shownPixel = -1;
+    juce::Colour m_playColour = Palette::text;
 
     Motion m_motion { *this };
     bool m_waiting = false;
@@ -1349,6 +1691,26 @@ public:
                            "learned as it plays, and Learn switches itself off at its end. Click again to disarm.");
         m_clear.setTooltip("Forget the learned music.");
 
+        m_play.setAccent(Palette::teal, Palette::tealText, Palette::tealLine);
+        m_play.setFontSize(9.5f, Weight::Medium, 0.12f);
+        m_play.onClick = [this] { if (onPlay) onPlay(Playback::Music); };
+        addAndMakeVisible(m_play);
+        m_playhead.read = []
+        {
+            PlayheadLayer::Reading r;
+            auto& bus = AuditionBus::instance();
+            const auto p = bus.playhead();
+            if (! bus.previewRunning() || bus.playing() != Playback::Music || p.what != Playback::Music)
+                return r;
+            r.show = true;
+            r.seconds = p.seconds;
+            r.moving = p.moving;
+            r.atNs = p.atNs;
+            r.colour = Palette::teal;
+            return r;
+        };
+        setPlayColour(Palette::tealText);
+
         for (std::size_t i = 0; i < m_chips.size(); ++i)
         {
             auto& chip = m_chips[i];
@@ -1360,11 +1722,19 @@ public:
     }
 
     std::function<void(core::Target, int)> onTarget;
+    std::function<void(Playback)> onPlay;
+
+    void showPlayback(PlayState state, const juce::String& tip) { showPlayButton(m_play, state, "PLAY MUSIC", tip); }
 
     void setData(const HubSnapshot& hub, const SlotSnapshot& slot)
     {
         const auto& m = hub.music;
         const bool learned = hub.hasMusic;
+        // What is played back, and how long it is.
+        AuditionBus::instance().setMusic(hub.musicChannels, hub.musicRate);
+        setClipLength(learned && hub.musicChannels != nullptr && ! hub.musicChannels->empty() && hub.musicRate > 0.0
+                          ? static_cast<double>((*hub.musicChannels)[0].size()) / hub.musicRate
+                          : -1.0);
         const bool message = showSlotState(slot, hub.musicBusy, learned, "ARM LEARN, SELECT THE MUSIC, PRESS PREVIEW");
 
         if (learned && ! m.valid && ! message)
@@ -1393,15 +1763,21 @@ public:
         {
             m_signature = signature;
             m_haveImage = true;
+            m_laneMap = {};
             m_scan.setPicture(learned && m.valid ? renderLane(m, hub.match.valid ? hub.match.targetPitchClass : -1) : juce::Image());
+            m_playhead.setMap(m_laneMap);
         }
     }
 
     void resized() override
     {
         SlotPanel::resized();
+        m_play.setBounds(PanelLayout::pad, PanelLayout::transportY, kPlayW, PanelLayout::transportH);
+        m_transportLeft = m_play.getRight();
         layoutChips();
     }
+
+    static constexpr int kPlayW = 118;   // as wide as the effect's PLAY INPUT beside it
 
 private:
     void updateChips(const HubSnapshot& hub)
@@ -1481,7 +1857,7 @@ private:
     // The music as a short list of the notes it holds, strongest eight, highest at the top. Each
     // row is one note: its name, when it sounds across the learned passage (brighter = stronger),
     // and how strong it is overall. The root and the note being matched to are marked.
-    juce::Image renderLane(const core::MusicAnalysis& m, int targetPitchClass) const
+    juce::Image renderLane(const core::MusicAnalysis& m, int targetPitchClass)
     {
         const int w = m_scan.getWidth(), h = m_scan.getHeight();
         if (w <= 140 || h <= 40 || m.laneFrames <= 0 || m.lanePitches <= 0)
@@ -1519,6 +1895,16 @@ private:
         const float rowH = std::min(30.0f, static_cast<float>(h - 12) / static_cast<float>(std::max<std::size_t>(rows.size(), 5)));
         const float top = 0.5f * (static_cast<float>(h) - rowH * static_cast<float>(rows.size()));
         const int columns = static_cast<int>(stripW);
+
+        // The playhead runs down the note rows, on the same time scale as their strips.
+        m_laneMap.x0 = stripX;
+        m_laneMap.width = static_cast<float>(columns);
+        // The whole height of the view, like the effect's: with only a few notes the rows are a
+        // short band, and a playhead that long would be easy to miss.
+        m_laneMap.top = 6.0f;
+        m_laneMap.height = static_cast<float>(h) - 12.0f;
+        m_laneMap.duration = static_cast<double>(m.laneFrames) * m.hopSeconds;
+        m_laneMap.valid = m_laneMap.duration > 0.0 && ! rows.empty();
 
         for (std::size_t i = 0; i < rows.size(); ++i)
         {
@@ -1571,6 +1957,8 @@ private:
     std::vector<Chip> m_chipDefs;
     juce::String m_signature;
     bool m_haveImage = false;
+    ConsoleButton m_play { "PLAY MUSIC" };
+    PlayheadLayer::Map m_laneMap;
 };
 
 //==============================================================================
@@ -1617,13 +2005,13 @@ public:
         };
         m_editor.onRelease = [this](double seconds)
         {
-            if (g_tools.hear)
+            // With the effect playing as stamped, it carries on from here whatever HEAR says.
+            if (g_tools.hear || AuditionBus::instance().playing() == Playback::Output)
             {
                 AuditionBus::instance().playFrom(seconds);
                 noteAudition();
             }
         };
-        m_editor.playhead = [] { return AuditionBus::instance().previewRunning() ? AuditionBus::instance().positionSeconds() : -1.0; };
         m_editor.onEdited = [this](const std::vector<core::CurvePoint>& before) { remember(before); };
         m_editor.onStyle = [this](int style) { if (onStyle) onStyle(style); };
         m_editor.onUndoKey = [this](bool redo) { stepHistory(redo); };
@@ -1673,11 +2061,50 @@ public:
         m_hear.onClick = [this]
         {
             g_tools.hear = ! g_tools.hear;
-            if (! g_tools.hear)
-                AuditionBus::instance().stop();
+            auto& bus = AuditionBus::instance();
+            if (! g_tools.hear && bus.playing() == Playback::Output && ! bus.startedByPlay())
+                bus.stop();   // an edit's sound (PLAY OUTPUT carries on)
             showTools();
         };
         showTools();
+
+        // Playing the effect as learned and as it will be stamped.
+        for (auto* b : { &m_playInput, &m_playOutput })
+        {
+            b->setAccent(Palette::amber, Palette::amber, Palette::amberLine);
+            b->setFontSize(9.5f, Weight::Medium, 0.12f);
+            addAndMakeVisible(*b);
+        }
+        m_playInput.onClick = [this] { if (onPlay) onPlay(Playback::Input); };
+        m_playOutput.onClick = [this] { if (onPlay) onPlay(Playback::Output); };
+        // The line on the scan: quiet for the effect as learned, amber for the effect as stamped
+        // (played from here, or by Preview itself with Stamp on).
+        m_playhead.read = []
+        {
+            PlayheadLayer::Reading r;
+            auto& bus = AuditionBus::instance();
+            const auto role = bus.playing();
+            auto p = bus.playhead();
+            if (role == Playback::Input || role == Playback::Output)
+            {
+                if (! bus.previewRunning() || p.what != role)
+                    return r;
+            }
+            else
+            {
+                p = bus.stampPlayhead();
+                if (p.what == Playback::None)
+                    return r;
+            }
+            r.show = true;
+            r.seconds = p.seconds;
+            r.moving = p.moving;
+            r.atNs = p.atNs;
+            r.strong = p.what == Playback::Output;
+            r.colour = r.strong ? Palette::amber : Palette::text;
+            return r;
+        };
+        m_playhead.toFront(false);   // over the curve editor
 
         m_resetEdits.setAccent(Palette::amber, Palette::amber, Palette::amberLine);
         m_resetEdits.setFontSize(9.0f, Weight::Medium, 0.14f);
@@ -1696,11 +2123,24 @@ public:
     std::function<void(const std::vector<core::CurvePoint>&)> onEdits;
     std::function<void(double)> onSmooth;
     std::function<void(int)> onStyle;
+    std::function<void(Playback)> onPlay;
+
+    void showPlayback(PlayState input, const juce::String& inputTip, PlayState output, const juce::String& outputTip)
+    {
+        showPlayButton(m_playInput, input, "PLAY INPUT", inputTip);
+        showPlayButton(m_playOutput, output, "PLAY OUTPUT", outputTip);
+        // The time reads in the colour of the line it goes with.
+        const auto role = AuditionBus::instance().playing();
+        setPlayColour(role == Playback::Input ? Palette::text : Palette::amber);
+    }
 
     void setData(const HubSnapshot& hub, const SlotSnapshot& slot, bool hubChanged)
     {
         const auto& s = hub.sfx;
         const bool learned = hub.hasSfx;
+        setClipLength(learned && hub.sfxChannels != nullptr && ! hub.sfxChannels->empty() && hub.sfxRate > 0.0
+                          ? static_cast<double>((*hub.sfxChannels)[0].size()) / hub.sfxRate
+                          : -1.0);
         const bool message = showSlotState(slot, hub.sfxBusy, learned, "ARM LEARN, SELECT THE EFFECT, PRESS PREVIEW");
 
         if (learned && s.valid && s.pitched)
@@ -1742,6 +2182,10 @@ public:
             m_haveImage = true;
             m_axis.valid = m_axis.valid && m_editor.isDragging();   // the pitch axis holds still under a drag
             m_scan.setPicture(drawable ? renderCurves(hub) : juce::Image(), m_editor.isDragging());
+            PlayheadLayer::Map map;
+            if (drawable && m_axis.valid)
+                map = { m_axis.x0, m_axis.plotW, m_axis.top, m_axis.plotH, m_axis.duration, true };
+            m_playhead.setMap(map);
             m_editor.setData(m_axis, hub.options.edits, hub.match.afterMidi, hub.match.hopSeconds, hub.match.coveredFrom, hub.match.coveredTo,
                              hub.options.bend > 1.0e-6, hub.options.target == core::Target::Follow || hub.options.bend > 1.0e-6,
                              s.centreMidi, hub.music);
@@ -1750,7 +2194,8 @@ public:
             AuditionBus::instance().setCurve(hub.match.curve, hub.match.hopSeconds);
         }
         const bool editable = drawable && hub.match.valid && m_axis.valid && ! message;
-        if (! editable || slot.armed || slot.capturing)
+        // Nothing to hear the curve on: the effect as stamped stops (as learned plays on).
+        if (! editable && AuditionBus::instance().playing() == Playback::Output)
             AuditionBus::instance().stop();
         m_editor.setVisible(editable);
         m_resetEdits.setVisible(editable && ! hub.options.edits.empty());
@@ -1775,6 +2220,11 @@ public:
             area.removeFromLeft(6);
         }
         m_editor.setBounds(m_scan.getBounds());
+        auto transport = juce::Rectangle<int>(PanelLayout::pad, PanelLayout::transportY, getWidth() - 2 * PanelLayout::pad, PanelLayout::transportH);
+        m_playInput.setBounds(transport.removeFromLeft(kInputW));
+        transport.removeFromLeft(6);
+        m_playOutput.setBounds(transport.removeFromLeft(kOutputW));
+        m_transportLeft = m_playOutput.getRight();
         // Reset, redo and undo sit at the right of the readout line, above the tools.
         auto history = juce::Rectangle<int>(PanelLayout::pad, PanelLayout::dimY - 2, getWidth() - 2 * PanelLayout::pad, 18);
         m_resetEdits.setBounds(history.removeFromRight(92));
@@ -1822,7 +2272,6 @@ private:
     // that, so the editor can say to press Preview.
     void noteAudition()
     {
-        m_editor.notePlayback();
         if (! AuditionBus::instance().previewRunning())
             m_auditionUnheardAt = nowSeconds();
     }
@@ -1985,6 +2434,8 @@ private:
     double m_auditionUnheardAt = 0.0;
     ConsoleButton m_resetEdits { "RESET CURVE" }, m_draw { "DRAW" }, m_snap { "SNAP OFF" }, m_hear { "HEAR" };
     ConsoleButton m_undoButton { "UNDO" }, m_redoButton { "REDO" }, m_smooth { "SMOOTH OFF" };
+    ConsoleButton m_playInput { "PLAY INPUT" }, m_playOutput { "PLAY OUTPUT" };
+    static constexpr int kInputW = 118, kOutputW = 130;
     double m_smoothValue = 0.0;
     std::vector<core::CurvePoint> m_edits;
     std::vector<std::vector<core::CurvePoint>> m_undo, m_redo;
@@ -2111,6 +2562,11 @@ public:
         m_stamp.onClick = [this] { if (onStamp) onStamp(! m_stamp.getToggleState()); };
         addAndMakeVisible(m_stamp);
 
+        m_trim.setTooltip("Shifting pitch can raise a sound's peaks. On: the stamp is turned down by just enough to keep it "
+                          "under full scale; the figure is how much. Off: the level is left alone and a limiter catches any peaks.");
+        m_trim.onClick = [this] { if (onTrim) onTrim(! m_trim.getToggleState()); };
+        addAndMakeVisible(m_trim);
+
         m_copy.setAccent(Palette::teal, Palette::tealText, Palette::tealLine);
         m_copy.setFontSize(9.5f);
         m_copy.setTooltip("Copies the shift, the speed and the target note to the clipboard as a line of text. For a curve "
@@ -2124,7 +2580,7 @@ public:
 
     std::function<void(double)> onBend;
     std::function<void(int)> onOctave;
-    std::function<void(bool)> onFormant, onStamp;
+    std::function<void(bool)> onFormant, onStamp, onTrim;
     std::function<void()> onCopy;
 
     void setData(const HubSnapshot& hub)
@@ -2149,6 +2605,9 @@ public:
         m_hub.match.speedRatio = hub.match.speedRatio;
         m_hub.match.targetMidi = hub.match.targetMidi;
         m_hub.match.notesFollowed = hub.match.notesFollowed;
+        m_hub.trimKnown = hub.trimKnown;
+        m_hub.trimMeasuring = hub.trimMeasuring;
+        m_hub.trimDb = hub.trimDb;
 
         m_updating = true;
         if (! m_bend.isMouseButtonDown())
@@ -2163,6 +2622,23 @@ public:
         m_down.setEnabled(hub.options.octaveShift > -2);
         m_up.setEnabled(hub.options.octaveShift < 2);
         m_copy.setEnabled(hub.match.valid);
+
+        // TRIM reads at a glance: the figure while on, OFF while off, and nothing to show until
+        // there is a stamp to measure.
+        const bool trimOn = hub.options.trimEnabled;
+        m_trim.setToggleState(trimOn, juce::dontSendNotification);
+        const bool measuring = hub.match.valid && hub.trimMeasuring;
+        juce::String figure;
+        if (! hub.match.valid)
+            figure = trimOn ? "ON" : "OFF";
+        else if (measuring)
+            figure = "MEASURING";
+        else if (! trimOn)
+            figure = "OFF";
+        else
+            figure = trimText(hub.trimDb);
+        m_trim.show(measuring && trimOn, figure, ! trimOn && hub.match.valid && hub.trimKnown && hub.trimDb < -0.05f);
+        m_trim.setAlpha(hub.match.valid ? 1.0f : 0.4f);
         repaint();
     }
 
@@ -2199,10 +2675,21 @@ public:
                  { 18.0f, 86.0f, 140.0f, 14.0f }, juce::Justification::centredLeft, small, Palette::text.withAlpha(0.8f));
         drawText(g, m.valid ? "TO " + upper(core::noteName(m.targetMidi)) : juce::String("TO --"), { 162.0f, 86.0f, 100.0f, 14.0f },
                  juce::Justification::centredLeft, small, Palette::tealText);
-        drawText(g, (m.valid && m.notesFollowed >= 2 ? "MOVES THROUGH " + juce::String(m.notesFollowed) + " NOTES, FIRST SHOWN"
-                                                     : "OCTAVE " + octaveText(m_hub.options.octaveShift))
-                        + " / BEND " + bendText(m_hub.options.bend),
-                 { 18.0f, 104.0f, kLeftW - 30.0f, 12.0f }, juce::Justification::centredLeft, font(Weight::Regular, 9.0f, 0.1f), Palette::dim);
+        {
+            const auto summaryFont = font(Weight::Regular, 9.0f, 0.1f);
+            const juce::Rectangle<float> box { 18.0f, 104.0f, kLeftW - 30.0f, 12.0f };
+            auto summary = (m.valid && m.notesFollowed >= 2 ? "MOVES THROUGH " + juce::String(m.notesFollowed) + " NOTES, FIRST SHOWN"
+                                                            : "OCTAVE " + octaveText(m_hub.options.octaveShift))
+                           + " / BEND " + bendText(m_hub.options.bend);
+            // The trim, when one is applied and there is room for it.
+            if (m.valid && m_hub.options.trimEnabled && m_hub.trimKnown && m_hub.trimDb < -0.05f)
+            {
+                const auto withTrim = summary + " / TRIM " + trimText(m_hub.trimDb);
+                if (juce::GlyphArrangement::getStringWidth(summaryFont, withTrim) <= box.getWidth())
+                    summary = withTrim;
+            }
+            drawText(g, summary, box, juce::Justification::centredLeft, summaryFont, Palette::dim);
+        }
 
         // Bend.
         const float bx = kLeftW + 18.0f, bw = kStampX - 34.0f - bx;
@@ -2227,8 +2714,12 @@ public:
         m_up.setBounds(bx + 56 + 24 + 28, 84, 24, 24);
         m_formant.setBounds(bx + bw - 86, 84, 86, 24);
         const int sx = static_cast<int>(kStampX);
-        m_stamp.setBounds(sx, 14, getWidth() - 16 - sx, 66);
-        m_copy.setBounds(sx, 88, getWidth() - 16 - sx, 26);
+        const int sw = getWidth() - 16 - sx;
+        m_stamp.setBounds(sx, 14, sw, 66);
+        // Under Stamp: what is done to its level, and the copy of its values.
+        const int trimW = 132;
+        m_trim.setBounds(sx, 88, trimW, 26);
+        m_copy.setBounds(sx + trimW + 8, 88, sw - trimW - 8, 26);
     }
 
 private:
@@ -2237,6 +2728,12 @@ private:
     {
         const float t = easeOut(progressSince(m_countStart, 0.45));
         return m_countFrom + (m_hub.match.semitones - m_countFrom) * static_cast<double>(t);
+    }
+
+    // "-1.8 DB", or "0 DB" when nothing is taken off.
+    static juce::String trimText(float db)
+    {
+        return db < -0.05f ? juce::String(db, 1) + " DB" : juce::String("0 DB");
     }
 
     static juce::String bendText(double bend)
@@ -2248,11 +2745,12 @@ private:
     }
 
     static constexpr float kLeftW = 330.0f;
-    static constexpr float kStampX = 700.0f;
+    static constexpr float kStampX = 684.0f;
 
     HubSnapshot m_hub;   // only the options and the match's numbers are kept
     BendSlider m_bend;
     ConsoleButton m_down { "-" }, m_up { "+" }, m_formant { "FORMANT" }, m_stamp { "STAMP" }, m_copy { "COPY VALUES" };
+    TrimButton m_trim;
     bool m_updating = false;
     Motion m_motion { *this };
     double m_countFrom = 0.0, m_countStart = 0.0;
@@ -2534,11 +3032,14 @@ TonalRecallEditor::TonalRecallEditor(TonalRecallProcessor& p)
     m_sfx->onEdits = [this](const std::vector<core::CurvePoint>& points) { changeOptions([&](MatchOptions& o) { o.edits = points; }); };
     m_sfx->onSmooth = [this](double amount) { changeOptions([&](MatchOptions& o) { o.glide = amount; }); };
     m_sfx->onStyle = [this](int style) { changeOptions([&](MatchOptions& o) { o = o.withStyle(static_cast<MatchOptions::Style>(style)); }); };
+    m_music->onPlay = [this](Playback what) { togglePlay(what); };
+    m_sfx->onPlay = [this](Playback what) { togglePlay(what); };
 
     m_shift->onBend = [this](double bend) { changeOptions([&](MatchOptions& o) { o.bend = bend; }); };
     m_shift->onOctave = [this](int step) { changeOptions([&](MatchOptions& o) { o.octaveShift = std::clamp(o.octaveShift + step, -2, 2); }); };
     m_shift->onFormant = [this](bool on) { changeOptions([&](MatchOptions& o) { o.preserveFormants = on; }); };
     m_shift->onStamp = [this](bool on) { changeOptions([&](MatchOptions& o) { o.stampEnabled = on; }); };
+    m_shift->onTrim = [this](bool on) { changeOptions([&](MatchOptions& o) { o.trimEnabled = on; }); };
     m_shift->onCopy = [this] { copyValues(); };
 
     addAndMakeVisible(*m_music);
@@ -2702,6 +3203,90 @@ void TonalRecallEditor::clearSlot(Slot slot)
     refresh(true);
 }
 
+void TonalRecallEditor::togglePlay(Playback what)
+{
+    auto& bus = AuditionBus::instance();
+    // Playing, or waiting for Preview: a second click stops it.
+    const bool stopping = bus.playing() == what;
+    if (stopping)
+        bus.stop();
+    else
+        bus.play(what);
+    const char* names[] { "", "music", "effect as learned", "effect as stamped" };
+    DiagnosticLog::instance().post(m_processor.getInstanceId(), ThreadKind::Message, "play %s: %s (Preview %s)",
+                                   names[static_cast<int>(what)], stopping ? "stopped by user" : "started by user",
+                                   bus.previewRunning() ? "running" : "not running: waiting for it");
+    updatePlayback();
+    refresh(true);
+}
+
+int TonalRecallEditor::playbackSignature() const
+{
+    auto& bus = AuditionBus::instance();
+    return static_cast<int>(bus.playing()) | (bus.previewRunning() ? 8 : 0) | (bus.startedByPlay() ? 16 : 0);
+}
+
+void TonalRecallEditor::updatePlayback()
+{
+    auto& bus = AuditionBus::instance();
+    // Learn hears the selection untouched: nothing plays while it is armed or listening.
+    const bool learning = m_slots[0].armed || m_slots[0].capturing || m_slots[1].armed || m_slots[1].capturing;
+    if (learning && bus.playing() != Playback::None)
+        bus.stopNow();
+
+    const auto role = bus.playing();
+    const bool running = bus.previewRunning();
+    const bool byPlay = bus.startedByPlay();
+    const double rate = m_processor.getSampleRate();
+    const auto stateFor = [&](Playback what, bool available)
+    {
+        if (! available)
+            return SlotPanel::PlayState::Unavailable;
+        if (role == what && running)
+            return SlotPanel::PlayState::Playing;
+        if (role == what && byPlay)
+            return SlotPanel::PlayState::Waiting;
+        return SlotPanel::PlayState::Idle;
+    };
+    // Why a button cannot be pressed, in the order it would have to be put right; empty if it can.
+    const auto blocked = [&](bool learned, double learnedAt, const juce::String& what) -> juce::String
+    {
+        if (learning)
+            return "Learn is listening: nothing is played until it has finished.";
+        if (! learned)
+            return "Learn the " + what + " first.";
+        if (rate > 0.0 && learnedAt > 0.0 && std::abs(learnedAt - rate) > 0.5)
+            return "The " + what + " was learned at " + juce::String(juce::roundToInt(learnedAt)) + " Hz: the session has to be at that rate "
+                   "for it to play at the right speed.";
+        return {};
+    };
+
+    const bool musicLearned = m_hub.hasMusic && m_hub.musicChannels != nullptr && ! m_hub.musicChannels->empty();
+    const bool sfxLearned = m_hub.hasSfx && m_hub.sfxChannels != nullptr && ! m_hub.sfxChannels->empty();
+    const auto musicWhy = blocked(musicLearned, m_hub.musicRate, "music");
+    const auto inputWhy = blocked(sfxLearned, m_hub.sfxRate, "sound effect");
+    auto outputWhy = inputWhy;
+    if (outputWhy.isEmpty() && ! (m_hub.match.valid && m_hub.planReady))
+        outputWhy = "Needs a match: the music and a sound effect with a clear pitch, both learned.";
+
+    m_music->showPlayback(stateFor(Playback::Music, musicWhy.isEmpty()),
+                          musicWhy.isNotEmpty() ? musicWhy
+                                                : juce::String("Plays the learned music from its start, as it was learned, through this window's "
+                                                               "Preview: Preview has to be running for it to be heard. The line across the notes "
+                                                               "shows where it is. Click again to stop."));
+    m_sfx->showPlayback(stateFor(Playback::Input, inputWhy.isEmpty()),
+                        inputWhy.isNotEmpty() ? inputWhy
+                                              : juce::String("Plays the sound effect from its start, as it was learned, through Preview. The pale "
+                                                             "line on the scan shows where it is. Click again to stop."),
+                        stateFor(Playback::Output, outputWhy.isEmpty()),
+                        outputWhy.isNotEmpty() ? outputWhy
+                                               : juce::String("Plays the sound effect from its start as it will be stamped: the shift, the curve, "
+                                                              "formants and trim, through Preview. Changes to the curve are heard as it plays, and "
+                                                              "a click on the scan plays on from there. Click again to stop."));
+    m_music->pollPlayhead();
+    m_sfx->pollPlayhead();
+}
+
 void TonalRecallEditor::changeOptions(const std::function<void(MatchOptions&)>& change)
 {
     auto& hub = MatchHub::instance();
@@ -2721,6 +3306,8 @@ void TonalRecallEditor::copyValues()
          << juce::String(m.speedRatio * 100.0, 1) << "%, to " << core::noteName(m.targetMidi);
     if (m_hub.music.valid)
         line << " (" << m_hub.music.keyName() << ")";
+    if (m_hub.options.trimEnabled && m_hub.trimKnown && m_hub.trimDb < -0.05f)
+        line << ", trim " << juce::String(m_hub.trimDb, 1) << " dB";
     juce::SystemClipboard::copyTextToClipboard(line);
 }
 
@@ -2740,11 +3327,14 @@ void TonalRecallEditor::timerCallback()
     if (m_processor.isAaxInsert() != m_insertNotice->isVisible())
         showInsertNotice(m_processor.isAaxInsert());
 
-    // The "press Preview to hear edits" line comes and goes with time, not with data.
+    // The "press Preview to hear edits" line comes and goes with time, not with data, and so do
+    // playing and waiting for Preview.
     const bool needsPreview = m_sfx->auditionNeedsPreview();
-    const bool changed = needsPreview != m_auditionHintShown;
+    const int playback = playbackSignature();
+    const bool changed = needsPreview != m_auditionHintShown || playback != m_playbackShown;
     m_auditionHintShown = needsPreview;
     refresh(changed);
+    updatePlayback();
 }
 
 void TonalRecallEditor::refresh(bool force)
@@ -2786,8 +3376,12 @@ void TonalRecallEditor::refresh(bool force)
     if (hubChanged)
         m_shift->setData(m_hub);
 
+    if (force)
+        updatePlayback();
+
     if (storeChanged || hubChanged || runChanged)
     {
+        m_playbackShown = playbackSignature();
         // Walk the user through it: the next button to press beckons, and the strip says why.
         const bool busy = m_slots[0].armed || m_slots[0].capturing || m_slots[1].armed || m_slots[1].capturing
                           || m_hub.musicBusy || m_hub.sfxBusy;
@@ -2797,7 +3391,12 @@ void TonalRecallEditor::refresh(bool force)
         m_music->setBeacon(step == 1);
         m_sfx->setBeacon(step == 2);
         m_shift->setStampBeacon(step == 3);
-        m_strip->setHint(step == 1 ? "START HERE: ARM LEARN ON 01 MUSIC, SELECT THE MUSIC, PRESS PREVIEW"
+        // While something plays, the strip says what (unless something needs saying more).
+        const auto playing = AuditionBus::instance().previewRunning() ? AuditionBus::instance().playing() : Playback::None;
+        m_strip->setHint(playing == Playback::Music    ? juce::String("PLAYING THE MUSIC AS LEARNED")
+                         : playing == Playback::Input  ? juce::String("PLAYING THE SOUND EFFECT AS LEARNED")
+                         : playing == Playback::Output ? juce::String("PLAYING THE SOUND EFFECT AS IT WILL BE STAMPED")
+                         : step == 1 ? "START HERE: ARM LEARN ON 01 MUSIC, SELECT THE MUSIC, PRESS PREVIEW"
                          : step == 2 ? "NEXT: ARM LEARN ON 02 SOUND EFFECT, SELECT THE EFFECT, PRESS PREVIEW"
                          : step == 3 ? "SWITCH STAMP ON TO AUDITION AND RENDER THE SHIFT"
                          : step == 4 && m_hub.match.valid && m_hub.options.style() == static_cast<int>(MatchOptions::Style::Locked)
@@ -2827,9 +3426,23 @@ juce::StringArray TonalRecallEditor::buildWarnings() const
         lines.add("THE EFFECT WAS LEARNED AT " + juce::String(juce::roundToInt(m_hub.sfxRate)) + " HZ: STAMP DOES NOTHING UNTIL THE SESSION IS AT THAT RATE");
     if (m_run.ended && m_run.mode == StampRunInfo::Mode::Stamp && m_run.stampOn && m_run.bendActive && ! m_run.aligned)
         lines.add("THE CURVE WAS NOT APPLIED: THE LEARNED EFFECT WAS NOT FOUND IN WHAT WAS PLAYED. ONLY THE FIXED SHIFT WAS APPLIED.");
+    if (const float held = m_processor.lastRenderLimiterDb(); held > 0.5f)
+        lines.add("THE LAST RENDER WENT OVER FULL SCALE: THE LIMITER HELD ITS PEAKS DOWN BY " + juce::String(held, 1) + " DB");
+    if (m_hub.match.valid && ! m_hub.options.trimEnabled && m_hub.trimKnown && m_hub.trimDb < -0.05f)
+        lines.add("TRIM IS OFF AND THE STAMP GOES " + juce::String(-m_hub.trimDb, 1) + " DB OVER FULL SCALE: THE LIMITER WILL HOLD ITS PEAKS");
+
+    if (m_hub.hasMusic && m_hub.musicRate > 0.0 && rate > 0.0 && std::abs(m_hub.musicRate - rate) > 0.5)
+        lines.add("THE MUSIC WAS LEARNED AT " + juce::String(juce::roundToInt(m_hub.musicRate)) + " HZ: IT PLAYS BACK ONLY WITH THE SESSION AT THAT RATE");
 
     if (m_processor.learnSkippedInRender() && (m_slots[0].armed || m_slots[1].armed))
         lines.add("LEARN LISTENS TO PREVIEW, NOT RENDER: PRESS PREVIEW");
+    {
+        // A play button was pressed with Preview stopped: it is waiting for it.
+        auto& bus = AuditionBus::instance();
+        if (bus.playing() != Playback::None && bus.startedByPlay() && ! bus.previewRunning())
+            lines.add(m_processor.isOtherHost() ? "PLAY THE TRACK IN THE HOST: PLAYBACK USES THIS PLUG-IN'S OUTPUT"
+                                                : "PRESS PREVIEW (THE SPEAKER, BOTTOM LEFT): PLAYBACK USES ITS OUTPUT");
+    }
     if (m_sfx->auditionNeedsPreview())
         lines.add("TO HEAR EDITS AS YOU MAKE THEM, PRESS PREVIEW IN THE AUDIOSUITE WINDOW");
 
@@ -2863,6 +3476,8 @@ juce::StringArray TonalRecallEditor::buildWarnings() const
         lines.add("THE EFFECT'S PITCH IS UNCLEAR: CHECK THE RESULT BY EAR");
     if (m_hub.hasMusic && m_hub.music.valid && m_hub.music.keyConfidence < 0.5f)
         lines.add("KEY IS UNCERTAIN: CHECK THE TARGET NOTE");
+    if (m_hub.hasSfx && ! m_slots[1].capturing && m_slots[1].peak >= 0.999f)
+        lines.add("THE EFFECT REACHES FULL SCALE AS LEARNED: IT MAY HAVE BEEN CLIPPED BEFORE IT GOT HERE");
 
     lines.removeDuplicates(false);
     return lines;

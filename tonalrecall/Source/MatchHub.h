@@ -12,15 +12,21 @@
 // Threading:
 //   - Editors and the processor's state calls use options()/setOptions()/snapshot() (a mutex;
 //     never the audio thread).
-//   - The audio thread uses only planGeneration(), tryAcquirePlan() and stampEnabled(): atomics
-//     plus a spin try-lock around a shared_ptr copy, which neither allocates nor blocks (see
-//     tryAcquirePlan()). A plan is never freed on the audio thread: the hub keeps every plan it
+//   - The audio thread uses only planGeneration(), tryAcquirePlan(), stampEnabled() and trimFor():
+//     atomics plus a spin try-lock around a shared_ptr copy, which neither allocates nor blocks
+//     (see tryAcquirePlan()). A plan is never freed on the audio thread: the hub keeps every plan it
 //     published until it sees that nobody else holds it, and frees it on its own thread.
+//
+// Level: once a plan is published, the thread also runs the stamp over the learned effect (see
+// core::measureStamp) to find how far its peaks would go over full scale, and publishes the trim
+// that keeps them under. A newer plan, a stop or a reset abandons a measurement in progress, so
+// dragging the curve never waits on one.
 //
 // No JUCE in here, so it can be driven from tests directly.
 
 #include "CaptureStore.h"
 #include "core/Analysis.h"
+#include "core/Stamper.h"
 
 #include <array>
 #include <atomic>
@@ -50,6 +56,9 @@ struct MatchOptions
     core::SfxMethod method = core::SfxMethod::Auto;
     bool preserveFormants = false;
     bool stampEnabled = true;
+    // Turn the stamp down by just enough to keep its peaks under full scale (the measured trim).
+    // Not part of the styles: it is about level, not pitch.
+    bool trimEnabled = true;
     // The single note in use before Subtle or Moving took over, so Locked can go back to it.
     core::Target lockedTarget = core::Target::Nearest;
     int lockedPitchClass = 0;
@@ -115,8 +124,16 @@ struct HubSnapshot
     // without a match.
     std::array<std::vector<float>, MatchOptions::kNumStyles> styleAfterMidi;
 
-    // The learned effect itself, channel by channel, for auditioning. Shared, never modified.
+    // The learned effect itself, channel by channel, for auditioning and playing back, and the
+    // learned music the same way, for playing back. Shared, never modified.
     std::shared_ptr<const std::vector<std::vector<float>>> sfxChannels;
+    std::shared_ptr<const std::vector<std::vector<float>>> musicChannels;
+
+    // The stamp's level, measured over the learned effect for the current plan.
+    bool trimKnown = false;          // measured for the plan now published
+    bool trimMeasuring = false;      // a plan is published and its measurement is still to come
+    core::StampLevels levels;        // valid when trimKnown (levels.complete false: could not be measured)
+    float trimDb = 0.0f;             // the trim the plan needs (0 or negative), whether TRIM is on or not
 };
 
 class MatchHub
@@ -137,6 +154,10 @@ public:
 
     // ---- audio thread ----
     bool stampEnabled() const noexcept { return m_stampEnabled.load(std::memory_order_acquire); }
+    // The trim for a plan: true once its level has been measured, with gain the fixed gain to
+    // apply (1 when TRIM is off or the stamp stays under full scale). False while it is unknown
+    // (not measured yet, or the plan is no longer the current one).
+    bool trimFor(std::uint64_t planGeneration, float& gain) const noexcept;
     // 0 = no plan.
     std::uint64_t planGeneration() const noexcept { return m_planGeneration.load(std::memory_order_acquire); }
     // Copies the current plan into out (a reference count increment: no allocation). False if the
@@ -144,7 +165,8 @@ public:
     // later. out may end up null (no plan).
     bool tryAcquirePlan(std::shared_ptr<const StampPlan>& out) const noexcept;
 
-    // Tests: wait until the hub has caught up with the store and the options (false on timeout).
+    // Tests: wait until the hub has caught up with the store and the options, the stamp's level
+    // measured included (false on timeout).
     bool waitUntilIdle(double timeoutSeconds);
     // Tests: forget every analysis, the plan and the options (after CaptureStore::resetForTesting()).
     void resetForTesting();
@@ -175,6 +197,9 @@ private:
     void recomputeMatchLocked();                // m_mutex held
     void publishPlanLocked(std::shared_ptr<const StampPlan> plan);   // m_mutex held
     void freeUnusedPlansLocked();                                    // m_mutex held
+    bool measureLevels();                                            // true if it did something
+    void publishTrimLocked(std::uint64_t planGeneration, const core::StampLevels& levels);   // m_mutex held
+    void wantNewPlan() noexcept { m_planWanted.fetch_add(1, std::memory_order_acq_rel); }
     void bump() noexcept { m_generation.fetch_add(1, std::memory_order_acq_rel); }
 
     // Guarded by m_mutex.
@@ -190,10 +215,17 @@ private:
     bool m_musicTimeline = false, m_sfxTimeline = false;
     std::int64_t m_musicStart = 0, m_sfxStart = 0;
     std::shared_ptr<const std::vector<std::vector<float>>> m_sfxChannels;   // the same audio, channel by channel
+    std::shared_ptr<const std::vector<std::vector<float>>> m_musicChannels; // the music, channel by channel (to play back)
     std::shared_ptr<const std::vector<float>> m_sfxAudio;   // what the effect analysis ran on
     bool m_sfxDirty = false;                // re-analyse the effect (method changed)
     bool m_matchDirty = false;              // recompute the match and the plan
     std::uint64_t m_epoch = 0;              // bumped by resetForTesting: stale work is dropped
+
+    // The level measured for a plan (see measureLevels()). m_measuredPlan is the plan it was
+    // measured on, kept so that a later plan stamping exactly the same can take it over.
+    std::uint64_t m_measuredFor = 0;
+    core::StampLevels m_levels;
+    std::shared_ptr<const StampPlan> m_measuredPlan;
 
     std::array<SlotState, kNumSlots> m_slots;
     std::vector<std::shared_ptr<const StampPlan>> m_plans;   // every plan published and maybe still held
@@ -206,6 +238,14 @@ private:
 
     std::atomic<std::uint64_t> m_generation { 1 };
     std::atomic<bool> m_stampEnabled { true };
+    std::atomic<bool> m_trimEnabled { true };
+    // The trim for the audio thread, in one word so it is never read half updated: the low 32
+    // bits of the plan generation it was measured for (high half) and the gain's bits (low half).
+    std::atomic<std::uint64_t> m_trimWord { 0 };
+    // Bumped whenever a newer plan is on its way (options that change the curve, a new capture,
+    // a reset): a measurement in progress gives up.
+    std::atomic<std::uint64_t> m_planWanted { 0 };
+    std::atomic<bool> m_stopping { false };
     std::atomic<std::uint64_t> m_idlePasses { 0 };            // passes of the thread that found nothing to do
 
     std::mutex m_threadMutex;

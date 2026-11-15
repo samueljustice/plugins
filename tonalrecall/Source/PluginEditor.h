@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include "Audition.h"
 #include "CaptureStore.h"
 #include "MatchHub.h"
 #include "PluginProcessor.h"
@@ -49,6 +50,8 @@ public:
     // The "AudioSuite only" notice (in Pro Tools it appears by itself when loaded as an insert).
     void showInsertNotice(bool shouldShow);
     void toggleLearnForTesting(tonalrecall::Slot slot) { toggleLearn(slot); }
+    // What a click on PLAY MUSIC, PLAY INPUT or PLAY OUTPUT does.
+    void togglePlayForTesting(tonalrecall::Playback what) { togglePlay(what); }
 
     static constexpr int kWidth = 980;
     static constexpr int kHeight = 706;
@@ -69,6 +72,9 @@ private:
     void startUpdateCheckWhenShown();
     void toggleLearn(tonalrecall::Slot slot);
     void clearSlot(tonalrecall::Slot slot);
+    void togglePlay(tonalrecall::Playback what);
+    void updatePlayback();   // the play buttons and playheads, from the audition bus
+    int playbackSignature() const;
     void changeOptions(const std::function<void(tonalrecall::MatchOptions&)>& change);
     void copyValues();
     juce::StringArray buildWarnings() const;
@@ -100,6 +106,7 @@ private:
     juce::StringArray m_warnings;
     double m_openedAt = 0.0;   // while the opening animation runs
     bool m_auditionHintShown = false;
+    int m_playbackShown = -1;   // playbackSignature() when the strip was last built
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TonalRecallEditor)
 };

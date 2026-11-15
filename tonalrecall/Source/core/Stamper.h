@@ -18,9 +18,16 @@
 // learned region the curve's first and last values are held. If the learned audio is not found
 // in the stream, the fixed shift is applied throughout and alignmentFound() stays false.
 //
+// Level: shifting pitch rearranges how a sound's partials line up, so its peaks can come out
+// higher than they went in. The output therefore ends in a safety (core::PeakLimiter): a trim,
+// one fixed gain set with setTrim() from a measurement made beforehand (measureStamp()), and a
+// look-ahead limiter behind it for whatever was not measured. Its look-ahead is part of
+// latencySamples().
+//
 // No JUCE. Construction allocates; process() does not.
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -31,6 +38,8 @@ class RubberBandDriver;
 
 namespace tonalrecall::core
 {
+
+class PeakLimiter;
 
 class Stamper
 {
@@ -49,6 +58,10 @@ public:
         // A looping preview plays the selection round and round: with this set (the selection's
         // length in samples) the curve starts again each time round. 0 = the stream plays once.
         std::int64_t loopLength = 0;
+        // The trim and the limiter at the output. Off, the output is exactly what the shift
+        // produced, at the same latency (for measuring it).
+        bool safety = true;
+        float trim = 1.0f;                 // the fixed gain to start with (see setTrim())
     };
 
     explicit Stamper(const Setup& setup);
@@ -67,6 +80,14 @@ public:
      */
     bool updateShift(double staticSemitones, const std::vector<float>& curve) noexcept;
 
+    /**
+     * The fixed gain applied to the output ahead of the limiter (1 = none, never above 1). May be
+     * called while running, from any thread; a change is eased in over a few milliseconds.
+     */
+    void setTrim(float gain) noexcept;
+    /** The most the limiter has had to turn the output down so far, in dB (0 = nothing). */
+    float limiterReductionDb() const noexcept;
+
     bool alignmentFound() const noexcept { return m_aligned; }
     /** Stream sample at which the learned audio starts (valid once alignmentFound()). */
     std::int64_t alignmentOffset() const noexcept { return m_offset; }
@@ -78,6 +99,8 @@ private:
 
     Setup m_setup;
     std::unique_ptr<RubberBandDriver> m_driver;
+    std::unique_ptr<PeakLimiter> m_limiter;
+    int m_shiftLatency = 0;                  // m_latency without the limiter's look-ahead
     int m_chunk = 512;
     int m_latency = 0;
     int m_ratioAlignment = 0;
@@ -109,5 +132,38 @@ private:
     std::int64_t m_offset = 0;
     std::int64_t m_fed = 0;
 };
+
+//==============================================================================
+// Measuring a stamp before it is rendered
+
+struct StampLevels
+{
+    bool complete = false;        // false: cancelled, or there was nothing to measure
+    float inputPeak = 0.0f;       // the effect's highest sample as learned
+    float outputPeak = 0.0f;      // its highest sample once shifted (no trim, no limiting)
+
+    /** The gain that brings the shifted effect under the ceiling: 1 when it already is. */
+    float trim() const noexcept;
+    /** The same in dB (0 or negative). */
+    float trimDb() const noexcept;
+};
+
+/**
+ * Runs the stamp over the learned effect and reports its peak before and after. setup is the
+ * stamp as it would be rendered (rate, shift, curve, formants; its channel count and safety are
+ * set here); channels is the effect as learned, channel by channel, all the same length.
+ * Takes a fraction of the effect's length. Allocates: never on the audio thread.
+ *
+ * The effect is measured starting from silence. A render usually has more audio before it (the
+ * host's handles): silence, or the same recording carrying on, and for both the peak comes out
+ * as measured. A hard cut from some other sound straight into the effect leaves the stretcher
+ * in a different state and can raise the peak by a few dB; nothing can be known about that
+ * beforehand, and it is what the limiter is for.
+ *
+ * cancelled is
+ * asked every few thousand samples; when it returns true the measurement stops (complete = false).
+ */
+StampLevels measureStamp(Stamper::Setup setup, const std::vector<std::vector<float>>& channels,
+                         const std::function<bool()>& cancelled = {});
 
 } // namespace tonalrecall::core

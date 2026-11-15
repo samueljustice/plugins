@@ -3,10 +3,12 @@
 #include "Audition.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cinttypes>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <thread>
 
 using namespace tonalrecall;
 
@@ -167,7 +169,8 @@ namespace
     }
 
     // i: 0 mode, 1 plan generation, 2 aligned, 3 offset, 4 samples, 5 latency, 6 selection,
-    //    7 non-realtime, 8 stamp output on at the end, 9 run index; d: 0 semitones, 1 sample rate; flags: bend.
+    //    7 non-realtime, 8 stamp output on at the end, 9 run index; d: 0 semitones, 1 sample rate,
+    //    2 trim (dB), 3 limiter's most reduction (dB); flags: 1 bend, 2 trim measured.
     void formatStampSummary(const LogEvent& e, char* out, std::size_t size)
     {
         Writer w { out, size };
@@ -180,6 +183,10 @@ namespace
               e.i[1], e.d[0], e.flags & 1 ? "yes" : "no");
             if (e.i[2] != 0) w(", alignment found at stream sample %" PRId64 " (%.3f s)", e.i[3], secs(e.i[3]));
             else w(", alignment NOT found (fixed shift throughout)");
+            if (e.flags & 2) w(", trim %.2f dB", e.d[2]);
+            else w(", trim not measured (none applied)");
+            if (e.d[3] > 0.0) w(", LIMITER held peaks by %.2f dB", e.d[3]);
+            else w(", limiter idle");
         }
         w(", stream %" PRId64 " samples (%.3f s), reported latency %" PRId64 " samples", e.i[4], secs(e.i[4]), e.i[5]);
         if (e.i[7] != 0)
@@ -191,6 +198,21 @@ namespace
                 w("; delivered %" PRId64 " samples, selection length unknown", e.i[4]);
         }
     }
+
+    // i: 0 plan generation, 1 milliseconds waited; flags: 1 the trim arrived.
+    void formatTrimWait(const LogEvent& e, char* out, std::size_t size)
+    {
+        if (e.flags & 1)
+            std::snprintf(out, size, "Render: waited %" PRId64 " ms for the level of plan %" PRId64 " to be measured", e.i[1], e.i[0]);
+        else
+            std::snprintf(out, size, "Render: gave up after %" PRId64 " ms waiting for the level of plan %" PRId64
+                          " to be measured; rendering with no trim (the limiter holds any peaks)", e.i[1], e.i[0]);
+    }
+
+    // How long a Render's first block waits for the stamp's level to be measured. Measuring takes
+    // a fraction of the effect's length, and a Render is offline, so waiting is harmless; past
+    // this the limiter alone looks after the level.
+    constexpr int kTrimWaitMs = 5000;
 
     void post(std::uint32_t id, LogEvent::FormatFn fn, LogEvent& e, ThreadKind kind = ThreadKind::Audio) noexcept
     {
@@ -277,7 +299,7 @@ void TonalRecallProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     refreshAudioSuiteFlag("in prepareToPlay");
 
     // The Stamper's latency depends only on the sample rate (not on the shift), so a throwaway
-    // one tells us what to report. Offline every mode is delayed by it, so the host's
+    // one tells us what to report (it includes the look-ahead of the limiter at its output). Offline every mode is delayed by it, so the host's
     // compensation lines a Render up whatever the plug-in did.
     const int channels = std::max(1, getTotalNumOutputChannels());
     core::Stamper::Setup probe;
@@ -551,12 +573,51 @@ void TonalRecallProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // Preview is the audition's way out: an edit being made in the editor is mixed over the
     // stream here (never into a Render, and never while Learn is listening).
     if (! m_runIsNonRealtime && m_runMode != StampRunInfo::Mode::Learn)
+    {
+        // The audition is mixed in after the Stamper, so it does not pass the limiter; it is
+        // played at the trim the stamp will have, so a drag is heard at the level it will render
+        // at. Until a new curve is measured it keeps the last trim known.
+        auto& hub = MatchHub::instance();
+        float trim = 1.0f;
+        if (hub.trimFor(hub.planGeneration(), trim))
+            m_auditionTrim = trim;
         AuditionBus::instance().render(buffer.getArrayOfWritePointers(), numChannels, numSamples,
-                                       m_sampleRate.load(std::memory_order_relaxed));
+                                       m_sampleRate.load(std::memory_order_relaxed), m_auditionTrim);
+    }
     else if (! m_runIsNonRealtime)
         AuditionBus::instance().notePreviewRunning();
 
+    if (! m_runIsNonRealtime)
+        publishStampPosition(numSamples);
+
     m_srSamples.fetch_add(numSamples, std::memory_order_relaxed);
+}
+
+// Where in the learned effect Preview's own stamp is being heard, so the editor can draw it on the
+// effect's scan. The Stamper found the effect at alignmentOffset() in this run's stream, and what
+// comes out is late by the reported latency; a looping Preview plays the selection round and
+// round, and the effect comes round with it (as the Stamper lays the curve).
+void TonalRecallProcessor::publishStampPosition(int numSamples) noexcept
+{
+    double seconds = -1.0, length = 0.0;
+    const double sr = m_sampleRate.load(std::memory_order_relaxed);
+    if (m_runMode == StampRunInfo::Mode::Stamp && m_stamper != nullptr && m_stamper->alignmentFound() && m_plan != nullptr
+        && m_plan->learnedMono != nullptr && sr > 0.0 && MatchHub::instance().stampEnabled())
+    {
+        const auto effect = static_cast<std::int64_t>(m_plan->learnedMono->size());
+        length = static_cast<double>(effect) / sr;
+        // The stream sample being heard at the end of this block.
+        const auto heard = m_srSamples.load(std::memory_order_relaxed) + numSamples - 1 - m_latency.load(std::memory_order_relaxed);
+        auto at = heard - m_stamper->alignmentOffset();
+        if (at >= 0)
+        {
+            if (m_setupScratch.loopLength > 0)
+                at %= m_setupScratch.loopLength;
+            if (at <= effect)
+                seconds = static_cast<double>(at) / sr;
+        }
+    }
+    AuditionBus::instance().publishStampPosition(seconds, length);
 }
 
 void TonalRecallProcessor::beginStampRun(int numChannels, bool nonRealtime, std::int64_t selectionLength) noexcept
@@ -626,6 +687,15 @@ void TonalRecallProcessor::beginStampRun(int numChannels, bool nonRealtime, std:
             // A looping Preview plays the selection round and round; a Render plays it once.
             m_setupScratch.loopLength = nonRealtime ? 0 : selectionLength;
             m_setupScratch.preserveFormants = m_plan->preserveFormants;
+            // The trim measured for this plan. A Render waits for it if it is still being measured
+            // (offline, so it can); Preview never waits, and picks it up when it arrives (see
+            // stampBlock()).
+            m_trimKnown = hub.trimFor(m_plan->generation, m_trimApplied);
+            if (! m_trimKnown && nonRealtime)
+                m_trimApplied = waitForTrim(m_plan->generation, m_trimKnown);
+            if (! m_trimKnown)
+                m_trimApplied = 1.0f;
+            m_setupScratch.trim = m_trimApplied;
             m_stamper = std::make_unique<core::Stamper>(m_setupScratch);
             // The Stamper has taken what it needs. Let go of the learned audio now, while the plan
             // still holds it: kept here, it would be this thread that freed it (tens of megabytes)
@@ -646,12 +716,40 @@ void TonalRecallProcessor::beginStampRun(int numChannels, bool nonRealtime, std:
     m_srSemitones.store(mode == StampRunInfo::Mode::Stamp ? m_plan->staticSemitones : 0.0, std::memory_order_relaxed);
     m_srPlanGeneration.store(mode == StampRunInfo::Mode::Stamp ? m_plan->generation : 0, std::memory_order_relaxed);
     m_srAligned.store(false, std::memory_order_relaxed);
+    m_srTrimKnown.store(mode == StampRunInfo::Mode::Stamp && m_trimKnown, std::memory_order_relaxed);
+    m_srTrimDb.store(mode == StampRunInfo::Mode::Stamp ? 20.0f * std::log10(std::max(m_trimApplied, 1.0e-6f)) : 0.0f, std::memory_order_relaxed);
+    m_srLimiterDb.store(0.0f, std::memory_order_relaxed);
     m_srOffset.store(0, std::memory_order_relaxed);
     m_srSamples.store(0, std::memory_order_relaxed);
     m_srSelection.store(selectionLength, std::memory_order_relaxed);
     m_srEnded.store(false, std::memory_order_relaxed);
     m_srRunIndex.fetch_add(1, std::memory_order_release);
     m_srSummaryPending.store(true, std::memory_order_release);
+}
+
+float TonalRecallProcessor::waitForTrim(std::uint64_t planGeneration, bool& known) noexcept
+{
+    // Offline only: the host waits for the Render, so sleeping here holds nothing up but itself.
+    auto& hub = MatchHub::instance();
+    const auto start = std::chrono::steady_clock::now();
+    float gain = 1.0f;
+    known = false;
+    for (;;)
+    {
+        known = hub.trimFor(planGeneration, gain);
+        const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+        // A plan replaced in the meantime is never measured: no point waiting for it.
+        if (known || waited >= kTrimWaitMs || hub.planGeneration() != planGeneration)
+        {
+            LogEvent e;
+            e.i[0] = static_cast<std::int64_t>(planGeneration);
+            e.i[1] = static_cast<std::int64_t>(waited);
+            e.flags = known ? 1u : 0u;
+            post(m_id, formatTrimWait, e);
+            return known ? gain : 1.0f;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 void TonalRecallProcessor::delayInPlace(juce::AudioBuffer<float>& buffer, int numChannels) noexcept
@@ -700,11 +798,28 @@ void TonalRecallProcessor::stampBlock(juce::AudioBuffer<float>& buffer, int numC
         }
         if (! m_restartStamp && next != nullptr && m_stamper->updateShift(next->staticSemitones, next->curve))
         {
+            // The trim stays at the old plan's until the new one is measured (below); the
+            // limiter looks after anything the new curve raises in the meantime.
             // The old plan stays alive in the hub, so letting go of it here frees nothing.
             m_plan = std::move(next);
             m_srBend.store(m_plan->bendActive, std::memory_order_relaxed);
             m_srSemitones.store(m_plan->staticSemitones, std::memory_order_relaxed);
             m_srPlanGeneration.store(m_plan->generation, std::memory_order_relaxed);
+        }
+    }
+
+    // Preview: the trim for the plan in use, as soon as it is measured, and again whenever it
+    // changes (TRIM switched, or a new curve measured). Atomics only: it never waits.
+    if (! m_runIsNonRealtime && m_plan != nullptr)
+    {
+        float trim = 1.0f;
+        if (hub.trimFor(m_plan->generation, trim) && (! m_trimKnown || std::abs(trim - m_trimApplied) > 1.0e-7f))
+        {
+            m_stamper->setTrim(trim);
+            m_trimApplied = trim;
+            m_trimKnown = true;
+            m_srTrimKnown.store(true, std::memory_order_relaxed);
+            m_srTrimDb.store(20.0f * std::log10(std::max(trim, 1.0e-6f)), std::memory_order_relaxed);
         }
     }
 
@@ -741,6 +856,7 @@ void TonalRecallProcessor::stampBlock(juce::AudioBuffer<float>& buffer, int numC
     }
 
     m_srStampOn.store(on, std::memory_order_relaxed);
+    m_srLimiterDb.store(m_stamper->limiterReductionDb(), std::memory_order_relaxed);
     if (m_stamper->alignmentFound() && ! m_srAligned.load(std::memory_order_relaxed))
     {
         m_srOffset.store(m_stamper->alignmentOffset(), std::memory_order_relaxed);
@@ -763,7 +879,14 @@ void TonalRecallProcessor::postStampSummary(ThreadKind thread) noexcept
     e.i[9] = m_srRunIndex.load(std::memory_order_relaxed);
     e.d[0] = m_srSemitones.load(std::memory_order_relaxed);
     e.d[1] = m_sampleRate.load(std::memory_order_relaxed);
-    e.flags = m_srBend.load(std::memory_order_relaxed) ? 1u : 0u;
+    e.d[2] = static_cast<double>(m_srTrimDb.load(std::memory_order_relaxed));
+    e.d[3] = static_cast<double>(m_srLimiterDb.load(std::memory_order_relaxed));
+    e.flags = (m_srBend.load(std::memory_order_relaxed) ? 1u : 0u) | (m_srTrimKnown.load(std::memory_order_relaxed) ? 2u : 0u);
+    // What the editor warns about: how hard the limiter had to work on the last Render (one that
+    // did not stamp did not pass it).
+    if (e.i[7] != 0)
+        m_lastRenderLimiterDb.store(static_cast<StampRunInfo::Mode>(e.i[0]) == StampRunInfo::Mode::Stamp ? static_cast<float>(e.d[3]) : 0.0f,
+                                    std::memory_order_relaxed);
     m_srEnded.store(true, std::memory_order_release);
     post(m_id, formatStampSummary, e, thread);
 }
@@ -783,6 +906,9 @@ StampRunInfo TonalRecallProcessor::lastStampRun() const noexcept
     info.alignmentOffset = m_srOffset.load(std::memory_order_relaxed);
     info.samples = m_srSamples.load(std::memory_order_relaxed);
     info.selectionLength = m_srSelection.load(std::memory_order_relaxed);
+    info.trimKnown = m_srTrimKnown.load(std::memory_order_relaxed);
+    info.trimDb = m_srTrimDb.load(std::memory_order_relaxed);
+    info.limiterDb = m_srLimiterDb.load(std::memory_order_relaxed);
     return info;
 }
 
@@ -961,6 +1087,7 @@ void TonalRecallProcessor::getStateInformation(juce::MemoryBlock& destData)
     state.setProperty("method", methodId(o.method), nullptr);
     state.setProperty("formants", o.preserveFormants, nullptr);
     state.setProperty("stamp", o.stampEnabled, nullptr);
+    state.setProperty("trim", o.trimEnabled, nullptr);
     // Hand adjustments are not saved: they were drawn on a learned effect, and learned audio is
     // not saved, so after a reload there would be nothing for them to belong to.
     destData.reset();
@@ -994,6 +1121,7 @@ void TonalRecallProcessor::setStateInformation(const void* data, int sizeInBytes
     o.glide = state.getProperty("glide", 0.0);
     o.preserveFormants = state.getProperty("formants", false);
     o.stampEnabled = state.getProperty("stamp", true);
+    o.trimEnabled = state.getProperty("trim", true);   // (a state without it: on)
     // Whatever has been drawn on the effect now learned stays: it is not part of saved state.
     o.edits = MatchHub::instance().options().edits;
     MatchHub::instance().setOptions(o);

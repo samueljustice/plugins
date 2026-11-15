@@ -30,6 +30,9 @@ struct StampRunInfo
     std::int64_t alignmentOffset = 0;    // stream sample where it starts
     std::int64_t samples = 0;            // samples processed in the run
     std::int64_t selectionLength = 0;    // from the loop points (0 = unknown)
+    bool trimKnown = false;              // the measured trim was in use (otherwise none, and the limiter alone)
+    float trimDb = 0.0f;                 // the trim in use at the end (0 or negative)
+    float limiterDb = 0.0f;              // the most the limiter turned the output down (0 = never)
 };
 
 // Tonal Recall's processor. It feeds the shared capture store with the dry input (Learn), and
@@ -92,6 +95,9 @@ public:
     /** True after a Render ran while Learn was armed (Learn only listens to Preview). */
     bool learnSkippedInRender() const noexcept { return m_learnSkippedInRender.load(std::memory_order_relaxed); }
 
+    /** How far the limiter had to turn the last Render down, in dB (0 = it did nothing). */
+    float lastRenderLimiterDb() const noexcept { return m_lastRenderLimiterDb.load(std::memory_order_relaxed); }
+
 private:
     void timerCallback() override { pollRunState(); }
     void refreshAudioSuiteFlag(const char* when);
@@ -102,6 +108,8 @@ private:
     void postStampSummary(tonalrecall::ThreadKind thread) noexcept;   // any thread
     void delayInPlace(juce::AudioBuffer<float>& buffer, int numChannels) noexcept;
     void stampBlock(juce::AudioBuffer<float>& buffer, int numChannels) noexcept;
+    float waitForTrim(std::uint64_t planGeneration, bool& known) noexcept;   // a Render's first block
+    void publishStampPosition(int numSamples) noexcept;                  // Preview: for the editor's playhead
     void freeRetiredStamper();                                        // off the audio thread
 
     const std::uint32_t m_id;
@@ -141,6 +149,9 @@ private:
     std::atomic<std::uint64_t> m_srPlanGeneration { 0 };
     std::atomic<std::int64_t> m_srOffset { 0 }, m_srSamples { 0 }, m_srSelection { 0 };
     std::atomic<bool> m_srSummaryPending { false };   // the run's log line is still to be written
+    std::atomic<bool> m_srTrimKnown { false };
+    std::atomic<float> m_srTrimDb { 0.0f }, m_srLimiterDb { 0.0f };
+    std::atomic<float> m_lastRenderLimiterDb { 0.0f };
 
     // Audio thread only (allocated in prepareToPlay, or at the first block of a run: see
     // beginStampRun()).
@@ -157,6 +168,9 @@ private:
     // What the run in hand saw when it began, to tell when it has to begin again (audio thread).
     bool m_runStampWanted = false, m_restartStamp = false;
     std::uint64_t m_runPlanSeen = 0;
+    // The trim the Stamper was last given, and the one the audition is played at (audio thread).
+    float m_trimApplied = 1.0f, m_auditionTrim = 1.0f;
+    bool m_trimKnown = false;
     static constexpr int kScratchSamples = 4096;
 
     // A Stamper replaced at the start of a run is handed to the timer to free.
