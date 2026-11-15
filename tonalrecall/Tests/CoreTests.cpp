@@ -7,6 +7,7 @@
 #include "core/Stamper.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1155,6 +1156,113 @@ void testSilentLeadIn()
     }
 }
 
+// A long window: 20 seconds of music, and an effect learned over the same 20 seconds.
+void testLongWindow();
+void testLongWindow()
+{
+    beginCase("long window: 20 s of music, an effect that comes in 12 s into the same 20 s");
+    const auto clock = [] { return std::chrono::steady_clock::now(); };
+    const auto since = [&](std::chrono::steady_clock::time_point t) { return std::chrono::duration<double>(clock() - t).count(); };
+
+    // A pad that changes chord every 5 s (D minor, B flat, F, A minor), then the effect: a
+    // swelling tone with a slow slide, from 12 s to 19 s.
+    auto music = seconds(20.0);
+    const std::vector<std::vector<double>> chords { { 38, 45, 50, 53, 57 }, { 34, 41, 46, 50, 53 }, { 29, 41, 45, 48, 53 }, { 33, 40, 45, 48, 52 } };
+    for (int c = 0; c < static_cast<int>(chords.size()); ++c)
+        for (double midi : chords[static_cast<std::size_t>(c)])
+            addNote(music, midi, 0.1, 6, static_cast<std::int64_t>(c * 5 * kRate), static_cast<std::int64_t>((c + 1) * 5 * kRate));
+    addNoise(music, 0.003, 7);
+
+    auto effect = seconds(20.0);
+    const auto from = static_cast<std::int64_t>(12.0 * kRate), to = static_cast<std::int64_t>(19.0 * kRate);
+    addNote(effect, 47.38, 0.45, 8, from, to, [](double t) { return 0.4 * t / 7.0; });
+
+    auto t = clock();
+    const auto m = analyseMusic(music.data(), static_cast<int>(music.size()), kRate);
+    const double musicTime = since(t);
+    t = clock();
+    const auto e = analyseSfx(effect.data(), static_cast<int>(effect.size()), kRate);
+    const double effectTime = since(t);
+    describe(m);
+    check(m.valid && std::abs(m.durationSeconds - 20.0) < 0.05, "the music is analysed over all 20 s");
+    check(e.valid && e.pitched && std::abs(e.durationSeconds - 20.0) < 0.05, "the effect is pitched, and as long as the selection");
+    int firstPitched = -1, lastPitched = -1;
+    for (int f = 0; f < static_cast<int>(e.hz.size()); ++f)
+        if (e.hz[static_cast<std::size_t>(f)] > 0.0f)
+        {
+            if (firstPitched < 0) firstPitched = f;
+            lastPitched = f;
+        }
+    check(std::abs(firstPitched * e.hopSeconds - 12.0) < 0.2 && std::abs(lastPitched * e.hopSeconds - 19.0) < 0.2,
+          "its pitch line runs from 12 s to 19 s: " + std::to_string(firstPitched * e.hopSeconds) + " to " + std::to_string(lastPitched * e.hopSeconds));
+
+    for (const bool follow : { false, true })
+    {
+        MatchOptions o;
+        o.target = follow ? Target::Follow : Target::Nearest;
+        o.glide = 1.0;
+        o.bend = follow ? 0.35 : 0.0;
+        o.offsetKnown = true;
+        o.sfxOffsetInMusicSeconds = 0.0;
+        t = clock();
+        const auto r = match(m, e, o);
+        const double matchTime = since(t);
+        check(r.valid && r.curve.size() == e.hz.size(), std::string(follow ? "following" : "locked") + ": a curve as long as the effect");
+        float low = 1.0e9f, high = -1.0e9f;
+        for (const float v : r.curve) { low = std::min(low, v); high = std::max(high, v); }
+        check(std::isfinite(low) && std::isfinite(high) && high - low < 12.5f && std::abs(high) < 13.0f && std::abs(low) < 13.0f,
+              "the shift stays within an octave: " + std::to_string(low) + " to " + std::to_string(high) + " st");
+
+        Stamper::Setup setup;
+        setup.sampleRate = kRate;
+        setup.channels = 2;
+        setup.staticSemitones = r.semitones;
+        setup.curveHopSeconds = r.hopSeconds;
+        setup.curve = r.curve;
+        // What Learn keeps to find the effect by is the sum of its channels.
+        auto sum = effect;
+        for (auto& v : sum)
+            v *= 2.0f;
+        setup.learned = std::make_shared<const std::vector<float>>(std::move(sum));
+
+        t = clock();
+        const auto levels = measureStamp(setup, { effect, effect });
+        const double measureTime = since(t);
+        check(levels.complete && levels.outputPeak > 0.2f, "its level is measured: peak " + std::to_string(levels.outputPeak));
+
+        // Rendered in stereo with 2 s handles either side.
+        Stamper stamper(setup);
+        const auto handle = static_cast<std::size_t>(2.0 * kRate);
+        const auto latency = static_cast<std::size_t>(stamper.latencySamples());
+        std::vector<float> left(handle + effect.size() + handle + latency, 0.0f);
+        std::copy(effect.begin(), effect.end(), left.begin() + static_cast<std::ptrdiff_t>(handle));
+        auto right = left;
+        t = clock();
+        for (std::size_t at = 0; at < left.size(); at += 32768)
+        {
+            float* ch[2] { left.data() + at, right.data() + at };
+            stamper.process(ch, static_cast<int>(std::min<std::size_t>(32768, left.size() - at)));
+        }
+        const double renderTime = since(t);
+        check(stamper.alignmentFound() && stamper.alignmentOffset() == static_cast<std::int64_t>(handle), "the effect is found in the render");
+        const auto soundAt = latency + handle + static_cast<std::size_t>(from);
+        float before = 0.0f, peak = 0.0f;
+        for (std::size_t i = 0; i + 2400 < soundAt; ++i)
+            before = std::max(before, std::abs(left[i]));
+        for (const float v : left)
+            peak = std::max(peak, std::abs(v));
+        check(before < 0.002f, "the 12 s before the effect stay silent: " + std::to_string(before));
+        check(peak > 0.2f && peak <= PeakLimiter::kCeiling, "the effect is stamped, under full scale: " + std::to_string(peak));
+        const double got = measuredMidi(left, soundAt + 9600, soundAt + 48000);
+        const double want = e.centreMidi - 0.2 + static_cast<double>(r.curve[static_cast<std::size_t>((12.6) / r.hopSeconds)]);
+        check(std::abs(got - want) < 0.5, "and lands where the curve says in its first second: " + noteName(got) + " against " + noteName(want));
+        std::printf("    -> %s: match %.3f s, measuring the level %.2f s, rendering 24 s in stereo %.2f s\n", follow ? "following" : "locked", matchTime, measureTime, renderTime);
+        check(measureTime < 10.0 && renderTime < 10.0, "measuring and rendering 20 s each take well under 10 s");
+    }
+    std::printf("    -> analysing 20 s: music %.2f s, effect %.2f s\n", musicTime, effectTime);
+    check(musicTime < 20.0 && effectTime < 20.0, "each analysis takes less time than the audio lasts");
+}
+
 int main()
 {
     testMusic();
@@ -1165,6 +1273,7 @@ int main()
     testStamp();
     testSafety();
     testSilentLeadIn();
+    testLongWindow();
     std::printf("\n%d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }
