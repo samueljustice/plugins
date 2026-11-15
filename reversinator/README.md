@@ -253,6 +253,7 @@ See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license f
 
 ## Version History
 
+- **v2.1.0**: A new look. The display is an OpenGL scene: a road running from now into the past, with each read head a gate of light sweeping back along it. The controls are built like hardware, with coloured mode keys, a square REVERSER key, ridged fader caps and lit readouts. Apple silicon builds now produce the same output as Intel and Windows builds. The parameters and saved sessions are unchanged.
 - **v2.0.4**: It tells you when a new version is out: when you open it and a newer release has been published, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day, and says nothing when you're offline. The sound, the parameters and saved sessions are unchanged from 2.0.3.
 - **v2.0.3**: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
 - **v2.0.2**: The About panel's licence text and the plugin's copyright string show the year the plugin was built. The README gains a tour of the window, with screenshots. The sound and parameters are unchanged.
