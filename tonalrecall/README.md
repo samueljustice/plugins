@@ -8,22 +8,17 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 
 <img src="docs/screenshot.png" alt="The Tonal Recall window: on the left the learned music, G minor, as a list of its notes over time; on the right a sound effect's pitch line before and after the shift, with the LOCKED, SUBTLE and MOVING curves named; below, the shift to match, +0 st 32 c to G4, the BEND slider and the STAMP button" width="980">
 
-## Features
+## Overview
 
-- **Learn by playing**: arm LEARN, select the clip and press Preview in the AudioSuite window. The selection is learned once as it plays, and Learn switches itself off at the end of the selection.
-- **Finds what the music rests on**: the key, the root, the strong notes and how far the music sits from standard tuning, so the effect lands on the music's own tuning and not on a piano's.
-- **Tracks the effect's pitch over time**, with three kinds of tracking for voices and tones, engines and drones, and sounds with no clear pitch.
-- **A sting, not a tune**: by default the effect takes one fixed shift onto the nearest strong note of the music and keeps every bit of its own movement. Two more ready-made curves, SUBTLE and MOVING, let it lean with the music.
-- **Three curves to choose from**, drawn on the effect and named. Click one to use it.
-- **Editable**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo.
-- **Zoom in on long selections**: the effect's scan zooms and scrolls in time, with an overview of the whole selection and a time ruler, so an effect that sounds for a few seconds of a 20 s window can be edited in detail.
-- **Hear it before you commit**: Preview plays the stamped effect, edits are picked up while it loops, and HEAR plays the pitch under the mouse as you drag, like a held key.
-- **Play what was learned**: PLAY MUSIC, PLAY INPUT and PLAY OUTPUT play the music and the effect as learned, and the effect as it will be stamped, through Preview, in stereo. Click from one to the next to compare them. A playhead moves across each view as it plays, so you can see where the changes fall.
-- **Keeps length and timing**: the shift does not change the clip's length. Hits stay within a millisecond of where they were.
-- **Stays under full scale**: shifting pitch can raise a sound's peaks. After each match the stamp is measured, and TRIM turns it down by just enough to keep it under -0.1 dBFS. A limiter catches whatever could not be measured, such as a different clip or the audio around it in a render.
-- **Graceful tails**: where the effect runs on past the music you learned, the curve carries on from the music's last movement and eases to a stop, and the window marks that stretch as predicted.
-- **Mono and stereo in any mix**: stereo music onto a mono effect, mono music onto a stereo effect, or the same on both.
-- **Values for another tool**: COPY VALUES puts the shift, the speed and the target note on the clipboard.
+You teach Tonal Recall the music by playing it: arm LEARN, select the clip and press Preview in the AudioSuite window. The selection is learned once as it plays, and Learn switches itself off at the end of the selection. From that it finds the key, the root, the strong notes and how far the music sits from standard tuning, so the effect lands on the music's own tuning and not on a piano's. It then tracks the effect's pitch over time, with three kinds of tracking: for voices and tones, for engines and drones, and for sounds with no clear pitch.
+
+By default the effect takes one fixed shift onto the nearest strong note of the music and keeps all of its own movement. Two more ready-made curves, SUBTLE and MOVING, let it lean with the music. The three curves are drawn on the effect and named; click one to use it. You can edit the curve: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo. The effect's scan zooms and scrolls in time, with an overview of the whole selection and a time ruler, so an effect that sounds for a few seconds of a 20 s window can be edited in detail.
+
+Preview plays the stamped effect, edits are picked up while it loops, and HEAR plays the pitch under the mouse as you drag, like a held key. PLAY MUSIC, PLAY INPUT and PLAY OUTPUT play the music and the effect as learned, and the effect as it will be stamped, through Preview, in stereo. Click from one to the next to compare them. A playhead moves across each view as it plays, so you can see where the changes fall.
+
+The shift does not change the clip's length, and hits stay within a millisecond of where they were. Shifting pitch can raise a sound's peaks, so after each match the stamp is measured and TRIM turns it down by just enough to keep it under -0.1 dBFS. A limiter catches whatever could not be measured, such as a different clip or the audio around it in a render. Where the effect runs on past the music you learned, the curve carries on from the music's last movement and eases to a stop, and the window marks that stretch as predicted.
+
+It works with mono and stereo in any mix: stereo music onto a mono effect, mono music onto a stereo effect, or the same on both. COPY VALUES puts the shift, the speed and the target note on the clipboard, for matching by hand in another tool.
 
 ## Where it works
 

@@ -8,27 +8,30 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 
 ![Subbertone](docs/screenshot.jpg)
 
-## Features
+## Overview
 
-- **Pitch-tracked sub, one octave down**: a phase-continuous sine that follows your playing, glides between notes and fades with the input. All processing is per sample, so it is click-free at any buffer size.
-- **Steady tracking on difficult material**: octave jumps must be confirmed before the sub follows them, and short dropouts are held. A Glide control smooths noisy or wandering sources such as engines.
-- **Harmonic editor**: 16 bars, H1 is the sub itself and H2–H16 are its harmonics, each with a live activity meter. Click to toggle, drag to set, drag across to draw, double-click to reset. The PATTERN menu has ready-made sets (even only, odd only, full series, small speaker, upper partials, sparkle), and "Sub off" leaves only the harmonics: the MaxxBass/RBass trick that makes a sub audible on speakers that cannot play it.
-- **Phase Align**: lines the generated harmonics up with the bass's own harmonics, so they add up instead of cancelling. Notes thin out far less, and repeats of the same hit come out at the same level. It works best on bass lines and hits, such as 808s, and helps much less on engines. It turns the phases of the generated harmonics, not the levels you set, and adds no latency. Switching it while a note holds is click-free. Its sound engine uses about 30% more CPU while it's on.
-- **Six saturation types**, each with a distinct harmonic recipe:
-  - **Tape**: smooth, odd harmonics
-  - **Valve**: warm, strong 2nd harmonic at every drive level
-  - **Console**: harder knee, brighter
-  - **Transformer**: soft, mostly odd with a touch of 2nd
-  - **Rectifier**: even harmonics only, so every partial lines up with the input note's own harmonics (the cleanest "octave" sound)
-  - **Wavefolder**: harmonics sweep upward as drive rises
-- **Driver-style resonant filter** on the saturated harmonics: lowpass, bandpass or notch, with resonance driven into saturation and an envelope follower that sweeps the cutoff on every note.
-- **Steep low cut**: 48 dB/oct on the generated sub (10–80 Hz, 30 Hz by default), so a very low sub doesn't eat headroom. The harmonics still carry its pitch. Switching it on or off glides smoothly instead of clicking or dipping.
-- **MASTER section**: Inflate (Oxford Inflator-style density, with a Curve control) and a look-ahead brickwall limiter with a ceiling, a release and a gain-reduction meter.
-- **Presets**: 32 factory presets in five groups (Music, Character, Translation, Engines, Utility), including engine starting points from inline-4 to V12, V-twin and 2-stroke. Save your own with SAVE. They are plain files, easy to back up and share, and Subbertone always asks before replacing one.
-- **Full recall**: every parameter, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs, so VST racks and tools such as Soundminer recall Subbertone exactly.
-- **Resizable interface**: drag the corner to scale the whole window from 55% to 140%. Each instance remembers its size.
-- **3D OpenGL visualiser** showing input, harmonics and sub output. When there's no signal it draws the Sweet Justice logo.
-- **About 2 ms latency** (the limiter look-ahead and the Inflate oversampling), constant and reported to the host so it is compensated. Host bypass stays in time and switches without clicks. Full DAW automation.
+The sub is a phase-continuous sine one octave below the input. It follows your playing, glides between notes and fades with the input. All processing is per sample, so it is click-free at any buffer size. Tracking is made steady for difficult material: octave jumps must be confirmed before the sub follows them, short dropouts are held, and a Glide control smooths noisy or wandering sources such as engines.
+
+The harmonic editor has 16 bars. H1 is the sub itself and H2–H16 are its harmonics, each with a live activity meter. Click to toggle, drag to set, drag across to draw, double-click to reset. The PATTERN menu has ready-made sets (even only, odd only, full series, small speaker, upper partials, sparkle), and "Sub off" leaves only the harmonics: the MaxxBass/RBass trick that makes a sub audible on speakers that cannot play it.
+
+Phase Align lines the generated harmonics up with the bass's own harmonics, so they add up instead of cancelling. Notes thin out far less, and repeats of the same hit come out at the same level. It works best on bass lines and hits, such as 808s, and helps much less on engines. It turns the phases of the generated harmonics, not the levels you set, and adds no latency. Switching it while a note holds is click-free. Its sound engine uses about 30% more CPU while it's on.
+
+There are six saturation types, each with its own harmonic recipe:
+
+| Type | Character |
+|---|---|
+| Tape | Smooth, odd harmonics |
+| Valve | Warm, strong 2nd harmonic at every drive level |
+| Console | Harder knee, brighter |
+| Transformer | Soft, mostly odd with a touch of 2nd |
+| Rectifier | Even harmonics only, so every partial lines up with the input note's own harmonics (the cleanest "octave" sound) |
+| Wavefolder | Harmonics sweep upward as drive rises |
+
+A Driver-style resonant filter follows on the saturated harmonics: lowpass, bandpass or notch, with resonance driven into saturation and an envelope follower that sweeps the cutoff on every note. A steep low cut, 48 dB/oct on the generated sub (10–80 Hz, 30 Hz by default), keeps a very low sub from eating headroom; the harmonics still carry its pitch, and switching it on or off glides smoothly instead of clicking or dipping. The MASTER section has Inflate (Oxford Inflator-style density, with a Curve control) and a look-ahead brickwall limiter with a ceiling, a release and a gain-reduction meter.
+
+There are 32 factory presets in five groups (Music, Character, Translation, Engines, Utility), including engine starting points from inline-4 to V12, V-twin and 2-stroke. SAVE stores your own as plain files that are easy to back up and share, and Subbertone always asks before replacing one. Every parameter, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs, so VST racks and tools such as Soundminer recall Subbertone exactly.
+
+The window scales from 55% to 140% by dragging its corner, and each instance remembers its size. A 3D OpenGL visualiser shows the input, harmonics and sub output; when there's no signal it draws the Sweet Justice logo. Latency is about 2 ms (the limiter look-ahead and the Inflate oversampling), constant and reported to the host so it is compensated. Host bypass stays in time and switches without clicks, with full DAW automation.
 
 ## How it works
 
