@@ -129,8 +129,9 @@ Tonal Recall is made for trailer sound design: stings, tails and hits that shoul
 - **Finds what the music rests on**: the key, the root, the strong notes and the music's own tuning
 - **A sting, not a tune**: one fixed shift onto the nearest strong note by default, with two more ready-made curves, SUBTLE and MOVING, that lean with the music
 - **Editable curve**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo
-- **Hear it first**: Preview plays the stamped effect, and HEAR plays the pitch under the mouse as you drag, like a held key
+- **Hear it first**: PLAY MUSIC, PLAY INPUT and PLAY OUTPUT play the music, the effect as learned and the effect as it will be stamped, through Preview, with a playhead moving across each view. HEAR plays the pitch under the mouse as you drag, like a held key
 - **Keeps length and timing**: hits stay within a millisecond of where they were
+- **Stays under full scale**: shifting pitch can raise a sound's peaks, so TRIM turns the stamp down by just enough to keep it under full scale, with a limiter behind it
 - **Graceful tails**: where the effect outlasts the music you learned, the curve eases to a stop and the window marks that stretch as predicted
 - **Mono and stereo in any mix**, and **COPY VALUES** for matching by hand in another tool
 
@@ -141,7 +142,10 @@ Tonal Recall is made for trailer sound design: stings, tails and hits that shoul
   <img src="tonalrecall/docs/music.png" alt="Tonal Recall music panel" width="400"> <img src="tonalrecall/docs/tail.png" alt="Tonal Recall effect scan with a predicted tail" width="400">
 </p>
 <p align="center">
-  <img src="tonalrecall/docs/strip-shift.png" alt="Tonal Recall shift, Bend and Stamp" width="820">
+  <img src="tonalrecall/docs/strip-shift.png" alt="Tonal Recall shift, Bend, Stamp and Trim" width="820">
+</p>
+<p align="center">
+  <img src="tonalrecall/docs/playing.png" alt="Tonal Recall playing the stamped effect, with the playhead on the effect's scan" width="820">
 </p>
 </details>
 
