@@ -275,7 +275,8 @@ private:
 
     WheelKnob& addKnob(const char* paramId, const juce::String& caption, juce::Colour accent, const juce::String& tip);
     void toggleLog();
-    void saveRetro();
+    /** Saves the Last 60 s memory as a take and says so (or says why not): whether it was saved. */
+    bool saveRetro();
     void showPresetMenu();
     /** Glides the parameters to a look, as one undo step called undoName. presetName: what the preset box shows
         afterwards (empty = as it is). */

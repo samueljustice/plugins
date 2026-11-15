@@ -229,7 +229,8 @@ private:
         m_over = key;
         repaint();
     }
-    void updateWords() { getProperties().set("tipLine", words()); }
+    // (A Side on Across has no words of its own: its tooltip says so, not the bare number of its choice.)
+    void updateWords() { getProperties().set("tipLine", words().isNotEmpty() ? words() : juce::String("No Sides")); }
 
     // The glyphs: drawn in strokes with mitered, square ends, and filled arrowheads.
     static void arrowHead(juce::Path& p, juce::Point<float> tip, juce::Point<float> from, float size)

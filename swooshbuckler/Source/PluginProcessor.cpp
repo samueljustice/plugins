@@ -1989,7 +1989,9 @@ juce::String SwooshbucklerAudioProcessor::describeRoom(room::Width width) const
     d << "Flight Paths A " << flight(ParamIDs::flightPath[0], ParamIDs::direction[0], ParamIDs::side[0])
       << ", B " << (m_raw.linkBuses != nullptr && m_raw.linkBuses->load() > 0.5f ? juce::String("as A (Link)")
                                                                                  : flight(ParamIDs::flightPath[1], ParamIDs::direction[1], ParamIDs::side[1]))
-      << ", Stowaway " << flight(ParamIDs::stowFlightPath, ParamIDs::stowDirection, ParamIDs::stowSide)
+      // (Stowaway's only while it flies: on, in Fly. Off or in another mode nothing of it takes a path.)
+      << (isStowawayOn() && stowMode() == ParamIDs::StowFly
+              ? ", Stowaway " + flight(ParamIDs::stowFlightPath, ParamIDs::stowDirection, ParamIDs::stowSide) : juce::String())
       << ". Spread " << text(ParamIDs::roomSpread) << ", Height " << text(ParamIDs::roomHeight) << ", Height Varies " << text(ParamIDs::roomHeightVaries)
       << ", Centre Speaker " << text(ParamIDs::roomCentre) << ", LFE " << text(ParamIDs::roomLfeMode);
     if (const auto* mode = m_state.getRawParameterValue(ParamIDs::roomLfeMode); mode != nullptr && mode->load() > 0.5f)

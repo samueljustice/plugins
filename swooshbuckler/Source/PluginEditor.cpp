@@ -2989,15 +2989,18 @@ void SwooshbucklerAudioProcessorEditor::toggleLog()
     }
 }
 
-void SwooshbucklerAudioProcessorEditor::saveRetro()
+bool SwooshbucklerAudioProcessorEditor::saveRetro()
 {
     m_tape.rewind(); // the reels flick back: the rig is going back over what has just been played
     juce::File written;
     juce::String error;
-    if (m_processor.saveRetro(written, error))
-        toast("Saved " + takeName(written), written);
-    else
+    if (! m_processor.saveRetro(written, error))
+    {
         toast(error);
+        return false;
+    }
+    toast("Saved " + takeName(written), written);
+    return true;
 }
 
 //==============================================================================
@@ -3637,9 +3640,14 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
     const int pathA = inRoom ? choice(ParamIDs::flightPath[0]) : 0;
     const int pathB = inRoom ? choice(linked ? ParamIDs::flightPath[0] : ParamIDs::flightPath[1]) : 0;
     const int pathS = inRoom ? choice(ParamIDs::stowFlightPath) : 0;
+    // Side is never heard at Mono and Stereo (it rests there), so its keys are drawn for the Flight Path as it is
+    // set: what a room rendered by Render Variations will use, and a click on a key shows what it chose.
+    const int sideA = choice(ParamIDs::flightPath[0]);
+    const int sideB = choice(linked ? ParamIDs::flightPath[0] : ParamIDs::flightPath[1]);
+    const int sideS = choice(ParamIDs::stowFlightPath);
     juce::String key;
     key << static_cast<int>(width) << (app ? "a" : "h") << (linked ? "l" : "") << (fly ? "f" : "") << (lfeOn ? "s" : "") << (centreOn ? "c" : "")
-        << static_cast<int>(m_processor.getListening()) << "/" << static_cast<int>(feed) << "/" << pathA << pathB << pathS;
+        << static_cast<int>(m_processor.getListening()) << "/" << static_cast<int>(feed) << "/" << pathA << pathB << pathS << sideA << sideB << sideS;
     if (key == m_roomShown)
         return;
     const bool first = m_roomShown.isEmpty();
@@ -3722,8 +3730,9 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
         Theme::setLook(direction, linkedB ? Theme::Look::Linked : (restDirection.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
         direction.setTooltip(tip(bus + " Direction", ParamIDs::directionTip, linkedB ? linkedWhy : restDirection));
         auto& side = *m_side[b];
-        side.setPath(path);
-        const auto sideWhy = restSide(path);
+        const int sidePath = b == 0 ? sideA : sideB;
+        side.setPath(sidePath);
+        const auto sideWhy = restSide(sidePath);
         Theme::setLook(side, linkedB ? Theme::Look::Linked : (sideWhy.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
         side.setTooltip(tip(bus + " Side", ParamIDs::sideTip, linkedB ? linkedWhy : sideWhy));
     }
@@ -3736,8 +3745,8 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
     const auto restStowWay = restDirection.isNotEmpty() ? restDirection : (fly ? juce::String() : notFly);
     Theme::setLook(*m_stowDirection, restStowWay.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting);
     m_stowDirection->setTooltip(tip("Stowaway Direction", ParamIDs::directionTip, restStowWay));
-    m_stowSide->setPath(pathS);
-    const auto restStowSide = ! fly && rest.isEmpty() ? notFly : restSide(pathS);
+    m_stowSide->setPath(sideS);
+    const auto restStowSide = ! fly && rest.isEmpty() ? notFly : restSide(sideS);
     Theme::setLook(*m_stowSide, restStowSide.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting);
     m_stowSide->setTooltip(tip("Stowaway Side", ParamIDs::sideTip, restStowSide));
 
@@ -3832,8 +3841,9 @@ void SwooshbucklerAudioProcessorEditor::changeSpeakers(room::Width width)
         {
             if (safe == nullptr || result == 0)
                 return;
-            if (result == 2)
-                safe->saveRetro();
+            // Save, Then Change: a save that fails (its toast says why) leaves the speakers, and the memory, as they are.
+            if (result == 2 && ! safe->saveRetro())
+                return;
             apply();
             safe->grabKeyboardFocus(); // the keys go back to the rig
         }), true);

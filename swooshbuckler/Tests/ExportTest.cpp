@@ -508,7 +508,7 @@ int main(int argc, char* argv[])
                     bext = r->metadataValues[juce::WavAudioFormat::bwavDescription];
             }
             const juce::String head = "Variation 1 of 2, Batch 4711, " + name + ".";
-            const juce::String roomPart = "Flight Paths A Across, B Across, Stowaway Across. Spread ";
+            const juce::String roomPart = "Flight Paths A Across, B Across. Spread ";
             const bool says = described.contains(head) && described.contains("Length 0.8 s") && (n > 2) == described.contains(roomPart)
                            && (n <= 2 || (described.contains("Centre Speaker Off") && described.contains("LFE Off")));
             const bool inBext = bext.getNumBytesAsUTF8() <= 256 && bext.endsWithChar('.') && described.startsWith(bext.dropLastCharacters(1)) && bext.contains(head)

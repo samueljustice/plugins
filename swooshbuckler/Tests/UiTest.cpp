@@ -2158,7 +2158,7 @@ int main(int argc, char* argv[])
             ed.m_variations.m_width.setSelectedId(static_cast<int>(room::Width::Surround51) + 1, juce::sendNotificationSync);
             rig.run(0.1);
             const auto room = ed.m_variations.roomLine(), said = ed.m_variations.roomNote();
-            check(room.contains("Flight Paths A Across") && room.contains("Spread 0%") && said.contains("Not heard on your Stereo speakers")
+            check(room.contains("Flight Paths A Across") && ! room.contains("Stowaway") && room.contains("Spread 0%") && said.contains("Not heard on your Stereo speakers")
                       && said.contains("C and the LFE will be silent (Centre Speaker Off, LFE Mode Off)") && ed.m_variations.m_showRoom.isVisible(),
                   "render: Channels 5.1 from a Stereo rig says the room as set, that it is not heard, and that C and the LFE will be silent; Set the "
                   "Room is there");
@@ -2180,7 +2180,9 @@ int main(int argc, char* argv[])
             direction.mouseUp(mouseAt(direction, key, key, false));
             const bool chosen = value(ParamIDs::direction[0]) == ParamIDs::DirectionBackwards && direction.words() == "Right to Left"
                                 && ed.m_tooltips.summary(direction, direction.getTooltip()).contains("Right to Left");
-            const bool sideRests = Theme::getLook(side) == Theme::Look::Resting && Theme::getLook(direction) == Theme::Look::Normal;
+            // (Side is not heard at Stereo: it rests, drawn for the Flight Path as set, which a rendered room uses.)
+            const bool sideRests = Theme::getLook(side) == Theme::Look::Resting && Theme::getLook(direction) == Theme::Look::Normal
+                                   && direction.getPath() == 0 && side.getPath() == 1 && ed.m_tooltips.summary(side, side.getTooltip()).contains("Random");
             proc.getHistory().undo();
             check(chosen && sideRests && value(ParamIDs::direction[0]) == ParamIDs::DirectionRandom,
                   "direction: a click on a key chooses it (\"Right to Left\" at Stereo, where every pass flies across) and Undo takes it back; Side rests");
@@ -2222,6 +2224,12 @@ int main(int argc, char* argv[])
                   "direction: a wire lands on it like on a knob and marks the key its modulator picks (" + juce::String(picked) + ")");
             for (auto* id : { ParamIDs::flightPath[0], ParamIDs::direction[0] })
                 set(id, 0.0f);
+            // On Across a Side has nothing to choose: its tooltip says so in words, at once, never as a number.
+            rig.run(0.1);
+            const auto across = ed.m_tooltips.summary(side, side.getTooltip());
+            check(side.getPath() == 0 && Theme::getLook(side) == Theme::Look::Resting && across.contains("No Sides") && across.contains("It rests: Across has no sides")
+                      && ! across.contains("to 2"),
+                  "side: on Across it rests and its tooltip says \"No Sides\" and why from the first tier");
         }
 
         // The LFE: Discrete with Stowaway off is said in place, with the fix; the fix is one undo step.
@@ -2255,8 +2263,11 @@ int main(int argc, char* argv[])
             proc.setStowawayPanel(0);
             rig.run(0.5);
             const auto note = ed.stowawayNote(ParamIDs::StowFly, true);
+            const auto flying = proc.describeRoom(room::Width::Surround51);
             proc.setStowawayOn(false);
             check(note == "A third mover, flying Overhead, front to back.", "stowaway: folded on Fly, its note names the path and the way (\"" + note + "\")");
+            check(flying.contains(", Stowaway Overhead (Front to Back). Spread") && ! proc.describeRoom(room::Width::Surround51).contains("Stowaway"),
+                  "render: the room as set names Stowaway's Flight Path only while Stowaway flies (on, in Fly)");
         }
 
         // A change of Speakers asks first only when the Last 60 s memory holds something.
