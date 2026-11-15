@@ -321,6 +321,23 @@ namespace room
     // but 7.1.4, where JUCE puts the rear surrounds after the tops.
     //==================================================================================================================
 
+    /** The speakers in the order a meter bridge or a plan shows them (the room's display order): the fronts left,
+        centre, right; the surrounds, sides before rears, left before right; the tops, front before back; the LFE
+        last, set apart. Mono: C. Stereo: L R. Each entry is a processing channel; entries past the width's
+        channels are -1. */
+    inline std::array<int, c_maxChannels> displayChannels(Width width) noexcept
+    {
+        const Layout& l = layout(width);
+        std::array<int, c_maxChannels> order;
+        order.fill(-1);
+        size_t next = 0;
+        for (const Speaker s : { Speaker::L, Speaker::C, Speaker::R, Speaker::Ls, Speaker::Rs, Speaker::Lss, Speaker::Rss, Speaker::Lsr,
+                                 Speaker::Rsr, Speaker::Ltf, Speaker::Rtf, Speaker::Ltm, Speaker::Rtm, Speaker::Ltr, Speaker::Rtr, Speaker::Lfe })
+            if (const int ch = l.indexOf(s); ch >= 0 && next < order.size())
+                order[next++] = ch;
+        return order;
+    }
+
     /** For each output of the device (of those switched on, lowest first), the processing channel it plays:
         output[i] = processing[deviceChannels(width)[i]]. Entries past the width's channels are -1. */
     inline std::array<int, c_maxChannels> deviceChannels(Width width) noexcept

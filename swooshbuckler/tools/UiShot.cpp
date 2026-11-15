@@ -34,6 +34,17 @@
 //   audio-device-714.png audio-device-714-folded.png window-app-folded.png footer-app-folded.png
 //                             the app, played from a pretend audio device: Listening in Settings (Stereo, 5.1, 7.1.4,
 //                             and 7.1.4 on a two-output device), the audio device dialog, and the footer saying it is folded
+//   window-app.png room-strip-app.png room-strip-app-714.png
+//                             the app's room strip, its Room Width a menu (at Stereo, and at 7.1.4)
+//   window-room-stereo.png room-strip-stereo.png bus-a-stereo.png
+//                             the room strip, the Flight Paths and the rest of the window at Stereo, where they rest
+//   window-51.png sea-51.png room-strip-51.png output-51.png sea-plan-51.png
+//                             a 5.1 track: the strip lit, the speaker meters, the plan of the room (Centre Speaker on)
+//   window-714-<path>.png sea-714-<path>.png sea-plan-714-<path>.png   (across, through, overhead, around)
+//   output-714.png room-strip-714.png bus-a-714.png bus-b-714.png
+//                             a 7.1.4 track with both buses on each Flight Path: the comets, the plan, the meters
+//   window-714-stowaway-fly.png stowaway-fly-714.png sea-714-stowaway-fly.png
+//                             Stowaway's Fly going Around in a 7.1.4 room, its plate open with its Flight Path
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //
@@ -758,6 +769,95 @@ int main(int argc, char* argv[])
                 rig.run(0.2);
             }
 
+            // The room on screen: the strip resting at Stereo, the window at 5.1 and at 7.1.4 with passes in flight on
+            // each Flight Path, the speaker meters, the plan of the room close up, and Stowaway's Fly in a room.
+            {
+                auto widen = [&](room::Width width)
+                {
+                    auto layout = proc.getBusesLayout();
+                    layout.outputBuses.getReference(0) = room::channelSet(width);
+                    proc.setBusesLayout(layout);
+                    proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+                    rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+                };
+                auto set = [&](const char* id, float plain)
+                {
+                    auto* param = proc.getState().getParameter(id);
+                    param->setValueNotifyingHost(param->convertTo0to1(plain));
+                };
+                auto paths = [&](int path)
+                {
+                    for (auto* id : ParamIDs::flightPath)
+                        set(id, static_cast<float>(path));
+                };
+                auto planCrop = [&](const juce::Image& window, const juce::String& name)
+                {
+                    shots.crop(window, name, ed.m_content.getLocalArea(&ed.m_sea, ed.m_sea.roomPlanArea().getSmallestIntegerContainer()), 6);
+                };
+                proc.setPlaying(true);
+                rig.run(0.5);
+                {
+                    const auto window = shots.shoot("window-room-stereo");
+                    shots.crop(window, "room-strip-stereo", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    shots.crop(window, "bus-a-stereo", ed.m_sections[0].bounds);
+                }
+
+                widen(room::Width::Surround51);
+                set(ParamIDs::roomCentre, 1.0f);
+                set(ParamIDs::roomLfeMode, static_cast<float>(ParamIDs::numLfeModes - 1)); // Mixdown: the LFE meter moves
+                paths(0);
+                rig.run(3.0);
+                {
+                    const auto window = shots.shoot("window-51");
+                    shots.crop(window, "sea-51", ed.m_sea.getBounds());
+                    shots.crop(window, "room-strip-51", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    shots.crop(window, "output-51", ed.m_sections[3].bounds);
+                    planCrop(window, "sea-plan-51");
+                }
+
+                widen(room::Width::Surround714);
+                set(ParamIDs::roomSpread, 0.25f);
+                const char* pathNames[] = { "across", "through", "overhead", "around" };
+                for (int path = 0; path < ParamIDs::numFlightPaths; ++path)
+                {
+                    paths(path);
+                    rig.run(path == 0 ? 3.0 : 2.4);
+                    const auto window = shots.shoot(juce::String("window-714-") + pathNames[path]);
+                    shots.crop(window, juce::String("sea-714-") + pathNames[path], ed.m_sea.getBounds());
+                    planCrop(window, juce::String("sea-plan-714-") + pathNames[path]);
+                    if (path == 0)
+                    {
+                        shots.crop(window, "output-714", ed.m_sections[3].bounds);
+                        shots.crop(window, "room-strip-714", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                        shots.crop(window, "bus-a-714", ed.m_sections[0].bounds);
+                        shots.crop(window, "bus-b-714", ed.m_sections[1].bounds);
+                    }
+                }
+
+                // Stowaway's Fly in the room, its plate open with its own Flight Path.
+                proc.setTrackBus(1, CargoHold::c_stowBus);
+                proc.setStowawayOn(true);
+                set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly));
+                set(ParamIDs::stowFlightPath, 3.0f);
+                proc.setStowawayPanel(1);
+                rig.run(3.0);
+                {
+                    const auto window = shots.shoot("window-714-stowaway-fly");
+                    shots.crop(window, "stowaway-fly-714", ed.m_stowPanel);
+                    shots.crop(window, "sea-714-stowaway-fly", ed.m_sea.getBounds());
+                }
+                proc.setStowawayOn(false);
+                proc.setTrackBus(1, -1);
+                set(ParamIDs::stowMode, 0.0f);
+                set(ParamIDs::stowFlightPath, 0.0f);
+                proc.setStowawayPanel(0);
+                for (auto* id : { ParamIDs::roomCentre, ParamIDs::roomLfeMode, ParamIDs::roomSpread })
+                    proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                paths(0);
+                widen(room::Width::Stereo);
+                rig.run(0.5);
+            }
+
             ed.m_about.setVisible(true);
             ed.m_about.toFront(false);
             shots.shoot("about", &ed.m_about);
@@ -882,6 +982,10 @@ int main(int argc, char* argv[])
         proc.setPlaying(true);
         run(1.0);
         settingsShot("settings-app");                     // Stereo on the first two of sixteen outputs
+        {
+            const auto window = shots.shoot("window-app");   // the room strip in the app: Room Width is a menu
+            shots.crop(window, "room-strip-app", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+        }
         listen(room::Width::Surround51);
         settingsShot("settings-app-51");                  // 5.1: outputs 1 to 6 switched on for it
         deviceShot("audio-device-51");
@@ -896,6 +1000,7 @@ int main(int argc, char* argv[])
             run(0.5);
             const auto window = shots.shoot("window-app-folded");
             shots.crop(window, "footer-app-folded", ed.m_footer, 4);
+            shots.crop(window, "room-strip-app-714", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
         }
         proc.setPlaying(false);
         faults += shots.faults;

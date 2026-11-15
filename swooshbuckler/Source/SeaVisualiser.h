@@ -21,6 +21,16 @@
  * swell with its level, a Wake is a trail on the water behind bus A's comet, Fly is a third comet, and Dry (which
  * does not move) is a lantern floating in the middle that glows with its level.
  *
+ * In a room (Quad and wider) every comet flies where its object is in the room, seen from the ship: the front of the
+ * room is out towards the horizon and the back is near the ship, so a pass going Through comes in towards the
+ * camera, one going Overhead climbs high over the water, and one going Around circles. Nothing comes closer than
+ * the nearest a comet ever came before, so nothing rushes at the camera. A small plan of the room sits in the
+ * water's lower left corner: a lamp at each speaker that glows with its level (the tops on an inner square, the
+ * LFE a square lamp under the room), the listener in the middle, and every object as a dot in its colour with a
+ * short trail. At Mono and Stereo it is not drawn and the comets fly as they always have.
+ *
+ * The sea's foot is a plate of its frame (setFootHeight): the window puts the room strip's controls on it.
+ *
  * Drawn with juce::Graphics. One frame clock: a VBlankAttachment when the window is on a screen, a 60 Hz timer
  * when it is not (the offline rigs in tools/ and Tests/ step timerCallback() by hand). After five seconds of
  * quiet the sea steps at a third of the rate.
@@ -45,6 +55,24 @@ public:
     void setDimmedUnder(juce::Rectangle<int> dock);
     /** Where a control of the window's own sits over the sea (the Morph button), so labels keep off it. */
     void setReservedArea(juce::Rectangle<int> area) { m_reserved = area.toFloat(); }
+    /** The bottom this many pixels are the frame's plate (the room strip), and the sea shows above it. */
+    void setFootHeight(int height);
+    int getFootHeight() const { return m_foot; }
+    /** Where the plan of the room goes (the lower left of the water), in this component's coordinates. */
+    juce::Rectangle<float> roomPlanArea() const;
+    /** How far the plan of the room shows: 0 at Mono and Stereo, 1 in a room (it fades in and out). For the tests. */
+    float roomShown() const { return m_roomShown; }
+    /** The plan's lamp for a speaker (a processing channel of the room shown), 0 dark .. 1 at full level. For the tests. */
+    float lampLevel(int channel) const { return m_lamps[static_cast<size_t>(juce::jlimit(0, room::c_maxChannels - 1, channel))]; }
+    /** Where an object's dot is on the plan (RigEngine::Object), in this component's coordinates, and how bright it
+        is (0: not shown). For the tests. */
+    juce::Point<float> planDot(int object, float* brightness = nullptr) const;
+    /** Where a room position lands on the plan: x across, y up the plan to the front, a higher sound nearer the
+        middle (the tops are on the inner square). Static, so the rule can be tested on its own. */
+    static juce::Point<float> planPoint(juce::Rectangle<float> roomBox, float x, float y, float z);
+    /** How far in the tops sit on the plan, as a share of the way to the middle. */
+    static constexpr float c_planHeightIn = 0.45f;
+
     /** Shows the constellation now, and (held) keeps it showing: for the offline pictures. */
     void showConstellation(bool holdOn);
 
@@ -124,7 +152,29 @@ private:
     std::deque<WakePoint> m_wakeTrail;                         // where bus A's comet has been over the water (Wake)
     juce::Point<float> m_stowLabelAt;                          // where Stowaway's name goes (set as it is painted)
     float m_stowLabelAlpha = 0.0f;
-    bool stepFlight(const RigEngine::FlightView&, std::deque<P3>& trail, float& env, float& flash, float& lastX, float dt);
+    /** One comet's step. In a room `object` says where it is (the comet flies there); otherwise it is null. */
+    bool stepFlight(const RigEngine::FlightView&, const RigEngine::ObjectView* object, std::deque<P3>& trail, float& env, float& flash,
+                    float& lastX, float dt);
+    /** Where an object of the room is over the sea (its comet's head). */
+    static P3 roomToSea(const RigEngine::ObjectView& object, float env);
+
+    // The room: the width shown (the last room while the plan fades out), how far it shows, each speaker's lamp,
+    // and each object's dot on the plan with a short trail.
+    void stepRoom(float dt);
+    void paintRoom(juce::Graphics&);
+    int m_foot = 0;
+    room::Width m_planWidth = room::Width::Stereo;
+    float m_roomShown = 0.0f;
+    bool m_inRoom = false;
+    std::array<float, room::c_maxChannels> m_lamps {};
+    static constexpr int c_dotTrail = 14;
+    struct Dot
+    {
+        std::array<P3, c_dotTrail> trail {}; // room positions, the newest at head
+        int head = 0, count = 0;
+        float level = 0.0f;
+    };
+    std::array<Dot, RigEngine::c_objects> m_dots;
 
     // Hits: a flash on the horizon and a ring on the water.
     float m_hitFlash = 0.0f, m_hitRing = 0.0f, m_lastGate = 0.0f;

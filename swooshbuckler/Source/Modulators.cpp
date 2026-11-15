@@ -24,6 +24,8 @@ const std::vector<juce::String>& ModMatrix::targets()
             ids.emplace_back(id);
         for (auto* id : ParamIDs::trackSemis) // each track's pitch (the Semitones box): modulated smoothly, not in steps
             ids.emplace_back(id);
+        for (auto* id : { ParamIDs::roomSpread, ParamIDs::roomHeight }) // the room's Spread and Height (the speakers' gains glide)
+            ids.emplace_back(id);
         jassert(ids.size() <= 64);
         return ids;
     }();

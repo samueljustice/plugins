@@ -21,6 +21,10 @@
 //     own; each wire is a ring outside the value ring in its modulator's colour, dashed when its depth is negative;
 //     plugs sit on the rim, clear of the text, and their cables come in beside it; the cables of the modulator
 //     under the mouse stand out and the others fade; the still part of the wheels is kept in a few images.
+//   - The room: at Stereo the strip under the sea and the Flight Paths rest, saying why, and nothing else of the room
+//     is drawn; at 5.1, Quad and 7.1.4 the right controls light, Output shows a meter per speaker in the room's order
+//     with every name whole under it, the sea draws the plan with its lamps lit, a pass's dot keeps to its Flight Path
+//     and its comet stays calm; a modulator on Spread moves the sound; the new colours read.
 //   - Faders and meters: no slider or scrollbar is drawn by JUCE's own look; the meters and the Trim fader have a
 //     number under them; Swell is the biggest thing in its panel and Throw sits under it.
 //
@@ -882,32 +886,38 @@ int main(int argc, char* argv[])
                           && SwooshLookAndFeel::getStyle(ed.m_presetName) == SwooshLookAndFeel::ButtonStyle::Menu,
                       "header: the preset arrows are drawn icons, and the preset box is a menu");
             }
-            // The knobs: two wheels, whole in their boxes, on one column pitch.
+            // The knobs: three wheels, whole in their boxes, on one column pitch. The small one (the room strip under
+            // the sea) has its caption and value beside the dial, at its right; the others under it.
             {
                 std::vector<WheelKnob*> knobs;
                 collect(ed, knobs);
-                int whole = 0, primary = 0;
+                int whole = 0, primary = 0, small = 0;
                 for (auto* k : knobs)
                 {
                     const auto size = k->getSize();
                     primary += size == WheelKnob::Size::Primary ? 1 : 0;
+                    small += size == WheelKnob::Size::Small ? 1 : 0;
                     const float ring = k->getRingRadius(), outer = ring + WheelKnob::c_modRoom;
                     const auto centre = k->getDialCentre();
                     const auto caption = k->getCaptionArea(), value = k->getValueArea();
                     const auto box = k->getLocalBounds().toFloat();
-                    const bool ok = std::abs(ring - WheelKnob::ringFor(size)) < 1.0e-3f
+                    const bool clearOfText = k->textBeside() ? centre.x + outer <= caption.getX() + 0.01f && centre.y + outer <= box.getHeight() + 0.01f
+                                                             : centre.y + outer <= caption.getY() + 0.01f;
+                    const bool ok = std::abs(ring - WheelKnob::ringFor(size)) < 1.0e-3f && k->textBeside() == (size == WheelKnob::Size::Small)
                                     && k->getWidth() >= WheelKnob::cellWidth(size) && k->getHeight() >= WheelKnob::cellHeight(size)
                                     && centre.x - outer >= -0.01f && centre.x + outer <= box.getWidth() + 0.01f && centre.y - outer >= -0.01f
-                                    && centre.y + outer <= caption.getY() + 0.01f && caption.getBottom() <= value.getY() + 0.01f
-                                    && box.contains(caption) && box.contains(value) && caption.getHeight() >= 12.0f && value.getHeight() >= 12.0f;
+                                    && clearOfText && caption.getBottom() <= value.getY() + 0.01f
+                                    && box.contains(caption) && box.contains(value) && caption.getHeight() >= 12.0f && value.getHeight() >= 12.0f
+                                    && caption.getWidth() >= 30.0f;
                     whole += ok ? 1 : 0;
                     if (! ok)
                         std::cout << "         " << k->caption << ": box " << k->getBounds().toString() << ", ring " << ring << std::endl;
                 }
                 const int count = static_cast<int>(knobs.size());
-                check(count >= 40 && whole == count && primary >= 20 && primary < count,
-                      "knobs: all " + juce::String(count) + " are one of two wheels (" + juce::String(primary) + " primary, " + juce::String(count - primary)
-                          + " secondary), whole in their boxes with the dial over the caption and the value," + at);
+                check(count >= 40 && whole == count && primary >= 20 && small == 3 && primary + small < count,
+                      "knobs: all " + juce::String(count) + " are one of three wheels (" + juce::String(primary) + " primary, "
+                          + juce::String(count - primary - small) + " secondary, " + juce::String(small)
+                          + " small), whole in their boxes with the dial clear of the caption and the value," + at);
 
                 // Bus A, bus B and the Hits: each a row on the one shared column pitch, and the Hits' knobs sit on
                 // the very columns of bus A's, the panel above them.
@@ -1017,12 +1027,18 @@ int main(int argc, char* argv[])
                 {
                     const auto strip = ed.m_sectionScopes[i]->getBounds();
                     const auto& panel = ed.m_sections[i].bounds;
-                    strips = strips && panel.contains(strip) && strip.getWidth() >= panel.getWidth() - 32 && strip.getBottom() > panel.getBottom() - 12 && strip.getHeight() >= 14;
+                    // (a bus's starts after its Flight Path menu, which sits at the strip's left end)
+                    const int path = i < ed.m_flightPath.size() ? ed.m_flightPath[i].getRight() + 8 - (panel.getX() + 12) : 0;
+                    strips = strips && panel.contains(strip) && strip.getWidth() >= panel.getWidth() - 32 - path && strip.getBottom() > panel.getBottom() - 12
+                             && strip.getHeight() >= 14 && strip.getRight() == panel.getRight() - 12
+                             && (i >= ed.m_flightPath.size() || (panel.contains(ed.m_flightPath[i].getBounds()) && ed.m_flightPath[i].getRight() < strip.getX()
+                                                                 && panel.contains(ed.m_flightPathLabel[i]) && ed.m_flightPathLabel[i].getRight() < ed.m_flightPath[i].getX()));
                     for (auto* k : knobs)
                         strips = strips && ! (k->getParentComponent() == &ed.m_content && k->getBounds().intersects(strip));
                 }
                 check(strips && ride.contains(ed.m_rideStripArea) && ed.m_rideStripArea.getWidth() > 200,
-                      "strips: a scope strip the width of its panel along the bottom of Bus A, Bus B, Hits and Output, under the knobs; the ride's last 8 s in Ride" + at);
+                      "strips: a scope strip the width of its panel along the bottom of Bus A, Bus B, Hits and Output, under the knobs (a bus's after its "
+                      "Flight Path); the ride's last 8 s in Ride" + at);
 
                 // The five demo sounds: four whole lanes in view, never a half-cut one, and the fifth a scroll away;
                 // the drop zone under them is one slim line.
@@ -1609,6 +1625,364 @@ int main(int argc, char* argv[])
             proc.setStowawayOn(false);
             ed.m_toast.clear();
             rig.run(0.2);
+        }
+    }
+
+    // The room ---------------------------------------------------------------------------------------------------
+    std::cout << "The room" << std::endl;
+    {
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        DemoSounds::loadInto(proc);
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        auto& sea = ed.m_sea;
+        proc.setPlaying(true);
+        rig.run(1.0);
+
+        auto widen = [&](room::Width width)
+        {
+            auto layout = proc.getBusesLayout();
+            layout.outputBuses.getReference(0) = room::channelSet(width);
+            proc.setBusesLayout(layout);
+            proc.prepareToPlay(c_fs, c_block);
+            rig.block.setSize(room::layout(width).numChannels, c_block);
+        };
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto* spread = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomSpread]);
+        auto* height = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomHeight]);
+        auto* lfeLevel = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::roomLfeLevel]);
+        const std::vector<juce::Component*> stripControls { spread, height, &ed.m_roomCentre, &ed.m_lfeMode, lfeLevel };
+        auto lookOf = [](juce::Component* c) { return Theme::getLook(*c); };
+        auto tipOf = [](juce::Component* c) { auto* t = dynamic_cast<juce::SettableTooltipClient*>(c); return t != nullptr ? t->getTooltip() : juce::String(); };
+        const auto& out = ed.m_sections[3].bounds;
+        const int stereoKnobY = ed.m_controls[ParamIDs::space]->getY();
+        const auto stereoScope = ed.m_sectionScopes[3]->getBounds();
+
+        // Calm: how far a comet's head moves on the screen from one frame of the sea to the next, at its worst.
+        auto worstCometStep = [&](double seconds, float& nearest)
+        {
+            float worst = 0.0f;
+            nearest = 100.0f;
+            std::array<juce::Point<float>, RigEngine::c_maxFlights> last {};
+            std::array<bool, RigEngine::c_maxFlights> had {};
+            const int frames = static_cast<int>(seconds * 60.0);
+            for (int f = 0; f < frames; ++f)
+            {
+                rig.run(1.0 / 60.0);
+                { UiProbe::Recorder r; r.paint(sea, 1.0f, 1.0f); } // the projection is set in paint
+                for (size_t i = 0; i < sea.m_trails.size(); ++i)
+                {
+                    const auto& trail = sea.m_trails[i];
+                    if (trail.size() < 3 || sea.m_flightEnv[i] < 0.05f)
+                    {
+                        had[i] = false;
+                        continue;
+                    }
+                    const auto head = sea.project(trail.back());
+                    nearest = juce::jmin(nearest, trail.back().z);
+                    if (had[i])
+                        worst = juce::jmax(worst, head.getDistanceFrom(last[i]));
+                    last[i] = head;
+                    had[i] = true;
+                }
+            }
+            return worst;
+        };
+        float stereoNearest = 0.0f;
+        const float stereoStep = worstCometStep(6.0, stereoNearest);
+
+        // At Stereo the strip and the Flight Paths rest, still usable, each saying why; nothing else of the room is
+        // drawn: no meters, no plan, Output as it always was.
+        {
+            bool resting = true;
+            for (auto* c : stripControls)
+                resting = resting && lookOf(c) == Theme::Look::Resting && c->isEnabled() && c->isVisible() && tipOf(c).contains("rests at Stereo");
+            for (auto& menu : ed.m_flightPath)
+                resting = resting && lookOf(&menu) == Theme::Look::Resting && menu.isEnabled() && tipOf(&menu).contains("rests at Stereo");
+            check(resting && ed.m_roomStrip.isVisible() && ! ed.m_roomWidth.isVisible() && ed.m_roomStrip.getTooltip().contains("this track is Stereo"),
+                  "room: at Stereo the strip and both Flight Paths rest (still usable), each tooltip saying why; in a host the width is a read-out from the track");
+            bool dark = sea.roomShown() == 0.0f;
+            for (int ch = 0; ch < room::c_maxChannels; ++ch)
+                dark = dark && sea.lampLevel(ch) == 0.0f;
+            for (int o = 0; o < RigEngine::c_objects; ++o)
+            {
+                float lit = 0.0f;
+                sea.planDot(o, &lit);
+                dark = dark && lit == 0.0f;
+            }
+            check(dark && ! ed.m_speakerMeters->isVisible() && ed.m_speakerMeters->numMeters() == 0
+                      && ed.m_controls[ParamIDs::space]->getY() > ed.m_controls[ParamIDs::tremDepth]->getY() - 10
+                      && ed.m_sectionScopes[3]->getWidth() == out.getWidth() - 24,
+                  "room: at Stereo nothing else of it is drawn: no plan in the sea, no speaker meters, Output's knobs and scope where they were");
+        }
+
+        // The strip on the sea's foot: inside the sea, under its water, its controls on it and clear of each other;
+        // the morph pad docks above it.
+        {
+            const auto strip = ed.m_roomStrip.getBounds();
+            const auto sea0 = ed.m_sea.getBounds();
+            bool inside = sea0.contains(strip) && strip.getBottom() <= sea0.getBottom() - 4 && sea.getFootHeight() == strip.getHeight()
+                          && ed.m_morphPad.getBottom() <= strip.getY() - 4;
+            std::vector<juce::Rectangle<int>> boxes { ed.m_roomWidthReadout, ed.m_roomWidthCaption, ed.m_roomCentreCaption, ed.m_lfeModeCaption };
+            for (auto* c : stripControls)
+                boxes.push_back(ed.m_content.getLocalArea(c, c->getLocalBounds()));
+            inside = inside && ed.m_roomWidth.getParentComponent() == &ed.m_roomStrip
+                     && ed.m_content.getLocalArea(&ed.m_roomWidth, ed.m_roomWidth.getLocalBounds()) == ed.m_roomWidthReadout;
+            for (auto* c : stripControls)
+                inside = inside && c->getParentComponent() == &ed.m_roomStrip;
+            for (size_t i = 0; i < boxes.size(); ++i)
+            {
+                inside = inside && strip.contains(boxes[i]);
+                for (size_t j = i + 1; j < boxes.size(); ++j)
+                    inside = inside && ! boxes[i].intersects(boxes[j]);
+            }
+            check(inside, "room: the strip is the sea's foot (" + juce::String(strip.getHeight()) + " px), every control on it and clear of the others, the morph pad docked above it");
+            check(lfeLevel->hasMark() && std::abs(lfeLevel->getMark() - ParamIDs::lfeLevelUnityDb) < 1.0e-6
+                      && lfeLevel->getTextFromValue(ParamIDs::lfeLevelUnityDb).contains("Unity"),
+                  "room: LFE Level marks its reference point on the dial and in its read-out (" + lfeLevel->getTextFromValue(ParamIDs::lfeLevelUnityDb) + ")");
+            check(ModMatrix::targetIndex(ParamIDs::roomSpread) >= 0 && ModMatrix::targetIndex(ParamIDs::roomHeight) >= 0
+                      && ModMatrix::targetIndex(ParamIDs::roomLfeLevel) < 0 && ModMatrix::targetIndex(ParamIDs::flightPath[0]) < 0,
+                  "room: Spread and Height take a wire (LFE Level and the Flight Paths do not)");
+        }
+
+        // The new colours: every name on the strip reads on its plate, resting or not; the speakers' names on
+        // Output's; a lamp lit is plain against one at rest, and every object reads on the plan's well.
+        {
+            check(contrast(TC::textFaint, TC::raised) >= 4.5 && contrast(TC::textDim, TC::raised) >= 4.5 && contrast(TC::textFaint, TC::well) >= 4.5,
+                  "room: the strip's names read on its plate, lit or resting (" + juce::String(contrast(TC::textFaint, TC::raised), 2) + ":1 at rest)");
+            check(contrast(TC::textDim, TC::panel) >= 4.5 && contrast(TC::stowaway.brighter(0.3f), TC::panel) >= 4.5,
+                  "room: the speakers' names read under their meters, the LFE's in its own colour (" + juce::String(contrast(TC::stowaway.brighter(0.3f), TC::panel), 2) + ":1)");
+            const auto unlit = TC::well.overlaidWith(TC::bolt.withAlpha(0.45f)), lit = juce::Colour(0xfff3e3c0);
+            bool objects = true;
+            for (const auto c : { TC::busA, TC::busB, TC::brass, TC::hits, TC::stowaway })
+                objects = objects && contrast(c, TC::well) >= 3.0;
+            check(contrast(lit, unlit) >= 4.5 && contrast(unlit, TC::well) >= 1.4 && objects,
+                  "room: a lamp at full is " + juce::String(contrast(lit, unlit), 2) + ":1 against one at rest, which still shows on the well ("
+                      + juce::String(contrast(unlit, TC::well), 2) + ":1), and every object's colour reads on it");
+        }
+
+        // A 5.1 track: the strip lights up (Height rests: no speakers overhead), Output makes room for six meters,
+        // the sea draws the plan.
+        set(ParamIDs::roomLfeMode, static_cast<float>(RigEngine::LfeMixdown));
+        set(ParamIDs::roomCentre, 1.0f);
+        widen(room::Width::Surround51);
+        rig.run(2.0);
+        {
+            const bool lit = lookOf(spread) == Theme::Look::Normal && lookOf(&ed.m_roomCentre) == Theme::Look::Normal
+                             && lookOf(&ed.m_lfeMode) == Theme::Look::Normal && lookOf(lfeLevel) == Theme::Look::Normal
+                             && lookOf(height) == Theme::Look::Resting && tipOf(height).contains("no speakers overhead")
+                             && lookOf(&ed.m_flightPath[0]) == Theme::Look::Normal && ! tipOf(spread).contains("rests");
+            check(lit && ed.m_roomCentre.getButtonText() == "On", "room: at 5.1 the strip lights up, but for Height (5.1 has no speakers overhead, and its tooltip says so)");
+            auto& meters = *ed.m_speakerMeters;
+            juce::StringArray names;
+            bool sounding = true;
+            for (int m = 0; m < meters.numMeters(); ++m)
+            {
+                const int ch = meters.channelOf(m);
+                names.add(room::info(room::layout(room::Width::Surround51).speakers[static_cast<size_t>(ch)]).name);
+                sounding = sounding && meters.shownLevel(ch) > 0.0005f;
+            }
+            check(meters.isVisible() && names.joinIntoString(" ") == "L C R Ls Rs LFE" && sounding,
+                  "room: Output shows a meter for each speaker, in the room's order with the LFE last: " + names.joinIntoString(" ")
+                      + (sounding ? ", every one moving" : ", NOT all moving"));
+            const auto m = meters.getBounds();
+            const bool placed = out.contains(m) && ! m.intersects(ed.m_meterArea) && ! m.intersects(ed.m_trim.getBounds()) && ! m.intersects(ed.m_tremGroup)
+                                && m.getY() >= ed.m_controls[ParamIDs::space]->getBottom() && ed.m_controls[ParamIDs::space]->getY() < stereoKnobY
+                                && ed.m_sectionScopes[3]->getRight() <= ed.m_tremGroup.getRight() && ! ed.m_sectionScopes[3]->getBounds().intersects(m);
+            check(placed, "room: the meters sit under Output's four knobs (moved up " + juce::String(stereoKnobY - ed.m_controls[ParamIDs::space]->getY())
+                              + " px), clear of GR, OUT, Trim and the tremolo, and the scope keeps to the tremolo's width");
+            bool lamps = sea.roomShown() > 0.99f;
+            for (int ch = 0; ch < 6; ++ch)
+                lamps = lamps && (ch == 3 || sea.lampLevel(ch) > 0.05f);
+            check(lamps, "room: the sea draws the plan of the room, every speaker's lamp lit by its level");
+            checkTexts("the window at 5.1", ed, 1.0f, 1.0f);
+        }
+
+        // Quad: no centre speaker and no LFE, so those rest too, each saying so.
+        widen(room::Width::Quad);
+        rig.run(0.5);
+        check(lookOf(&ed.m_roomCentre) == Theme::Look::Resting && tipOf(&ed.m_roomCentre).contains("no centre speaker")
+                  && lookOf(&ed.m_lfeMode) == Theme::Look::Resting && lookOf(lfeLevel) == Theme::Look::Resting && tipOf(lfeLevel).contains("no LFE")
+                  && lookOf(spread) == Theme::Look::Normal && ed.m_speakerMeters->numMeters() == 4 && ed.m_speakerMeters->lfeReductionArea().isEmpty(),
+              "room: at Quad, Centre Speaker and the LFE rest (no centre speaker, no LFE), and there are four meters");
+
+        // 7.1.4: twelve meters, readable at every size: the names in order, each in its own box, none on another.
+        widen(room::Width::Surround714);
+        set(ParamIDs::roomSpread, 0.25f);
+        rig.run(2.0);
+        {
+            auto& meters = *ed.m_speakerMeters;
+            juce::StringArray names;
+            bool apart = true;
+            juce::SharedResourcePointer<Theme::Fonts> fonts;
+            const auto font = fonts->caption();
+            for (int m = 0; m < meters.numMeters(); ++m)
+            {
+                const auto name = juce::String(room::info(room::layout(room::Width::Surround714).speakers[static_cast<size_t>(meters.channelOf(m))]).name);
+                names.add(name);
+                apart = apart && Theme::textWidth(font, name) <= meters.nameArea(m).getWidth() && meters.getLocalBounds().toFloat().contains(meters.nameArea(m))
+                        && meters.barArea(m).getBottom() <= meters.nameArea(m).getY();
+                if (m > 0)
+                    apart = apart && meters.barArea(m).getX() - meters.barArea(m - 1).getRight() >= 6.0f
+                            && Theme::textWidth(font, names[m - 1]) * 0.5f + Theme::textWidth(font, name) * 0.5f + 2.0f
+                                   <= meters.nameArea(m).getCentreX() - meters.nameArea(m - 1).getCentreX();
+            }
+            const int last = meters.numMeters() - 1;
+            const bool lfeApart = last == 11 && meters.barArea(last).getX() - meters.barArea(last - 1).getRight() >= SpeakerMeters::c_lfeGap
+                                  && ! meters.lfeReductionArea().isEmpty() && meters.lfeReductionArea().getX() >= meters.barArea(last).getRight();
+            check(names.joinIntoString(" ") == "L C R Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr LFE" && apart && lfeApart,
+                  "room: at 7.1.4 twelve meters, " + names.joinIntoString(" ") + ", every name whole under its own meter, the tops after a gap, the LFE "
+                      "set apart with its own limiter beside it");
+            checkTexts("the window at 7.1.4", ed, 1.0f, 1.0f);
+        }
+
+        // A modulator on Spread or Height moves the room: with a Macro at full through a full wire on Spread and an
+        // upside-down one on Height, the room the engine renders has Spread at 100% and Height at 0% while both knobs
+        // stay where they are (0% and 100%).
+        {
+            auto& engine = proc.getEngine();
+            auto play = [&](int blocks)
+            {
+                for (int i = 0; i < blocks; ++i)
+                {
+                    rig.block.clear();
+                    rig.midi.clear();
+                    proc.processBlock(rig.block, rig.midi);
+                }
+            };
+            set(ParamIDs::roomSpread, 0.0f);
+            set(ParamIDs::roomHeight, 1.0f);
+            play(40);
+            const float spreadBefore = engine.m_spreadNow, heightBefore = engine.m_params.roomHeight;
+            set(ParamIDs::modType[3], 3.0f); // a Macro
+            set(ParamIDs::modKnob[3], 1.0f);
+            const int spreadWire = proc.getMods().connect(3, ParamIDs::roomSpread, 1.0f);
+            const int heightWire = proc.getMods().connect(3, ParamIDs::roomHeight, -1.0f);
+            play(80);
+            const float spreadWired = engine.m_spreadNow, heightWired = engine.m_params.roomHeight;
+            proc.getMods().disconnect(heightWire);
+            proc.getMods().disconnect(spreadWire);
+            set(ParamIDs::modType[3], 0.0f);
+            play(80);
+            check(spreadWire >= 0 && heightWire >= 0 && spreadBefore < 0.01f && heightBefore > 0.99f && spreadWired > 0.99f && heightWired < 0.01f
+                      && engine.m_spreadNow < 0.01f && proc.getState().getRawParameterValue(ParamIDs::roomSpread)->load() < 0.01f,
+                  "room: wires on Spread and Height reach the room (the engine's Spread " + juce::String(spreadBefore, 2) + " -> " + juce::String(spreadWired, 2)
+                      + ", Height " + juce::String(heightBefore, 2) + " -> " + juce::String(heightWired, 2) + "), and the knobs themselves stay put");
+        }
+
+        // Each Flight Path on the plan and on the sea. A pass's dot keeps to where its path goes (Across in front,
+        // Through from the front to behind, Overhead up into the middle, Around all the way round), and its comet
+        // never comes nearer than a comet ever did, nor moves across the screen faster than the Stereo ones do.
+        {
+            set(ParamIDs::roomSpread, 0.0f);
+            const auto box = [&]
+            {
+                const auto plate = sea.roomPlanArea();
+                return plate.withTrimmedLeft(15.0f).withTrimmedRight(15.0f).withTrimmedTop(13.0f).withTrimmedBottom(21.0f);
+            }();
+            const auto c = box.getCentre();
+            const float half = box.getWidth() * 0.5f;
+            const char* pathNames[] = { "Across", "Through", "Overhead", "Around" };
+            for (int path = 0; path < ParamIDs::numFlightPaths; ++path)
+            {
+                for (auto* id : ParamIDs::flightPath)
+                    set(id, static_cast<float>(path));
+                rig.run(1.0);
+                float frontMost = 1.0f, backMost = -1.0f, leftMost = 1.0f, rightMost = -1.0f, innerMost = 2.0f, highest = 0.0f;
+                std::array<bool, 4> quarters {};
+                int comets = 0, onTheirObjects = 0;
+                const int frames = 7 * 60;
+                for (int f = 0; f < frames; ++f)
+                {
+                    rig.run(1.0 / 60.0);
+                    // Each bus's comet flies where its pass is in the room.
+                    for (int i = RigEngine::ObjPassA1; i <= RigEngine::ObjPassB2; ++i)
+                    {
+                        const auto& trail = sea.m_trails[static_cast<size_t>(i)];
+                        const auto object = proc.getEngine().getObject(i);
+                        if (trail.empty() || ! object.active || sea.m_flightEnv[static_cast<size_t>(i)] < 0.05f)
+                            continue;
+                        const auto want = SeaVisualiser::roomToSea(object, sea.m_flightEnv[static_cast<size_t>(i)]);
+                        const auto& head = trail.back();
+                        ++comets;
+                        onTheirObjects += std::abs(head.x - want.x) < 0.15f && std::abs(head.y - want.y) < 0.15f && std::abs(head.z - want.z) < 0.15f ? 1 : 0;
+                    }
+                    for (int o = RigEngine::ObjPassA1; o <= RigEngine::ObjPassB2; ++o)
+                    {
+                        float lit = 0.0f;
+                        const auto p = sea.planDot(o, &lit);
+                        if (lit < 0.15f)
+                            continue;
+                        const float x = (p.x - c.x) / half, y = (c.y - p.y) / half; // y up the plan is the front
+                        frontMost = juce::jmin(frontMost, y);
+                        backMost = juce::jmax(backMost, y);
+                        leftMost = juce::jmin(leftMost, x);
+                        rightMost = juce::jmax(rightMost, x);
+                        innerMost = juce::jmin(innerMost, juce::jmax(std::abs(x), std::abs(y)));
+                        quarters[static_cast<size_t>((x < 0.0f ? 0 : 1) + (y < 0.0f ? 2 : 0))] = true;
+                        highest = juce::jmax(highest, proc.getEngine().getObject(o).z);
+                    }
+                }
+                juce::String how;
+                bool ok = false;
+                const int sides = static_cast<int>(std::count(quarters.begin(), quarters.end(), true));
+                // (frontMost and backMost: the least and the most of y, the front of the room at +1)
+                if (path == 0) { ok = frontMost > 0.2f && leftMost < -0.4f && rightMost > 0.4f && highest < 0.01f; how = "in front, from side to side, at ear level"; }
+                if (path == 1) { ok = backMost > 0.6f && frontMost < -0.6f && highest < 0.01f; how = "from the front wall to the back, at ear level"; }
+                if (path == 2) { ok = highest > 0.8f && innerMost < 0.15f && backMost > 0.3f && frontMost < -0.3f; how = "from the front, up into the middle and on behind"; }
+                if (path == 3) { ok = sides == 4 && highest < 0.01f; how = "through all four corners of the room"; }
+                std::cout << "         " << pathNames[path] << ": dots from " << juce::String(frontMost, 2) << " to " << juce::String(backMost, 2) << " front to back, "
+                          << juce::String(leftMost, 2) << " to " << juce::String(rightMost, 2) << " across, nearest the middle " << juce::String(innerMost, 2)
+                          << ", " << sides << " quarters, as high as " << juce::String(highest, 2) << std::endl;
+                check(ok, juce::String("room: ") + pathNames[path] + " on the plan goes " + how);
+                check(comets > 100 && onTheirObjects >= comets * 9 / 10,
+                      juce::String("room: ") + pathNames[path] + ": the buses' comets fly where their passes are in the room (" + juce::String(onTheirObjects)
+                          + " of " + juce::String(comets) + " looks)");
+                float nearest = 0.0f;
+                const float step = worstCometStep(5.0, nearest);
+                check(nearest >= 1.29f && step <= stereoStep * 1.4f,
+                      juce::String("room: ") + pathNames[path] + " on the sea is calm: no nearer than " + juce::String(nearest, 2) + " (Stereo's nearest "
+                          + juce::String(stereoNearest, 2) + "), at most " + juce::String(step, 1) + " px a frame (Stereo's comets " + juce::String(stereoStep, 1) + ")");
+            }
+            for (auto* id : ParamIDs::flightPath)
+                set(id, 0.0f);
+        }
+
+        // The plan's own rule: the front wall at the top, left at the left, a sound higher up nearer the middle.
+        {
+            const juce::Rectangle<float> box(0.0f, 0.0f, 100.0f, 100.0f);
+            const auto front = SeaVisualiser::planPoint(box, 0.0f, 1.0f, 0.0f), backLeft = SeaVisualiser::planPoint(box, -1.0f, -1.0f, 0.0f);
+            const auto top = SeaVisualiser::planPoint(box, -1.0f, 1.0f, 1.0f);
+            check(front == juce::Point<float>(50.0f, 0.0f) && backLeft == juce::Point<float>(0.0f, 100.0f)
+                      && std::abs(top.x - 50.0f * SeaVisualiser::c_planHeightIn) < 1.0e-4f && std::abs(top.y - 50.0f * SeaVisualiser::c_planHeightIn) < 1.0e-4f,
+                  "room: on the plan the front is at the top and left at the left, and the tops sit on an inner square");
+        }
+
+        // Back to Stereo: the plan fades away, the meters go, Output is as it was, and the strip rests again.
+        widen(room::Width::Stereo);
+        set(ParamIDs::roomLfeMode, 0.0f);
+        rig.run(1.5);
+        check(sea.roomShown() == 0.0f && ! ed.m_speakerMeters->isVisible() && ed.m_controls[ParamIDs::space]->getY() == stereoKnobY
+                  && ed.m_sectionScopes[3]->getBounds() == stereoScope && lookOf(spread) == Theme::Look::Resting,
+              "room: back at Stereo the plan has faded away, the meters are gone, Output is as it was and the strip rests");
+
+        // At 7.1.4, at the smallest size, the design size and half as big again: every text in the window fits.
+        rig.editor.reset();
+        widen(room::Width::Surround714);
+        set(ParamIDs::roomCentre, 1.0f);
+        for (const float scale : { 0.85f, 1.0f, 1.5f })
+        {
+            Rig sized(proc, scale);
+            sized.block.setSize(12, c_block);
+            sized.open();
+            sized.run(1.5);
+            checkTexts("the window at 7.1.4, at " + juce::String(scale, 2), *sized.editor, 1.0f, scale);
         }
     }
 

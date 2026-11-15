@@ -417,8 +417,8 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     }
     static_assert(ParamIDs::numFlightPaths == room::c_numPaths, "the same Flight Paths");
     p.stow.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.stowFlightPath->load()));
-    p.roomSpread = m_raw.roomSpread->load();
-    p.roomHeight = m_raw.roomHeight->load();
+    p.roomSpread = modValue(m_raw.roomSpread);
+    p.roomHeight = modValue(m_raw.roomHeight);
     p.roomCentre = m_raw.roomCentre->load() > 0.5f;
     static_assert(ParamIDs::numLfeModes == RigEngine::c_lfeModes, "the same LFE modes"); // (the levels: checked by the SpaceLfe test)
     p.lfeMode = juce::jlimit(0, ParamIDs::numLfeModes - 1, juce::roundToInt(m_raw.roomLfeMode->load()));

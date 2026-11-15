@@ -1337,6 +1337,50 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_sea);
     m_sea.onClick = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(400, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
     m_sea.setTooltip("The Sea\nWhat the rig sends out: the sound rolls away as waves, and each doppler pass is a comet across the sky. Click it (or press space) to swell every track up.");
+    m_sea.setFootHeight(c_roomFootH);
+
+    // The room strip, on the sea's foot. Its plate keeps clicks off the sea; the controls sit on it.
+    m_content.addAndMakeVisible(m_roomStrip);
+    {
+        for (int w = 0; w < room::c_numWidths; ++w)
+            m_roomWidth.addItem(room::layout(static_cast<room::Width>(w)).name, w + 1);
+        m_roomWidth.setWantsKeyboardFocus(false);
+        m_roomWidth.onChange = [this]
+        {
+            const int id = m_roomWidth.getSelectedId();
+            if (id <= 0 || id - 1 == static_cast<int>(m_processor.getListening()))
+                return;
+            if (! m_processor.setListening(static_cast<room::Width>(id - 1)))
+            {
+                toast("Stop the tape to change what you are listening on");
+                m_roomWidth.setSelectedId(static_cast<int>(m_processor.getListening()) + 1, juce::dontSendNotification);
+            }
+            if (m_settings.isVisible())
+                m_settings.refresh();
+        };
+        m_roomStrip.addChildComponent(m_roomWidth);
+
+        // (The knobs are made like every other, then put on the strip's plate.)
+        for (const auto& [id, name] : { std::pair<const char*, const char*> { ParamIDs::roomSpread, "Spread" }, { ParamIDs::roomHeight, "Height" } })
+        {
+            auto& knob = addKnob(id, name, TC::output, {});
+            knob.setSize(WheelKnob::Size::Small);
+            m_roomStrip.addAndMakeVisible(knob);
+        }
+        m_roomCentre.setColour(juce::ToggleButton::tickColourId, TC::brass);
+        m_roomCentre.setWantsKeyboardFocus(false);
+        m_roomCentre.setTitle("Centre Speaker");
+        m_roomStrip.addAndMakeVisible(m_roomCentre);
+        m_roomCentreAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::roomCentre, m_roomCentre);
+        m_lfeMode.addItemList(juce::StringArray(ParamIDs::lfeModeNames, ParamIDs::numLfeModes), 1);
+        m_lfeMode.setWantsKeyboardFocus(false);
+        m_roomStrip.addAndMakeVisible(m_lfeMode);
+        m_lfeModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::roomLfeMode, m_lfeMode);
+        auto& lfeLevel = addKnob(ParamIDs::roomLfeLevel, "LFE Level", TC::stowaway, {});
+        lfeLevel.setSize(WheelKnob::Size::Small);
+        lfeLevel.setMark(ParamIDs::lfeLevelUnityDb); // where the LFE plays as loud as a main speaker
+        m_roomStrip.addAndMakeVisible(lfeLevel);
+    }
 
     // Morph: the pad sits over the output view (the waves show through) while it's switched on.
     m_content.addChildComponent(m_morphPad);
@@ -1590,6 +1634,21 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         m_passModeAttachment[b] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::passMode[b], menu);
     }
 
+    // Flight Path: one menu in each bus's scope strip (bus B's is linked while Link is on: it uses bus A's), and
+    // Stowaway's in its open plate (Fly's).
+    for (size_t b = 0; b < m_flightPath.size(); ++b)
+    {
+        auto& menu = m_flightPath[b];
+        menu.addItemList(juce::StringArray(ParamIDs::flightPathNames, ParamIDs::numFlightPaths), 1);
+        menu.setWantsKeyboardFocus(false);
+        m_content.addAndMakeVisible(menu);
+        m_flightPathAttachment[b] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::flightPath[b], menu);
+    }
+    m_stowPath.addItemList(juce::StringArray(ParamIDs::flightPathNames, ParamIDs::numFlightPaths), 1);
+    m_stowPath.setWantsKeyboardFocus(false);
+    m_content.addChildComponent(m_stowPath);
+    m_stowPathAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::stowFlightPath, m_stowPath);
+
     {
         const auto& engine = p.getEngine();
         const std::array<const ScopeRing*, 4> rings { &engine.getScope(0), &engine.getScope(1), &engine.getScope(2), &p.getOutputScope() };
@@ -1658,6 +1717,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     };
     m_trim.minTypingWidth = 54; // the fader is narrower than "-12.0 dB"
     updateMeterReadouts();
+    // The speaker meters: under Output's four knobs, in a room.
+    m_speakerMeters = std::make_unique<SpeakerMeters>(p, *m_fonts);
+    m_content.addChildComponent(*m_speakerMeters);
     m_content.addAndMakeVisible(m_trim);
     m_trimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.getState(), ParamIDs::masterTrim, m_trim);
     m_trimReadout = juce::String(m_trim.getValue(), 1);
@@ -1716,6 +1778,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     layoutContent();
     showStowaway(0.0f);
+    showRoom();
     const int saved = p.savedEditorWidth;
     // The first time, the design size or the largest that is whole on the screen; after that, the size it was left at.
     const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
@@ -1916,9 +1979,34 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     // The morph pad is a dock over the sea's lower right, so the sky, the moon and the comets stay in view; the
     // Morph button that shows it sits in the sea's top right, directly over it and clear of the corner plate.
     constexpr int morphW = 380, morphH = 214;
-    m_morphPad.setBounds(m_sea.getRight() - 10 - morphW, m_sea.getBottom() - 10 - morphH, morphW, morphH);
+    m_morphPad.setBounds(m_sea.getRight() - 10 - morphW, m_sea.getBottom() - c_roomFootH - 10 - morphH, morphW, morphH);
     m_morphButton.setBounds(m_sea.getRight() - 20 - 100, m_sea.getY() + 12, 100, 22);
     m_sea.setReservedArea(m_sea.getLocalArea(&m_morphButton, m_morphButton.getLocalBounds()));
+
+    // The room strip on the sea's foot, in three groups with a rule between them: the room (its width), where a
+    // sound goes in it (Spread, Height, Centre Speaker), and the LFE (Mode, Level). Each control has its name over
+    // it, or (a knob) beside it.
+    {
+        const auto sea = m_sea.getBounds();
+        m_roomStrip.setBounds(sea.getX() + 4, sea.getBottom() - 4 - c_roomFootH, sea.getWidth() - 8, c_roomFootH);
+        const int x0 = sea.getX(), mid = m_roomStrip.getBounds().getCentreY();
+        constexpr int textRow = 13, menuH = 22, groupH = textRow + 2 + menuH, knobH = WheelKnob::cellHeight(WheelKnob::Size::Small);
+        const int captionY = mid - groupH / 2, menuY = captionY + textRow + 2, knobY = mid - knobH / 2;
+        // (Worked out in the window's coordinates; the controls are the strip's own children.)
+        const auto on = m_roomStrip.getPosition();
+        auto place = [on](juce::Component& c, juce::Rectangle<int> r) { c.setBounds(r - on); };
+        m_roomWidthCaption = { x0 + 18, captionY, 104, textRow };
+        m_roomWidthReadout = { x0 + 18, menuY, 104, menuH };
+        place(m_roomWidth, m_roomWidthReadout);
+        m_roomRules = { x0 + 130, x0 + 402 };
+        place(*m_controls[ParamIDs::roomSpread], { x0 + 138, knobY, 76, knobH });
+        place(*m_controls[ParamIDs::roomHeight], { x0 + 224, knobY, 76, knobH });
+        m_roomCentreCaption = { x0 + 310, captionY, 84, textRow };
+        place(m_roomCentre, { x0 + 310, menuY + 3, Lay::stowSwitchW, 16 });
+        m_lfeModeCaption = { x0 + 410, captionY, 84, textRow };
+        place(m_lfeMode, { x0 + 410, menuY, 84, menuH });
+        place(*m_controls[ParamIDs::roomLfeLevel], { x0 + 504, knobY, 124, knobH });
+    }
 
     // A knob in its cell: the wheel of its size, whole, in the middle of the room it is given.
     auto placeKnob = [this](const char* id, juce::Rectangle<int> cell, WheelKnob::Size size)
@@ -2017,11 +2105,19 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         for (size_t i = 0; i < m_sections.size(); ++i)
             m_sections[i].subtitleRight = m_sectionDice[i + 1]->getX() - 8;
 
-        // The scope strips: what each section sends on, along the bottom of its panel.
+        // The scope strips: what each section sends on, along the bottom of its panel. A bus's starts with its Flight
+        // Path (Output's is placed with the meters).
         for (size_t i = 0; i < m_sectionScopes.size(); ++i)
         {
             const auto& panel = m_sections[i].bounds;
-            m_sectionScopes[i]->setBounds(panel.getX() + Lay::pad, panel.getY() + Lay::stripY, panel.getWidth() - 2 * Lay::pad, Lay::stripH);
+            int x = panel.getX() + Lay::pad;
+            if (i < m_flightPath.size())
+            {
+                m_flightPathLabel[i] = { x, panel.getY() + Lay::stripY - 1, c_pathLabelW, 18 };
+                m_flightPath[i].setBounds(x + c_pathLabelW + 4, panel.getY() + Lay::stripY - 1, c_pathMenuW, 18);
+                x = m_flightPath[i].getRight() + 8;
+            }
+            m_sectionScopes[i]->setBounds(x, panel.getY() + Lay::stripY, panel.getRight() - Lay::pad - x, Lay::stripH);
         }
     }
 
@@ -2038,41 +2134,7 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_duckMode.setBounds(menuX, top + 43, menuW, 22);
     }
 
-    // Output, left to right: the Peak Tremolo group (it comes before Space in the signal) with its switch and name
-    // over its two menus and its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the Trim fader.
-    {
-        const int top = out.getY() + 34, bottom = out.getY() + Lay::stripY - 3;
-        constexpr int menuW = 84, tremKnobW = 52;
-        m_tremGroup = { out.getX() + Lay::pad - 2, top, 8 + menuW + 4 + 3 * tremKnobW + 4, bottom - top };
-        auto head = m_tremGroup.reduced(8, 0).withTrimmedTop(3).withHeight(16);
-        m_tremOn.setBounds(head.removeFromLeft(30));
-        head.removeFromLeft(6);
-        m_tremCaption = head.withWidth(menuW + 40);
-        const int menuY = m_tremGroup.getY() + 28;
-        m_tremShape.setBounds(m_tremGroup.getX() + 8, menuY, menuW, 22);
-        m_tremTarget.setBounds(m_tremGroup.getX() + 8, menuY + 28, menuW, 22);
-        int kx = m_tremGroup.getX() + 8 + menuW + 4;
-        const int ky = m_tremGroup.getBottom() - 2 - secondaryH;
-        for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
-        {
-            placeKnob(id, { kx, ky, tremKnobW, secondaryH }, WheelKnob::Size::Secondary);
-            kx += tremKnobW;
-        }
-
-        // The meters and the Trim fader: a name over each, the bars and the fader's slot, a number under each.
-        constexpr int textRow = 13, trimW = 40, meterW = 88;
-        m_meterArea = { out.getRight() - Lay::pad - trimW - 2 - meterW, top + 2, meterW, bottom - top - 2 };
-        m_trimLabel = { m_meterArea.getRight() + 2, m_meterArea.getY(), trimW, textRow };
-        m_trimValue = { m_trimLabel.getX(), m_meterArea.getBottom() - textRow, trimW, textRow };
-        m_trim.setBounds(m_trimLabel.getCentreX() - 14, m_trimLabel.getBottom() + 1, 28, m_trimValue.getY() - m_trimLabel.getBottom() - 2);
-        const int restX = m_tremGroup.getRight() + 6, restW = m_meterArea.getX() - 4 - restX, ow = restW / 4;
-        int ox = restX + (restW - 4 * ow) / 2;
-        for (const auto* id : { ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
-        {
-            placeKnob(id, { ox, ky - 8, ow, secondaryH }, WheelKnob::Size::Secondary);
-            ox += ow;
-        }
-    }
+    layoutOutput(m_processor.getRoomWidth() >= room::Width::Quad);
 
     // Row 4: Stowaway's plate at the left, as far open as it is, and Modulation in the rest of the row.
     m_wires.setBounds(0, 0, c_width, c_height);
@@ -2096,6 +2158,69 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         overlay->setBounds(0, 0, c_width, c_height);
         overlay->setVisible(false);
     }
+}
+
+void SwooshbucklerAudioProcessorEditor::layoutOutput(bool room)
+{
+    // Output, left to right: the Peak Tremolo group (it comes before Space in the signal) with its switch and name
+    // over its two menus and its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the Trim
+    // fader. In a room the four knobs move up to the top of the panel, and under them, as wide as they and the
+    // meters together, is a meter for every speaker; the GR and OUT meters keep their place above it, shorter,
+    // and the scope strip keeps to the width of the tremolo group.
+    const auto& out = m_sections[3].bounds;
+    constexpr int secondaryH = WheelKnob::cellHeight(WheelKnob::Size::Secondary);
+    auto placeKnob = [this](const char* id, juce::Rectangle<int> cell)
+    {
+        auto* control = m_controls[id];
+        if (auto* knob = dynamic_cast<WheelKnob*>(control))
+            knob->setSize(WheelKnob::Size::Secondary);
+        control->setBounds(cell.withSizeKeepingCentre(cell.getWidth(), juce::jmin(cell.getHeight(), secondaryH)));
+    };
+    const int top = out.getY() + 34, bottom = out.getY() + Lay::stripY - 3;
+    constexpr int menuW = 84, tremKnobW = 52;
+    m_tremGroup = { out.getX() + Lay::pad - 2, top, 8 + menuW + 4 + 3 * tremKnobW + 4, bottom - top };
+    auto head = m_tremGroup.reduced(8, 0).withTrimmedTop(3).withHeight(16);
+    m_tremOn.setBounds(head.removeFromLeft(30));
+    head.removeFromLeft(6);
+    m_tremCaption = head.withWidth(menuW + 40);
+    const int menuY = m_tremGroup.getY() + 28;
+    m_tremShape.setBounds(m_tremGroup.getX() + 8, menuY, menuW, 22);
+    m_tremTarget.setBounds(m_tremGroup.getX() + 8, menuY + 28, menuW, 22);
+    int kx = m_tremGroup.getX() + 8 + menuW + 4;
+    const int ky = m_tremGroup.getBottom() - 2 - secondaryH;
+    for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
+    {
+        placeKnob(id, { kx, ky, tremKnobW, secondaryH });
+        kx += tremKnobW;
+    }
+
+    // The meters and the Trim fader: a name over each, the bars and the fader's slot, a number under each.
+    constexpr int textRow = 13, trimW = 40, meterW = 88;
+    const int knobsY = room ? top + 3 : ky - 8;
+    const int meterBottom = room ? knobsY + secondaryH + 1 : bottom;
+    m_meterArea = { out.getRight() - Lay::pad - trimW - 2 - meterW, top + 2, meterW, meterBottom - top - 2 };
+    m_trimLabel = { m_meterArea.getRight() + 2, top + 2, trimW, textRow };
+    m_trimValue = { m_trimLabel.getX(), bottom - textRow, trimW, textRow };
+    m_trim.setBounds(m_trimLabel.getCentreX() - 14, m_trimLabel.getBottom() + 1, 28, m_trimValue.getY() - m_trimLabel.getBottom() - 2);
+    const int restX = m_tremGroup.getRight() + 6, restW = m_meterArea.getX() - 4 - restX, ow = restW / 4;
+    int ox = restX + (restW - 4 * ow) / 2;
+    for (const auto* id : { ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
+    {
+        placeKnob(id, { ox, knobsY, ow, secondaryH });
+        ox += ow;
+    }
+
+    // The speaker meters, and the scope strip.
+    const int stripX = out.getX() + Lay::pad;
+    if (room)
+    {
+        m_speakerMeters->setBounds(restX, meterBottom + 3, m_meterArea.getRight() - restX, out.getBottom() - 3 - (meterBottom + 3));
+        m_sectionScopes[3]->setBounds(stripX, out.getY() + Lay::stripY, m_tremGroup.getRight() - stripX, Lay::stripH);
+    }
+    else
+        m_sectionScopes[3]->setBounds(stripX, out.getY() + Lay::stripY, out.getWidth() - 2 * Lay::pad, Lay::stripH);
+    m_speakerMeters->setVisible(room);
+    m_content.repaint(out);
 }
 
 void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
@@ -2123,6 +2248,14 @@ void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
                                   : "Expand Stowaway\nOpens the plate to show its five knobs, its die and its lock. It opens by itself the first "
                                     "time Stowaway is switched on. Clicking the nameplate does the same.");
     m_stowStrip = { s.getX() + Lay::pad, s.getY() + Lay::stowStripY, width - 2 * Lay::pad, Lay::stowStripH };
+    // Open, its strip starts with Fly's Flight Path, as a bus's does.
+    m_stowPathLabel = {};
+    if (openLayout)
+    {
+        m_stowPathLabel = { m_stowStrip.getX(), m_stowStrip.getCentreY() - 9, c_pathLabelW, 18 };
+        m_stowPath.setBounds(m_stowPathLabel.getRight() + 4, m_stowPathLabel.getY(), c_pathMenuW, 18);
+        m_stowStrip = m_stowStrip.withLeft(m_stowPath.getRight() + 8);
+    }
     m_stowScope->setBounds(m_stowStrip);
 
     auto& die = *m_sectionDice[Presets::Stowaway];
@@ -2147,6 +2280,7 @@ void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
         c.setAlpha(visible ? alpha : 1.0f);
     };
     show(m_stowOn, true);
+    show(m_stowPath, openLayout);
     show(m_stowMode, m_stowMode.getRight() <= die.getX() - 4 || ! openLayout);
     show(die, openLayout && die.getX() >= m_stowMode.getRight() + 4);
     show(lock, openLayout && die.isVisible());
@@ -2314,6 +2448,17 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     Theme::fitText(g, "Duck", m_duckModeLabel, f.caption(), juce::Justification::centredLeft);
     for (const auto& label : m_passModeLabel)
         Theme::fitText(g, "Pass", label, f.caption(), juce::Justification::centredRight);
+    // Flight Path, at the left of each bus's scope strip and of Stowaway's open plate's: dimmer while it rests.
+    for (size_t b = 0; b < m_flightPath.size(); ++b)
+    {
+        g.setColour(Theme::getLook(m_flightPath[b]) == Theme::Look::Normal ? TC::textDim : TC::textFaint);
+        Theme::fitText(g, "Flight Path", m_flightPathLabel[b], f.caption(), juce::Justification::centredLeft);
+    }
+    if (! m_stowPathLabel.isEmpty() && m_stowPath.isVisible())
+    {
+        g.setColour((Theme::getLook(m_stowPath) == Theme::Look::Normal ? TC::textDim : TC::textFaint).withMultipliedAlpha(m_stowPath.getAlpha()));
+        Theme::fitText(g, "Flight Path", m_stowPathLabel, f.caption(), juce::Justification::centredLeft);
+    }
 
     // The signal's way through the panels: small brass arrows in the gutters.
     auto arrow = [&g](juce::Point<float> c, bool down)
@@ -3297,6 +3442,165 @@ void SwooshbucklerAudioProcessorEditor::showAimControls()
     m_content.repaint(m_gateLamp.expanded(10));
 }
 
+//==============================================================================
+void SwooshbucklerAudioProcessorEditor::RoomStrip::paint(juce::Graphics& g)
+{
+    // On the sea's foot (the frame's plate, painted by the sea): the rules between the groups, the names over the
+    // menus and the switch, and in a host the room's width as a read-out.
+    auto& o = owner;
+    const auto& f = *o.m_fonts;
+    const auto at = getPosition();
+    auto local = [at](juce::Rectangle<int> r) { return r - at; };
+    // The rules: a groove pressed into the plate (a dark line with the light catching its right edge).
+    for (const int x : o.m_roomRules)
+    {
+        const auto line = juce::Rectangle<float>(static_cast<float>(x - at.x), 7.0f, 1.0f, static_cast<float>(getHeight()) - 14.0f);
+        g.setColour(TC::edgeDark);
+        g.fillRect(line);
+        g.setColour(TC::edgeLight);
+        g.fillRect(line.translated(1.0f, 0.0f));
+    }
+
+    auto caption = [&](const juce::String& text, juce::Rectangle<int> box, const juce::Component& control)
+    {
+        g.setColour(Theme::getLook(control) == Theme::Look::Normal ? TC::textDim : TC::textFaint);
+        Theme::fitText(g, text, local(box), f.caption(), juce::Justification::centredLeft);
+    };
+    g.setColour(TC::textDim);
+    Theme::fitText(g, "Room Width", local(o.m_roomWidthCaption), f.caption(), juce::Justification::centredLeft);
+    caption("Centre Speaker", o.m_roomCentreCaption, o.m_roomCentre);
+    caption("LFE Mode", o.m_lfeModeCaption, o.m_lfeMode);
+
+    if (! o.m_processor.isApp())
+    {
+        // A host's track decides: its width, and that it comes from the track.
+        const auto box = local(o.m_roomWidthReadout).toFloat();
+        SwooshLookAndFeel::drawWell(g, box, Theme::Cut::small);
+        auto inner = box.reduced(8.0f, 0.0f);
+        g.setColour(TC::text);
+        Theme::fitText(g, room::layout(o.m_processor.getRoomWidth()).name, inner.removeFromLeft(38.0f), f.control(), juce::Justification::centredLeft);
+        g.setColour(TC::textFaint);
+        Theme::fitText(g, "From Track", inner, f.caption(), juce::Justification::centredRight);
+    }
+}
+
+//==============================================================================
+juce::String SwooshbucklerAudioProcessorEditor::flightPathTip()
+{
+    return "Where this bus's passes fly in a room. Across: from one side to the other, in front of you. Through: from "
+           "the front to the back, past you. Overhead: up over your head, from the front to behind you. Around: once "
+           "round you. Each pass picks its own direction.";
+}
+
+juce::String SwooshbucklerAudioProcessorEditor::roomRestReason(const juce::String& control) const
+{
+    // Why it does nothing now: the room is too narrow, or this room has no such speaker. Empty: it is in use.
+    const auto width = m_processor.getRoomWidth();
+    const juce::String name = room::layout(width).name;
+    const juce::String widen = m_processor.isApp() ? juce::String("Choose a room in Room Width to use it.")
+                                                   : juce::String("Give the track a surround width (Quad to 7.1.4) in the host to use it.");
+    if (width < room::Width::Quad)
+        return "It rests at " + name + ": it works in a room, from Quad to 7.1.4. " + widen;
+    const auto& layout = room::layout(width);
+    if (control == "lfe" && layout.lfe < 0)
+        return "It rests: " + name + " has no LFE. It works at 5.1 and wider.";
+    if (control == "centre" && layout.centre < 0)
+        return "It rests: " + name + " has no centre speaker. It works at 5.1 and wider.";
+    if (control == "height")
+    {
+        bool tops = false;
+        for (int ch = 0; ch < layout.numChannels; ++ch)
+            tops = tops || room::info(layout.speakers[static_cast<size_t>(ch)]).role == room::Role::Height;
+        if (! tops)
+            return "It rests: " + name + " has no speakers overhead, so a sound high up is heard at ear level. It works at 7.1.2 and 7.1.4.";
+    }
+    return {};
+}
+
+void SwooshbucklerAudioProcessorEditor::showRoom()
+{
+    // The room's controls follow its width (and Link, and Stowaway's Mode): each rests when it does nothing, and
+    // its tooltip says why. Output makes room for the speaker meters above Stereo.
+    const auto width = m_processor.getRoomWidth();
+    const bool app = m_processor.isApp(), inRoom = width >= room::Width::Quad;
+    const bool linked = m_processor.getState().getRawParameterValue(ParamIDs::linkBuses)->load() > 0.5f;
+    const bool fly = m_processor.getStowawayMode() == ParamIDs::StowFly;
+    const bool centreOn = m_processor.getState().getRawParameterValue(ParamIDs::roomCentre)->load() > 0.5f;
+    const juce::String key = juce::String(static_cast<int>(width)) + (app ? "a" : "h") + (linked ? "l" : "") + (fly ? "f" : "")
+                             + (centreOn ? "c" : "") + juce::String(static_cast<int>(m_processor.getListening()));
+    if (key == m_roomShown)
+        return;
+    const bool first = m_roomShown.isEmpty();
+    const bool wasRoom = ! first && m_roomShown.getIntValue() >= static_cast<int>(room::Width::Quad);
+    m_roomShown = key;
+
+    auto look = [](juce::Component& c, const juce::String& reason) { Theme::setLook(c, reason.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting); };
+    auto tip = [](const juce::String& name, const juce::String& what, const juce::String& reason)
+    {
+        return name + "\n" + what + (reason.isNotEmpty() ? "\n" + reason : juce::String());
+    };
+
+    // Room Width: the app's choice (Listening), or the track's width as a read-out.
+    m_roomWidth.setVisible(app);
+    m_roomWidth.setSelectedId(static_cast<int>(m_processor.getListening()) + 1, juce::dontSendNotification);
+    m_roomWidth.setTooltip("Room Width\nWhat you are listening on, from Mono to 7.1.4: the same choice as Listening in Settings. "
+                           "Above Stereo every pass, throw and hit flies through the room. The tape and Render Variations record "
+                           "the room as it is played.");
+    m_roomStrip.setTooltip(app ? juce::String("The Room\nWhere the rig plays: its width, how sounds spread through it, and the LFE.")
+                               : "The Room\nIn a plug-in the track decides the room's width: this track is " + juce::String(room::layout(width).name)
+                                     + ". Change the track's width in the host to change it. The rest of the strip sets how sounds spread "
+                                       "through the room and what the LFE plays.");
+
+    const auto rest = roomRestReason({});
+    const auto restHeight = roomRestReason("height"), restCentre = roomRestReason("centre"), restLfe = roomRestReason("lfe");
+    auto* spread = m_controls[ParamIDs::roomSpread];
+    auto* height = m_controls[ParamIDs::roomHeight];
+    auto* lfeLevel = m_controls[ParamIDs::roomLfeLevel];
+    look(*spread, rest);
+    spread->setTooltip(tip("Room Spread", "How far each sound spreads into the other speakers. 0%: each pass is heard where it is. "
+                                          "100%: it fills the room, still leaning towards where it is. Passes close to you spread "
+                                          "a little more on their own.", rest));
+    look(*height, restHeight);
+    height->setTooltip(tip("Room Height", "How high the sounds go: how much of a pass going Overhead, and of Space, reaches the "
+                                          "speakers overhead. 0%: everything stays at ear level.", restHeight));
+    look(m_roomCentre, restCentre);
+    m_roomCentre.setButtonText(centreOn ? "On" : "Off");
+    m_roomCentre.setTooltip(tip("Centre Speaker", "Off (how a new session starts): sounds in the middle come from left and right "
+                                                  "together, so the centre speaker stays clear for dialogue. On: the centre speaker "
+                                                  "plays them. Switching glides, with no click.", restCentre));
+    look(m_lfeMode, restLfe);
+    m_lfeMode.setTooltip(tip("LFE Mode", ParamIDs::lfeModeTip, restLfe));
+    look(*lfeLevel, restLfe);
+    lfeLevel->setTooltip(tip("LFE Level", ParamIDs::lfeLevelTip, restLfe));
+
+    // Flight Path: each bus's (bus B's linked to A's while Link is on), and Stowaway's for Fly.
+    for (size_t b = 0; b < m_flightPath.size(); ++b)
+    {
+        auto& menu = m_flightPath[b];
+        const bool linkedB = b == 1 && linked;
+        Theme::setLook(menu, linkedB ? Theme::Look::Linked : (rest.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
+        menu.setTooltip(tip("Bus " + juce::String(ParamIDs::busNames[b]) + " Flight Path", flightPathTip(),
+                            linkedB ? juce::String("While Link is on, bus B flies bus A's passes, on bus A's Flight Path.")
+                                    : rest.isNotEmpty() ? rest + " At Stereo every pass flies across, left to right." : juce::String()));
+    }
+    const auto restStow = rest.isNotEmpty() ? rest
+                                            : (fly ? juce::String() : juce::String("It rests: it is for Fly, Stowaway's own passes. The other modes do not fly."));
+    Theme::setLook(m_stowPath, restStow.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting);
+    m_stowPath.setTooltip(tip("Stowaway Flight Path", "Where Fly's own passes go in a room: Across, Through, Overhead or Around, "
+                                                      "as a bus's Flight Path.", restStow));
+
+    // The speaker meters, in Output; the plan of the room is the sea's own.
+    m_speakerMeters->setWidth(width);
+    if (first || wasRoom != inRoom)
+        layoutOutput(inRoom);
+    m_wires.rebuildSoon(); // a wire on a knob that has come to rest (or back) is drawn again
+    m_roomStrip.repaint();
+    m_content.repaint(m_sections[0].bounds);
+    m_content.repaint(m_sections[1].bounds);
+    m_content.repaint(m_stowPanel);
+}
+
+
 void SwooshbucklerAudioProcessorEditor::updateMeterReadouts()
 {
     // The numbers under the meters, written when they change (not at every repaint): one decimal, in dB.
@@ -3351,6 +3655,8 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     showLinkedKnobs();
     showAimControls();
     showStowaway(dt);
+    showRoom();
+    m_speakerMeters->step(dt);
     {
         // Peak Tremolo off: its knobs and menus rest (hollow), but stay usable so it can be set up before switching it on.
         const bool on = m_processor.getState().getRawParameterValue(ParamIDs::tremOn)->load() > 0.5f;

@@ -92,6 +92,7 @@ target_sources(Swooshbuckler
     Source/Shortcuts.cpp
     Source/LookAndFeel.cpp
     Source/SeaVisualiser.cpp
+    Source/SpeakerMeters.cpp
     Source/CargoHoldView.cpp
     Source/MorphPad.cpp
     Source/MorphWander.cpp

@@ -12,6 +12,7 @@
 #include "SeaVisualiser.h"
 #include "SectionScope.h"
 #include "Shortcuts.h"
+#include "SpeakerMeters.h"
 #include "TakesView.h"
 #include "Theme.h"
 #include "Tooltips.h"
@@ -32,11 +33,16 @@
  *
  *   header : title | transport: follow host, play, new | presets: undo, redo, presets, A / B, randomise, its history, keep
  *            | tape: the tape, last 60 s, variations, takes | settings
- *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | the sea (what the rig sends out)
+ *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | the sea (what the rig sends out), with the
+ *            room strip on its frame's foot: Room Width, Spread, Height, Centre Speaker, LFE Mode, LFE Level
  *   row 2  : RIDE | BUS A (aggressive)  ->  BUS B (smooth, ducked and filtered by A)
  *   row 3  : HITS (gated at the loudest moments; its knobs under bus A's)  ->  OUTPUT
  *   row 4  : STOWAWAY (the extra bus: a slim plate that opens to show its knobs) | MODULATION: four modulators;
  *            drag a jack onto any knob to wire it (MegaMod style)
+ *
+ * The room (Quad and wider): the strip under the sea lights up (at Mono and Stereo it rests, saying why), each
+ * bus has its Flight Path at the left of its scope strip (Stowaway's, for Fly, in its open plate), the sea draws a
+ * plan of the room, and Output gains a meter for every speaker under its four knobs.
  *
  * One 12 px gutter between panels and around the window; bus A, bus B, the Hits and Stowaway share one knob column
  * pitch. Stowaway is optional, so its plate folds: folded it is its nameplate, switch, Mode and scope, and
@@ -413,6 +419,43 @@ private:
     std::array<juce::Rectangle<int>, ParamIDs::numBuses> m_passModeLabel;
     // A little waveform in each section's title bar: bus A, bus B, hits, output.
     std::array<std::unique_ptr<SectionScope>, 4> m_sectionScopes;
+
+    // The room (Quad and wider). The strip on the sea's foot: Room Width (the app's Listening, or in a host the
+    // track's width as a read-out), Spread, Height, Centre Speaker, LFE Mode, LFE Level. Flight Path at the left
+    // of each bus's scope strip, and Stowaway's (Fly) at the left of its open plate's. The speaker meters in Output.
+    // At Mono and Stereo all of it rests (still usable), each control's tooltip saying why.
+    struct RoomStrip : public juce::Component, public juce::SettableTooltipClient
+    {
+        explicit RoomStrip(SwooshbucklerAudioProcessorEditor& o) : owner(o) {}
+        void paint(juce::Graphics&) override;
+        SwooshbucklerAudioProcessorEditor& owner;
+    };
+    RoomStrip m_roomStrip { *this };
+    static constexpr int c_roomFootH = 48;   // the sea's foot: the strip's plate
+    juce::ComboBox m_roomWidth;              // the app: Mono .. 7.1.4 (Listening); hidden in a host
+    juce::ToggleButton m_roomCentre;         // Centre Speaker, a switch that says On or Off
+    juce::ComboBox m_lfeMode;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_roomCentreAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_lfeModeAttachment;
+    juce::Rectangle<int> m_roomWidthCaption, m_roomWidthReadout, m_roomCentreCaption, m_lfeModeCaption;
+    std::array<int, 2> m_roomRules {};       // the x of the rules between the strip's three groups
+    std::array<juce::ComboBox, ParamIDs::numBuses> m_flightPath;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, ParamIDs::numBuses> m_flightPathAttachment;
+    std::array<juce::Rectangle<int>, ParamIDs::numBuses> m_flightPathLabel;
+    static constexpr int c_pathLabelW = 58, c_pathMenuW = 84; // "Flight Path", and its menu wide enough for "Overhead"
+    juce::ComboBox m_stowPath;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_stowPathAttachment;
+    juce::Rectangle<int> m_stowPathLabel;
+    std::unique_ptr<SpeakerMeters> m_speakerMeters;
+    juce::String m_roomShown;                // what the room's looks and tooltips were last set for
+    /** The frame's share of the room: the looks and tooltips follow the width (and Link, and Stowaway's Mode), and
+        Output makes room for the speaker meters above Stereo. */
+    void showRoom();
+    /** Output's knobs, meters and scope strip: as they are at Mono and Stereo, or with the speaker meters. */
+    void layoutOutput(bool room);
+    /** Why a room control rests now (empty: it is in use), for its tooltip. */
+    juce::String roomRestReason(const juce::String& control) const;
+    static juce::String flightPathTip();
     void syncMorphPad();
     int m_morphSyncTick = 0;
     SwellButton m_swell;

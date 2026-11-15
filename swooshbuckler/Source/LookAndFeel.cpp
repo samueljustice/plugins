@@ -887,12 +887,16 @@ int WheelKnob::keptLayerCount()
 
 float WheelKnob::getRingRadius() const
 {
-    const float room = juce::jmin(static_cast<float>(getWidth()), static_cast<float>(getHeight() - c_textHeight)) * 0.5f - c_modRoom;
+    const float room = textBeside() ? juce::jmin(static_cast<float>(getWidth()), static_cast<float>(getHeight())) * 0.5f - c_modRoom
+                                    : juce::jmin(static_cast<float>(getWidth()), static_cast<float>(getHeight() - c_textHeight)) * 0.5f - c_modRoom;
     return juce::jmax(4.0f, juce::jmin(ringFor(m_size), room));
 }
 
 juce::Point<float> WheelKnob::getDialCentre() const
 {
+    // Beside its text: at the left of the box, in the middle of its height.
+    if (textBeside())
+        return { c_modRoom + getRingRadius(), static_cast<float>(getHeight()) * 0.5f };
     // The dial sits on the text: whatever spare height the box has is above it.
     return { static_cast<float>(getWidth()) * 0.5f, static_cast<float>(getHeight() - c_textHeight) - c_modRoom - getRingRadius() };
 }
@@ -909,18 +913,27 @@ juce::Point<float> WheelKnob::getPlugPosition(int index) const
 
 bool WheelKnob::getCableGate(int, juce::Point<float>& gate) const
 {
-    // Up the right edge of the knob's box, past its caption and value, and in from there.
-    gate = { static_cast<float>(getWidth()), static_cast<float>(getHeight()) + 2.0f };
+    // Up the right edge of the knob's box, past its caption and value, and in from there. Beside its text: up
+    // under the dial's right side, between the dial and the text.
+    gate = textBeside() ? juce::Point<float>(2.0f * (c_modRoom + getRingRadius()), static_cast<float>(getHeight()) + 2.0f)
+                        : juce::Point<float>(static_cast<float>(getWidth()), static_cast<float>(getHeight()) + 2.0f);
     return true;
 }
 
 juce::Rectangle<float> WheelKnob::getCaptionArea() const
 {
+    if (textBeside())
+    {
+        const int x = juce::roundToInt(2.0f * (c_modRoom + getRingRadius())) + 1;
+        return juce::Rectangle<int>(x, getHeight() / 2 - c_lineHeight, getWidth() - x, c_lineHeight).toFloat();
+    }
     return juce::Rectangle<int>(0, getHeight() - c_textHeight, getWidth(), c_lineHeight).toFloat();
 }
 
 juce::Rectangle<float> WheelKnob::getValueArea() const
 {
+    if (textBeside())
+        return getCaptionArea().translated(0.0f, static_cast<float>(c_lineHeight));
     return juce::Rectangle<int>(0, getHeight() - c_lineHeight, getWidth(), c_lineHeight).toFloat();
 }
 
@@ -1079,6 +1092,8 @@ void ValueSlider::mouseDoubleClick(const juce::MouseEvent& e)
 
 juce::Rectangle<int> WheelKnob::typingBounds() const
 {
+    if (textBeside())
+        return getCaptionArea().getUnion(getValueArea()).getSmallestIntegerContainer().reduced(0, 3);
     return getLocalBounds().removeFromBottom(c_textHeight).reduced(1, 3);
 }
 
@@ -1263,6 +1278,16 @@ void WheelKnob::paint(juce::Graphics& g)
             g.strokePath(m_scratch, stroke);
     }
 
+    // The reference mark, if it has one: a short tick just outside the ring.
+    if (m_hasMark)
+    {
+        const float a = angleAt(static_cast<float>(valueToProportionOfLength(m_mark)));
+        const juce::Point<float> dir { std::sin(a), -std::cos(a) };
+        const float outside = ring + c_ringThick * 0.5f + 0.5f;
+        g.setColour(drained ? TC::textFaint.withAlpha(0.5f) : TC::text.withAlpha(resting ? 0.6f : 0.9f));
+        g.drawLine(juce::Line<float>(centre + dir * outside, centre + dir * (outside + 4.0f)), 1.6f);
+    }
+
     // The wheel: five brass spokes with their handles, and the pointer.
     for (int i = 1; i < 6; ++i)
     {
@@ -1335,15 +1360,16 @@ void WheelKnob::paint(juce::Graphics& g)
         m_valueTextStale = false;
     }
     const auto font = m_fonts.caption();
+    const auto justify = textBeside() ? juce::Justification::centredLeft : juce::Justification::centred;
     g.setColour(drained ? TC::textFaint.withAlpha(0.7f) : TC::textDim);
-    Theme::fitText(g, caption, getCaptionArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
+    Theme::fitText(g, caption, getCaptionArea().reduced(1.0f, 0.0f), font, justify);
     if (look == Theme::Look::Linked && m_linkText.isNotEmpty())
     {
         // Linked: whose value it is using, in that one's colour, in place of its own (which waits for the unlinking).
         g.setColour(m_linkColour);
-        Theme::fitText(g, m_linkText, getValueArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
+        Theme::fitText(g, m_linkText, getValueArea().reduced(1.0f, 0.0f), font, justify);
         return;
     }
     g.setColour(drained ? TC::textFaint.withAlpha(0.7f) : ((m_hover || m_held) ? m_accent.brighter(0.4f) : (resting ? TC::textDim : TC::text)));
-    Theme::fitText(g, m_valueText, getValueArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
+    Theme::fitText(g, m_valueText, getValueArea().reduced(1.0f, 0.0f), font, justify);
 }
