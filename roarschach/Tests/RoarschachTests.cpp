@@ -22,6 +22,15 @@
 //                                          OUTPUT's filters, auto gain and Ride off
 //                   [--roll from to]       one render per seed from..to: the preset (and sets),
 //                                          then ROLL ALL with that seed (the dice's batch check)
+//                   [--passes n]           render the input n times through one instance with
+//                                          reset() between; the last pass is written and measured
+//                   [--from seconds]       every pass starts this far into the input
+//                   [--state-in file]      load a saved state (parameters and learnt levels)
+//                                          instead of the preset, then the sets
+//                   [--state-out file]     save the state after the last pass
+//                                          (the metrics carry IN's gain, L, E and learnt, OUTPUT's
+//                                          match, matched seconds and probe adoptions: minimum,
+//                                          maximum and final value per pass, and the first learn)
 
 #if defined(__APPLE__)
  #include <CoreFoundation/CoreFoundation.h>   // the snapshot harness runs the run loop (before JUCE: it declares Point)
@@ -8417,6 +8426,9 @@ namespace
     }
 
     //==========================================================================
+    // Levels and repeatability (IN's take gain, OUTPUT's match, Mix, the kept state).
+#include "LevelTests.h"
+
     // Offline render mode.
 
     struct RenderOptions
@@ -8432,6 +8444,70 @@ namespace
         bool writeWav = true;      // --no-wav
         bool rawOutput = false;    // --raw-out: OUTPUT's filters, auto gain and Ride off (module-level measurements)
         int rollFrom = 0, rollTo = -1;   // --roll from to: one render per seed, ROLL ALL (seeded) after the sets
+        int passes = 1;            // --passes n
+        double fromSeconds = 0.0;  // --from seconds
+        juce::File stateIn, stateOut;   // --state-in / --state-out
+    };
+
+    /** The learnt levels, sampled after every block of one pass. */
+    struct LevelTrace
+    {
+        struct Range
+        {
+            double lo = std::numeric_limits<double>::infinity(), hi = -std::numeric_limits<double>::infinity(), last = 0.0;
+            void add(double v) { lo = std::min(lo, v); hi = std::max(hi, v); last = v; }
+            juce::var toVar() const
+            {
+                auto* o = new juce::DynamicObject();
+                o->setProperty("min", std::isfinite(lo) ? juce::var(lo) : juce::var());
+                o->setProperty("max", std::isfinite(hi) ? juce::var(hi) : juce::var());
+                o->setProperty("final", last);
+                return juce::var(o);
+            }
+        };
+        Range inGainDb, loudEndDb, evidence, matchDb, matchSeconds, probeAdoptions;
+        bool learnt = false;
+        double firstLearnSeconds = -1.0;
+        std::uint64_t matchedFrames0 = 0, wetRejected0 = 0;
+        int probes0 = 0;
+
+        void begin(const roar::CreatureChain& c)
+        {
+            matchedFrames0 = c.getOutput().getMatchedFrames();
+            wetRejected0 = c.getOutput().getWetRejectedFrames();
+            probes0 = c.getOutput().getProbeAdoptions();
+        }
+        void sample(const roar::CreatureChain& c, double seconds)
+        {
+            const auto& in = c.getIn();
+            const auto& out = c.getOutput();
+            inGainDb.add(in.getAutoGainDb());
+            if (in.isLearnt())
+                loudEndDb.add(in.getLearnedLevelDb());
+            evidence.add(in.getEvidenceSeconds());
+            matchDb.add(out.getMatchDb());
+            matchSeconds.add(out.getMatchSeconds());
+            probeAdoptions.add(out.getProbeAdoptions() - probes0);
+            if (in.isLearnt() && firstLearnSeconds < 0.0 && !learnt)
+                firstLearnSeconds = seconds;
+            learnt = in.isLearnt();
+        }
+        juce::var toVar(const roar::CreatureChain& c, double sr) const
+        {
+            auto* o = new juce::DynamicObject();
+            o->setProperty("inGainDb", inGainDb.toVar());
+            o->setProperty("loudEndDb", loudEndDb.toVar());
+            o->setProperty("evidence", evidence.toVar());
+            o->setProperty("learnt", learnt);
+            o->setProperty("firstLearnSeconds", firstLearnSeconds);
+            o->setProperty("matchDb", matchDb.toVar());
+            o->setProperty("matchSeconds", matchSeconds.toVar());
+            o->setProperty("probeAdoptions", probeAdoptions.toVar());
+            const double frame = 32.0 / sr;
+            o->setProperty("matchedSecondsThisPass", static_cast<double>(c.getOutput().getMatchedFrames() - matchedFrames0) * frame);
+            o->setProperty("wetRejectedSecondsThisPass", static_cast<double>(c.getOutput().getWetRejectedFrames() - wetRejected0) * frame);
+            return juce::var(o);
+        }
     };
 
     /** Sets id from "value", "@knob" (0..1) or a choice name; false (and a message) when it cannot. */
@@ -8483,14 +8559,18 @@ namespace
 
         // The file's own rate: the render never resamples.
         const double sr = reader->sampleRate;
-        const int length = static_cast<int>(reader->lengthInSamples);
+        int length = static_cast<int>(reader->lengthInSamples);
         juce::AudioBuffer<float> file(static_cast<int>(reader->numChannels), length);
         reader->read(&file, 0, length, 0, true, true);
 
+        // --from: every pass starts this far into the file.
+        const int from = std::clamp(static_cast<int>(std::lround(opt.fromSeconds * sr)), 0, std::max(0, length - 1));
+        const int fileLength = length;
         Stereo in;
-        in.l.assign(file.getReadPointer(0), file.getReadPointer(0) + length);
-        in.r = file.getNumChannels() > 1 ? Signal(file.getReadPointer(1), file.getReadPointer(1) + length) : in.l;
+        in.l.assign(file.getReadPointer(0) + from, file.getReadPointer(0) + fileLength);
+        in.r = file.getNumChannels() > 1 ? Signal(file.getReadPointer(1) + from, file.getReadPointer(1) + fileLength) : in.l;
         const bool monoIn = file.getNumChannels() < 2;
+        length = fileLength - from;
 
         if (opt.presets.isEmpty())
             opt.presets = { "Init" };
@@ -8590,6 +8670,17 @@ namespace
                 auto p = makeProcessor(sr, 512, monoIn ? 1 : 2, 2);
                 p->setCurrentProgram(index);
                 juce::String suffix;
+                if (opt.stateIn != juce::File())
+                {
+                    juce::MemoryBlock block;
+                    if (!opt.stateIn.loadFileAsData(block))
+                    {
+                        std::printf("cannot read %s\n", opt.stateIn.getFullPathName().toRawUTF8());
+                        return 1;
+                    }
+                    p->setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+                    suffix << "-state";
+                }
                 if (!opt.only.isEmpty())
                 {
                     for (const auto& m : Params::modules)
@@ -8645,20 +8736,44 @@ namespace
                 }
                 restart(*p, sr, 512);
                 const int latency = p->getLatencySamples();
+                if (opt.passes > 1)
+                    suffix << "-pass" << opt.passes;
+                if (from > 0)
+                    suffix << "-from" << juce::String(opt.fromSeconds, 2);
 
                 // Pad with the latency plus a tail, then drop the latency so the file lines up with the input.
                 Stereo padded = in;
                 const int extra = latency + static_cast<int>(0.5 * sr);
                 padded.l.resize(static_cast<size_t>(length + extra), 0.0f);
                 padded.r.resize(static_cast<size_t>(length + extra), 0.0f);
+                // Earlier passes (reset() between, as a host does at every start of playback).
+                for (int pass = 1; pass < opt.passes; ++pass)
+                {
+                    (void) render(*p, padded, 512);
+                    p->reset();
+                }
                 // OUTPUT's maximizer gain reduction per block (95th percentile over the input's
                 // length, after the first blocks of the limiter settling): what the render costs it.
                 std::vector<double> gr;
+                LevelTrace levels;
+                levels.begin(p->getChain());
                 auto out = render(*p, padded, 512, false, [&](int start)
                 {
                     if (start >= 4 * 512 && start < length + latency)
                         gr.push_back(-static_cast<double>(p->getChain().getOutput().getReductionDb()));
+                    if (start > 0 && start <= length)
+                        levels.sample(p->getChain(), static_cast<double>(start) / sr);
                 });
+                if (opt.stateOut != juce::File())
+                {
+                    juce::MemoryBlock block;
+                    p->getStateInformation(block);
+                    if (!opt.stateOut.replaceWithData(block.getData(), block.getSize()))
+                    {
+                        std::printf("cannot write %s\n", opt.stateOut.getFullPathName().toRawUTF8());
+                        ++failures;
+                    }
+                }
                 std::sort(gr.begin(), gr.end());
                 const double grP95 = gr.empty() ? 0.0 : gr[std::min(gr.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(gr.size())))];
                 out.l.erase(out.l.begin(), out.l.begin() + latency);
@@ -8734,6 +8849,9 @@ namespace
                     rec->setProperty("broken", broken);
                     rec->setProperty("metrics", m);
                     rec->setProperty("grP95Db", grP95);
+                    rec->setProperty("passes", opt.passes);
+                    rec->setProperty("fromSeconds", opt.fromSeconds);
+                    rec->setProperty("levels", levels.toVar(p->getChain(), sr));
                     records.add(juce::var(rec));
                     metricLine << juce::String::formatted("  %6.1f LUFS  HNR %5.1f dB  env r %.2f",
                                                           static_cast<double>(m["lufs"]), static_cast<double>(m["hnrDb"]),
@@ -8745,6 +8863,11 @@ namespace
                             toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), grP95, static_cast<unsigned long long>(clamps),
                             latency, broken ? "BROKEN" : "ok", metricLine.toRawUTF8(),
                             opt.writeWav ? " -> " : "", opt.writeWav ? target.getFullPathName().toRawUTF8() : "");
+                std::printf("  levels: IN %s (first learn %.2f s), gain %+.2f dB (%+.2f..%+.2f), L %.2f dBFS, E %.2f s; match %+.2f dB (%+.2f..%+.2f), %.2f matched s, %d probe adoptions\n",
+                            levels.learnt ? "learnt" : "not learnt", levels.firstLearnSeconds, levels.inGainDb.last,
+                            levels.inGainDb.lo, levels.inGainDb.hi, levels.loudEndDb.last, levels.evidence.last,
+                            levels.matchDb.last, levels.matchDb.lo, levels.matchDb.hi, levels.matchSeconds.last,
+                            static_cast<int>(levels.probeAdoptions.last));
             }
         }
 
@@ -9356,6 +9479,42 @@ int main(int argc, char* argv[])
                            argc >= 4 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]) : juce::File());
    #endif
 
+    if (argc >= 4 && std::string(argv[1]) == "--in-trace")
+    {
+        // IN alone on a file (mono sum, 48 kHz expected), one record per 32-sample frame:
+        // voiced, confidence, take gain (dB), loud end (dB, -150 before the first learn), matched flag.
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2])));
+        if (reader == nullptr)
+            return 1;
+        const int length = static_cast<int>(reader->lengthInSamples);
+        juce::AudioBuffer<float> file(static_cast<int>(reader->numChannels), length);
+        reader->read(&file, 0, length, 0, true, true);
+        roar::InModule in;
+        in.prepare(reader->sampleRate, 32);
+        in.setParams(roar::InSettings {});
+        std::unique_ptr<juce::FileOutputStream> out(juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]).createOutputStream());
+        if (out == nullptr)
+            return 1;
+        out->setPosition(0);
+        out->truncate();
+        std::vector<float> l(32), r(32);
+        for (int start = 0; start + 32 <= length; start += 32)
+        {
+            for (int i = 0; i < 32; ++i)
+            {
+                l[static_cast<size_t>(i)] = file.getSample(0, start + i);
+                r[static_cast<size_t>(i)] = file.getSample(file.getNumChannels() > 1 ? 1 : 0, start + i);
+            }
+            in.process(l.data(), r.data(), 32, file.getNumChannels() > 1, roar::VoiceFrameView {});
+            const auto& v = in.getVoiceInfo();
+            const float rec[5] { v.voiced ? 1.0f : 0.0f, v.confidence, in.getAutoGainDb(), in.getLearnedLevelDb(), in.getMatchActiveTrace()[31] };
+            out->write(rec, sizeof rec);
+        }
+        return 0;
+    }
+
     if (argc >= 4 && std::string(argv[1]) == "--render")
     {
         RenderOptions opt;
@@ -9393,6 +9552,14 @@ int main(int argc, char* argv[])
                 opt.writeWav = false;
             else if (a == "--raw-out")
                 opt.rawOutput = true;
+            else if (a == "--passes" && i + 1 < argc)
+                opt.passes = std::max(1, std::atoi(argv[++i]));
+            else if (a == "--from" && i + 1 < argc)
+                opt.fromSeconds = std::max(0.0, std::atof(argv[++i]));
+            else if (a == "--state-in" && i + 1 < argc)
+                opt.stateIn = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]);
+            else if (a == "--state-out" && i + 1 < argc)
+                opt.stateOut = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]);
             else if (a.rfind("--", 0) == 0)
             {
                 std::printf("unknown or incomplete option %s\n", a.c_str());
@@ -9436,6 +9603,10 @@ int main(int argc, char* argv[])
         { "presets", testPresets },
         { "robust", testNonFiniteInput },
         { "blocks", testBlockSizes },
+        { "levelsin", testLevelsIn },
+        { "levelsout", testLevelsOut },
+        { "levelsmix", testLevelsMix },
+        { "levelsrep", testLevelsRep },
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
         { "voicedsp", testVoiceModules },
