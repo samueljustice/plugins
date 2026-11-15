@@ -23,6 +23,7 @@ Shifting pitch can raise a sound's peaks, so a loud effect could clip when it wa
 
 ### Fixed
 
+- An effect learned with a long silence before or after it (a selection much longer than the sound) could be read as having no clear pitch, or the wrong one. Only the part that sounds is analysed now, and the pitch line keeps its place in time.
 - The music's tuning could read `+-0 C`.
 
 ![Tonal Recall](https://raw.githubusercontent.com/samueljustice/plugins/tonalrecall-v0.2.1/tonalrecall/docs/screenshot.png)

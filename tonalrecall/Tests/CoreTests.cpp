@@ -1073,6 +1073,88 @@ void testSafety()
     }
 }
 
+// An effect learned with silence in front of it (the selection started before the sound did).
+void testSilentLeadIn();
+void testSilentLeadIn()
+{
+    const auto music = dMinorPad();
+    const auto m = analyseMusic(music.data(), static_cast<int>(music.size()), kRate);
+
+    const auto effectAlone = [&](double lengthSeconds)
+    {
+        auto x = seconds(lengthSeconds);
+        addNote(x, 47.38, 0.4, 8, 0, static_cast<std::int64_t>(x.size()), [](double t) { return 0.15 * std::sin(kTwoPi * 1.5 * t); });
+        return x;
+    };
+
+    for (const auto& [silence, sound] : { std::pair<double, double> { 2.0, 3.0 }, std::pair<double, double> { 4.0, 1.0 } })
+    {
+        const std::string name = "silent lead-in: " + std::to_string(static_cast<int>(silence)) + " s of silence, then " + std::to_string(static_cast<int>(sound)) + " s of effect";
+        beginCase(name.c_str());
+
+        const auto alone = effectAlone(sound);
+        std::vector<float> led(static_cast<std::size_t>(silence * kRate), 0.0f);
+        led.insert(led.end(), alone.begin(), alone.end());
+
+        const auto a = analyseSfx(alone.data(), static_cast<int>(alone.size()), kRate);
+        const auto b = analyseSfx(led.data(), static_cast<int>(led.size()), kRate);
+        std::printf("    -> alone: %s, pitched %d, tonal %.2f; with the silence: %s, pitched %d, tonal %.2f\n", noteName(a.centreMidi).c_str(), a.pitched ? 1 : 0,
+                    static_cast<double>(a.tonalness), noteName(b.centreMidi).c_str(), b.pitched ? 1 : 0, static_cast<double>(b.tonalness));
+        check(b.valid && b.pitched, "the effect is still found to have a pitch");
+        check(b.usedMethod == a.usedMethod, "by the same tracking as without the silence");
+        check(std::abs(b.centreMidi - a.centreMidi) < 0.1, "it sits on the same note: " + std::to_string(b.centreMidi - a.centreMidi) + " st apart");
+
+        // The pitch line starts where the sound does.
+        const auto frames = static_cast<int>(b.hz.size());
+        const int startFrame = static_cast<int>(silence / b.hopSeconds);
+        int firstPitched = -1;
+        for (int f = 0; f < frames && firstPitched < 0; ++f)
+            if (b.hz[static_cast<std::size_t>(f)] > 0.0f)
+                firstPitched = f;
+        check(std::abs(b.durationSeconds - (silence + sound)) < 0.02, "its length is the whole selection");
+        check(firstPitched >= startFrame - 4 && firstPitched <= startFrame + 30,
+              "the pitch line starts where the sound starts: frame " + std::to_string(firstPitched) + " against " + std::to_string(startFrame));
+
+        MatchOptions o;
+        o.target = Target::Nearest;
+        const auto ra = match(m, a, o), rb = match(m, b, o);
+        check(rb.valid && std::abs(rb.semitones - ra.semitones) < 0.1, "the shift is the same: " + std::to_string(rb.semitones) + " against " + std::to_string(ra.semitones));
+
+        // Stamped inside a render with handles: the silence stays silent and the sound stays where it was.
+        const auto handle = static_cast<std::size_t>(1.0 * kRate);
+        Stamper::Setup setup;
+        setup.sampleRate = kRate;
+        setup.channels = 1;
+        setup.staticSemitones = rb.semitones;
+        setup.curveHopSeconds = rb.hopSeconds;
+        setup.curve = rb.curve;
+        setup.learned = std::make_shared<const std::vector<float>>(led);
+        Stamper stamper(setup);
+        const auto latency = static_cast<std::size_t>(stamper.latencySamples());
+        std::vector<float> stream(handle + led.size() + handle + latency, 0.0f);
+        std::copy(led.begin(), led.end(), stream.begin() + static_cast<std::ptrdiff_t>(handle));
+        float* ch[1] { stream.data() };
+        stamper.process(ch, static_cast<int>(stream.size()));
+
+        check(stamper.alignmentFound() && stamper.alignmentOffset() == static_cast<std::int64_t>(handle),
+              "the learned effect is found in the render, silence included: offset " + std::to_string(stamper.alignmentOffset()));
+        const auto soundAt = latency + handle + static_cast<std::size_t>(silence * kRate);
+        float before = 0.0f, after = 0.0f;
+        for (std::size_t i = 0; i + 2400 < soundAt; ++i)
+            before = std::max(before, std::abs(stream[i]));
+        for (std::size_t i = soundAt + 2400; i < soundAt + static_cast<std::size_t>(sound * kRate) - 2400; ++i)
+            after = std::max(after, std::abs(stream[i]));
+        check(before < 0.002f, "nothing sounds before the effect does: " + std::to_string(before));
+        check(after > 0.2f, "and the effect is there after it: " + std::to_string(after));
+        const double got = measuredMidi(stream, soundAt + 4800, soundAt + static_cast<std::size_t>(sound * kRate) - 4800);
+        check(std::abs(got - rb.targetMidi) < 0.15, "stamped onto the target note: " + noteName(got) + " against " + noteName(rb.targetMidi));
+
+        // The level is measured the same.
+        const auto levels = measureStamp(setup, { led });
+        check(levels.complete && levels.outputPeak > 0.2f, "and the stamp's level can be measured: peak " + std::to_string(levels.outputPeak));
+    }
+}
+
 int main()
 {
     testMusic();
@@ -1082,6 +1164,7 @@ int main()
     testMovement();
     testStamp();
     testSafety();
+    testSilentLeadIn();
     std::printf("\n%d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }
