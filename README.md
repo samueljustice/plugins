@@ -71,9 +71,11 @@ The picture above the chain is an ink blot that forms out of cloud and moves wit
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
 </p>
 
-A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buses and a hits layer, then moves every fader by itself so the layers swell, pass and fall away. Hold Swell (or the space bar, or a MIDI note) to push it harder. A tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
+A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buses and a hits layer, then moves every fader by itself so the layers swell, pass and fall away. Hold Swell (or the space bar, or a MIDI note) to push it harder.
 
-There is more in it: a spectral morph between the two buses, a third bus called Stowaway, modulators you patch with cables, and batch rendering of variations. The manual covers all of it. It runs as an app as well as a plug-in.
+The quickest way to work is the renderer. Dial in a sound you like, then ask for a hundred variations of it, or a thousand. It renders them in the background, much faster than real time, as separate files or as one long file with a marker on each. You can also record by hand: a tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
+
+There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in. Surround output, up to 7.1.4, is nearly finished and will come in a later version.
 
 <details>
 <summary>More screenshots</summary>
