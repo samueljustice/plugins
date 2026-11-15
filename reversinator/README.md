@@ -1,27 +1,30 @@
 # SammyJs Reversinator
 
-A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
+A VST3/AU real-time reverser for macOS and Windows. Reversinator recreates **Backwards Machine** (The Sound Guy, 2007), a plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-### [Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), the installer for every Sammy J plug-in
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
 ![Reversinator](docs/screenshot.png)
 
-## Features
+## Overview
 
-- **The three Backwards Machine effects**, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
-- **Checked against the real thing.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
+Reversinator has the three Backwards Machine effects, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
 
-  | Effect | Correlation | Residual |
-  |---|---|---|
-  | Reverse Playback | 0.9994 | 29 dB down |
-  | Forward Backwards | 0.9995 | 30 dB down |
-  | Reverse Repeat | 0.9990 | 27 dB down |
+It was checked against the original. The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
 
-  For comparison, a single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz with the snippet clock started 448 samples before the clip, and Reverse Repeat at the TIME its demo used (2.0047 s).
-- **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
-- **Live snippet display**: a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing.
-- **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%. Menus, fields, links, tooltips and keyboard focus rings share Subbertone's look.
-- Mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
+| Effect | Correlation | Residual |
+|---|---|---|
+| Reverse Playback | 0.9994 | 29 dB down |
+| Forward Backwards | 0.9995 | 30 dB down |
+| Reverse Repeat | 0.9990 | 27 dB down |
+
+For comparison, a single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz with the snippet clock started 448 samples before the clip, and Reverse Repeat at the TIME its demo used (2.0047 s).
+
+Nothing clicks. REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
+
+The display is a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing. The interface follows the original's layout: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%. Menus, fields, links, tooltips and keyboard focus rings share Subbertone's look.
+
+It runs mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
 
 ## A tour of the window
 

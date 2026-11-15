@@ -1,16 +1,16 @@
 # Sound Advice
 
-A small, quiet page of advice from the great creative people behind film, TV and game sound: sound designers, mixers, editors and audio directors, plus a legendary Disney Imagineer on leading creative work. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and it deals you something one of the greats said or did about it. Roll the die for another.
+A page of advice from people who work on film, TV and game sound: sound designers, mixers, editors and audio directors, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and it shows you something one of them said or did about it. Roll the die for another.
 
-It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standalone app (no audio device at all), so it can sit on a mix bus or on a second screen. Paper by day, ink by night.
+It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standalone app (no audio device at all), so it can sit on a mix bus or on a second screen. It has a light theme and a dark one.
 
 ![Sound Advice](docs/screenshot.png)
 
-**[Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest)**, the installer for every Sammy J plug-in: on macOS the app, VST3, AU and AAX (signed and notarised, universal, macOS 11+), on Windows the app, VST3 and AAX.
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins: on macOS the app, VST3, AU and AAX (signed and notarised, universal, macOS 11+), on Windows the app, VST3 and AAX.
 
 ## What's in it
 
-839 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+839 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short. When a quote is about a particular film, show or game, it's named above it ("On Arrival").
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.

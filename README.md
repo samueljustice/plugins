@@ -42,23 +42,13 @@ Built 14 Nov 2026, 15:03 UTC. Older versions are on the <a href="https://github.
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-> A modular voice processor: fifteen modules in any order, with an ink creature that reacts to the voice.
-
 <p align="center">
   <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
 </p>
 
-Roarschach is a modular voice processor built for exploration and fun. Fifteen modules (PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between, and an ink creature drawn in OpenGL reacts to every sound and every knob.
+A voice processor for making creature and machine voices, or just a bigger voice. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
 
-- **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
-- **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
-- **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with ten bundled rooms, three speakers, speaker breakup, Width and a low-end Boom
-- **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
-- **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
-- **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
-- **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone
-- **An ink creature** that gathers out of lit cloud, swirls with the voice, tears open on a roar and ripples on every hit, a different blot each session. Its clouds drift towards a colour that suits your settings: ember red for drive and growl, electric blue for the vocoder and ring, violet for the phaser, chorus and overtones
-- **51 factory presets**: Init plus six groups (Creatures, Voices, Machines, Signal Flow, Vocoder and Utility), and your own saved as plain files
+The picture above the chain is an ink blot that forms out of cloud and moves with the voice. It does nothing to the sound.
 
 <details>
 <summary>More screenshots</summary>
@@ -79,24 +69,13 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 
 ## Swooshbuckler
 
-> Generates whooshes from up to ten sounds, and records them.
-
 <p align="center">
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
 </p>
 
-Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **Last 60 s** grabs the last minute anyway.
+A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buses and a hits layer, then moves every fader by itself so the layers swell, pass and fall away. Hold Swell (or the space bar, or a MIDI note) to push it harder. A tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
 
-- **Auto Ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
-- **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
-- **Per-track pitch** in semitones and cents, with **Vari** on for tape-style varispeed or off to change the pitch and keep the speed
-- **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
-- **Stowaway**, an optional third bus: the rig's **Sub**, a **Wake** behind Bus A's passes, a third mover (**Fly**) or a layer that is only ridden (**Dry**)
-- **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
-- **Aim** lands your impacts right on the peak of each pass, or a **hit gate** fires them at the biggest swells; **Sync Hits** stacks their transients into one huge hit
-- **Throw** fires one whoosh on demand, playing or stopped, and **Render Variations** writes a batch of them straight to files
-- **Takes** keeps this run's recordings to hear, drag out or bin, and the whole session saves to a file of its own
-- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets**, your own presets, A / B, Undo and **Randomise** with a history
+There is more in it: a spectral morph between the two buses, a third bus called Stowaway, modulators you patch with cables, and batch rendering of variations. The manual covers all of it. It runs as an app as well as a plug-in.
 
 <details>
 <summary>More screenshots</summary>
@@ -117,23 +96,13 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-> Pitch-matches a sound effect to the music under it, offline in Pro Tools AudioSuite.
-
 <p align="center">
   <img src="tonalrecall/docs/screenshot.png" alt="Tonal Recall" width="820">
 </p>
 
-Tonal Recall is made for trailer sound design: stings, tails and hits that should sit on the music's note. Play it the music, play it the sound effect, and it works out the shift that puts the effect on one of the music's notes, shows it, and stamps it onto the clip when you render. The clip keeps its length and the timing of its hits. It works offline, on clips; it is not a live effect.
+Pitch-matches a sound effect to the music under it. It's for trailer work, where stings, hits and tails should land on one of the music's notes. You play it the music, then the effect, and it works out a shift, shows it as a curve you can edit, and stamps it onto the clip when you render. The clip keeps its length and its hits stay where they were.
 
-- **Learn by playing**: arm LEARN, select the clip and press Preview in the AudioSuite window. Learn switches itself off at the end of the selection
-- **Finds what the music rests on**: the key, the root, the strong notes and the music's own tuning
-- **A sting, not a tune**: one fixed shift onto the nearest strong note by default, with two more ready-made curves, SUBTLE and MOVING, that lean with the music
-- **Editable curve**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo. Zoom and scroll it in time for long selections
-- **Hear it first**: PLAY MUSIC, PLAY INPUT and PLAY OUTPUT play the music, the effect as learned and the effect as it will be stamped, through Preview, with a playhead moving across each view. HEAR plays the pitch under the mouse as you drag, like a held key
-- **Keeps length and timing**: hits stay within a millisecond of where they were
-- **Stays under full scale**: shifting pitch can raise a sound's peaks, so TRIM turns the stamp down by just enough to keep it under full scale, with a limiter behind it
-- **Graceful tails**: where the effect outlasts the music you learned, the curve eases to a stop and the window marks that stretch as predicted
-- **Mono and stereo in any mix**, and **COPY VALUES** for matching by hand in another tool
+It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and AU versions work the same way in other hosts.
 
 <details>
 <summary>More screenshots</summary>
@@ -154,20 +123,11 @@ Tonal Recall is made for trailer sound design: stings, tails and hits that shoul
 
 ## Reversinator
 
-> Real-time reverse effects, recreating Backwards Machine's three modes.
-
 <p align="center">
   <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="820">
 </p>
 
-A real-time reverser that faithfully recreates Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, rebuilt from a study of the original's signal flow. It lives in a new resizable interface with a live display of each read head sweeping backwards through your audio, and it fixes the original's glitches, so every change is click-free.
-
-- **Checked against the real thing**: nulls against the original's own renders at 0.999+ correlation
-- **Three classic effects**, with the original's sweeps, windows, vibrato and gain staging
-- **Live snippet display** that draws every read head as it sweeps backwards through your input
-- **Click-free everywhere**: TIME sweeps, mode switches, the big REVERSER button and host bypass all crossfade, at any buffer size
-- **Hourglass TIME** from 0.5 to 4 s, plus feedback that builds cascades of echoes, alternating direction
-- **Resizable from 75% to 200%**, mono or stereo, any sample rate, zero latency
+A real-time reverser. It recreates the three effects of Backwards Machine (Reverse Playback, Forward Backwards and Reverse Repeat), rebuilt from a study of the original's signal flow and checked against the original's own renders, which it matches at better than 0.999 correlation. What's different is a resizable window, a display of the read heads moving backwards through the audio, and no clicks when you change a setting.
 
 <details>
 <summary>More screenshots</summary>
@@ -183,20 +143,13 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 ## Sound Advice
 
-> Shows a random piece of advice from film, TV and game sound professionals and other creative people.
-
 <p align="center">
   <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
 </p>
 
-A page of advice from people who work on film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and others, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
+Not an effect: a page of advice. Pick what you're working on (mixing, creatures, dialogue, silence, running a team) and roll the die, and it shows you something a working sound person said or did about it, with the production it came from and a link to the source. There are 839 entries from 147 people: mixers, sound designers, editors, game audio directors, and a Disney Imagineer on leading creative work.
 
-- **839 entries from 147 people**, each name linked to their credits
-- **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
-- **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
-- **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
-- **Paper by day, ink by night**, with keyboard shortcuts and right-click to copy
-- **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
+Audio passes straight through it, so it can sit on a mix bus, or run as an app on another screen.
 
 **App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](soundadvice/README.md)
@@ -205,24 +158,15 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-These two work, but they are still being developed, so expect changes between releases.
+These two work, but I'm still changing them, so expect differences between releases.
 
 ### Subbertone
-
-> Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
 <p align="center">
   <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
 </p>
 
-Subbertone follows the pitch of your bass, engine or drone and adds a clean sub one octave below. That's only the start: build its harmonics bar by bar, from pure sub reinforcement, to the trick that makes a bass audible on speakers that can't play a sub, to a growling, talking octave-down monster. Saturation, a resonant filter and a mastering stage finish it off, with about 2 ms of latency that your host compensates for.
-
-- **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
-- **16-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
-- **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
-- **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
-- **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a Lo Cut keeps a very low sub from eating your headroom
-- **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
+Follows the pitch of a bass, engine or drone and adds a sub an octave below. You can then draw in its harmonics, up to the sixteenth, which takes it from plain sub reinforcement to a bass you can hear on small speakers, or to a growl. Phase Align lines the added harmonics up with the ones already in the sound, so they add instead of cancelling. After that come saturation, a resonant filter and a limiter. It has about 2 ms of latency, which it reports to the host.
 
 <details>
 <summary>More screenshots</summary>
@@ -246,23 +190,13 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 ### Pitch Flattener
 
-> Removes pitch movement from Doppler passes, sirens and vibrato.
-
 <p align="center">
   <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
 </p>
 
-Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
+Takes the pitch movement out of a sound: the Doppler sweep of a pass-by, a siren's wail, vibrato. You tell it what kind of sound it is (there are nine Source Types, each with its own pitch detector), and it holds the sound at the pitch it starts on, flattens it to a note you type, or removes only the vibrato. A display shows the detected pitch, the target and the result, and warns you when the output isn't coming out flat.
 
-- **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
-- **ANALYSE**: play a sound once and it picks the Source Type, learns the sound's pitch line, and follows that line on later plays even where live tracking would hop to another partial
-- **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
-- **Shift Below** leaves everything above a set frequency unshifted, so an engine's fixed resonances don't dive as the correction grows
-- **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
-- **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
-- **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
-- **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
-- **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
+It looks about 2.6 seconds ahead, so it is for offline rendering (a DAW bounce, the Soundminer DSP rack, AudioSuite), not live use. In its tests it flattens a siren to within 2 cents and an engine pass-by to within 1.
 
 <details>
 <summary>More screenshots</summary>
