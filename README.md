@@ -34,7 +34,7 @@ Built 14 Nov 2026, 15:03 UTC. Older versions are on the <a href="https://github.
 | [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) | [Pitch Flattener](#pitch-flattener) |
 |:---:|:---:|:---:|:---:|
 | [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) | [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) |
-| <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Flattens Doppler, sirens and vibrato<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Learns a sound and plays it back with its pitch flat<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
 
 </div>
 
@@ -194,16 +194,18 @@ Follows the pitch of a bass, engine or drone and adds a sub an octave below. You
   <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
 </p>
 
-Takes the pitch movement out of a sound: the Doppler sweep of a pass-by, a siren's wail, vibrato. You tell it what kind of sound it is (there are nine Source Types, each with its own pitch detector), and it holds the sound at the pitch it starts on, flattens it to a note you type, or removes only the vibrato. A display shows the detected pitch, the target and the result, and warns you when the output isn't coming out flat.
+Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends, and the length changes. Play the same sound again and you hear the flat version, from wherever you start.
 
-It looks about 2.6 seconds ahead, so it is for offline rendering (a DAW bounce, the Soundminer DSP rack, AudioSuite), not live use. In its tests it flattens a siren to within 2 cents and an engine pass-by to within 1.
+It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="pitchflattener/docs/display-engine.png" alt="Pitch Flattener display on an engine pass-by" width="400">
-  <img src="pitchflattener/docs/display-voice.png" alt="Pitch Flattener display on a voice" width="400">
+  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
+</p>
+<p align="center">
+  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT and LINE" width="820">
 </p>
 </details>
 
@@ -221,7 +223,7 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 | Dependency | Used by |
 |---|---|
 | [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Tonal Recall, Stretch Armstrong |
-| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Tonal Recall, Stretch Armstrong |
+| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Tonal Recall, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
 Then, from a project's folder:

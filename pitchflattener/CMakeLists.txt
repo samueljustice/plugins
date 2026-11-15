@@ -1,9 +1,17 @@
 cmake_minimum_required(VERSION 3.15)
 
+# macOS 11 is the oldest system the plug-in is built for.
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 2.4.0)
+project(PitchFlattener VERSION 3.0.0)
+
+# The C++ runtime is linked in on Windows, so the installer needs no redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -12,16 +20,11 @@ add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
 # Add JUCE subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE JUCE)
 
-# Find Rubberband
-set(RUBBERBAND_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../SDK/rubberband-4.0.0")
-set(RUBBERBAND_INCLUDE_DIR "${RUBBERBAND_ROOT}/rubberband")
-set(RUBBERBAND_LIB "${RUBBERBAND_ROOT}/lib/librubberband.a")
-
 # Plugin formats; pass -DPITCHFLATTENER_FORMATS="AU;VST3;Standalone" for a standalone app.
 set(PITCHFLATTENER_FORMATS "AU;VST3" CACHE STRING "Plugin formats to build")
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
 sammyj_enable_aax(PITCHFLATTENER_FORMATS)
-option(PITCHFLATTENER_BUILD_TESTS "Build the offline flattening test harness" OFF)
+option(PITCHFLATTENER_BUILD_TESTS "Build the tests (PitchFlattenerTests, PitchFlattenerCoreTests)" OFF)
 
 # Embedded UI fonts (Azeret Mono, SIL OFL 1.1)
 juce_add_binary_data(PitchFlattenerBinaryData
@@ -31,21 +34,23 @@ juce_add_binary_data(PitchFlattenerBinaryData
         Resources/Fonts/AzeretMono-Bold.ttf
 )
 
-# DSP core shared by the plugin and the test harness
-set(PF_DSP_SOURCES
-    Source/dsp/Detectors.cpp
-    Source/dsp/PitchTracker.cpp
-    Source/dsp/RubberBandDriver.cpp
-    Source/dsp/FlattenerCore.cpp
-    Source/dsp/SourceAdvisor.cpp
-    Source/dsp/HindsightGuide.cpp
-    Source/dsp/HindsightTracker.cpp
-    Source/dsp/LearnedLine.cpp
+# The flattening core: plain C++, no JUCE (shared by the plug-in, its tests and the core tests).
+set(PF_CORE_SOURCES
+    Source/core/Flatten.cpp
+    Source/core/HarmonicTracker.cpp
+    Source/core/HindsightTracker.cpp
+    Source/core/RidgeTracker.cpp
+)
+
+# Learn, locate and play: plain C++ too, around the core.
+set(PF_ENGINE_SOURCES
+    Source/Engine.cpp
+    Source/Locator.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
 
-# Define our plugin
+# Define our plugin. The codes and the bundle ID never change: hosts find the plug-in by them.
 juce_add_plugin(PitchFlattener
     PLUGIN_MANUFACTURER_CODE Sjus
     PLUGIN_CODE Pftf
@@ -66,27 +71,30 @@ juce_add_plugin(PitchFlattener
     VST3_CATEGORIES "Fx" "Pitch"
     AU_MAIN_TYPE "kAudioUnitType_Effect"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "This plugin needs access to your microphone for real-time pitch detection"
+    MICROPHONE_PERMISSION_TEXT "This plugin listens to its input to learn a sound"
 )
 
 # Generate JUCE header
 juce_generate_juce_header(PitchFlattener)
 
-# Add source files
 target_sources(PitchFlattener
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/PitchDisplay.cpp
+        Source/FlightView.cpp
+        Source/Banner.cpp
+        Source/Hud.cpp
+        Source/Framebuffer.cpp
+        Source/HudControls.cpp
         Source/PitchFlattenerLookAndFeel.cpp
-        Source/PresetManager.cpp
-        Source/SpectrogramVisualizer.cpp
         Source/AboutWindow.cpp
         Source/UpdatePopup.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
-        ${PF_DSP_SOURCES}
+        ${PF_CORE_SOURCES}
+        ${PF_ENGINE_SOURCES}
 )
 
-# Compile definitions
 target_compile_definitions(PitchFlattener
     PUBLIC
         JUCE_WEB_BROWSER=0
@@ -103,32 +111,21 @@ if(BUILD_TIMESTAMP)
     target_compile_definitions(PitchFlattener PUBLIC BUILD_TIMESTAMP="${BUILD_TIMESTAMP}")
 endif()
 
-# Include directories
 target_include_directories(PitchFlattener
     PRIVATE
-        ${RUBBERBAND_ROOT}
-        ${RUBBERBAND_ROOT}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
         ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
 
-# Link libraries
 target_link_libraries(PitchFlattener
     PRIVATE
         juce::juce_audio_utils
-        juce::juce_dsp
         PitchFlattenerBinaryData
-        ${RUBBERBAND_LIB}
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
-
-# Platform specific settings
-if(APPLE)
-    target_link_libraries(PitchFlattener PRIVATE "-framework Accelerate")
-endif()
 
 if(WIN32)
     # Windows specific settings for VST3
@@ -138,7 +135,6 @@ if(WIN32)
     )
 endif()
 
-# Set C++ standard
 target_compile_features(PitchFlattener PRIVATE cxx_std_20)
 
 # Build universal binary on macOS
@@ -149,44 +145,55 @@ if(APPLE)
     )
 endif()
 
-# Offline test harness: renders synthetic sirens / voices / engines through the
-# DSP core and measures how flat the output pitch is.
 if(PITCHFLATTENER_BUILD_TESTS)
-    juce_add_console_app(PitchFlattenerTests PRODUCT_NAME "PitchFlattenerTests")
-    target_sources(PitchFlattenerTests PRIVATE tests/FlattenTests.cpp ${PF_DSP_SOURCES})
-    target_include_directories(PitchFlattenerTests PRIVATE ${RUBBERBAND_ROOT} ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-    target_compile_definitions(PitchFlattenerTests PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1)
-    target_link_libraries(PitchFlattenerTests PRIVATE juce::juce_core juce::juce_audio_basics juce::juce_audio_formats juce::juce_dsp ${RUBBERBAND_LIB}
-        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    # The plug-in's tests (Tests/PitchFlattenerTests.cpp, Tests/EngineTests.cpp): the locator, the
+    # engine driven through real process() calls, the processor and the editor. They link the
+    # plug-in's shared code library, so they test exactly the code that ships; that library links
+    # the JUCE modules privately, so their headers and the generated JuceHeader.h are added here by
+    # hand. The program lands where a console app would (PitchFlattenerTests_artefacts/<config>).
+    add_executable(PitchFlattenerTests Tests/PitchFlattenerTests.cpp Tests/EngineTests.cpp)
+    target_include_directories(PitchFlattenerTests
+        PRIVATE
+            Source
+            Tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/../common
+            "$<TARGET_PROPERTY:PitchFlattener,JUCE_GENERATED_SOURCES_DIRECTORY>"
+            "$<TARGET_PROPERTY:juce::juce_core,INTERFACE_INCLUDE_DIRECTORIES>"
+            "$<TARGET_PROPERTY:PitchFlattenerBinaryData,INTERFACE_INCLUDE_DIRECTORIES>"
+    )
+    # The shared code target exports only the JucePlugin_* values; the test is none of the formats.
+    target_compile_definitions(PitchFlattenerTests
+        PRIVATE
+            JucePlugin_Build_VST=0
+            JucePlugin_Build_VST3=0
+            JucePlugin_Build_AU=0
+            JucePlugin_Build_AUv3=0
+            JucePlugin_Build_AAX=0
+            JucePlugin_Build_Standalone=0
+            JucePlugin_Build_Unity=0
+            JucePlugin_Build_LV2=0
+    )
+    add_dependencies(PitchFlattenerTests PitchFlattener)
+    target_link_libraries(PitchFlattenerTests
+        PRIVATE
+            PitchFlattener
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
     target_compile_features(PitchFlattenerTests PRIVATE cxx_std_20)
-    if(APPLE)
-        target_link_libraries(PitchFlattenerTests PRIVATE "-framework Accelerate")
+    set_target_properties(PitchFlattenerTests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/PitchFlattenerTests_artefacts/$<CONFIG>")
+
+    # The core on its own: no JUCE, sounds whose pitch is known.
+    add_executable(PitchFlattenerCoreTests Tests/CoreTests.cpp ${PF_CORE_SOURCES})
+    target_include_directories(PitchFlattenerCoreTests PRIVATE Source)
+    target_compile_features(PitchFlattenerCoreTests PRIVATE cxx_std_20)
+    # Its own warning set, as in Tests/build_core_tests.sh (the core is checked against that).
+    if(MSVC)
+        target_compile_options(PitchFlattenerCoreTests PRIVATE /W4)
+    else()
+        target_compile_options(PitchFlattenerCoreTests PRIVATE -Wall -Wextra)
     endif()
 endif()
 
 # Post-build installation is handled by JUCE's COPY_PLUGIN_AFTER_BUILD flag
-
-# CPack configuration for creating installers
-set(CPACK_PACKAGE_NAME "PitchFlattener")
-set(CPACK_PACKAGE_VENDOR "Samuel Justice")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Real-time pitch flattening audio plugin")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
-set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
-set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
-set(CPACK_PACKAGE_CONTACT "sam@sweetjusticesound.com")
-
-if(APPLE)
-    set(CPACK_GENERATOR "DragNDrop")
-    set(CPACK_DMG_VOLUME_NAME "PitchFlattener ${PROJECT_VERSION}")
-    set(CPACK_DMG_BACKGROUND_IMAGE "${CMAKE_CURRENT_SOURCE_DIR}/Resources/dmg_background.png")
-    set(CPACK_DMG_DS_STORE "${CMAKE_CURRENT_SOURCE_DIR}/Resources/DS_Store")
-elseif(WIN32)
-    set(CPACK_GENERATOR "ZIP;NSIS")
-    set(CPACK_NSIS_DISPLAY_NAME "SammyJs Pitch Flattener")
-    set(CPACK_NSIS_HELP_LINK "https://www.sweetjusticesound.com")
-    set(CPACK_NSIS_URL_INFO_ABOUT "https://www.sweetjusticesound.com")
-    set(CPACK_NSIS_CONTACT "sam@sweetjusticesound.com")
-endif()
-
-include(CPack)

@@ -1,5 +1,7 @@
 #include "AboutWindow.h"
 
+#include "Hud.h"
+
 namespace
 {
 #ifdef PLUGIN_VERSION
@@ -49,17 +51,8 @@ namespace
         "Copyright (c) " COPYRIGHT_YEAR " Samuel Justice\n\n"
         "BUILT WITH\n"
         "- JUCE (juce.com), Raw Material Software Limited.\n"
-        "- Rubber Band Library (breakfastquay.com/rubberband), Particular Programs Ltd. "
-        "Used under the GNU GPL v2 or later, or a commercial licence.\n"
         "- Azeret Mono typeface, The Azeret Project Authors, SIL Open Font License 1.1.\n\n"
-        "PITCH DETECTION ALGORITHMS\n"
-        "- pYIN: M. Mauch and S. Dixon, \"pYIN: A fundamental frequency estimator using "
-        "probabilistic threshold distributions\", ICASSP 2014.\n"
-        "- YIN: A. de Cheveigne and H. Kawahara, \"YIN, a fundamental frequency estimator "
-        "for speech and music\", JASA 111(4), 2002.\n"
-        "- MPM: P. McLeod and G. Wyvill, \"A smarter way to find pitch\", ICMC 2005.\n"
-        "- Subharmonic summation: D. J. Hermes, \"Measurement of pitch by subharmonic "
-        "summation\", JASA 83(1), 1988.\n\n"
+        "Pitch tracking with thanks to Ben\n\n"
         "LICENSE (MIT)\n"
         "Permission is hereby granted, free of charge, to any person obtaining a copy "
         "of this software and associated documentation files (the \"Software\"), to deal "
@@ -79,7 +72,7 @@ namespace
 // AboutWindow
 //==============================================================================
 AboutWindow::AboutWindow (PitchFlattenerLookAndFeel& editorLookAndFeel, std::function<void()> onClose)
-    : DocumentWindow ("About SammyJs Pitch Flattener", Theme::Colours::background, DocumentWindow::closeButton)
+    : DocumentWindow ("About SammyJs Pitch Flattener", Theme::Colours::space, DocumentWindow::closeButton)
     , m_onClose (std::move (onClose))
     , m_content (editorLookAndFeel)
 {
@@ -189,7 +182,7 @@ void AboutWindow::UpdateCheck::run()
         return;
 
     auto result = connected ? interpret (response, m_currentVersion)
-                            : Result { "Could not reach GitHub", Theme::Colours::bad };
+                            : Result { "Could not reach GitHub", Theme::Colours::magenta };
     {
         const juce::ScopedLock sl (m_lock);
         m_result = std::move (result);
@@ -219,7 +212,7 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret (const juce
     const auto* list = releases.getArray();
 
     if (list == nullptr)
-        return { "Unexpected response from GitHub", bad };
+        return { "Unexpected response from GitHub", magenta };
 
     // The newest published (not draft, not pre-release) release tagged for Pitch Flattener.
     juce::String latest;
@@ -248,9 +241,9 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret (const juce
         return { "No releases found", textDim };
 
     if (latestNumber > versionNumber (currentVersion))
-        return { "Version " + latest + " is available", target };
+        return { "Version " + latest + " is available", lime };
 
-    return { "You have the latest version", good };
+    return { "You have the latest version", text };
 }
 
 //==============================================================================
@@ -325,49 +318,40 @@ void AboutWindow::AboutContent::paint (juce::Graphics& g)
 {
     using namespace Theme::Colours;
 
-    g.fillAll (background);
+    g.fillAll (space);
 
-    // Header, as the editor's: the mark and the name, then the tagline and the version (amber).
+    // Header, as the editor's: the mark and the name leaning forward, then the tagline and the version.
     const float x = (float) c_margin;
     const float width = (float) getWidth() - 2.0f * x;
     const auto titleRow = juce::Rectangle<float> (x, (float) c_margin, width, 30.0f);
     PitchFlattenerLookAndFeel::drawMark (g, juce::Rectangle<float> (34.0f, 22.0f).withPosition (x, titleRow.getCentreY() - 11.0f));
 
     const float textX = x + 34.0f + 12.0f;
-    g.setFont (m_fonts->heading (22.0f));
-    g.setColour (text);
-    g.drawText ("PITCH FLATTENER", titleRow.withLeft (textX), juce::Justification::centredLeft, false);
+    const auto titleFont = m_fonts->display (22.0f);
+    Hud::drawSheared (g, "PITCH FLATTENER", titleRow.withLeft (textX).withWidth (Hud::shearedWidth (titleFont, "PITCH FLATTENER") + 2.0f),
+                      titleFont, text);
 
     const auto small = m_fonts->label (10.5f);
-    g.setFont (small);
-    g.setColour (textFaint);
-    g.drawText (c_tagline, juce::Rectangle<float> (textX, titleRow.getBottom() + 2.0f, width, 16.0f),
-                juce::Justification::centredLeft, false);
+    Hud::drawText (g, c_tagline, juce::Rectangle<float> (textX, titleRow.getBottom() + 2.0f, width - (textX - x), 16.0f), small, textDim);
 
-    juce::AttributedString version;
-    version.setJustification (juce::Justification::centredLeft);
-    version.append (juce::String ("VERSION ") + c_version, small, target);
-    version.append ("  /  BUILT " + buildText().toUpperCase(), small, textFaint);
-    juce::TextLayout versionLayout;
-    versionLayout.createLayout (version, width);
-    versionLayout.draw (g, juce::Rectangle<float> (textX, titleRow.getBottom() + 18.0f, width, 16.0f));
+    const juce::String version = juce::String ("VERSION ") + c_version;
+    const float versionWidth = Hud::textWidth (small, version) + 2.0f;
+    const auto versionRow = juce::Rectangle<float> (textX, titleRow.getBottom() + 18.0f, width - (textX - x), 16.0f);
+    Hud::drawText (g, version, versionRow.withWidth (versionWidth), small, text);
+    Hud::drawText (g, "/  BUILT " + buildText().toUpperCase(), versionRow.withTrimmedLeft (versionWidth + 8.0f), small, textDim);
 
     // Panels like the editor's sections.
-    m_lookAndFeel.drawPanel (g, m_creditsPanel.toFloat(), "CREATED BY", target);
-    m_lookAndFeel.drawPanel (g, m_updatesPanel.toFloat(), "UPDATES", detect, (float) m_updatesPanel.getHeight());
-    m_lookAndFeel.drawPanel (g, m_licencePanel.toFloat(), "CREDITS & LICENSE", textDim);
+    m_lookAndFeel.drawPanel (g, m_creditsPanel.toFloat(), "CREATED BY", orange);
+    m_lookAndFeel.drawPanel (g, m_updatesPanel.toFloat(), "UPDATES", orange, (float) m_updatesPanel.getHeight());
+    m_lookAndFeel.drawPanel (g, m_licencePanel.toFloat(), "CREDITS & LICENSE", orange);
 
     // Credits: the name, then the links.
     const auto body = m_creditsPanel.withTrimmedTop (c_panelHeaderHeight).withTrimmedLeft (c_textInset);
-    g.setFont (m_fonts->body (13.0f));
-    g.setColour (text);
-    g.drawText ("Samuel Justice", body.withTrimmedTop (10).withHeight (18).toFloat(), juce::Justification::centredLeft, false);
+    Hud::drawText (g, "Samuel Justice", body.withTrimmedTop (10).withHeight (18).toFloat(), m_fonts->body (13.0f), text);
 
-    g.setFont (small);
-    g.setColour (textFaint);
-    g.drawText ("/", juce::Rectangle<int> (m_websiteButton.getRight(), m_websiteButton.getY(),
-                                           m_emailButton.getX() - m_websiteButton.getRight(), m_websiteButton.getHeight()).toFloat(),
-                juce::Justification::centred, false);
+    Hud::drawText (g, "/", juce::Rectangle<int> (m_websiteButton.getRight(), m_websiteButton.getY(),
+                                                 m_emailButton.getX() - m_websiteButton.getRight(), m_websiteButton.getHeight()).toFloat(),
+                   small, textDim, juce::Justification::centred);
 }
 
 void AboutWindow::AboutContent::resized()
@@ -399,11 +383,11 @@ void AboutWindow::AboutContent::resized()
 
     // UPDATES header row: the title, the status, the button.
     auto header = m_updatesPanel.reduced (8, 5);
-    const int buttonWidth = juce::roundToInt (juce::GlyphArrangement::getStringWidth (m_fonts->label (11.0f), "CHECK FOR UPDATES")) + 30;
+    const int buttonWidth = juce::roundToInt (Hud::shearedWidth (m_fonts->display (11.0f), "CHECK FOR UPDATES")) + 34;
     m_checkUpdatesButton.setBounds (header.removeFromRight (buttonWidth));
     header.removeFromRight (10);
-    const int titleRight = m_updatesPanel.getX() + c_textInset
-                         + juce::roundToInt (juce::GlyphArrangement::getStringWidth (m_fonts->heading (11.0f), "UPDATES")) + 12;
+    const int titleRight = m_updatesPanel.getX() + c_textInset + 20
+                         + juce::roundToInt (Hud::shearedWidth (m_fonts->display (12.0f), "UPDATES")) + 12;
     m_updateStatusLabel.setBounds (header.withLeft (titleRight));
 
     // The credits and licence text inside its panel, text aligned with the title.

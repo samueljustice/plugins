@@ -1,16 +1,27 @@
 #include "PitchFlattenerLookAndFeel.h"
 
+#include "Framebuffer.h"
+#include "Hud.h"
+
 namespace
 {
     using namespace Theme::Colours;
 
     // Chrome that belongs to no section: focus rings, selection, caret, links, menus that drop from no box.
-    const juce::Colour c_chrome = target;
+    // Amber, orange's highlight: these are all the user's own pointer and keys at work.
+    const juce::Colour c_chrome = amber;
+
+    // The old surfaces, in the HUD palette.
+    const juce::Colour background = space;
+    const juce::Colour panelRaised { 0xff101a2c };     // panel, a step up: fields, menus, tooltips
+    const juce::Colour outline = panelEdge;
+    const juce::Colour outlineSoft = panelEdge;
+    const juce::Colour textFaint = textDim.withAlpha (0.7f);
 
     // Popups dropping from the editor follow its scale, but never get smaller than at its default size (1:1).
     constexpr float c_minimumPopupScale = 1.0f;
 
-    constexpr float c_menuRadius = 6.0f;          // design-size menu metrics, scaled by menuScale()
+    constexpr float c_menuRadius = 6.0f;          // design-size menu metrics, scaled by menuScale() (the chamfer cut)
     constexpr float c_menuBorder = 5.0f;
     constexpr float c_menuTickColumn = 22.0f;
     constexpr float c_menuTextInset = 24.0f;
@@ -19,13 +30,13 @@ namespace
     constexpr float c_menuSeparatorHeight = 9.0f;
     constexpr float c_menuFontHeight = 13.0f;
 
-    constexpr float c_dialogRadius = 8.0f;        // the editor's panel radius
+    constexpr float c_dialogRadius = 10.0f;       // the editor's panel chamfer
     constexpr float c_dialogHeaderHeight = 32.0f; // the editor's section header height
     constexpr int c_dialogButtonSlot = 40;        // JUCE lays out this height; the pill is c_dialogButtonHeight
     constexpr float c_dialogButtonHeight = 28.0f;
     constexpr int c_dialogButtonMinWidth = 96;
 
-    constexpr float c_tipRadius = 5.0f;
+    constexpr float c_tipRadius = 7.0f;           // chamfer cut
     constexpr float c_tipPadX = 10.0f, c_tipPadY = 7.0f;
     constexpr float c_tipMaxWidth = 420.0f;
 
@@ -36,7 +47,7 @@ namespace
     const juce::Identifier c_dialogAccentProperty { "pitchFlattenerDialogAccent" };   // ARGB of a dialog button outside an alert
     const juce::Identifier c_dialogPrimaryProperty { "pitchFlattenerDialogPrimary" }; // ... and whether it is the primary action
 
-    // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded corners
+    // A colour that looks opaque but makes JUCE create a transparent window (menus), so the cut corners
     // show what is behind them. The body itself is drawn with full alpha.
     juce::Colour nearlyOpaque (juce::Colour c) { return c.withAlpha ((juce::uint8) 0xfe); }
 
@@ -136,7 +147,7 @@ namespace
         return r.reduced (0.5f);
     }
 
-    float fieldRadius (int height) { return std::min (5.0f, (float) height * 0.25f); }
+    float fieldCut (int height) { return std::min (6.0f, (float) height * 0.3f); }
 
     //==============================================================================
     // Tab in a window shows its focus rings, a click in it hides them (stateless: the state is a property
@@ -201,12 +212,12 @@ PitchFlattenerLookAndFeel::PitchFlattenerLookAndFeel (const Theme::Fonts& fonts)
     setColour (juce::Slider::textBoxBackgroundColourId, transparent);
     setColour (juce::Slider::textBoxHighlightColourId, c_chrome.withAlpha (0.3f));
 
-    // Every editor box sets its own section accent; detect (teal) is the default, as before.
+    // A box is a control the user sets: orange.
     setColour (juce::ComboBox::backgroundColourId, panelRaised);
     setColour (juce::ComboBox::outlineColourId, outline);
     setColour (juce::ComboBox::textColourId, text);
-    setColour (juce::ComboBox::arrowColourId, detect);
-    setColour (juce::ComboBox::focusedOutlineColourId, detect.withAlpha (0.6f));
+    setColour (juce::ComboBox::arrowColourId, orange);
+    setColour (juce::ComboBox::focusedOutlineColourId, orange.withAlpha (0.6f));
 
     setColour (juce::PopupMenu::backgroundColourId, nearlyOpaque (panelRaised));
     setColour (juce::PopupMenu::textColourId, text);
@@ -220,7 +231,7 @@ PitchFlattenerLookAndFeel::PitchFlattenerLookAndFeel (const Theme::Fonts& fonts)
     setColour (juce::TextButton::textColourOnId, text);
 
     setColour (juce::ToggleButton::textColourId, textDim);
-    setColour (juce::ToggleButton::tickColourId, detect);
+    setColour (juce::ToggleButton::tickColourId, orange);
 
     setColour (juce::HyperlinkButton::textColourId, textDim);
 
@@ -241,9 +252,9 @@ PitchFlattenerLookAndFeel::PitchFlattenerLookAndFeel (const Theme::Fonts& fonts)
     setColour (juce::ScrollBar::trackColourId, transparent);
     setColour (juce::ScrollBar::backgroundColourId, transparent);
 
-    setColour (juce::TooltipWindow::backgroundColourId, panelRaised);
+    setColour (juce::TooltipWindow::backgroundColourId, nearlyOpaque (panelRaised));
     setColour (juce::TooltipWindow::textColourId, text);
-    setColour (juce::TooltipWindow::outlineColourId, outline);
+    setColour (juce::TooltipWindow::outlineColourId, panelEdge.brighter (0.4f));
 }
 
 //==============================================================================
@@ -279,19 +290,20 @@ juce::Colour PitchFlattenerLookAndFeel::accentFor (juce::MessageBoxIconType type
 {
     switch (type)
     {
-        case juce::MessageBoxIconType::WarningIcon:  return warning;
-        case juce::MessageBoxIconType::InfoIcon:     return detect;
+        case juce::MessageBoxIconType::WarningIcon:  return magenta;   // a problem
+        case juce::MessageBoxIconType::InfoIcon:     return lime;      // good news, "go"
         case juce::MessageBoxIconType::QuestionIcon:
         case juce::MessageBoxIconType::NoIcon:
-        default:                                     return target;
+        default:                                     return orange;    // a choice the user makes
     }
 }
 
 void PitchFlattenerLookAndFeel::drawMark (juce::Graphics& g, juce::Rectangle<float> mark)
 {
-    // A wobbling teal line that settles into a flat amber line, designed at 34 x 22.
+    // The plug-in's idea in one mark: a cyan wobble (the pitch as heard) that settles into a flat
+    // lime line (the flattened sound), leaning forward like the title. Designed at 34 x 22.
     const float sx = mark.getWidth() / 34.0f, sy = mark.getHeight() / 22.0f;
-    const float split = 0.55f;
+    const float split = 0.5f;
     juce::Path wobble, flat;
 
     for (int i = 0; i <= 40; ++i)
@@ -301,7 +313,7 @@ void PitchFlattenerLookAndFeel::drawMark (juce::Graphics& g, juce::Rectangle<flo
             break;
 
         const float fade = 1.0f - t / split;
-        const float y = mark.getCentreY() + sy * 7.0f * fade * std::sin (t * juce::MathConstants<float>::twoPi * 3.2f);
+        const float y = mark.getCentreY() + sy * 8.0f * fade * std::sin (t * juce::MathConstants<float>::twoPi * 3.0f);
         const juce::Point<float> p { mark.getX() + t * mark.getWidth(), y };
         if (i == 0) wobble.startNewSubPath (p);
         else        wobble.lineTo (p);
@@ -311,32 +323,26 @@ void PitchFlattenerLookAndFeel::drawMark (juce::Graphics& g, juce::Rectangle<flo
     flat.lineTo (mark.getRight(), mark.getCentreY());
 
     const float stroke = std::min (sx, sy);
-    g.setColour (detect.withAlpha (0.85f));
-    g.strokePath (wobble, juce::PathStrokeType (1.6f * stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour (target);
-    g.strokePath (flat, juce::PathStrokeType (2.4f * stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    const auto lean = juce::AffineTransform::shear (-Hud::kShear, 0.0f).translated (Hud::kShear * mark.getCentreY(), 0.0f);
+    g.setColour (cyan);
+    g.strokePath (wobble, juce::PathStrokeType (2.0f * stroke, juce::PathStrokeType::mitered, juce::PathStrokeType::butt), lean);
+    g.setColour (lime);
+    g.strokePath (flat, juce::PathStrokeType (3.0f * stroke, juce::PathStrokeType::mitered, juce::PathStrokeType::butt), lean);
 }
 
 juce::Rectangle<float> PitchFlattenerLookAndFeel::drawPanel (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title,
                                                              juce::Colour accent, float headerHeight) const
 {
-    // The editor's section panels: fill, soft outline, dot, title, divider.
-    g.setColour (panel);
-    g.fillRoundedRectangle (r, 8.0f);
-    g.setColour (outlineSoft);
-    g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+    // The editor's panels: chamfered, a heading with speed stripes, a divider.
+    Hud::frame (g, r, 10.0f, panel, panelEdge);
 
-    auto headerRow = r.withHeight (headerHeight).reduced (12.0f, 0.0f);
-    g.setColour (accent);
-    g.fillEllipse (headerRow.removeFromLeft (6.0f).withSizeKeepingCentre (6.0f, 6.0f));
-    headerRow.removeFromLeft (8.0f);
-    g.setFont (m_fonts.heading (11.0f));
-    g.setColour (text.withAlpha (0.85f));
-    g.drawText (title, headerRow, juce::Justification::centredLeft, false);
+    auto headerRow = r.withHeight (headerHeight).reduced (14.0f, 0.0f);
+    const auto font = m_fonts.display (12.0f);
+    Hud::heading (g, headerRow.withSizeKeepingCentre (headerRow.getWidth(), 18.0f), title, font, accent);
 
     if (headerHeight < r.getHeight() - 1.0f) // a panel that is only a header row has no divider
     {
-        g.setColour (outlineSoft);
+        g.setColour (panelEdge);
         g.fillRect (juce::Rectangle<float> (r.getX() + 12.0f, std::round (r.getY() + headerHeight), r.getWidth() - 24.0f, 1.0f));
     }
     return headerRow;
@@ -349,98 +355,134 @@ void PitchFlattenerLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int 
                                                   float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
                                                   juce::Slider& slider)
 {
+    if (Hud::skipOnScreen (slider))
+        return;
+
+    // An arc gauge, as on a cockpit: a ring of segments lit up to the value in the slider's accent,
+    // a thin inner scale, and a needle tick at the value. Dim as a whole when it does nothing.
     const bool enabled = slider.isEnabled();
-    const float alpha = enabled ? 1.0f : 0.3f;
+    const float alpha = enabled ? 1.0f : 0.28f;
     const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
     const bool hot = enabled && slider.isMouseOverOrDragging();
 
-    const auto area = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
-    const float diameter = std::min (area.getWidth(), area.getHeight());
+    const auto area = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (3.0f);
+    const float radius = std::min (area.getWidth(), area.getHeight()) * 0.5f;
     const auto centre = area.getCentre();
-    const float radius = diameter * 0.5f;
-    const float trackWidth = std::max (2.5f, radius * 0.09f);
-    const float arcRadius = radius - trackWidth * 0.5f;
-    const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+    const float outer = radius, inner = radius * 0.8f;
 
-    // Track
-    juce::Path track;
-    track.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour (outline);
-    g.strokePath (track, juce::PathStrokeType (trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    constexpr int segments = 25;
+    const float span = rotaryEndAngle - rotaryStartAngle;
+    const float gap = 0.022f * span;
+    for (int i = 0; i < segments; ++i)
+    {
+        const float a0 = rotaryStartAngle + span * (float) i / (float) segments + gap * 0.5f;
+        const float a1 = rotaryStartAngle + span * (float) (i + 1) / (float) segments - gap * 0.5f;
+        const bool lit = ((float) i + 0.5f) / (float) segments <= sliderPos;
+        juce::Path seg;
+        seg.addCentredArc (centre.x, centre.y, outer, outer, 0.0f, a0, a1, true);
+        seg.addCentredArc (centre.x, centre.y, inner, inner, 0.0f, a1, a0, false);
+        seg.closeSubPath();
+        const auto c = lit ? (hot ? amber : accent) : panelEdge;
+        g.setColour (c.withMultipliedAlpha (alpha));
+        g.fillPath (seg);
+    }
 
-    // Value arc: bipolar parameters grow from the centre.
-    const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0
-                      && juce::approximatelyEqual (slider.getMinimum(), -slider.getMaximum());
-    const float fromAngle = bipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
+    // Inner scale and the needle.
+    juce::Path scale;
+    const float scaleRadius = inner - 5.0f;
+    scale.addCentredArc (centre.x, centre.y, scaleRadius, scaleRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
+    g.setColour (panelEdge.brighter (0.2f).withMultipliedAlpha (alpha));
+    g.strokePath (scale, juce::PathStrokeType (1.0f));
 
-    juce::Path value;
-    value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, std::min (fromAngle, angle), std::max (fromAngle, angle), true);
-    g.setColour (accent.withMultipliedAlpha ((hot ? 1.0f : 0.9f) * alpha));
-    g.strokePath (value, juce::PathStrokeType (trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // Body
-    const float bodyRadius = arcRadius - trackWidth * 1.6f;
-    const auto body = juce::Rectangle<float> (bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre (centre);
-
-    g.setColour (juce::Colours::black.withAlpha (0.35f));
-    g.fillEllipse (body.translated (0.0f, 2.0f));
-
-    g.setGradientFill (juce::ColourGradient (panelRaised.brighter (hot ? 0.18f : 0.1f), centre.x, body.getY(),
-                                             panelRaised.darker (0.25f), centre.x, body.getBottom(), false));
-    g.fillEllipse (body);
-    g.setColour (outline.brighter (0.15f));
-    g.drawEllipse (body.reduced (0.5f), 1.0f);
-
-    // Pointer
-    const auto direction = juce::Point<float> (std::sin (angle), -std::cos (angle));
-    g.setColour (text.withAlpha (enabled ? 1.0f : 0.35f));
-    g.drawLine ({ centre + direction * (bodyRadius * 0.35f), centre + direction * (bodyRadius * 0.82f) }, 2.0f);
+    const float angle = rotaryStartAngle + sliderPos * span;
+    const auto dir = juce::Point<float> (std::sin (angle), -std::cos (angle));
+    g.setColour ((hot ? amber : text).withMultipliedAlpha (alpha));
+    g.drawLine ({ centre + dir * (scaleRadius - 6.0f), centre + dir * (outer + 1.0f) }, 2.0f);
 }
 
 juce::Slider::SliderLayout PitchFlattenerLookAndFeel::getSliderLayout (juce::Slider& slider)
 {
     juce::Slider::SliderLayout layout;
+    layout.sliderBounds = slider.getLocalBounds();
 
-    if (slider.getTextBoxPosition() == juce::Slider::NoTextBox)
+    // The value sits in the middle of the gauge.
+    if (slider.getTextBoxPosition() != juce::Slider::NoTextBox)
     {
-        layout.sliderBounds = slider.getLocalBounds();
-        return layout;
+        const auto b = slider.getLocalBounds();
+        const int d = std::min (b.getWidth(), b.getHeight());
+        layout.textBoxBounds = b.withSizeKeepingCentre (juce::roundToInt ((float) d * 0.62f), juce::roundToInt ((float) d * 0.42f));
     }
-
-    auto bounds = slider.getLocalBounds();
-    layout.textBoxBounds = bounds.removeFromBottom (18).withSizeKeepingCentre (std::min (bounds.getWidth(), 92), 18);
-    bounds.removeFromBottom (2);
-    layout.sliderBounds = bounds;
     return layout;
 }
 
 juce::Label* PitchFlattenerLookAndFeel::createSliderTextBox (juce::Slider& slider)
 {
     auto* label = juce::LookAndFeel_V4::createSliderTextBox (slider);
-    label->setFont (m_fonts.body (12.0f));
+    label->setFont (m_fonts.display (16.0f));
     label->setJustificationType (juce::Justification::centred);
     label->setColour (juce::Label::textColourId, text);
     label->setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
     label->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
 
-    // While a value is typed: a rounded field in the knob's own accent (outline, selection, caret), with the
-    // text centred like the value it replaces. Label::createEditorComponent() copies these to its TextEditor.
+    // The value box fills the gauge's middle: a drag that starts on it still turns the gauge (a click
+    // without a drag types a value, as the box always did).
+    label->addMouseListener (&slider, false);
+
+    // While a value is typed: a chamfered field in the gauge's own accent (outline, selection, caret),
+    // with the text centred like the value it replaces. Label::createEditorComponent() copies these.
     const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
     label->setColour (juce::Label::textWhenEditingColourId, text);
     label->setColour (juce::Label::backgroundWhenEditingColourId, panelRaised);
-    label->setColour (juce::Label::outlineWhenEditingColourId, accent.withAlpha (0.6f));
+    label->setColour (juce::Label::outlineWhenEditingColourId, accent.withAlpha (0.8f));
     label->setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.35f));
     label->setColour (juce::TextEditor::highlightedTextColourId, text);
     label->setColour (juce::CaretComponent::caretColourId, accent);
-    label->onEditorShow = [label]
+    label->onEditorShow = [label, this]
     {
         if (auto* editor = label->getCurrentTextEditor())
         {
             editor->setJustification (juce::Justification::centred);
             editor->setIndents (2, 0);
+            editor->applyFontToAllText (m_fonts.body (13.0f));
         }
     };
     return label;
+}
+
+void PitchFlattenerLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
+{
+    if (Hud::skipOnScreen (label))
+        return;
+
+    auto* slider = dynamic_cast<juce::Slider*> (label.getParentComponent());
+    if (slider == nullptr || label.isBeingEdited())
+    {
+        juce::LookAndFeel_V4::drawLabel (g, label);
+        return;
+    }
+
+    // A gauge's value: the main part large ("G#6", "100%"), what follows it small ("+36 CENTS").
+    const bool enabled = slider->isEnabled();
+    const auto colour = (slider->isMouseOverOrDragging() && enabled ? amber : text).withMultipliedAlpha (enabled ? 1.0f : 0.4f);
+    const auto value = label.getText().trim();
+    const int split = value.indexOfChar (' ');
+    const juce::String main = split > 0 ? value.substring (0, split) : value;
+    juce::String sub = split > 0 ? value.substring (split + 1).trim() : juce::String();
+    const bool isNote = main.isNotEmpty() && juce::CharacterFunctions::isLetter (main[0]);
+    if (isNote)
+        sub = (sub.isEmpty() ? juce::String ("0") : sub) + " CENTS";
+
+    auto area = label.getLocalBounds().toFloat();
+    const float mainHeight = Hud::fitHeight ([this] (float h) { return m_fonts.display (h); }, main, area.getWidth(), sub.isEmpty() ? 22.0f : 20.0f, 10.0f);
+    if (sub.isEmpty())
+    {
+        Hud::drawSheared (g, main, area, m_fonts.display (mainHeight), colour, juce::Justification::centred);
+        return;
+    }
+    auto top = area.removeFromTop (area.getHeight() * 0.62f);
+    Hud::drawSheared (g, main, top, m_fonts.display (mainHeight), colour, juce::Justification::centredBottom);
+    const auto subFont = m_fonts.label (Hud::fitHeight ([this] (float h) { return m_fonts.label (h); }, sub, area.getWidth(), 10.5f, 10.0f, false));
+    Hud::drawText (g, sub, area, subFont, textDim.withMultipliedAlpha (enabled ? 1.0f : 0.5f), juce::Justification::centredTop);
 }
 
 juce::Font PitchFlattenerLookAndFeel::getLabelFont (juce::Label& label)
@@ -471,19 +513,8 @@ void PitchFlattenerLookAndFeel::drawComboBox (juce::Graphics& g, int width, int 
     const bool hot = enabled && (box.isMouseOver (true) || box.isPopupActive());
     const bool ring = shouldShowFocusRing (box);
 
-    g.setColour (box.findColour (juce::ComboBox::backgroundColourId).brighter (hot ? 0.08f : 0.0f));
-    g.fillRoundedRectangle (r, 5.0f);
-
-    if (ring)
-    {
-        g.setColour (c_chrome);
-        g.drawRoundedRectangle (r.reduced (0.25f), 5.0f, 1.5f);
-    }
-    else
-    {
-        g.setColour (hot ? box.findColour (juce::ComboBox::focusedOutlineColourId) : box.findColour (juce::ComboBox::outlineColourId));
-        g.drawRoundedRectangle (r, 5.0f, 1.0f);
-    }
+    Hud::frame (g, r, 6.0f, box.findColour (juce::ComboBox::backgroundColourId).brighter (hot ? 0.08f : 0.0f),
+                ring ? c_chrome : hot ? box.findColour (juce::ComboBox::focusedOutlineColourId) : box.findColour (juce::ComboBox::outlineColourId));
 
     const float cx = r.getRight() - 13.0f;
     const float cy = r.getCentreY();
@@ -547,16 +578,18 @@ void PitchFlattenerLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::B
                                                       const juce::Colour& backgroundColour,
                                                       bool isMouseOverButton, bool isButtonDown)
 {
+    if (Hud::skipOnScreen (button))
+        return;
     if (backgroundColour.isTransparent())
         return; // a text link: no pill (see drawButtonText)
 
     const auto r = pillBounds (button);
-    const float corner = std::min (r.getWidth(), r.getHeight()) * 0.5f;
+    const float corner = std::min (8.0f, std::min (r.getWidth(), r.getHeight()) * 0.3f);   // the chamfer cut
     const bool enabled = button.isEnabled();
     const bool hot = isMouseOverButton && enabled;
 
     auto fill = backgroundColour;
-    auto edge = hot ? textDim : outline;
+    auto edge = hot ? amber : orange.withAlpha (0.7f);
     auto ringColour = c_chrome;
 
     if (isInAlert (button))
@@ -565,32 +598,24 @@ void PitchFlattenerLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::B
         const auto accent = dialogAccentFor (button);
         ringColour = accent;
 
+        edge = hot ? accent : accent.withAlpha (0.55f);
         if (isPrimaryDialogButton (button))
         {
-            fill = accent.withAlpha (0.28f);
-            edge = hot ? accent : accent.withAlpha (0.6f);
+            fill = hot ? accent.brighter (0.15f) : accent;
+            edge = fill;
         }
     }
 
     const float alpha = enabled ? 1.0f : c_disabledAlpha;
 
-    g.setColour (fill.brighter (isButtonDown && enabled ? 0.2f : hot ? 0.1f : 0.0f).withMultipliedAlpha (alpha));
-    g.fillRoundedRectangle (r, corner);
-
-    if (shouldShowFocusRing (button))
-    {
-        g.setColour (ringColour);
-        g.drawRoundedRectangle (r.reduced (0.25f), corner, 1.5f);
-    }
-    else
-    {
-        g.setColour (edge.withMultipliedAlpha (alpha));
-        g.drawRoundedRectangle (r, corner, 1.0f);
-    }
+    Hud::frame (g, r, corner, fill.brighter (isButtonDown && enabled ? 0.2f : hot ? 0.1f : 0.0f).withMultipliedAlpha (alpha),
+                shouldShowFocusRing (button) ? ringColour : edge.withMultipliedAlpha (alpha));
 }
 
 void PitchFlattenerLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button, bool isMouseOverButton, bool isButtonDown)
 {
+    if (Hud::skipOnScreen (button))
+        return;
     const auto font = getTextButtonFont (button, button.getHeight());
     const bool capitals = isInAlert (button) || (bool) button.getProperties().getWithDefault (c_capitalsProperty, false);
     const auto label = capitals ? button.getButtonText().toUpperCase() : button.getButtonText();
@@ -622,31 +647,29 @@ void PitchFlattenerLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextBut
         return;
     }
 
-    auto colour = button.findColour (button.getToggleState() || isPrimaryDialogButton (button) ? juce::TextButton::textColourOnId
-                                                                                              : juce::TextButton::textColourOffId);
+    auto colour = button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId);
+    if (isInAlert (button))
+        colour = isPrimaryDialogButton (button) ? space : (isMouseOverButton ? amber : dialogAccentFor (button));
+    else if (isMouseOverButton && button.isEnabled())
+        colour = amber;
     if (! button.isEnabled())
-        colour = colour.withMultipliedAlpha (0.5f); // as JUCE's V4 buttons, which Pitch Flattener used before
+        colour = colour.withMultipliedAlpha (0.5f);
 
-    // The label keeps clear of the pill's rounded ends, but a short label in a small pill ("?") takes the
-    // room it needs: a label is only cut when the pill is too narrow for it.
-    // (Graphics::drawText drops a word that overruns its area, hence the pixel of slack.)
+    // Bold, wide and leaning forward, like every command in the plug-in; shrunk (never cut) to fit.
     const auto r = pillBounds (button);
-    const float preferredPad = std::max (4.0f, std::round (r.getHeight() * 0.35f));
-    const float pad = juce::jlimit (1.0f, preferredPad, (r.getWidth() - lineWidth (font, label)) * 0.5f - 1.0f);
-    const auto area = r.reduced (pad, 0.0f);
-
-    g.setFont (font);
-    g.setColour (colour);
-    g.drawText (fitToWidth (font, label, area.getWidth()), area, juce::Justification::centred, false);
+    const auto area = r.reduced (std::max (6.0f, std::round (r.getHeight() * 0.3f)), 0.0f);
+    const float h = Hud::fitHeight ([this] (float fh) { return m_fonts.display (fh); }, label, area.getWidth(), font.getHeight(), 10.0f);
+    Hud::drawSheared (g, label, area, m_fonts.display (h), colour, juce::Justification::centred);
+    juce::ignoreUnused (isButtonDown);
 }
 
 juce::Font PitchFlattenerLookAndFeel::getTextButtonFont (juce::TextButton& button, int buttonHeight)
 {
     if (isInAlert (button))
-        return m_fonts.label (12.0f);
+        return m_fonts.display (12.0f);
     if (isLinkStyle (button))
         return m_fonts.body (12.0f);
-    return m_fonts.label (std::min (13.0f, (float) buttonHeight * 0.5f));
+    return m_fonts.display (std::min (12.0f, (float) buttonHeight * 0.45f));
 }
 
 void PitchFlattenerLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
@@ -666,27 +689,14 @@ void PitchFlattenerLookAndFeel::drawToggleButton (juce::Graphics& g, juce::Toggl
     const auto track = buttonText.isEmpty() ? juce::Rectangle<float> (trackW, trackH).withCentre (bounds.getCentre())
                                             : bounds.removeFromLeft (trackW).withSizeKeepingCentre (trackW, trackH);
 
-    const float corner = trackH * 0.5f;
-    g.setColour ((on ? accent.withAlpha (0.85f) : panelRaised.brighter (isMouseOverButton ? 0.08f : 0.0f)).withMultipliedAlpha (alpha));
-    g.fillRoundedRectangle (track, corner);
+    Hud::frame (g, track, 4.0f, (on ? accent.withAlpha (0.85f) : panelRaised.brighter (isMouseOverButton ? 0.08f : 0.0f)).withMultipliedAlpha (alpha),
+                (shouldShowFocusRing (button) ? c_chrome : on ? accent : (isMouseOverButton ? textDim : outline)).withMultipliedAlpha (alpha));
 
-    if (shouldShowFocusRing (button))
-    {
-        g.setColour (c_chrome);
-        g.drawRoundedRectangle (track.expanded (2.0f), corner + 2.0f, 1.5f);
-    }
-
-    g.setColour ((on ? accent : (isMouseOverButton ? textDim : outline)).withMultipliedAlpha (alpha));
-    g.drawRoundedRectangle (track.reduced (0.5f), corner, 1.0f);
-
-    const float thumb = trackH - 4.0f + (isButtonDown ? 1.0f : 0.0f);
-    const float thumbX = on ? track.getRight() - 2.0f - thumb : track.getX() + 2.0f;
+    const float thumb = trackH - 6.0f + (isButtonDown ? 1.0f : 0.0f);
+    const float thumbX = on ? track.getRight() - 3.0f - thumb : track.getX() + 3.0f;
     const auto thumbBounds = juce::Rectangle<float> (thumbX, track.getCentreY() - thumb * 0.5f, thumb, thumb);
-
-    g.setColour (juce::Colours::black.withAlpha (0.3f * alpha));
-    g.fillEllipse (thumbBounds.translated (0.0f, 1.0f));
-    g.setColour ((on ? text : textDim).withMultipliedAlpha (alpha));
-    g.fillEllipse (thumbBounds);
+    g.setColour ((on ? space : textDim).withMultipliedAlpha (alpha));
+    g.fillRect (thumbBounds);
 
     if (buttonText.isNotEmpty())
     {
@@ -727,10 +737,7 @@ void PitchFlattenerLookAndFeel::drawPopupMenuBackgroundWithOptions (juce::Graphi
     if (colour.isOpaque() || ! juce::Desktop::canUseSemiTransparentWindows())
         g.fillAll (fill);
 
-    g.setColour (fill);
-    g.fillRoundedRectangle (r, c_menuRadius * s);
-    g.setColour (outline);
-    g.drawRoundedRectangle (r.reduced (0.5f), c_menuRadius * s, 1.0f);
+    Hud::frame (g, r, c_menuRadius * s, fill, outline.brighter (0.2f));
 }
 
 void PitchFlattenerLookAndFeel::drawPopupMenuItemWithOptions (juce::Graphics& g, const juce::Rectangle<int>& area,
@@ -756,7 +763,7 @@ void PitchFlattenerLookAndFeel::drawPopupMenuItemWithOptions (juce::Graphics& g,
     if (highlighted)
     {
         g.setColour (accent.withAlpha (0.16f));
-        g.fillRoundedRectangle (row.reduced (0.0f, 1.0f), 4.0f * s);
+        g.fillPath (Hud::chamfer (row.reduced (0.0f, 1.0f), 4.0f * s));
     }
 
     auto content = row;
@@ -829,7 +836,7 @@ void PitchFlattenerLookAndFeel::drawPopupMenuSectionHeaderWithOptions (juce::Gra
     const float dot = 5.0f * s;
 
     g.setColour (menuAccent (options));
-    g.fillEllipse (juce::Rectangle<float> (dot, dot).withCentre ({ r.getX() + c_menuTickColumn * s * 0.5f + 1.0f * s, r.getCentreY() }));
+    g.fillRect (juce::Rectangle<float> (dot, dot).withCentre ({ r.getX() + c_menuTickColumn * s * 0.5f + 1.0f * s, r.getCentreY() }));
 
     const auto font = m_fonts.heading (10.5f * s);
     const auto textArea = r.withTrimmedLeft (c_menuTextInset * s).withTrimmedRight (8.0f * s);
@@ -919,20 +926,12 @@ void PitchFlattenerLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWind
         g.fillAll (background); // an opaque window can't show what is behind its rounded corners
 
     // A panel, as the editor's sections: no icon.
-    g.setColour (alert.findColour (juce::AlertWindow::backgroundColourId));
-    g.fillRoundedRectangle (bounds, c_dialogRadius);
-    g.setColour (alert.findColour (juce::AlertWindow::outlineColourId));
-    g.drawRoundedRectangle (bounds.reduced (0.5f), c_dialogRadius, 1.0f);
+    Hud::frame (g, bounds, c_dialogRadius, alert.findColour (juce::AlertWindow::backgroundColourId), accent);
 
-    // Header row: accent dot, the title in capitals, a divider.
+    // Header row: speed stripes and the title in the accent, a divider.
     auto header = bounds.withHeight (c_dialogHeaderHeight).reduced (14.0f, 0.0f);
-    g.setColour (accent);
-    g.fillEllipse (header.removeFromLeft (6.0f).withSizeKeepingCentre (6.0f, 6.0f));
-    header.removeFromLeft (8.0f);
-    const auto titleFont = m_fonts.heading (11.5f);
-    g.setFont (titleFont);
-    g.setColour (text.withAlpha (0.85f));
-    g.drawText (fitToWidth (titleFont, alert.getName().toUpperCase(), header.getWidth()), header, juce::Justification::centredLeft, false);
+    const auto titleFont = m_fonts.display (12.0f);
+    Hud::heading (g, header.withSizeKeepingCentre (header.getWidth(), 18.0f), fitToWidth (titleFont, alert.getName().toUpperCase(), header.getWidth() - 60.0f), titleFont, accent);
     g.setColour (outlineSoft);
     g.fillRect (juce::Rectangle<float> (12.0f, c_dialogHeaderHeight, bounds.getWidth() - 24.0f, 1.0f));
 
@@ -1022,7 +1021,7 @@ void PitchFlattenerLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int
     }
 
     g.setColour (fill);
-    g.fillRoundedRectangle (juce::Rectangle<float> ((float) width, (float) height), fieldRadius (height));
+    g.fillPath (Hud::chamfer (juce::Rectangle<float> ((float) width, (float) height), fieldCut (height)));
 }
 
 void PitchFlattenerLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor)
@@ -1043,7 +1042,7 @@ void PitchFlattenerLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int wi
     if (editor.isOpaque())
         g.drawRect (r, thickness);
     else
-        g.drawRoundedRectangle (r, fieldRadius (height), thickness);
+        g.strokePath (Hud::chamfer (r, fieldCut (height)), juce::PathStrokeType (thickness));
 }
 
 //==============================================================================
@@ -1056,14 +1055,14 @@ void PitchFlattenerLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBa
     if (thumbSize <= 0)
         return;
 
-    // No track: a thin pill, like the level meter's track.
+    // No track: a thin bar.
     auto thumb = (isScrollbarVertical ? juce::Rectangle<int> (x, thumbStartPosition, width, thumbSize)
                                       : juce::Rectangle<int> (thumbStartPosition, y, thumbSize, height)).toFloat();
     thumb = isScrollbarVertical ? thumb.withSizeKeepingCentre (4.0f, std::max (4.0f, thumb.getHeight() - 4.0f))
                                 : thumb.withSizeKeepingCentre (std::max (4.0f, thumb.getWidth() - 4.0f), 4.0f);
 
     g.setColour (isMouseOver || isMouseDown ? textDim : scrollbar.findColour (juce::ScrollBar::thumbColourId));
-    g.fillRoundedRectangle (thumb, 2.0f);
+    g.fillRect (thumb);
 }
 
 //==============================================================================
@@ -1093,7 +1092,7 @@ juce::Rectangle<int> PitchFlattenerLookAndFeel::getTooltipBounds (const juce::St
                                                                   juce::Rectangle<int> parentArea)
 {
     const auto layout = layoutTooltip (tipText, juce::Colours::black);
-    const int w = (int) std::ceil (layout.getWidth() + 2.0f * c_tipPadX);
+    const int w = (int) std::ceil (layout.getWidth() + 2.0f * c_tipPadX + 2.0f);
     const int h = (int) std::ceil (layout.getHeight() + 2.0f * c_tipPadY);
 
     return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
@@ -1104,19 +1103,24 @@ juce::Rectangle<int> PitchFlattenerLookAndFeel::getTooltipBounds (const juce::St
 
 void PitchFlattenerLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& tipText, int width, int height)
 {
-    // The editor's tooltip window is transparent outside this rounded panel.
-    const auto r = juce::Rectangle<float> ((float) width, (float) height);
-    const auto fill = findColour (juce::TooltipWindow::backgroundColourId);
-
-    if (! juce::Desktop::canUseSemiTransparentWindows())
-        g.fillAll (fill);
-
-    g.setColour (fill);
-    g.fillRoundedRectangle (r, c_tipRadius);
-    g.setColour (findColour (juce::TooltipWindow::outlineColourId));
-    g.drawRoundedRectangle (r.reduced (0.5f), c_tipRadius, 1.0f);
-
-    layoutTooltip (tipText, findColour (juce::TooltipWindow::textColourId)).draw (g, r.reduced (c_tipPadX, c_tipPadY));
+    // The tooltip is small text, so it is drawn at 1x, dithered to 5 bits like the editor's
+    // framebuffer and shown with no smoothing. A chamfered panel with an orange bar down its left
+    // edge as a speed stripe; the window is transparent outside it.
+    juce::Image image (juce::Image::ARGB, std::max (1, width), std::max (1, height), true, juce::SoftwareImageType());
+    {
+        juce::Graphics ig (image);
+        const auto r = juce::Rectangle<float> ((float) width, (float) height);
+        const auto fill = findColour (juce::TooltipWindow::backgroundColourId).withAlpha (1.0f);
+        if (! juce::Desktop::canUseSemiTransparentWindows())
+            ig.fillAll (fill);
+        Hud::frame (ig, r, c_tipRadius, fill, findColour (juce::TooltipWindow::outlineColourId));
+        ig.setColour (orange);
+        ig.fillRect (juce::Rectangle<float> (3.0f, c_tipRadius + 2.0f, 2.0f, r.getHeight() - 2.0f * c_tipRadius - 4.0f));
+        layoutTooltip (tipText, findColour (juce::TooltipWindow::textColourId)).draw (ig, r.reduced (c_tipPadX, c_tipPadY).translated (2.0f, 0.0f));
+    }
+    Framebuffer::dither (image);
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+    g.drawImageAt (image, 0, 0);
 }
 
 //==============================================================================
@@ -1150,7 +1154,7 @@ std::unique_ptr<juce::FocusOutline> PitchFlattenerLookAndFeel::createFocusOutlin
         void drawOutline (juce::Graphics& g, int width, int height) override
         {
             g.setColour (c_chrome);
-            g.drawRoundedRectangle (juce::Rectangle<float> ((float) width, (float) height).reduced (0.75f), 5.0f, 1.5f);
+            g.strokePath (Hud::chamfer (juce::Rectangle<float> ((float) width, (float) height).reduced (0.75f), 6.0f), juce::PathStrokeType (1.5f));
         }
     };
 

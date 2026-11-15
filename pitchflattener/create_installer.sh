@@ -71,15 +71,14 @@ EOF
 
 # Create readme
 cat > installer/resources/readme.txt << 'EOF'
-SammyJs Pitch Flattener v2.1.0
+SammyJs Pitch Flattener v3.0.0
 
-A real-time pitch flattening plugin that removes Doppler effects and stabilizes pitch variations.
+Learns one sound and plays it back with its pitch flattened.
 
 Features:
-• Delta inversion pitch flattening
-• Base pitch latching
-• Advanced pitch detection with bandpass filtering
-• High-quality pitch shifting using RubberBand
+• Learn a sound by playing it through the plugin once
+• Flattens its pitch by changing the playback speed from moment to moment
+• Plays the flattened sound whenever the learned sound plays again
 • Universal binary for Intel and Apple Silicon
 
 For more information, visit:
@@ -100,8 +99,8 @@ the following conditions:
 2. The author shall not be liable for any damages arising from the use of this software.
 3. This notice shall be included with all distributions of the software.
 
-This plugin uses the JUCE framework and RubberBand library.
-Please refer to their respective licenses for terms of use.
+This plugin uses the JUCE framework.
+Please refer to its license for terms of use.
 EOF
 
 # Build the component package
@@ -109,7 +108,7 @@ echo "Building component package..."
 pkgbuild --root installer/root \
          --scripts installer/scripts \
          --identifier "com.samueljustice.pitchflattener.pkg" \
-         --version "2.1.0" \
+         --version "3.0.0" \
          --install-location "/" \
          installer/SammyJsPitchFlattener.pkg
 

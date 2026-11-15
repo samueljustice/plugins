@@ -8,9 +8,9 @@
 #include <functional>
 
 /**
- * "A new version is available", drawn inside the editor like the plug-in's dialogs (a panel with an accent dot,
- * its title in capitals, a centred message and a row of pill buttons), over a dimmed backdrop that covers the
- * whole editor. It is a child of the editor, not a window, so it never outlives it and needs no native window.
+ * "A new version is available", drawn inside the editor like the plug-in's dialogs (a chamfered panel with a
+ * speed-striped heading, a centred message and a row of chamfered buttons), over a dimmed backdrop that covers
+ * the whole editor. It is a child of the editor, not a window, so it never outlives it and needs no native window.
  *
  * Like the dialogs: Return downloads, Escape is Later, a click on the backdrop does nothing, and Tab moves
  * between the buttons only. The card follows the editor's scale (as its menus do), never smaller than at the
