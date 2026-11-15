@@ -1,6 +1,6 @@
-## Roarschach 1.2.0
+## Roarschach 1.3.0
 
-Roarschach 1.2.0 has a new visualiser: an abstract ink creature that forms out of lit cloud, swirls with the voice and tears back into smoke, a different blot in every session. It also fixes a set of sound problems in PITCH, VOCODER, RING, GROWL, ROAR and OUTPUT, and makes the window easier to live with: it opens larger and remembers its size, a preset load can be undone, knobs the settings do not use are dimmed, and the About window has a quick start. The whole window has a new look too: ink on paper, in the colour of the creature's cloud.
+Roarschach 1.3.0 gives the whole window a new look: ink on paper, in the colour of the creature's cloud. The creature now sleeps while the host bypasses the plug-in, a hit ripples it more clearly, its view can be set to Full, Low or Off, and knobs the current settings do not use are dimmed. These notes also cover what 1.2.0 brought: the ink creature, the sound fixes and the larger window.
 
 Parameter IDs, their order and their types are unchanged, so sessions, presets and hosts keep finding every control. Latency is unchanged: about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order.
 
@@ -58,9 +58,9 @@ These change the sound a little, in the direction of what each module was meant 
 
 | File | Contents |
 |---|---|
-| `Roarschach-1.2.0-macOS-Installer.pkg` | macOS installer (AU + VST3, universal) |
-| `Roarschach-1.2.0-Windows-Installer.exe` | Windows installer (VST3) |
-| `Roarschach-1.2.0-macOS-AU.zip`, `Roarschach-1.2.0-macOS-VST3.zip`, `Roarschach-1.2.0-Windows-VST3.zip` | The plug-ins on their own |
+| `Roarschach-1.3.0-macOS-Installer.pkg` | macOS installer (AU + VST3, universal) |
+| `Roarschach-1.3.0-Windows-Installer.exe` | Windows installer (VST3) |
+| `Roarschach-1.3.0-macOS-AU.zip`, `Roarschach-1.3.0-macOS-VST3.zip`, `Roarschach-1.3.0-Windows-VST3.zip` | The plug-ins on their own |
 
 The macOS downloads are signed and notarised. Universal (Apple silicon and Intel), macOS 11 or later. Windows: 64-bit Windows 10 or later.
 
