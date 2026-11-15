@@ -379,7 +379,7 @@ namespace Params
         detail::choice (ringMode, "Ring Mode", ringModeNames, 0),
         detail::choice (ringBody, "Ring Body", ringBodyNames, 0),
         // OUTPUT
-        detail::decibels (outPush, "Push", 0.0f, 24.0f, 8.0f, 10.0f),
+        detail::decibels (outPush, "Push", 0.0f, 24.0f, 6.5f, 10.0f),
         detail::decibels (outCeiling, "Ceiling", -12.0f, 0.0f, -1.0f),
         detail::decibels (outClip, "Clip", 0.0f, 18.0f, 0.0f, 5.0f),
         detail::percent (outClipShape, "Clip Shape", 0.0f),

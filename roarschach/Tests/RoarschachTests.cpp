@@ -1752,7 +1752,10 @@ namespace
         {
             check(!names.contains(preset.name), juce::String("duplicate preset ") + preset.name);
             names.add(preset.name);
-            check(static_cast<int>(preset.values.size()) == Params::numParameters, juce::String(preset.name) + " spells out "
+            // Every parameter, plus the level match hint under its reserved key.
+            const bool hasHint = preset.values.count(PresetManager::c_levelMatchKey) == 1;
+            check(hasHint, juce::String(preset.name) + " carries no level match hint");
+            check(static_cast<int>(preset.values.size()) == Params::numParameters + (hasHint ? 1 : 0), juce::String(preset.name) + " spells out "
                                                                                    + juce::String(static_cast<int>(preset.values.size())) + " values");
             Params::Order positions {};
             for (int m = 0; m < Params::numModules; ++m)
@@ -1763,6 +1766,11 @@ namespace
             check(positionsAreValid(positions), juce::String(preset.name) + " positions are a permutation");
             for (const auto& [id, value] : preset.values)
             {
+                if (id == PresetManager::c_levelMatchKey)
+                {
+                    check(value > -12.0f && value < 15.0f, juce::String(preset.name) + " level match hint out of range");
+                    continue;
+                }
                 const int i = Params::indexOf(id.toStdString());
                 check(i >= 0, juce::String(preset.name) + " has unknown parameter " + id);
                 if (i >= 0)
@@ -1818,7 +1826,7 @@ namespace
             {
                 p->setCurrentProgram(static_cast<int>(i));
                 for (const auto& [id, value] : presets[i].values)
-                    if (std::abs(getParam(*p, id.toRawUTF8()) - value) > 1e-3f * std::max(1.0f, std::abs(value)))
+                    if (id != PresetManager::c_levelMatchKey && std::abs(getParam(*p, id.toRawUTF8()) - value) > 1e-3f * std::max(1.0f, std::abs(value)))
                         ++wrong;
             }
             check(wrong == 0, juce::String(wrong) + " preset values not applied");
@@ -9324,7 +9332,8 @@ namespace
                     if (it != v1PitchDrive().end())
                         expect(Params::pitchDrive, cv::pitchDrive(it->second));
                 }
-                expect(Params::outPush, cv::push(o[17], o[18]));
+                // (Push is not checked: every preset's Push is trimmed to the loudness window over its
+                // input once the level match is learnt at the working level.)
                 expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
                 expect(Params::outAttack, std::max(0.2, static_cast<double>(o[21])));
             }
@@ -9335,7 +9344,7 @@ namespace
             // The parameter defaults are Init's values.
             int defaults = 0;
             for (const auto& [id, value] : presets[0].values)
-                if (std::abs(Params::defaultOf(id.toStdString()) - value) > 1e-4f && !id.endsWith("Pos"))
+                if (id != PresetManager::c_levelMatchKey && std::abs(Params::defaultOf(id.toStdString()) - value) > 1e-4f && !id.endsWith("Pos"))
                 {
                     ++defaults;
                     std::printf("    default of %s is %.2f, Init has %.2f\n", id.toRawUTF8(), Params::defaultOf(id.toStdString()), value);
