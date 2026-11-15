@@ -2,7 +2,7 @@
 
 # Sammy J's Plugins
 
-**Toys and utilities I've made for sound designers.**
+**Some of the toys and utilities I've made for us at [Sweet Justice Sound](https://www.sweetjusticesound.com), given for free.**
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
@@ -44,7 +44,7 @@ Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.
   <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
 </p>
 
-A voice processor for making creature and machine voices, or just a bigger voice. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
+A modular voice processor. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
 
 The picture above the chain is an ink blot that forms out of cloud and moves with the voice. It does nothing to the sound.
 

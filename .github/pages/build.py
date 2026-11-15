@@ -139,7 +139,11 @@ win = first(r'href="([^"]+Windows-Installer\.exe)"', f"https://github.com/{repo}
 inside = [v.strip() for v in first(r"every plug-in: (.*?)\.\s*<br").split("·") if v.strip()]
 built = first(r"Built ([^<]*?)\. Older")
 donate = first(r'href="(https://www\.paypal\.com/donate/[^"]+)"')
-tagline = first(r"<p[^>]*>\s*<strong>(Toys[^<]*)</strong>", "Toys and utilities I've made for sound designers.")
+# The bold line under the README's title, kept as HTML so its link survives; the meta description gets the text.
+m = re.search(r"<p[^>]*>\s*<strong>(.*?)</strong>\s*</p>", doc, re.S)
+tagline_html = m.group(1).strip() if m else "Some of the toys and utilities I've made for us at Sweet Justice Sound, given for free."
+tagline_html = re.sub(r'<a ([^>]*)>', lambda a: '<a ' + re.sub(r'\s*(target|rel)="[^"]*"', '', a.group(1)) + ' target="_blank" rel="noopener">', tagline_html)
+tagline = html.unescape(re.sub(r"<[^>]+>", "", tagline_html))
 inside_html = "".join(f"<li>{html.escape(v)}</li>" for v in inside)
 
 # A drawn waveform for the rule under the title: a few decaying bursts, the same every build.
@@ -176,11 +180,15 @@ page = f"""<!doctype html>
 
   .top {{ padding: 72px 0 36px; }}
   .top .label {{ color: var(--dim); margin: 0 0 18px; }}
+  .top .label a {{ color: var(--paper); text-decoration: none; border-bottom: 1px solid var(--red); }}
+  .top .label a:hover {{ color: var(--red); }}
   h1 {{ font: 800 clamp(54px, 11vw, 148px)/.88 var(--display); letter-spacing: -.045em; margin: 0; }}
   h1 em {{ font-style: normal; color: var(--red); }}
   .wave {{ display: block; width: 100%; height: 60px; margin: 26px 0 22px; }}
   .wave polyline {{ fill: none; stroke: var(--paper); stroke-width: 1.4; vector-effect: non-scaling-stroke; }}
   .tagline {{ font-size: clamp(22px, 2.6vw, 30px); line-height: 1.25; margin: 0; max-width: 20em; }}
+  .tagline a {{ color: inherit; text-decoration: none; border-bottom: 2px solid var(--red); }}
+  .tagline a:hover {{ color: var(--red); }}
 
   .get {{ display: grid; grid-template-columns: auto 1fr; gap: 28px 56px; align-items: start; padding: 40px 0 48px; border-top: 1px solid var(--rule); margin-top: 44px; }}
   .buttons {{ display: flex; flex-wrap: wrap; gap: 12px; }}
@@ -258,10 +266,10 @@ page = f"""<!doctype html>
 <body>
 <div class="wrap">
   <div class="top">
-    <p class="label">Samuel Justice · audio plug-ins</p>
+    <p class="label">Samuel Justice · audio plug-ins · <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a></p>
     <h1>Sammy J's<br><em>Plugins</em></h1>
     {wave}
-    <p class="tagline">{html.escape(tagline)}</p>
+    <p class="tagline">{tagline_html}</p>
   </div>
 
   <div class="get" id="get">
