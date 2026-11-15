@@ -52,6 +52,55 @@ public:
     const juce::String& statusText() const noexcept { return m_status; }
     const juce::String& learnButtonText() const noexcept { return m_learnText; }
     const juce::String& flatOnText() const noexcept { return m_flatText; }
+    const juce::String& delayText() const noexcept { return m_delayText; }
+    juce::String clearButtonText() const { return m_clear.getButtonText(); }
+    bool clearButtonEnabled() const noexcept { return m_clear.isEnabled(); }
+    juce::String clearButtonTooltip() { return m_clear.getTooltip(); }
+    /** Tests: CLEAR (or CANCEL) pressed, at once. */
+    void pressClearForTests() { if (m_clear.onClick != nullptr) m_clear.onClick(); }
+    /** Tests: the header buttons whose place the rendering tag must stay clear of. */
+    std::vector<juce::Rectangle<int>> headerButtonsForTests() const
+    {
+        std::vector<juce::Rectangle<int>> r;
+        for (const auto* b : { &m_drawTool, &m_snapTool, &m_undo, &m_redo, &m_resetCurve, &m_zoomOut, &m_zoomIn, &m_fit, &m_scopeTab, &m_flightTab })
+            r.push_back (b->getBounds());
+        return r;
+    }
+    juce::Rectangle<int> viewAreaForTests() const noexcept { return m_viewArea; }
+    /** Tests: shows this rendering tag whatever the engine says (empty: back to the engine). */
+    void setRenderingTextForTests (const juce::String& text) { m_renderingOverride = text; refreshNow(); }
+    juce::String learnHintText() const { return m_learn.hint(); }
+    /** The tag in the display's header (RENDERING ..., or empty), and where it is. */
+    const juce::String& renderingTagText() const noexcept { return m_renderingText; }
+    juce::Rectangle<int> statusSlotForTests() const noexcept { return m_statusSlot; }
+    /** Whether the controls row is live (it is dimmed when there is nothing to flatten). */
+    bool controlsLive() const noexcept { return m_controlsLive; }
+    bool readoutsDimmed() const noexcept { return m_readoutsDim; }
+
+    /** What plays now, from the engine's own answer: one definition for the guidance bar, the
+        banners, the FLAT tag, the rendering tag, the scope's play head and FLIGHT. The flattened
+        sound is playing while it is heard (Flattened, or its Tail); the play head is placed only
+        while the current render is the one heard (only its time map can place it). */
+    struct Playback
+    {
+        pitchflattener::Engine::Playback mode = pitchflattener::Engine::Playback::Idle;
+        bool playing = false;
+        bool current = false;
+    };
+    static Playback playbackOf (pitchflattener::Engine::Playback mode, bool playingCurrentRender) noexcept;
+    /** The guidance once learned, for what the output is doing. */
+    static juce::String learnedStatus (pitchflattener::Engine::Playback mode);
+    /** The bounce warning: raised when an offline wait gave up, held until a newer render or Clear. */
+    struct BounceWarning
+    {
+        bool shown = false;
+        std::uint64_t generation = 0;
+        /** Reads the engine's flag and the current result; true while the warning shows. */
+        bool update (bool waitGaveUp, const pitchflattener::Result* result) noexcept;
+    };
+    static constexpr const char* kBounceWarning = "THE BOUNCE STARTED BEFORE THE NEW VERSION WAS READY: IT USED THE PREVIOUS ONE. BOUNCE AGAIN.";
+    /** The rendering tag for a state: empty when no render is pending. */
+    static juce::String renderingText (const Playback&, bool rendering);
 
     /** The view the display shows now (PitchFlattenerAudioProcessor::kViewScope or kViewFlight). */
     int shownView() const;
@@ -157,6 +206,11 @@ private:
     juce::String m_status, m_learnText, m_lengthBefore, m_lengthAfter, m_flatText;
     juce::Colour m_statusColour = Theme::Colours::textDim;
     bool m_flatTagShown = false;
+    bool m_controlsLive = true, m_readoutsDim = false;
+    BounceWarning m_bounceWarning;
+    juce::String m_delayText;
+    juce::String m_renderingText, m_renderingOverride;
+    juce::Rectangle<int> m_statusSlot;   // the display header's tag place, before the tabs
     juce::Rectangle<int> m_flatRow;
 
     juce::TooltipWindow m_tooltipWindow { this, 600 };

@@ -48,6 +48,21 @@ namespace
     const char* const c_drawHelp = "DRAW ALONG THE GRAPH TO REDRAW THE LINE. ALT WHILE DRAGGING LETS GO OF THE SNAP.";
 
     juce::String seconds (double s) { return juce::String (s, 2) + " S"; }
+
+    const char* const c_learnTip =
+        "Learn: press, then play the sound once through the plug-in. It lets the sound through while it records, stops after a "
+        "second of silence (or when Learn is pressed again, keeping what it heard) and flattens it. From then on it recognises "
+        "that same recording, played at the same speed and at any level, from the start or from any point in it, and plays the "
+        "flattened copy in its place; any other audio passes through unchanged. To hear the input itself again, bypass the "
+        "plug-in or press Clear.";
+    const char* const c_clearTip = "Clear: forgets the learned sound. Audio then passes through unchanged until another sound is learned.";
+    const char* const c_cancelTip = "Stops Learn without learning anything. A sound learned before is kept.";
+    const char* const c_amountTip =
+        "Amount: how much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in. "
+        "At 0% the learned copy still plays in place of the input, untouched in pitch.";
+    const char* const c_learnedStatus = "LEARNED: PLAY THE SAME RECORDING AGAIN, AT THE SAME SPEED, TO HEAR IT FLATTENED. ANYTHING ELSE PASSES THROUGH.";
+    const char* const c_noPitchStatus = "NO STEADY PITCH FOUND IN THIS SOUND: IT PLAYS AS IT IS. LEARN ANOTHER SOUND.";
+    const char* const c_noPitchSourceStatus = "NO STEADY PITCH FOUND IN THIS SOUND: IT PLAYS AS IT IS. LEARN ANOTHER, OR TRY A SOURCE.";
 }
 
 //==============================================================================
@@ -64,14 +79,22 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     PitchFlattenerLookAndFeel::showFocusRingsAfterTab (*this);
 
     m_learn.onClick = [this] { learnClicked(); };
-    m_learn.setTooltip ("Learn: press, then play the sound once through the plug-in. It records the sound (letting it through "
-                        "unchanged), stops after a second of silence, and flattens it. Press again while it listens to stop there. "
-                        "Afterwards, whenever that sound plays through the plug-in again, from the start or from any point in it, "
-                        "the flattened sound plays in its place.");
+    m_learn.setTooltip (c_learnTip);
     addAndMakeVisible (m_learn);
 
-    m_clear.onClick = [this] { m_processor.getEngine().clear(); refreshNow(); };
-    m_clear.setTooltip ("Clear: forgets the learned sound. Audio then passes through unchanged until another sound is learned.");
+    m_clear.onClick = [this]
+    {
+        // CANCEL (while Learn is armed, listening or analysing) stops Learn and keeps a sound
+        // learned before; CLEAR forgets the learned sound.
+        auto& engine = m_processor.getEngine();
+        const auto state = engine.state();
+        if (state == State::Armed || state == State::Listening || state == State::Analysing)
+            m_processor.cancelLearn();
+        else
+            engine.clear();
+        refreshNow();
+    };
+    m_clear.setTooltip (c_clearTip);
     addAndMakeVisible (m_clear);
 
     m_about.onClick = [this] { showAbout(); };
@@ -91,7 +114,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
                "Note: the pitch the sound is flattened to when the target is Note. Type a note name such as A3, or C#4 +20 for cents.",
                m_noteAttachment);
     setupKnob (m_amount, Processor::amountId,
-               "Amount: how much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in.",
+               c_amountTip,
                m_amountAttachment);
 
     for (size_t i = 0; i < m_sources.size(); ++i)
@@ -290,14 +313,75 @@ void PitchFlattenerAudioProcessorEditor::chooseView (int view)
     refreshNow();
 }
 
+PitchFlattenerAudioProcessorEditor::Playback PitchFlattenerAudioProcessorEditor::playbackOf (pitchflattener::Engine::Playback mode,
+                                                                                           bool playingCurrentRender) noexcept
+{
+    using Mode = pitchflattener::Engine::Playback;
+    Playback p;
+    p.mode = mode;
+    p.playing = mode == Mode::Flattened || mode == Mode::Tail;
+    p.current = p.playing && playingCurrentRender;
+    return p;
+}
+
+juce::String PitchFlattenerAudioProcessorEditor::learnedStatus (pitchflattener::Engine::Playback mode)
+{
+    using Mode = pitchflattener::Engine::Playback;
+    switch (mode)
+    {
+        case Mode::Flattened:      return "PLAYING THE FLATTENED SOUND";
+        case Mode::Tail:           return "PLAYING THE END OF THE FLATTENED SOUND: IT IS LONGER THAN THE ORIGINAL";
+        case Mode::FlattenedEnded: return "THE FLATTENED SOUND HAS ENDED: IT IS SHORTER THAN THE ORIGINAL";
+        case Mode::Idle:
+        case Mode::Searching:      break;
+    }
+    return c_learnedStatus;
+}
+
+bool PitchFlattenerAudioProcessorEditor::BounceWarning::update (bool waitGaveUp, const pitchflattener::Result* result) noexcept
+{
+    if (result == nullptr)
+        shown = false;                                   // Clear (or nothing learned)
+    else if (waitGaveUp)
+    {
+        shown = true;
+        generation = result->generation;
+    }
+    else if (shown && result->generation != generation)
+        shown = false;                                   // a newer render arrived, and the wait did not give up again
+    return shown;
+}
+
+juce::String PitchFlattenerAudioProcessorEditor::renderingText (const Playback& playback, bool rendering)
+{
+    // Playing while a newer render is on its way (being made, or made and not yet taken over):
+    // what is heard is the version before the last change.
+    if (playback.playing && (rendering || ! playback.current))
+        return "RENDERING: STILL PLAYING THE PREVIOUS VERSION";
+    return rendering ? "RENDERING" : "";
+}
+
 void PitchFlattenerAudioProcessorEditor::refreshNow()
 {
     using namespace Theme::Colours;
     auto& engine = m_processor.getEngine();
     const auto state = engine.state();
     const auto result = engine.result();
-    const bool playing = engine.playPosition() >= 0 && result != nullptr && engine.playGeneration() == result->generation;
+    const auto playback = playbackOf (engine.playback(), engine.playingCurrentRender());
+    const bool playing = playback.playing;
+    const bool bounceWarning = m_bounceWarning.update (engine.offlineWaitGaveUp(), result.get());
     const double now = m_clock.now();
+
+    // The delay the plug-in reports (longer than the least for very large host blocks).
+    {
+        const double rate = engine.sampleRate();
+        const double delay = rate > 0.0 ? (double) m_processor.getLatencySamples() / rate : pitchflattener::Engine::kLatencySeconds;
+        if (const auto t = juce::String (delay, 2) + " S"; t != m_delayText)
+        {
+            m_delayText = t;
+            repaint (m_header);
+        }
+    }
 
     // What to do or what is happening (the guidance bar), and the Learn button's two lines.
     juce::String learnHint, status;
@@ -335,29 +419,39 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
             statusColour = cyan;
             break;
         case State::NothingToFlatten:
-            m_learnText = "LEARNED";
+        {
+            m_learnText = "NO PITCH";
             learnHint = "PRESS TO LEARN ANOTHER";
-            status = "NO STEADY PITCH FOUND: THE SOUND IS LEFT AS IT IS";
+            learnColour = magenta;
+            // Choosing a SOURCE helps only when some reading is usable (otherwise every choice
+            // falls back to the pick, and there is none).
+            bool anyUsable = false;
+            if (result != nullptr && result->learned != nullptr)
+                for (const auto& l : result->learned->analysis.lines)
+                    anyUsable = anyUsable || l.usable;
+            status = anyUsable ? c_noPitchSourceStatus : c_noPitchStatus;
             statusColour = magenta;
             break;
+        }
         case State::Ready:
             m_learnText = "LEARNED";
             learnHint = "PRESS TO LEARN ANOTHER";
             if (engine.sampleRateMismatch() && result != nullptr)
             {
-                status = "LEARNED AT " + juce::String (juce::roundToInt (result->learned->sampleRate)) + " HZ: THE SESSION IS AT "
-                       + juce::String (juce::roundToInt (engine.sampleRate())) + " HZ";
+                const auto learnedAt = juce::String (juce::roundToInt (result->learned->sampleRate));
+                status = "LEARNED AT " + learnedAt + " HZ, THE SESSION IS AT " + juce::String (juce::roundToInt (engine.sampleRate()))
+                       + " HZ: SET THE SESSION BACK TO " + learnedAt + " HZ, OR LEARN THE SOUND AGAIN";
                 statusColour = magenta;
             }
-            else if (playing)
+            else if (bounceWarning)
             {
-                status = "PLAYING THE FLATTENED SOUND";
-                statusColour = lime;
+                status = kBounceWarning;
+                statusColour = magenta;
             }
             else
             {
-                status = "LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED";
-                statusColour = lime;
+                status = learnedStatus (playback.mode);
+                statusColour = playback.mode == pitchflattener::Engine::Playback::FlattenedEnded ? text : lime;
             }
             break;
     }
@@ -377,14 +471,45 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
     else if (result != nullptr)
         before = seconds ((double) result->learned->locator.length() / result->learned->sampleRate);
 
-    const bool armed = state == State::Armed || state == State::Listening;
-    m_clear.setEnabled (result != nullptr || armed || state == State::Analysing);
+    // CLEAR, or CANCEL while Learn is under way.
+    {
+        const bool capturing = state == State::Armed || state == State::Listening || state == State::Analysing;
+        const juce::String label = capturing ? "CANCEL" : "CLEAR";
+        const juce::String tip = capturing ? c_cancelTip : c_clearTip;
+        if (m_clear.getButtonText() != label)
+            m_clear.setButtonText (label);
+        if (m_clear.getTooltip() != tip)
+            m_clear.setTooltip (tip);
+        m_clear.setEnabled (capturing || result != nullptr);
+    }
+
+    // Nothing to flatten: the controls do nothing, so they are dimmed (keeping their values).
+    const bool live = state != State::NothingToFlatten;
+    if (live != m_controlsLive)
+    {
+        m_controlsLive = live;
+        repaint (m_targetCell.getUnion (m_characterCell));
+    }
+    for (auto& b : m_targets)
+        b->setEnabled (live);
+    for (auto& b : m_sources)
+        b->setEnabled (live);
+    for (auto& b : m_lengthModes)
+        b->setEnabled (live);
+    m_amount.setEnabled (live);
+
+    // Learned at another rate: the readouts describe a sound that does not play.
+    if (const bool dim = state == State::Ready && engine.sampleRateMismatch(); dim != m_readoutsDim)
+    {
+        m_readoutsDim = dim;
+        repaint (m_readout);
+    }
 
     const int chosen = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::targetId)->load());
     for (size_t i = 0; i < m_targets.size(); ++i)
         if (m_targets[i]->getToggleState() != ((int) i == chosen))
             m_targets[i]->setToggleState ((int) i == chosen, juce::dontSendNotification);
-    m_note.setEnabled (chosen == 4);
+    m_note.setEnabled (chosen == 4 && live);
 
     const int source = juce::roundToInt (m_processor.parameters.getRawParameterValue (Processor::sourceId)->load());
     for (size_t i = 0; i < m_sources.size(); ++i)
@@ -400,9 +525,9 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
     {
         if (m_characters[i]->getToggleState() != ((int) i == character))
             m_characters[i]->setToggleState ((int) i == character, juce::dontSendNotification);
-        if (m_characters[i]->isEnabled() != (keep == 1))
+        if (m_characters[i]->isEnabled() != (keep == 1 && live))
         {
-            m_characters[i]->setEnabled (keep == 1);
+            m_characters[i]->setEnabled (keep == 1 && live);
             repaint (m_characterCell);
         }
     }
@@ -426,7 +551,7 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
     displayView.result = result;
     displayView.state = state;
     displayView.captureSeconds = engine.captureSeconds();
-    displayView.playPosition = playing ? engine.playPosition() : -1;
+    displayView.playPosition = playback.current ? engine.playPosition() : -1;
     displayView.playGeneration = engine.playGeneration();
     displayView.rendering = engine.isRendering();
     displayView.autoSource = source == 0;
@@ -445,7 +570,7 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
     if (view == Processor::kViewFlight)
     {
         double playSeconds = -1.0;
-        if (playing && result->playable())
+        if (playback.current)
             playSeconds = result->flattened.sourceSampleFor ((double) engine.playPosition()) / result->learned->sampleRate;
         m_flight.setView (result, playSeconds);
         m_flight.renderFrame();
@@ -454,15 +579,17 @@ void PitchFlattenerAudioProcessorEditor::refreshNow()
     // The banners.
     BannerLogic::Input in;
     in.state = state;
-    in.playing = engine.playPosition() >= 0 && result != nullptr;
+    in.playing = playing;
     in.rateMismatch = engine.sampleRateMismatch();
     in.learnedId = result != nullptr && result->learned != nullptr ? result->learned->id : 0;
     m_bannerLogic.update (in, now);
     m_banner.show (m_bannerLogic.kind(), m_bannerLogic.since(), engine.captureSeconds());
-    if (m_bannerLogic.flatTag() != m_flatTagShown)
+    const auto rendering = m_renderingOverride.isNotEmpty() ? m_renderingOverride : renderingText (playback, engine.isRendering());
+    if (m_bannerLogic.flatTag() != m_flatTagShown || rendering != m_renderingText)
     {
         m_flatTagShown = m_bannerLogic.flatTag();
-        repaint (m_displayPanel.withHeight (30));
+        m_renderingText = rendering;
+        repaint (m_statusSlot.expanded (2));
     }
     m_banner.tick();
     if (m_learn.isPulsing())
@@ -502,30 +629,27 @@ void PitchFlattenerAudioProcessorEditor::resized()
     {
         const auto header = m_displayPanel.withHeight (30).reduced (8, 5);
         auto tabs = header;
-        m_flightTab.setBounds (tabs.removeFromRight (80));
-        tabs.removeFromRight (6);
-        m_scopeTab.setBounds (tabs.removeFromRight (76));
+        m_flightTab.setBounds (tabs.removeFromRight (58));
+        tabs.removeFromRight (4);
+        m_scopeTab.setBounds (tabs.removeFromRight (54));
 
-        // The curve tools, between the heading and the FLAT tag: the editing tools from the left,
-        // the zoom by the tabs.
-        auto tools = header.withTrimmedLeft (112).withTrimmedRight (80 + 6 + 76 + 14 + 86 + 12);
-        const auto place = [&tools] (HudButton& b, int w)
+        // From the left after the heading: the editing tools, then the zoom; then the tag place
+        // (FLAT, or RENDERING ...) running up to the tabs, where it covers nothing.
+        auto tools = header.withTrimmedLeft (104);
+        const auto place = [&tools] (HudButton& b, int w, int gap)
         {
             b.setBounds (tools.removeFromLeft (w));
-            tools.removeFromLeft (6);
+            tools.removeFromLeft (gap);
         };
-        place (m_drawTool, 58);
-        place (m_snapTool, 58);
-        tools.removeFromLeft (8);
-        place (m_undo, 58);
-        place (m_redo, 58);
-        place (m_resetCurve, 112);
-        auto zoom = juce::Rectangle<int> (m_scopeTab.getX() - 14 - 86 - 12 - 112, header.getY(), 112, header.getHeight());
-        m_zoomOut.setBounds (zoom.removeFromLeft (28));
-        zoom.removeFromLeft (4);
-        m_zoomIn.setBounds (zoom.removeFromLeft (28));
-        zoom.removeFromLeft (4);
-        m_fit.setBounds (zoom);
+        place (m_drawTool, 40, 4);
+        place (m_snapTool, 40, 6);
+        place (m_undo, 48, 4);
+        place (m_redo, 48, 4);
+        place (m_resetCurve, 104, 6);
+        place (m_zoomOut, 26, 3);
+        place (m_zoomIn, 26, 3);
+        place (m_fit, 40, 8);
+        m_statusSlot = tools.withRight (m_scopeTab.getX() - 8);
         m_viewArea = m_displayPanel.withTrimmedTop (30).reduced (3, 0).withTrimmedBottom (3);
     }
     m_display.setBounds (m_viewArea);
@@ -538,11 +662,11 @@ void PitchFlattenerAudioProcessorEditor::resized()
     area.removeFromTop (8);
 
     auto controls = area;
-    m_targetCell = controls.removeFromLeft (270);
+    m_targetCell = controls.removeFromLeft (250);
     controls.removeFromLeft (c_gap);
-    m_noteCell = controls.removeFromLeft (104);
+    m_noteCell = controls.removeFromLeft (114);
     controls.removeFromLeft (c_gap);
-    m_amountCell = controls.removeFromLeft (104);
+    m_amountCell = controls.removeFromLeft (114);
     controls.removeFromLeft (c_gap);
     m_sourceCell = controls.removeFromLeft (170);
     controls.removeFromLeft (c_gap);
@@ -651,7 +775,7 @@ void PitchFlattenerAudioProcessorEditor::paintHeader (juce::Graphics& g)
         right.removeFromRight (22.0f);
     };
     readout ("VERSION", juce::String (c_version), text.withAlpha (0.85f));
-    readout ("DELAY", juce::String (pitchflattener::Engine::kLatencySeconds, 2) + " S", text.withAlpha (0.85f));
+    readout ("DELAY", m_delayText, text.withAlpha (0.85f));
 }
 
 void PitchFlattenerAudioProcessorEditor::paintReadout (juce::Graphics& g)
@@ -671,21 +795,23 @@ void PitchFlattenerAudioProcessorEditor::paintReadout (juce::Graphics& g)
         return line;
     };
 
-    // Length: as heard (cyan), and flattened (lime).
+    // Length: as heard (cyan), and flattened (lime). Learned at another rate, these describe a
+    // sound that is not played: dimmed.
+    const auto shade = [this] (juce::Colour c) { return m_readoutsDim ? textDim.withAlpha (0.6f) : c; };
     auto top = row (inner.removeFromTop (inner.getHeight() * 0.5f), "LENGTH");
     if (m_lengthBefore.isEmpty())
         Hud::drawSheared (g, "--", top.withWidth (60.0f), valueFont, textDim);
     else
     {
         const float w1 = Hud::shearedWidth (valueFont, m_lengthBefore) + 2.0f;
-        Hud::drawSheared (g, m_lengthBefore, top.removeFromLeft (w1), valueFont, cyan);
+        Hud::drawSheared (g, m_lengthBefore, top.removeFromLeft (w1), valueFont, shade (cyan));
         if (m_lengthAfter.isNotEmpty())
         {
             top.removeFromLeft (8.0f);
             Hud::chevron (g, { top.getX() + 6.0f, top.getCentreY() }, 5.0f, 0.0f, 2.0f, textDim);
             Hud::chevron (g, { top.getX() + 13.0f, top.getCentreY() }, 5.0f, 0.0f, 2.0f, textDim);
             top.removeFromLeft (26.0f);
-            Hud::drawSheared (g, m_lengthAfter, top.removeFromLeft (Hud::shearedWidth (valueFont, m_lengthAfter) + 2.0f), valueFont, lime);
+            Hud::drawSheared (g, m_lengthAfter, top.removeFromLeft (Hud::shearedWidth (valueFont, m_lengthAfter) + 2.0f), valueFont, shade (lime));
         }
     }
 
@@ -694,7 +820,7 @@ void PitchFlattenerAudioProcessorEditor::paintReadout (juce::Graphics& g)
     auto bottom = row (inner, "FLAT ON");
     Hud::drawSheared (g, m_flatText.isEmpty() ? juce::String ("--") : m_flatText,
                       bottom.withWidth (std::min (bottom.getWidth(), Hud::shearedWidth (valueFont, m_flatText.isEmpty() ? juce::String ("--") : m_flatText) + 2.0f)),
-                      valueFont, m_flatText.isEmpty() ? textDim : orange);
+                      valueFont, m_flatText.isEmpty() ? textDim : shade (orange));
 }
 
 void PitchFlattenerAudioProcessorEditor::paintGuide (juce::Graphics& g)
@@ -762,13 +888,23 @@ void PitchFlattenerAudioProcessorEditor::paintContent (juce::Graphics& g)
         Hud::heading (g, juce::Rectangle<float> (r.getX() + 16.0f, r.getY() + 6.0f, scope ? 90.0f : 420.0f, 18.0f),
                       scope ? "SCOPE" : "FLIGHT  /  THE SOUND AS A COURSE", m_fonts->display (12.0f), orange);
 
-        // FLAT: the flattened sound is playing (a tag at the display's corner, beside the tabs).
-        if (m_flatTagShown)
+        // The tag place before the tabs: RENDERING (a render on its way, and what is heard
+        // meanwhile), or FLAT (the flattened sound is playing).
+        const auto slot = m_statusSlot.toFloat();
+        if (m_renderingText.isNotEmpty())
+        {
+            const auto font = m_fonts->body (10.0f);
+            const float w = std::min (slot.getWidth(), Hud::textWidth (font, m_renderingText) + 14.0f);
+            const auto tag = slot.withLeft (slot.getRight() - w);
+            Hud::frame (g, tag, 5.0f, space, lime.withAlpha (0.85f), 1.5f);
+            Hud::drawText (g, m_renderingText, tag.reduced (6.0f, 0.0f), font, lime, juce::Justification::centred);
+        }
+        else if (m_flatTagShown)
         {
             const auto font = m_fonts->display (12.0f);
             const juce::String word = "FLAT";
             const float w = Hud::shearedWidth (font, word) + 30.0f;
-            const auto tag = juce::Rectangle<float> ((float) m_scopeTab.getX() - 14.0f - w, (float) m_scopeTab.getY(), w, (float) m_scopeTab.getHeight());
+            const auto tag = slot.withLeft (slot.getRight() - w);
             Hud::frame (g, tag, 5.0f, lime, juce::Colours::transparentBlack);
             g.setColour (space);
             g.fillRect (juce::Rectangle<float> (tag.getX() + 8.0f, tag.getCentreY() - 3.0f, 6.0f, 6.0f));
@@ -779,16 +915,18 @@ void PitchFlattenerAudioProcessorEditor::paintContent (juce::Graphics& g)
     if (in (m_guide))
         paintGuide (g);
 
+    // (Dimmed headings for controls that do nothing now.)
+    const auto heading = m_controlsLive ? orange : orange.withAlpha (0.4f);
     if (in (m_targetCell))
-        m_lookAndFeel.drawPanel (g, m_targetCell.toFloat(), "TARGET", orange, 32.0f);
+        m_lookAndFeel.drawPanel (g, m_targetCell.toFloat(), "TARGET", heading, 32.0f);
     if (in (m_noteCell))
-        m_lookAndFeel.drawPanel (g, m_noteCell.toFloat(), "NOTE", orange, 32.0f);
+        m_lookAndFeel.drawPanel (g, m_noteCell.toFloat(), "NOTE", heading, 32.0f);
     if (in (m_amountCell))
-        m_lookAndFeel.drawPanel (g, m_amountCell.toFloat(), "AMOUNT", orange, 32.0f);
+        m_lookAndFeel.drawPanel (g, m_amountCell.toFloat(), "AMOUNT", heading, 32.0f);
     if (in (m_sourceCell))
-        m_lookAndFeel.drawPanel (g, m_sourceCell.toFloat(), "SOURCE", orange, 32.0f);
+        m_lookAndFeel.drawPanel (g, m_sourceCell.toFloat(), "SOURCE", heading, 32.0f);
     if (in (m_lengthCell))
-        m_lookAndFeel.drawPanel (g, m_lengthCell.toFloat(), "LENGTH", orange, 32.0f);
+        m_lookAndFeel.drawPanel (g, m_lengthCell.toFloat(), "LENGTH", heading, 32.0f);
     if (in (m_characterCell))
         m_lookAndFeel.drawPanel (g, m_characterCell.toFloat(), "CHARACTER",
                                  m_characters[0]->isEnabled() ? orange : orange.withAlpha (0.4f), 32.0f);

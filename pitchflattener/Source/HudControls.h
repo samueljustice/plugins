@@ -41,6 +41,7 @@ public:
 
     void setContent (const juce::String& word, const juce::String& hint, juce::Colour accent, bool filled, bool pulsing);
     bool isPulsing() const noexcept { return m_pulsing; }
+    const juce::String& hint() const noexcept { return m_hint; }
 
 protected:
     void paintButton (juce::Graphics&, bool isMouseOver, bool isButtonDown) override;

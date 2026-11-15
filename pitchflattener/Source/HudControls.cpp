@@ -39,7 +39,14 @@ void HudButton::paintButton (juce::Graphics& g, bool isMouseOver, bool isButtonD
             break;
         case Style::Segment:
         case Style::Tab:
-            if (on)
+            if (on && ! enabled)
+            {
+                // Selected but doing nothing now: an outline in the accent, the name dim but legible.
+                fill = panel;
+                edge = m_accent.withAlpha (0.55f);
+                label = textDim;
+            }
+            else if (on)
             {
                 fill = hot ? amber : m_accent;
                 edge = fill;
@@ -54,22 +61,17 @@ void HudButton::paintButton (juce::Graphics& g, bool isMouseOver, bool isButtonD
             break;
     }
 
-    Hud::frame (g, bounds, cut, fill.withMultipliedAlpha (alpha), edge.withMultipliedAlpha (alpha));
+    // (A dimmed selected segment keeps full strength: its outline and text already say "dimmed".)
+    const float strength = on && ! enabled ? 1.0f : alpha;
+    Hud::frame (g, bounds, cut, fill.withMultipliedAlpha (strength), edge.withMultipliedAlpha (strength));
     if (PitchFlattenerLookAndFeel::shouldShowFocusRing (*this))
         Hud::frame (g, bounds.expanded (0.0f), cut, juce::Colours::transparentBlack, amber, 2.0f);
-
-    // A small lit notch on the selected segment's cut corner, as an indicator lamp.
-    if (on && m_style == Style::Segment)
-    {
-        g.setColour (space.withAlpha (0.6f * alpha));
-        g.fillRect (juce::Rectangle<float> (bounds.getRight() - 12.0f, bounds.getY() + 4.0f, 6.0f, 3.0f));
-    }
 
     const float h = std::min (13.0f, std::round (bounds.getHeight() * 0.42f));
     const auto area = bounds.reduced (m_style == Style::Action ? 8.0f : 4.0f, 2.0f);
     const auto words = getButtonText().toUpperCase();
     const float fitted = Hud::fittedHeight (*m_fonts, true, words, area.getWidth(), h, 10.0f);
-    Hud::drawSheared (g, words, area, m_fonts->display (fitted), label.withMultipliedAlpha (alpha), juce::Justification::centred);
+    Hud::drawSheared (g, words, area, m_fonts->display (fitted), label.withMultipliedAlpha (strength), juce::Justification::centred);
 }
 
 //==============================================================================

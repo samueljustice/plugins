@@ -8,10 +8,10 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 
 ## Features
 
-- **Learn by playing**: press LEARN and play the sound once. It passes through untouched while it is recorded, and Learn stops by itself after a second of silence.
+- **Learn by playing**: press LEARN and play the sound once. It passes through untouched while it is recorded, and Learn stops by itself after a second of silence. CANCEL stops Learn and keeps a sound learned before.
 - **Flat however fast it bends**: the pitch is taken out by changing the playback speed, so a fast sweep comes out as flat as a slow one, with nothing smeared and no warble.
 - **Varispeed or keep length**: let the length change with the speed (the cleanest result), or have the sound brought back to its own timing and length, with a character to suit it: harmonic, transients or voice.
-- **Recognises the sound wherever it starts**: play the learned sound again from the top or from the middle, and the flat version takes over at the matching moment. Anything else passes through.
+- **Recognises that recording wherever it starts**: play the same recording again, at the same speed and at any level, from the top or from the middle, and the flat version takes over at the matching moment. It has to be that recording, not something that sounds like it: anything else passes through untouched.
 - **Three readings of the pitch**, each suited to a kind of sound: voices, engines, and tones such as sirens and whistles. The plug-in uses the one that flattens the sound best, and you can overrule it by choosing the kind of sound or clicking another reading.
 - **Correct the line by hand**: pull the pitch line where a reading went wrong, or redraw it freehand, with snap to semitones, undo and redo.
 - **Zoom in** on the pitch line down to milliseconds and cents.
@@ -19,7 +19,7 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 - **Five targets**: flatten to the top of the pitch, the bottom, where it spends its time, where it starts, or a note you choose. **Amount** leaves some of the movement in.
 - **Two views**: SCOPE draws the pitch over time exactly; FLIGHT flies the sound as a course, its pitch as a track that rises and falls beside the level lane of the flattened sound.
 - **Says what to do next**: the next button to press pulses, a banner across the display announces each change, and a bar under it says what is happening in plain words.
-- **A fixed delay of 0.4 s**, reported to the host, so hosts that compensate delay line the result up with the original.
+- **A fixed delay**, 0.4 s at ordinary block sizes, reported to the host, so hosts that compensate delay line the result up with the original.
 - **Mono or stereo**.
 
 ## How to use it
@@ -28,12 +28,12 @@ Pitch Flattener is made for a rack, such as a sound library's DSP rack, or a tra
 
 1. **Put it on the sound.** Load Pitch Flattener in the rack or on the track that plays the sound.
 2. **Press LEARN.** The button shows ARMED and waits for sound.
-3. **Play the sound once, to its end.** The button shows LISTENING and counts the seconds. The sound passes through untouched while it is recorded. Learn stops after a second of silence, when the player stops, or when you press the button again.
+3. **Play the sound once, to its end.** The button shows LISTENING and counts the seconds. The sound passes through untouched while it is recorded. Learn stops after a second of silence, when the player stops, or when you press the button again (keeping what it heard). Learn also records while the plug-in is bypassed.
 4. **Wait a moment.** The button shows ANALYSING while the plug-in reads the pitch and renders the flat version, then LEARNED.
-5. **Play the sound again.** From the start or from any point in it, the flattened sound plays in its place. Audition it, or render it as you would any effect.
+5. **Play the same recording again**, at the same speed. From the start or from any point in it, the flattened sound plays in its place. Audition it, or render it as you would any effect.
 6. **Choose the result.** Change TARGET, NOTE, AMOUNT, SOURCE, LENGTH or CHARACTER at any time, or correct the line in SCOPE; the flat version is rendered again from the same reading, with no need to learn the sound again.
 
-**CLEAR** forgets the sound. Press LEARN again to learn another one in its place.
+**CLEAR** forgets the sound. Press LEARN again to learn another one in its place. To hear the input itself again, bypass the plug-in or press CLEAR.
 
 ## The window
 
@@ -48,19 +48,25 @@ The **LEARN** button shows what the plug-in is doing, with a hint under the word
 | LEARN shows | Hint | What it means |
 |---|---|---|
 | **LEARN** | PLAY THE SOUND ONCE | Nothing is learned. The button pulses: it is the next thing to press. |
-| **ARMED** | WAITING FOR SOUND | Learn is on and waiting for the sound to start. Press again to cancel. |
-| **LISTENING** | the seconds recorded | The sound is being recorded, and passes through untouched. Press again to stop there. |
+| **ARMED** | WAITING FOR SOUND | Learn is on and waiting for the sound to start. Press again to disarm it. |
+| **LISTENING** | the seconds recorded | The sound is being recorded, and passes through untouched. Press again to stop there and keep what was heard. |
 | **ANALYSING** | READING THE PITCH | The plug-in is reading the sound's pitch and rendering the flat version. |
 | **LEARNED** | PRESS TO LEARN ANOTHER | A sound is learned. Press to learn another one in its place. |
+| **NO PITCH** | PRESS TO LEARN ANOTHER | A sound is learned, but none of the three readings found a steady pitch in it. It plays as it is, and the controls are dimmed (they keep their settings). |
 
-Recording starts at the first sound that is not silent, keeping 50 ms before it, so the start is not cut off. A click shorter than 50 ms is not taken for the sound: Learn keeps waiting.
+Recording starts at the first sound that is not silent, keeping 50 ms before it, so the start is not cut off. It stops after a second of silence, where silence is anything below -70 dBFS or more than 50 dB under the loudest moment recorded so far, so a field recording's noise floor still ends it. A click shorter than 50 ms is not taken for the sound: Learn keeps waiting. A sample that is not a number (or is infinite) is treated as silence.
+
+While Learn is armed, listening or analysing, nothing is flattened, even if a sound was learned before: the input passes through.
+
+<img src="docs/learn-armed.png" alt="LEARN reading ARMED, WAITING FOR SOUND, in lime, and beside it the CANCEL button" width="474">
 
 | Control or readout | What it does |
 |---|---|
 | **CLEAR** | Forgets the learned sound and its corrections. Audio then passes through unchanged until another sound is learned. |
+| **CANCEL** | The same button while Learn is armed, listening or analysing: stops Learn without learning anything. A sound learned before is kept and plays again. |
 | **LENGTH** | The learned sound's length (cyan) and the flattened sound's length (lime). With KEEP LENGTH the two are the same. |
 | **FLAT ON** | The note the sound is flattened to, with cents. When the recording holds several sounds, each flattened to its own pitch, it shows SEVERAL and how many. |
-| **DELAY** | The delay the plug-in reports to the host: always 0.40 s. |
+| **DELAY** | The delay the plug-in reports to the host: 0.40 s at ordinary block sizes, longer for very large ones (see Good to know). |
 | **?** | Opens the About window: version, credits and the update check. |
 
 ### SCOPE
@@ -76,8 +82,9 @@ SCOPE draws the learned sound from start to end: its pitch over time on a note s
 - **The play head** (lime) shows where the flattened sound is while it plays, as a moment of the original, with a trail of lime ticks along the target behind it.
 - **The level strip** along the bottom is the learned sound's level.
 - **The overview bar** under the time scale shows the whole sound, with the part on view marked when zoomed in.
-- **RENDERING** appears at the top while the flat version is rendered again after a change.
-- **FLAT**, beside the tabs, is lit while the flattened sound is playing.
+- **The tag place**, just left of the tabs, shows **FLAT** while the flattened sound is playing, and **RENDERING** while the flat version is rendered again after a change. If the flattened sound is playing meanwhile, it reads **RENDERING: STILL PLAYING THE PREVIOUS VERSION**: what you hear is the version from before the change until the new one takes over.
+
+<img src="docs/rendering-tag.png" alt="The tag RENDERING: STILL PLAYING THE PREVIOUS VERSION, in lime" width="276">
 
 <img src="docs/scope-other-line.png" alt="The SCOPE display with the VOICE reading chosen instead: it is drawn in cyan, the TONE and ENGINE readings are grey, and the target line sits at F#4 +29 at the line's low point" width="956">
 
@@ -98,7 +105,7 @@ A correction says what the pitch really is at that moment. Pulling the line up s
 - **DRAW**: drag across the graph to redraw the line freehand. What you draw replaces the points under it, and the line either side stays where it was. Off, a drag pulls the line at one point.
 - **SNAP**: corrections put the pitch on the nearest semitone. Hold Alt while pulling to let go of it.
 
-<img src="docs/draw-tools.png" alt="The editing tools: DRAW lit, SNAP, UNDO, REDO dimmed and RESET CURVE" width="500">
+<img src="docs/draw-tools.png" alt="The editing tools: DRAW lit, SNAP, UNDO, REDO dimmed and RESET CURVE, then the zoom buttons -, + and FIT" width="408">
 
 | Tool | What it does |
 |---|---|
@@ -150,7 +157,7 @@ While nothing plays, the flight cruises along the sound at half speed and loops.
 
 ### The guidance bar
 
-<img src="docs/guide.png" alt="The guidance bar under the display, saying LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED" width="954">
+<img src="docs/guide.png" alt="The guidance bar under the display, saying LEARNED: PLAY THE SAME RECORDING AGAIN, AT THE SAME SPEED, TO HEAR IT FLATTENED. ANYTHING ELSE PASSES THROUGH." width="954">
 
 The bar under the display says what to do or what is happening:
 
@@ -160,12 +167,17 @@ The bar under the display says what to do or what is happening:
 | LEARN IS ARMED: PLAY THE SOUND ONCE | Learn is waiting for the sound. |
 | LISTENING: LET THE SOUND PLAY TO ITS END | The sound is being recorded. |
 | ANALYSING THE SOUND | The pitch is being read and the flat version rendered. |
-| LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED | Ready. |
-| PLAYING THE FLATTENED SOUND | The sound was recognised and its flat version is playing. |
+| LEARNED: PLAY THE SAME RECORDING AGAIN, AT THE SAME SPEED, TO HEAR IT FLATTENED. ANYTHING ELSE PASSES THROUGH. | Ready. |
+| PLAYING THE FLATTENED SOUND | The recording was recognised and its flat version is playing. |
+| THE FLATTENED SOUND HAS ENDED: IT IS SHORTER THAN THE ORIGINAL | VARISPEED: the flattened sound is shorter and has finished, while the original is still playing in the input. The output is silent until the original would have ended. |
+| PLAYING THE END OF THE FLATTENED SOUND: IT IS LONGER THAN THE ORIGINAL | VARISPEED: the original has ended and the rest of the longer flattened sound plays out, until the input is no longer silent. |
 | DRAG THE LINE TO CORRECT IT. DOUBLE-CLICK A POINT TO REMOVE IT. | The mouse is over the line in SCOPE. |
 | DRAW ALONG THE GRAPH TO REDRAW THE LINE. ALT WHILE DRAGGING LETS GO OF THE SNAP. | The same, with DRAW on. |
-| NO STEADY PITCH FOUND: THE SOUND IS LEFT AS IT IS | None of the three readings found a steady pitch in the sound. |
-| LEARNED AT 48000 HZ: THE SESSION IS AT 96000 HZ | The session runs at another sample rate than the sound was learned at (the rates shown are the real ones). |
+| NO STEADY PITCH FOUND IN THIS SOUND: IT PLAYS AS IT IS. LEARN ANOTHER SOUND. | None of the three readings found a steady pitch in the sound. |
+| LEARNED AT 48000 HZ, THE SESSION IS AT 96000 HZ: SET THE SESSION BACK TO 48000 HZ, OR LEARN THE SOUND AGAIN | The session runs at another sample rate than the sound was learned at (the rates shown are the real ones). |
+| THE BOUNCE STARTED BEFORE THE NEW VERSION WAS READY: IT USED THE PREVIOUS ONE. BOUNCE AGAIN. | An offline render could not wait for the latest change to be rendered, so it used the version before. It goes when a newer version is ready. |
+
+<img src="docs/guide-ended.png" alt="The guidance bar saying THE FLATTENED SOUND HAS ENDED: IT IS SHORTER THAN THE ORIGINAL" width="954">
 
 ### Banners
 
@@ -175,7 +187,7 @@ A banner across the display announces each change, and the next steps while you 
 
 <img src="docs/banner-listening.png" alt="The magenta LISTENING 1.6 S banner, with a recording square before the words" width="920">
 
-<img src="docs/banner-no-steady-pitch.png" alt="The magenta NO STEADY PITCH banner" width="920">
+<img src="docs/no-pitch.png" alt="A sound with no steady pitch: LEARN reads NO PITCH, PRESS TO LEARN ANOTHER, in magenta; the magenta NO STEADY PITCH banner across the display; and the guidance bar saying NO STEADY PITCH FOUND IN THIS SOUND: IT PLAYS AS IT IS. LEARN ANOTHER SOUND." width="956">
 
 | Banner | Colour | What it means |
 |---|---|---|
@@ -208,7 +220,7 @@ The high point, centre and low point are counted by level, so a loud part of the
 | Control | What it does |
 |---|---|
 | **NOTE** | The pitch the sound is flattened to when the target is NOTE (C1 to C8, A4 by default). Type a note name such as A3, or C#4 +20 for cents. It is dimmed for the other targets. |
-| **AMOUNT** | How much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in; 0% leaves it as it was. |
+| **AMOUNT** | How much of the pitch movement is taken out. 100% leaves the sound flat; 50% leaves half of its movement in. At 0% the learned copy still plays in place of the input, untouched in pitch. |
 
 Double-click NOTE or AMOUNT to return it to its default.
 
@@ -227,10 +239,10 @@ Auto's pick is a measurement, and the ear sometimes disagrees with it. If the re
 
 | Length | What it does |
 |---|---|
-| **VARISPEED** | Flattens by changing the speed, like slowing and speeding a tape. The cleanest result; the sound's length changes. The default. |
+| **VARISPEED** | Flattens by changing the speed, like slowing and speeding a tape. The cleanest result; the sound's length changes, so what you hear runs ahead of or behind the input. The default. |
 | **KEEP LENGTH** | Flattens the pitch and keeps the sound's own timing and length. Choose a character to suit the sound. |
 
-KEEP LENGTH works in two steps. First the sound is flattened by speed, exactly as with VARISPEED, so the pitch comes out exactly as flat. Then the result is stretched and squeezed back to the original's timing, without touching its pitch, so that every moment lands where it was and the length is the original's. Only time moves in the second step, so nothing in it can make the pitch warble. LENGTH in the readouts then shows the same length twice, and when the flattened sound plays it lines up with the original moment for moment.
+KEEP LENGTH works in two steps. First the sound is flattened by speed, exactly as with VARISPEED, so the pitch comes out exactly as flat. Then the result is stretched and squeezed back to the original's timing, without touching its pitch, so that every moment lands where it was and the length is the original's. Only time moves in the second step, so nothing in it can make the pitch warble. LENGTH in the readouts then shows the same length twice, and when the flattened sound plays it lines up with the input moment for moment, so it never plays past what has been checked against the learned sound (see Good to know).
 
 <img src="docs/keep-length.png" alt="The readouts with KEEP LENGTH on: LENGTH 17.22 S to 17.22 S and FLAT ON G#6 +36" width="474">
 
@@ -257,18 +269,19 @@ When the window opens, Pitch Flattener asks GitHub, at most once a day, whether 
 ## Good to know
 
 - **With VARISPEED the length changes.** The pitch is taken out by playing the sound faster where it is below the target and slower where it is above, the way speeding and slowing a tape changes its pitch. That is what keeps the result flat however fast the pitch bends, and it is also why the result is shorter or longer than the original. HIGH POINT never makes the sound longer, LOW POINT makes it longer, and CENTRE changes the length least. When the result is longer, the plug-in tells the host how much longer, so a render keeps the end. Choose KEEP LENGTH to keep the original length.
+- **With VARISPEED, what you hear runs ahead of or behind the input.** A shorter result moves through the sound faster than the input does, and a longer one slower, but the plug-in checks the input against the learned recording at the input's own moment. So if a different file starts exactly like the learned one and then goes its own way, a little of the learned sound's later material may already have been heard by the time the plug-in lets go (in the tests, cutting the input after 2.000 s of a shorter result let the sound's moment 2.046 s be heard). KEEP LENGTH is one to one with the input and never plays past what it has checked.
 - **KEEP LENGTH takes longer to render** than VARISPEED, as it does the extra stretch after flattening.
 - **The speed changes by up to three octaves either way.** Pitch movement beyond that is not fully taken out.
 - **A leap in a reading is taken out of the line.** A sound's pitch can sweep very fast, but it does not jump, so a sudden jump in a reading is nearly always the reading changing its mind: stepping to another partial or octave, or a voice breaking into a growl. Each jump is taken out and the rest of the line moved to meet it, so the flattening never lurches. The exception is a sweep that snaps back and starts again, such as a yelping siren: there the jumps are real, and the reading is kept as it is.
-- **A delay of 0.4 s.** The output is always the input 0.4 s later, whether the flat version or the input itself is playing, and bypass is delayed the same, so switching never shifts the audio in time. The plug-in reports the delay, so hosts that compensate delay line the result up with the original. That time is what lets it recognise where the sound is before the audio reaches the output.
+- **The delay.** The output is always the input delayed by a fixed time, whether the flat version or the input itself is playing, and bypass is delayed the same, so switching never shifts the audio in time. The plug-in reports the delay, so hosts that compensate delay line the result up with the original. That time is what lets it find where the recording is, and check it, before the audio reaches the output. The delay is 0.4 s or, if longer, about 85 ms plus one host block plus a quarter of a second: so 0.4 s for blocks of up to 2048 samples at 44.1 or 48 kHz and 4096 at 88.2 or 96 kHz, and about 1 s for a block of 32768 samples at 48 kHz. DELAY at the top of the window shows the figure in use.
 - **A sound with no steady pitch is left as it is**, such as noise or a crash: when none of the three readings can follow it, the window says NO STEADY PITCH, and the sound passes through unchanged.
-- **The same sound, played the same way.** The plug-in recognises the learned recording itself. The same sound played at another speed or pitch, or another take of it, is not recognised, and passes through.
-- **The flattened sound follows the playback level.** Play the sound louder or quieter than it was learned, and the flattened sound comes out louder or quieter by the same amount. The level is measured when the plug-in finds the sound in the input; within about a tenth of a decibel of the learned level counts as the same.
-- **Stopping the player in the middle of the sound** returns the output to the input. Jumping to another place in the sound finds that place. Played to its end, the rest of the flattened sound plays out, then the input.
-- **Rendering offline** works: when the host renders faster than real time, the plug-in waits for its search instead of running ahead of it.
+- **What is recognised.** Only that same recording, played at the same speed, at any level, from the start or from any point in it. The input has to equal the learned recording, not just sound like it: to start, anything else in the input must be at least about 30 dB under it, and once playing, anything louder than about 20 dB under it makes the plug-in let go. And nothing is heard until the match has held for the whole delay, so a moment that only resembles the sound never comes out flattened. What therefore passes through untouched: another take of the sound; the same sound layered with something louder than about 20 dB under it; a copy at another speed or pitch; a copy with its polarity inverted; a stereo file with its channels swapped; and a different file that only shares a hum or a tone with it (where the input matches the learned sound in many places, as a steady hum does, it is taken only when it is within 12 dB of the learned sound's loudest moment).
+- **The flattened sound follows the playback level.** Play the recording louder or quieter than it was learned, and the flattened sound comes out louder or quieter by the same amount. The level is followed all the way through, so a fade on the player comes out as a fade. A level within about a tenth of a decibel of the learned one counts as the same.
+- **When it lets go.** The output returns to the input, with a 5 ms fade, as soon as the input stops being the learned recording: another sound, a jump to another place (which it then finds), the player stopping (even in a quiet gap between sounds), or a host reset. Played to its end, a longer VARISPEED result plays out its end until the input is no longer silent; a shorter one has already finished, and the input comes back when the original would have ended. After a false start it waits a little longer before trying again (from 0.1 s, doubling up to 2 s), so unrelated audio is only searched now and then.
+- **Rendering offline** works: when the host renders faster than real time, the plug-in waits for its search and for a render instead of running ahead of them, so a bounce matches a real-time pass. If a wait ever gives up, the guidance bar says the bounce used the previous version and asks you to bounce again.
 - **The learned sound and its corrections are kept in memory only.** They are not saved with the session: after reopening the session, learn the sound again. The controls and the chosen view are saved.
 - **One sound per instance.** Learning another sound replaces the first. For several sounds, use several instances, or learn them in one recording with short silences between them.
-- **The sample rate must match.** The flattened sound plays only at the sample rate it was learned at. At another rate the window says WRONG SAMPLE RATE, and the audio passes through.
+- **The sample rate must match.** The flattened sound plays only at the sample rate it was learned at. At another rate the window says WRONG SAMPLE RATE and the audio passes through: set the session back to the rate it was learned at, or learn the sound again.
 - **Up to 120 seconds per sound.** Learn stops by itself at two minutes.
 - **Corrections** can move the line by up to 24 semitones either way, with up to 512 points on a reading.
 - **Mono and stereo.** A stereo sound on a mono track plays as the two channels mixed; a mono sound on a stereo track plays on both.
@@ -298,7 +311,29 @@ With KEEP LENGTH:
 - **VOICE character**, on a falling voice whose formant stays at about 1200 Hz: near the end the formant sits at 1208 Hz in the sound, 1796 Hz with HARMONIC (moved up with the pitch), and 1173 Hz with VOICE (put back). The pitch travels 0.12 st.
 - **TRANSIENTS character**, on a tone falling 19 semitones with hard clicks on it. Click sharpness (the share of the energy around a click that lies in the click's own few milliseconds): 0.85 in the sound, 0.47 after flattening by speed alone, 0.37 with HARMONIC, 0.46 with TRANSIENTS. Level just before a click, against the click: -7.9 dB by speed alone, -3.9 dB with HARMONIC (smeared ahead of the click), -8.2 dB with TRANSIENTS.
 
-The same tests check that flattening to the high point never makes the sound longer, that the low point makes it longer, that the centre keeps a vibrato's length within 2%, that half the amount leaves half the movement, that a chosen note is hit by every sound in a recording, that a whine falling an octave and a half in 0.15 s in noise is followed, that a hand correction moves the result by the amount it says, and that noise and silence are left alone. All 67 checks pass; `PitchFlattenerTests` runs 252 more.
+The same tests check that flattening to the high point never makes the sound longer, that the low point makes it longer, that the centre keeps a vibrato's length within 2%, that half the amount leaves half the movement, that a chosen note is hit by every sound in a recording, that a whine falling an octave and a half in 0.15 s in noise is followed, that a hand correction moves the result by the amount it says, and that noise and silence are left alone. All 67 checks pass.
+
+`PitchFlattenerTests` drives the engine with real audio blocks and checks what comes out. What it plays, and what comes out:
+
+| Played into the plug-in | What comes out |
+|---|---|
+| The learned file, from the start or from the middle | The flattened sound, from the matching moment. |
+| The same file 6 dB louder | The flattened sound 6 dB louder, sample for sample. |
+| The same file fading out by 60 dB over its last 1.5 s | The flattened sound fading with it, within 1 dB. |
+| 0.2 s of the sound, then another tone | Nothing flattened is heard: the input passes bit for bit. |
+| The sound with another sound layered 14 dB under it | The input, untouched. |
+| A copy resampled 2% faster, or a semitone higher; a polarity-inverted copy; a copy with a DC offset | Not found. |
+| The stereo file with its channels swapped | The input, untouched. |
+| Another file of the same hum the learned recording opens with | The input, untouched. |
+| A different steady tone at the pitch of a learned held note | The input, untouched. |
+| Two sounds learned with room tone between, the player stopped in the gap | The output stops too. |
+| The next file straight after a sound whose result is longer | The next file at once, not under the end of the result. |
+| A host reset part way through, then silence | Silence. |
+| 5 s of unrelated noise | Searched 6 times, not continuously. |
+| The first 2 s of the sound, then silence (VARISPEED, shorter result) | The flattened sound stops at the input's cut; the last moment heard is the sound's 2.046 s. |
+| The same with KEEP LENGTH | Nothing past the checked input is played. |
+
+All 384 of its checks pass, including the window's states and the pictures on this page.
 
 ## System requirements
 

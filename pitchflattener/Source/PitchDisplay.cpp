@@ -1284,16 +1284,5 @@ void PitchDisplay::paint (juce::Graphics& g)
         Hud::drawText (g, words, box.reduced (6.0f, 0.0f), font, text, juce::Justification::centredLeft);
     }
 
-    // A new render on its way.
-    if (m_view.rendering)
-    {
-        const auto font = m_fonts->display (11.0f);
-        const juce::String words = "RENDERING";
-        const float w = Hud::shearedWidth (font, words) + 20.0f;
-        const auto box = juce::Rectangle<float> (m_plot.getCentreX() - w * 0.5f, m_plot.getY() + 2.0f, w, 18.0f);
-        Hud::frame (g, box, 5.0f, space.withAlpha (0.9f), lime.withAlpha (0.8f), 1.0f);
-        Hud::drawSheared (g, words, box.reduced (6.0f, 0.0f), font, lime, juce::Justification::centred);
-    }
-
     drawOverview (g);
 }

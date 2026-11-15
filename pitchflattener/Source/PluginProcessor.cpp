@@ -282,7 +282,20 @@ void PitchFlattenerAudioProcessor::setStateInformation (const void* data, int si
     if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
         return;   // not a state of this plug-in: keep the defaults
 
-    parameters.replaceState (juce::ValueTree::fromXml (*xml));
+    const auto tree = juce::ValueTree::fromXml (*xml);
+    if ((int) tree.getProperty ("stateVersion", 1) <= stateVersion)
+    {
+        parameters.replaceState (tree);
+    }
+    else
+    {
+        // From a newer version: take the values of the parameters this version knows, by ID, and
+        // leave the rest of what it holds (its meaning may have changed).
+        for (const auto& child : tree)
+            if (auto* param = parameters.getParameter (child.getProperty ("id").toString()))
+                if (child.hasProperty ("value"))
+                    param->setValueNotifyingHost (param->convertTo0to1 ((float) child.getProperty ("value")));
+    }
     syncOptions();
 }
 

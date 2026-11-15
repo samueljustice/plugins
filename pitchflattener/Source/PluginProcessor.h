@@ -24,7 +24,12 @@
  * The saved state holds the parameters and the editor's choice of view. The learned sound lives in
  * memory for as long as the plug-in instance does; a session reopened later has to learn it again.
  *
- * The plug-in reports a fixed latency of Engine::kLatencySeconds (set once, in prepareToPlay).
+ * The plug-in reports a fixed latency, set once in prepareToPlay: Engine::latencyFor(rate, block),
+ * 0.4 s unless the host's blocks are very large (see Engine.h).
+ *
+ * State: saved with stateVersion. A state from a newer version is read only for the parameters
+ * this version knows, by ID (anything else it holds is left alone); an older or equal one is
+ * restored as it is.
  */
 class PitchFlattenerAudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
@@ -74,6 +79,14 @@ public:
     juce::AudioProcessorValueTreeState parameters;
 
     pitchflattener::Engine& getEngine() noexcept { return m_engine; }
+
+    // Learn's actions (message thread).
+    /** Arms Learn: the next sound played through is learned. */
+    void armLearn() { m_engine.armLearn(); }
+    /** Stops Learn without learning anything; the sound learned before (if any) stays and plays. */
+    void cancelLearn() { m_engine.cancelLearn(); }
+    /** Forgets the learned sound. */
+    void clear() { m_engine.clear(); }
     const pitchflattener::Engine& getEngine() const noexcept { return m_engine; }
 
     /** The options the parameters set now. */

@@ -80,9 +80,9 @@ juce::AudioBuffer<float> play (Processor& p, const juce::AudioBuffer<float>& sou
     return io;
 }
 
-bool writePngOf (juce::Component& component, const juce::File& folder, const char* name)
+bool writePngOf (juce::Component& component, const juce::File& folder, const char* name, float scale = 2.0f)
 {
-    const auto image = component.createComponentSnapshot (component.getLocalBounds(), true, 2.0f);
+    const auto image = component.createComponentSnapshot (component.getLocalBounds(), true, scale);
     if (! image.isValid())
         return false;
     if (folder == juce::File())
@@ -195,6 +195,120 @@ juce::Rectangle<int> oddEdges (juce::Rectangle<int> r)
     const int x0 = (r.getX() & 1) == 0 ? r.getX() - 1 : r.getX(), y0 = (r.getY() & 1) == 0 ? r.getY() - 1 : r.getY();
     const int x1 = (r.getRight() & 1) == 0 ? r.getRight() + 1 : r.getRight(), y1 = (r.getBottom() & 1) == 0 ? r.getBottom() + 1 : r.getBottom();
     return { x0, y0, x1 - x0, y1 - y0 };
+}
+
+void testPlaybackAndRenderingTag()
+{
+    beginCase ("editor: one definition of playing; the rendering tag's words and place");
+    using Mode = pitchflattener::Engine::Playback;
+    const auto now = Editor::playbackOf (Mode::Flattened, true), older = Editor::playbackOf (Mode::Flattened, false);
+    check (now.playing && now.current, "the flattened sound, this render");
+    check (older.playing && ! older.current, "an older render playing out still counts as playing");
+    check (Editor::playbackOf (Mode::Tail, true).playing, "the tail of a longer render is playing");
+    check (! Editor::playbackOf (Mode::FlattenedEnded, false).playing && ! Editor::playbackOf (Mode::Searching, false).playing
+           && ! Editor::playbackOf (Mode::Idle, true).playing, "ended, searching and idle are not playing");
+    check (Editor::renderingText ({}, false).isEmpty(), "no render pending: no tag");
+    check (Editor::renderingText ({}, true) == "RENDERING", "rendering while nothing plays: RENDERING");
+    check (Editor::renderingText (now, true) == "RENDERING: STILL PLAYING THE PREVIOUS VERSION", "rendering while playing: says the previous version plays");
+    check (Editor::renderingText (older, false) == "RENDERING: STILL PLAYING THE PREVIOUS VERSION", "a newer render not yet taken over: the same");
+    check (Editor::renderingText (now, false).isEmpty(), "playing the current render with none pending: no tag");
+
+    check (Editor::learnedStatus (Mode::Flattened) == "PLAYING THE FLATTENED SOUND", "guidance while the flattened sound plays");
+    check (Editor::learnedStatus (Mode::FlattenedEnded) == "THE FLATTENED SOUND HAS ENDED: IT IS SHORTER THAN THE ORIGINAL", "guidance once a shorter render has ended");
+    check (Editor::learnedStatus (Mode::Tail) == "PLAYING THE END OF THE FLATTENED SOUND: IT IS LONGER THAN THE ORIGINAL", "guidance in a longer render's tail");
+    check (Editor::learnedStatus (Mode::Searching) == Editor::learnedStatus (Mode::Idle)
+           && Editor::learnedStatus (Mode::Searching).startsWith ("LEARNED: PLAY THE SAME RECORDING AGAIN"), "searching: the learned guidance");
+
+    // The bounce warning holds until a newer render (that did not give up) or Clear.
+    {
+        pitchflattener::Result r1, r2;
+        r1.generation = 3;
+        r2.generation = 4;
+        Editor::BounceWarning w;
+        check (! w.update (false, &r1), "no warning by default");
+        check (w.update (true, &r1), "a wait that gave up raises it");
+        check (w.update (false, &r1), "it holds while the same render is current");
+        check (! w.update (false, &r2), "a newer render takes it down");
+        check (w.update (true, &r2) && ! w.update (false, nullptr), "and so does Clear");
+    }
+    Processor p;
+    std::unique_ptr<Editor> editor (dynamic_cast<Editor*> (p.createEditor()));
+    const auto slot = editor->statusSlotForTests();
+    bool clear = slot.getBottom() <= editor->viewAreaForTests().getY();
+    for (const auto& b : editor->headerButtonsForTests())
+        clear = clear && ! b.intersects (slot);
+    check (! slot.isEmpty() && clear, "the tag place is in the display's header, covering no control and none of the graph");
+    juce::SharedResourcePointer<Theme::Fonts> fonts;
+    check (Hud::textWidth (fonts->body (10.0f), "RENDERING: STILL PLAYING THE PREVIOUS VERSION") + 14.0f <= (float) slot.getWidth(),
+           "the longest tag fits its place");
+
+    // The DELAY readout is the processor's own latency, longer for very large host blocks.
+    prepare (p, 48000.0, 16384);
+    editor->refreshNow();
+    const auto want = juce::String ((double) p.getLatencySamples() / 48000.0, 2) + " S";
+    check (editor->delayText() == want, "the DELAY readout shows the reported latency: " + editor->delayText().toStdString() + " for " + want.toStdString());
+}
+
+bool learnSound (Processor& p, const juce::AudioBuffer<float>& sound);
+
+void testEndAndTail (const juce::File& pngFolder)
+{
+    beginCase ("editor: the flattened sound ending before the original, and playing on after it");
+    using Mode = pitchflattener::Engine::Playback;
+    for (const int target : { 0, 2 })   // High Point: shorter; Low Point: longer
+    {
+        Processor p;
+        p.setNonRealtime (true);
+        prepare (p, 48000.0, 512);
+        p.setParameterFromEditor (Processor::targetId, (float) target);
+        p.syncOptions();
+        const auto sound = passBy (48000.0, 2, 2.5);
+        std::unique_ptr<Editor> editor (dynamic_cast<Editor*> (p.createEditor()));
+        editor->setClockForTests (1.0);
+        if (! learnSound (p, sound) || p.getEngine().state() != State::Ready)
+        {
+            check (false, "learned for the end and the tail");
+            continue;
+        }
+        editor->setClockForTests (20.0);
+        editor->refreshNow();
+        editor->chooseView (Processor::kViewScope);
+        const auto r = p.getEngine().result();
+        const bool shorter = r->flattened.channels[0].size() < (size_t) r->learned->locator.length();
+        if (target == 0)
+        {
+            // All of the sound again: the shorter render runs out before the input does.
+            play (p, sound, 0.3, 0.0);
+            editor->setClockForTests (25.0);
+            editor->refreshNow();
+            if (shorter && p.getEngine().playback() == Mode::FlattenedEnded)
+            {
+                check (editor->statusText() == "THE FLATTENED SOUND HAS ENDED: IT IS SHORTER THAN THE ORIGINAL", "ended: the guidance says so");
+                check (! editor->flatTagShown() && editor->bannerKind() == BannerLogic::Kind::None, "ended: no FLAT tag, no banner");
+                editor->setClockForTests (26.0);
+                check (writePng (*editor, pngFolder, "flattened-ended.png"), "flattened ended snapshot");
+            }
+            else
+                std::printf ("    -> (could not stage the end: playback %d)\n", (int) p.getEngine().playback());
+        }
+        else
+        {
+            // The sound, then a little silence: the longer render plays on.
+            play (p, sound, 0.3, 0.7);   // (past the 0.4 s delay, so the sound has ended at the output too)
+            editor->setClockForTests (25.0);
+            editor->refreshNow();
+            if (! shorter && p.getEngine().playback() == Mode::Tail)
+            {
+                check (editor->statusText() == "PLAYING THE END OF THE FLATTENED SOUND: IT IS LONGER THAN THE ORIGINAL", "tail: the guidance says so");
+                editor->setClockForTests (26.5);   // past the FLATTENED announcement (this is its first look at the playback)
+                editor->refreshNow();
+                check (editor->flatTagShown(), "tail: the FLAT tag stays");
+            }
+            else
+                std::printf ("    -> (could not stage the tail: playback %d)\n", (int) p.getEngine().playback());
+        }
+        check (Editor::textOverflowCount() == 0, "end and tail: every text fits its box");
+    }
 }
 
 void checkPartialRepaints (Editor& editor, const char* state)
@@ -819,6 +933,7 @@ void testProcessor()
     const auto N = p.getEngine().lastMatchInput();
     check (N >= 0, "recognised");
     bool flat = true;
+    int compared = 0;
     const auto F0 = (juce::int64) std::llround (r->flattened.outputSampleFor ((double) p.getEngine().lastMatchSource()));
     const auto base = (juce::int64) (0.2 * 48000.0) + sound.getNumSamples() + (juce::int64) (1.3 * 48000.0);   // the first play's length
     for (int t = 24000 + 1000; t < 24000 + 40000; ++t)
@@ -827,8 +942,9 @@ void testProcessor()
         if (f >= (juce::int64) r->flattened.channels[0].size())
             break;
         flat = flat && identical (out.getSample (0, t + L), r->flattened.channels[0][(size_t) f]);
+        ++compared;
     }
-    check (flat, "the flattened sound comes out, latency later");
+    check (flat && compared > 30000, "the flattened sound comes out, latency later (" + std::to_string (compared) + " samples compared)");
 
     // Bypassed: the input, delayed.
     juce::AudioBuffer<float> io (2, 48000);
@@ -846,7 +962,29 @@ void testProcessor()
     for (int t = 0; t + L < 48000; ++t)
         delayed = delayed && identical (io.getSample (1, t + L), dry.getSample (1, t));
     check (delayed, "bypassed: the input delayed by the latency");
+
+    // reset() (a host stopping or locating) mid-sound: nothing of that sound comes out afterwards.
+    play (p, sound, 0.5, 0.0, 512, 0, sound.getNumSamples() / 2);
     p.reset();
+    const auto afterReset = play (p, juce::AudioBuffer<float> (2, 0), 1.0, 0.0);
+    check (afterReset.getMagnitude (0, afterReset.getNumSamples()) == 0.0f, "after reset() with silent input the output is silent");
+
+    // Cancel keeps the sound learned before; a state from a newer version gives its known values.
+    p.armLearn();
+    p.cancelLearn();
+    check (p.getEngine().state() == State::Ready && p.getEngine().result() == r, "cancelLearn() through the processor keeps the learned sound");
+    juce::ValueTree newer (p.parameters.state.getType());
+    newer.setProperty ("stateVersion", Processor::stateVersion + 1, nullptr);
+    juce::ValueTree target ("PARAM");
+    target.setProperty ("id", Processor::targetId, nullptr);
+    target.setProperty ("value", 2.0f, nullptr);
+    newer.appendChild (target, nullptr);
+    juce::MemoryBlock block;
+    if (const auto xml = newer.createXml())
+        juce::AudioProcessor::copyXmlToBinary (*xml, block);
+    Processor q;
+    q.setStateInformation (block.getData(), (int) block.getSize());
+    check (q.optionsFromParameters().target == pitchflattener::core::Target::LowPoint, "a newer state's known parameters are read by ID");
 }
 
 juce::AudioBuffer<float> loadSound (const juce::File& soundFile, double& rate)
@@ -893,17 +1031,22 @@ void testEditor (const juce::File& pngFolder, const juce::File& soundFile)
     check (editor->bannerKind() == Kind::LearnFirst && editor->learnButtonPulses(), "nothing learned: LEARN FIRST, and Learn pulses");
     check (editor->shownView() == Processor::kViewFlight, "nothing learned: the flight view's attract loop");
     check (writePng (*editor, pngFolder, "empty.png"), "empty snapshot");
+    check (editor->clearButtonText() == "CLEAR" && ! editor->clearButtonEnabled(), "nothing learned: CLEAR, disabled");
     checkPartialRepaints (*editor, "nothing learned");
 
     p.getEngine().armLearn();
     editor->refreshNow();
     check (editor->learnButtonText() == "ARMED", "Learn shows ARMED");
+    check (editor->clearButtonText() == "CANCEL" && editor->clearButtonEnabled() && editor->clearButtonTooltip() == "Stops Learn without learning anything. A sound learned before is kept.",
+           "armed: the button reads CANCEL and stops Learn");
     check (editor->bannerKind() == Kind::PlayTheSound && ! editor->learnButtonPulses(), "armed: PLAY THE SOUND, and Learn stops pulsing");
     check (snapshotLit (*editor, clock, pngFolder, "armed.png"), "armed snapshot");
+    check (writePngOf (*editor, pngFolder, "armed-1x.png", 1.0), "armed at 1x");
     play (p, sound, 0.2, 0.0, 512, 0, std::min (sound.getNumSamples(), (int) (rate * 1.5)));
     editor->refreshNow();
     check (editor->learnButtonText().startsWith ("LISTENING"), "Learn shows LISTENING and the time: " + editor->learnButtonText().toStdString());
     check (editor->bannerKind() == Kind::Listening, "listening: LISTENING");
+    check (editor->clearButtonText() == "CANCEL" && editor->clearButtonEnabled(), "listening: CANCEL");
     check (snapshotLit (*editor, clock, pngFolder, "listening.png"), "listening snapshot");
     play (p, sound, 0.0, 1.3, 512, std::min (sound.getNumSamples(), (int) (rate * 1.5)));
     editor->refreshNow();
@@ -917,10 +1060,14 @@ void testEditor (const juce::File& pngFolder, const juce::File& soundFile)
     check (p.getEngine().waitUntilIdle (120.0), "learned");
     editor->refreshNow();
     const auto state = p.getEngine().state();
-    check (editor->learnButtonText() == "LEARNED", "Learn shows LEARNED");
-    check (state == State::Ready ? editor->statusText() == "LEARNED: PLAY THE SOUND AGAIN TO HEAR IT FLATTENED"
-                                 : editor->statusText() == "NO STEADY PITCH FOUND: THE SOUND IS LEFT AS IT IS",
+    check (editor->learnButtonText() == (state == State::Ready ? "LEARNED" : "NO PITCH"), "Learn shows LEARNED");
+    check (editor->learnHintText() == "PRESS TO LEARN ANOTHER", "and how to learn another");
+    check (state == State::Ready ? editor->statusText() == "LEARNED: PLAY THE SAME RECORDING AGAIN, AT THE SAME SPEED, TO HEAR IT FLATTENED. ANYTHING ELSE PASSES THROUGH."
+                                 : editor->statusText().startsWith ("NO STEADY PITCH FOUND IN THIS SOUND: IT PLAYS AS IT IS."),
            "learned: " + editor->statusText().toStdString());
+    check (editor->clearButtonText() == "CLEAR" && editor->clearButtonEnabled()
+           && editor->clearButtonTooltip().startsWith ("Clear: forgets the learned sound."), "learned: CLEAR, enabled");
+    check (editor->controlsLive() && ! editor->readoutsDimmed(), "learned: the controls are live, the readouts lit");
     check (editor->shownView() == Processor::kViewScope, "learned: the scope, as nothing was chosen");
     check (snapshotLit (*editor, clock, pngFolder, "learned.png", 1.0), "learned snapshot");
     checkPartialRepaints (*editor, "learned");
@@ -1033,6 +1180,11 @@ void testEditor (const juce::File& pngFolder, const juce::File& soundFile)
         checkPartialRepaints (*editor, "playing, flight");
         editor->chooseView (Processor::kViewScope);
         check (writePng (*editor, pngFolder, "playing.png"), "playing snapshot");
+        check (writePngOf (*editor, pngFolder, "playing-1x.png", 1.0), "playing at 1x");
+        editor->setRenderingTextForTests ("RENDERING: STILL PLAYING THE PREVIOUS VERSION");
+        check (editor->renderingTagText() == "RENDERING: STILL PLAYING THE PREVIOUS VERSION", "the rendering tag shows in the header");
+        check (writePng (*editor, pngFolder, "rendering.png"), "rendering tag snapshot");
+        editor->setRenderingTextForTests ({});
         checkPartialRepaints (*editor, "playing, scope");
 
         // Each line and target: no flash for either.
@@ -1055,18 +1207,34 @@ void testEditor (const juce::File& pngFolder, const juce::File& soundFile)
         juce::MidiBuffer midi;
         p.processBlock (quiet, midi);
         editor->refreshNow();
-        const auto want = "LEARNED AT " + juce::String (juce::roundToInt (rate)) + " HZ: THE SESSION IS AT " + juce::String (juce::roundToInt (rate * 2.0)) + " HZ";
+        const auto learnedAt = juce::String (juce::roundToInt (rate));
+        const auto want = "LEARNED AT " + learnedAt + " HZ, THE SESSION IS AT " + juce::String (juce::roundToInt (rate * 2.0))
+                        + " HZ: SET THE SESSION BACK TO " + learnedAt + " HZ, OR LEARN THE SOUND AGAIN";
         check (editor->statusText() == want, "another rate: " + editor->statusText().toStdString());
+        check (editor->readoutsDimmed(), "another rate: the readouts are dimmed");
         check (snapshotLit (*editor, clock, pngFolder, "other-rate.png"), "rate snapshot");
         checkPartialRepaints (*editor, "another rate");
         check (editor->bannerKind() == Kind::WrongSampleRate, "another rate: WRONG SAMPLE RATE");
     }
 
-    p.getEngine().clear();
+    // CANCEL while armed stops Learn and keeps the sound learned before.
+    if (p.getEngine().result() != nullptr)
+    {
+        p.getEngine().armLearn();
+        editor->refreshNow();
+        check (editor->clearButtonText() == "CANCEL" && editor->clearButtonTooltip() == "Stops Learn without learning anything. A sound learned before is kept.",
+               "armed over a learned sound: CANCEL");
+        editor->pressClearForTests();
+        check (p.getEngine().state() != State::Armed && p.getEngine().result() != nullptr && editor->clearButtonText() == "CLEAR",
+               "CANCEL while armed keeps the sound learned before");
+    }
+
+    editor->pressClearForTests();
     clock += 0.5;
     editor->setClockForTests (clock);
     editor->refreshNow();
     check (editor->statusText() == "PRESS LEARN, THEN PLAY THE SOUND ONCE", "cleared");
+    check (editor->clearButtonText() == "CLEAR" && ! editor->clearButtonEnabled(), "cleared: CLEAR, disabled");
     check (editor->bannerKind() == Kind::Cleared, "cleared: CLEARED");
     clock += 1.0;
     editor->setClockForTests (clock);
@@ -1110,7 +1278,15 @@ void testEditor (const juce::File& pngFolder, const juce::File& soundFile)
         {
             check (noisy->bannerKind() == Kind::NoSteadyPitch, "noise: NO STEADY PITCH");
             check (snapshotLit (*noisy, t, pngFolder, "no-steady-pitch.png", 1.2), "no steady pitch snapshot");
-            check (noisy->statusText() == "NO STEADY PITCH FOUND: THE SOUND IS LEFT AS IT IS", "noise: the guidance explains");
+            check (noisy->statusText() == "NO STEADY PITCH FOUND IN THIS SOUND: IT PLAYS AS IT IS. LEARN ANOTHER SOUND.", "noise: the guidance explains");
+            check (noisy->learnButtonText() == "NO PITCH" && noisy->learnHintText() == "PRESS TO LEARN ANOTHER", "noise: Learn reads NO PITCH");
+            check (! noisy->controlsLive(), "noise: the controls row is dimmed");
+            t += 4.0;   // past the banner
+            noisy->setClockForTests (t);
+            noisy->refreshNow();
+            t += 0.5;
+            noisy->setClockForTests (t);
+            check (writePngOf (*noisy, pngFolder, "no-steady-pitch-1x.png", 1.0), "no steady pitch at 1x");
         }
         else
             check (false, "noise was expected to have no steady pitch");
@@ -1132,6 +1308,8 @@ int main (int argc, char* argv[])
             pngFolder = juce::File (juce::String (argv[++i]));
         else if (arg == "--sound" && i + 1 < argc)
             soundFile = juce::File (juce::String (argv[++i]));
+        else if (arg == "--seed" && i + 1 < argc)
+            setEngineTestSeed ((unsigned) juce::String (argv[++i]).getLargeIntValue());
     }
 
     const auto start = std::chrono::steady_clock::now();
@@ -1141,10 +1319,12 @@ int main (int argc, char* argv[])
     testFlightMaths();
     testBannerLogic();
     testProcessor();
+    testPlaybackAndRenderingTag();
     testEditor (pngFolder, soundFile);
     testSourceLengthAndEdits();
     testCurveEditor (pngFolder, soundFile);
     testSeveralSounds (pngFolder);
+    testEndAndTail (pngFolder);
 
     std::printf ("\n%d checks, %d failed (%.1f s)\n", g_checks, g_failures,
                  std::chrono::duration<double> (std::chrono::steady_clock::now() - start).count());

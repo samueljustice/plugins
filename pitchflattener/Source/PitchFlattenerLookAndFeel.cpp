@@ -351,6 +351,46 @@ juce::Rectangle<float> PitchFlattenerLookAndFeel::drawPanel (juce::Graphics& g, 
 //==============================================================================
 // Knobs
 //==============================================================================
+namespace
+{
+    // A gauge's parts: the ring in a square at the top of the slider and, when the slider is tall
+    // enough, a caption line under it (the note gauge's cents), so nothing is drawn over the ring.
+    struct GaugeGeometry
+    {
+        juce::Rectangle<float> ring, caption, value;
+    };
+
+    GaugeGeometry gaugeGeometry (juce::Rectangle<float> bounds)
+    {
+        constexpr float captionHeight = 14.0f;
+        GaugeGeometry g;
+        if (bounds.getHeight() >= bounds.getWidth() + captionHeight)
+        {
+            g.ring = bounds.removeFromTop (bounds.getWidth());
+            g.caption = bounds.removeFromTop (captionHeight);
+        }
+        else
+            g.ring = bounds.withSizeKeepingCentre (std::min (bounds.getWidth(), bounds.getHeight()), std::min (bounds.getWidth(), bounds.getHeight()));
+        // The value inside the ring, clear of it: its corners stay inside the inner radius.
+        const float d = g.ring.getWidth();
+        g.value = g.ring.withSizeKeepingCentre (std::round (d * 0.58f), std::round (d * 0.3f));
+        return g;
+    }
+
+    // "G#6 +36" -> the main part, and its cents as a caption ("+36 CENTS"; "0 CENTS" for a note
+    // without); empty for a value with no qualifier ("100%").
+    std::pair<juce::String, juce::String> splitGaugeValue (const juce::String& text)
+    {
+        const auto value = text.trim();
+        const int split = value.indexOfChar (' ');
+        const juce::String main = split > 0 ? value.substring (0, split) : value;
+        juce::String sub = split > 0 ? value.substring (split + 1).trim() : juce::String();
+        if (main.isNotEmpty() && juce::CharacterFunctions::isLetter (main[0]))
+            sub = (sub.isEmpty() ? juce::String ("0") : sub) + " CENTS";
+        return { main, sub };
+    }
+}
+
 void PitchFlattenerLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                                                   float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
                                                   juce::Slider& slider)
@@ -359,14 +399,15 @@ void PitchFlattenerLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int 
         return;
 
     // An arc gauge, as on a cockpit: a ring of segments lit up to the value in the slider's accent,
-    // a thin inner scale, and a needle tick at the value. Dim as a whole when it does nothing.
+    // and a needle across the ring at the value. Dim as a whole when it does nothing.
     const bool enabled = slider.isEnabled();
     const float alpha = enabled ? 1.0f : 0.28f;
     const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
     const bool hot = enabled && slider.isMouseOverOrDragging();
 
-    const auto area = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (3.0f);
-    const float radius = std::min (area.getWidth(), area.getHeight()) * 0.5f;
+    const auto geometry = gaugeGeometry (juce::Rectangle<int> (x, y, width, height).toFloat());
+    const auto area = geometry.ring.reduced (3.0f);
+    const float radius = area.getWidth() * 0.5f;
     const auto centre = area.getCentre();
     const float outer = radius, inner = radius * 0.8f;
 
@@ -387,17 +428,21 @@ void PitchFlattenerLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int 
         g.fillPath (seg);
     }
 
-    // Inner scale and the needle.
-    juce::Path scale;
-    const float scaleRadius = inner - 5.0f;
-    scale.addCentredArc (centre.x, centre.y, scaleRadius, scaleRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour (panelEdge.brighter (0.2f).withMultipliedAlpha (alpha));
-    g.strokePath (scale, juce::PathStrokeType (1.0f));
-
     const float angle = rotaryStartAngle + sliderPos * span;
     const auto dir = juce::Point<float> (std::sin (angle), -std::cos (angle));
     g.setColour ((hot ? amber : text).withMultipliedAlpha (alpha));
-    g.drawLine ({ centre + dir * (scaleRadius - 6.0f), centre + dir * (outer + 1.0f) }, 2.0f);
+    g.drawLine ({ centre + dir * (inner - 2.0f), centre + dir * (outer + 1.0f) }, 2.0f);
+
+    // The caption under the ring (the cents of a note).
+    if (! geometry.caption.isEmpty())
+    {
+        const auto sub = splitGaugeValue (slider.getTextFromValue (slider.getValue())).second;
+        if (sub.isNotEmpty())
+        {
+            const auto font = m_fonts.label (Hud::fitHeight ([this] (float h) { return m_fonts.label (h); }, sub, geometry.caption.getWidth(), 10.5f, 10.0f, false));
+            Hud::drawText (g, sub, geometry.caption, font, textDim.withMultipliedAlpha (enabled ? 1.0f : 0.5f), juce::Justification::centred);
+        }
+    }
 }
 
 juce::Slider::SliderLayout PitchFlattenerLookAndFeel::getSliderLayout (juce::Slider& slider)
@@ -405,13 +450,9 @@ juce::Slider::SliderLayout PitchFlattenerLookAndFeel::getSliderLayout (juce::Sli
     juce::Slider::SliderLayout layout;
     layout.sliderBounds = slider.getLocalBounds();
 
-    // The value sits in the middle of the gauge.
+    // The value sits in the middle of the ring.
     if (slider.getTextBoxPosition() != juce::Slider::NoTextBox)
-    {
-        const auto b = slider.getLocalBounds();
-        const int d = std::min (b.getWidth(), b.getHeight());
-        layout.textBoxBounds = b.withSizeKeepingCentre (juce::roundToInt ((float) d * 0.62f), juce::roundToInt ((float) d * 0.42f));
-    }
+        layout.textBoxBounds = gaugeGeometry (slider.getLocalBounds().toFloat()).value.toNearestInt();
     return layout;
 }
 
@@ -461,28 +502,14 @@ void PitchFlattenerLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label
         return;
     }
 
-    // A gauge's value: the main part large ("G#6", "100%"), what follows it small ("+36 CENTS").
+    // A gauge's value: the main part, large ("G#6", "100%"); its cents are the caption under the
+    // ring (drawRotarySlider).
     const bool enabled = slider->isEnabled();
     const auto colour = (slider->isMouseOverOrDragging() && enabled ? amber : text).withMultipliedAlpha (enabled ? 1.0f : 0.4f);
-    const auto value = label.getText().trim();
-    const int split = value.indexOfChar (' ');
-    const juce::String main = split > 0 ? value.substring (0, split) : value;
-    juce::String sub = split > 0 ? value.substring (split + 1).trim() : juce::String();
-    const bool isNote = main.isNotEmpty() && juce::CharacterFunctions::isLetter (main[0]);
-    if (isNote)
-        sub = (sub.isEmpty() ? juce::String ("0") : sub) + " CENTS";
-
-    auto area = label.getLocalBounds().toFloat();
-    const float mainHeight = Hud::fitHeight ([this] (float h) { return m_fonts.display (h); }, main, area.getWidth(), sub.isEmpty() ? 22.0f : 20.0f, 10.0f);
-    if (sub.isEmpty())
-    {
-        Hud::drawSheared (g, main, area, m_fonts.display (mainHeight), colour, juce::Justification::centred);
-        return;
-    }
-    auto top = area.removeFromTop (area.getHeight() * 0.62f);
-    Hud::drawSheared (g, main, top, m_fonts.display (mainHeight), colour, juce::Justification::centredBottom);
-    const auto subFont = m_fonts.label (Hud::fitHeight ([this] (float h) { return m_fonts.label (h); }, sub, area.getWidth(), 10.5f, 10.0f, false));
-    Hud::drawText (g, sub, area, subFont, textDim.withMultipliedAlpha (enabled ? 1.0f : 0.5f), juce::Justification::centredTop);
+    const auto main = splitGaugeValue (label.getText()).first;
+    const auto area = label.getLocalBounds().toFloat();
+    const float mainHeight = Hud::fitHeight ([this] (float h) { return m_fonts.display (h); }, main, area.getWidth(), std::min (22.0f, area.getHeight()), 10.0f);
+    Hud::drawSheared (g, main, area, m_fonts.display (mainHeight), colour, juce::Justification::centred);
 }
 
 juce::Font PitchFlattenerLookAndFeel::getLabelFont (juce::Label& label)
