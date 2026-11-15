@@ -109,6 +109,9 @@ public:
     std::array<float, 34> getReadoutForTests(int module) const;
     /** A module tile's footer: the extent of its words and of its value as last painted. */
     std::pair<juce::Rectangle<float>, juce::Rectangle<float>> getFooterTextForTests(int module) const;
+    /** How far the longest module name overruns the room its header gives it (negative: the room to spare). */
+    float nameOverrunForTests() const;
+    float getTitlePointForTests() const noexcept { return m_titlePoint; }
     juce::Component* getInTile() const;
     juce::Component* getOutputTile() const;
     juce::Button* getModeChip(int module) const;   // nullptr for a module without choices

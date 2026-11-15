@@ -4082,6 +4082,9 @@ namespace
                 }
             }
         }
+        std::printf("  module names at %.2f pt, the longest %.1f px %s its room\n", strip.getTitlePointForTests(),
+                    std::abs(strip.nameOverrunForTests()), strip.nameOverrunForTests() > 0.0f ? "over" : "inside");
+        check(strip.nameOverrunForTests() <= 0.0f, "every module's name fits its header, clear of the move chip");
         check(seen > 100, "the footers' words and values were found");
         check(bad == 0, juce::String(bad) + " footers whose words come within 4 px of their value");
     }

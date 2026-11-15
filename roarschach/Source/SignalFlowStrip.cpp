@@ -736,7 +736,7 @@ public:
     /** The move chip's button (its hit area): the header's height, at its right end. */
     juce::Rectangle<int> moveChipBounds() const
     {
-        return getLocalBounds().removeFromTop(c_headerHeight).withTrimmedRight(c_pad - 4).removeFromRight(30);
+        return getLocalBounds().removeFromTop(c_headerHeight).withTrimmedRight(c_pad - 4).removeFromRight(c_hit);
     }
     /** The room the name has after the widest slot number. */
     float titleRoom() const
@@ -1513,6 +1513,14 @@ void SignalFlowStrip::setParameter(const char* id, float plainValue)
 juce::Component* SignalFlowStrip::getModuleTile(int module) const
 {
     return juce::isPositiveAndBelow(module, Params::numModules) ? m_tiles[static_cast<size_t>(module)].get() : nullptr;
+}
+
+float SignalFlowStrip::nameOverrunForTests() const
+{
+    float worst = -1.0e9f;
+    for (const auto& tile : m_tiles)
+        worst = std::max(worst, measureText(m_fonts.title(m_titlePoint), tile->m_title) - tile->titleRoom());
+    return worst;
 }
 
 std::pair<juce::Rectangle<float>, juce::Rectangle<float>> SignalFlowStrip::getFooterTextForTests(int module) const
