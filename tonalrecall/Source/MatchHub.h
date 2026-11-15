@@ -97,6 +97,9 @@ struct StampPlan
     // What Learn captured (the channel sum). Shared with the hub and never modified, so plans that
     // differ only in their options do not each copy the audio.
     std::shared_ptr<const std::vector<float>> learnedMono;
+    // The learned music, channel by channel (may be null). Stamp recognises it by this when it is
+    // played or rendered, and leaves it alone: the music is what is matched to, never shifted.
+    std::shared_ptr<const std::vector<std::vector<float>>> musicChannels;
     bool preserveFormants = false;
     bool bendActive = false;            // the curve carries a bend (not only the fixed shift)
     double targetMidi = 0.0;
