@@ -16,6 +16,7 @@ An offline pitch matcher for Pro Tools AudioSuite by **Samuel Justice**, made fo
 - **A sting, not a tune**: by default the effect takes one fixed shift onto the nearest strong note of the music and keeps every bit of its own movement. Two more ready-made curves, SUBTLE and MOVING, let it lean with the music.
 - **Three curves to choose from**, drawn on the effect and named. Click one to use it.
 - **Editable**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo.
+- **Zoom in on long selections**: the effect's scan zooms and scrolls in time, with an overview of the whole selection and a time ruler, so an effect that sounds for a few seconds of a 20 s window can be edited in detail.
 - **Hear it before you commit**: Preview plays the stamped effect, edits are picked up while it loops, and HEAR plays the pitch under the mouse as you drag, like a held key.
 - **Play what was learned**: PLAY MUSIC, PLAY INPUT and PLAY OUTPUT play the music and the effect as learned, and the effect as it will be stamped, through Preview, in stereo. Click from one to the next to compare them. A playhead moves across each view as it plays, so you can see where the changes fall.
 - **Keeps length and timing**: the shift does not change the clip's length. Hits stay within a millisecond of where they were.
@@ -70,7 +71,7 @@ A render reaches the plug-in with a little extra audio either side of the select
 <img src="docs/effect.png" alt="The 02 SOUND EFFECT panel: the effect's pitch as a dashed line and, solid, where the shift puts it; the names LOCKED (lit), SUBTLE and MOVING on their curves; G4 -36C, drift 4.4 st, pitch 36% clear, tonal tracking; DRAW, SNAP, HEAR and SMOOTH, and the PITCH TRACKING buttons with AUTO lit" width="476">
 
 - **LEARN / CLEAR**, as for the music.
-- **The scan**: the effect's pitch before the shift (dashed) and after it (solid), against the target note (the teal line, named at the left).
+- **The scan**: the effect's pitch before the shift (dashed) and after it (solid), against the target note (the teal line, named at the left). The ruler along its bottom gives the time in seconds from the start of the selection. See [Zooming in time](#zooming-in-time).
 - **The note**: the note the effect sits on and how far from it, in cents (`G4 -36C`), how far its pitch travels (DRIFT), how clear its pitch is, and the tracking used.
 - **PLAY INPUT**: plays the effect as it was learned, from its start. A pale playhead runs across the scan.
 - **PLAY OUTPUT**: plays the effect as it will be stamped: the shift, the curve, FORMANT and TRIM. An amber playhead runs across the scan. It follows changes as it plays: pick another curve or target, move BEND or OCTAVE, or pull and draw the line, and the next moment you hear has the change. Clicking the scan plays on from there.
@@ -107,6 +108,23 @@ They are shortcuts: each one sets the target note, BEND and SMOOTH, and all thre
 - **HEAR**: with Preview running, the effect sounds while you edit, mixed over the Preview output and through the same engine Stamp renders with, in stereo: held at the pitch you are dragging, then on from there along the curve when you let go. Click the scan without dragging to listen from that point. Edits are also picked up at once by the looping Preview itself. With Preview stopped there is nothing to play into, and the strip says to press it. While PLAY OUTPUT is playing, a drag works the same way and playback carries on from where you let go.
 
 Hand edits belong to the effect that was learned: learning another effect clears them, and they are not saved with the session.
+
+### Zooming in time
+
+<img src="docs/long.png" alt="A 20 second selection: the music's chords on the left, and on the right the effect's pitch line occupying only the stretch from 12 to 19 seconds of the scan, with the overview bar, the -, +, FIT and SOUND buttons along the top and the time ruler along the bottom" width="956">
+
+<img src="docs/zoom.png" alt="The same effect zoomed in to half a second, 14.0 to 14.5 s on the ruler: three points on the line and a fourth being dragged, with its note and offset beside it; in the overview bar the stretch on view is a small lit marker" width="476">
+
+The scan starts out showing the whole selection the effect was learned over, so you can see where in it the effect sounds. When the music and the effect are learned over the same long selection, the effect may only sound for part of it; zoom in to work on it in detail.
+
+- **The overview**: the bar along the top of the scan is the whole selection, with the effect's pitch line in miniature. The stretch the scan shows is lit. Drag the lit stretch to scroll, drag its edges to zoom, click elsewhere on the bar to jump there, and double-click it to see it all again. While something plays, a mark on the bar shows where.
+- **- and +**: zoom out and in, around the middle of the scan.
+- **FIT**: the whole selection.
+- **SOUND**: frames the stretch where the effect sounds, with a little either side.
+- **The wheel**: over the scan, the wheel zooms in time around the moment under the pointer; a trackpad pinch does the same. Scroll sideways, or hold Shift with the wheel, to move along.
+- **The ruler**: seconds from the start of the selection, finer as you zoom in.
+
+Zoomed in, everything works as it does on the whole view: points, drawn lines and clicks to listen land at the moment under the mouse, and a line drawn zoomed in keeps the detail you give it. The pitch scale fits what is on view. When PLAY INPUT, PLAY OUTPUT or a click to listen plays on past the edge of the view, the view turns the page after the playhead, unless you are working on the scan at the time. Preview looping on its own never moves the view, so you keep your place while you edit. The scan zooms as far in as a quarter of a second across. The view is not saved with the session, and learning another effect shows the whole of it again.
 
 ### Playing it back
 

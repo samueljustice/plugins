@@ -10,6 +10,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <utility>
 
 namespace sammyj
 {
@@ -65,6 +66,23 @@ public:
     static int textOverflowCount() noexcept;
     // Tests draw still frames: with motion off every transition reads as finished.
     static void setMotionEnabled(bool shouldMove) noexcept;
+
+    // Tests: the effect's scan in time. The view is in seconds of the effect; x and the plot are
+    // in the scan's own coordinates, which its curve editor and its playhead share.
+    std::pair<double, double> effectViewForTesting() const;
+    void setEffectViewForTesting(double start, double end);
+    void pressEffectViewButtonForTesting(const juce::String& name);   // "-", "+", "FIT" or "SOUND"
+    float effectXForSecondsForTesting(double seconds) const;
+    double effectSecondsForXForTesting(float x) const;
+    float effectPlayheadXForSecondsForTesting(double seconds) const;
+    double effectPlayheadSecondsForTesting() const;                    // negative: no playhead
+    juce::Rectangle<float> effectPlotForTesting() const;
+    std::pair<double, double> effectSoundRangeForTesting() const;      // what SOUND frames
+    juce::Component& effectScanForTesting();                           // the curve editor over the scan
+    juce::Component& effectOverviewForTesting();
+    double effectRedrawMsForTesting() const;                           // the last redraw for a new view
+    // The editing tools (DRAW, SNAP: 0 off, 1 notes, 2 scale; HEAR).
+    static void setEditToolsForTesting(bool draw, int snap, bool hear) noexcept;
 
 private:
     void timerCallback() override;

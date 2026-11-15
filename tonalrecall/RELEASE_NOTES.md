@@ -1,6 +1,6 @@
-## Tonal Recall 0.2.1
+## Tonal Recall 0.2.2
 
-Tonal Recall 0.2.1 lets you play back what it has learned and what it will stamp, with a playhead on each view, and keeps a stamp from going over full scale.
+Tonal Recall 0.2.2 lets you play back what it has learned and what it will stamp, with a playhead on each view, keeps a stamp from going over full scale, and lets you zoom in on the effect's pitch line for long selections.
 
 Sessions keep their settings. The reported latency is about 290 ms at 48 kHz (2 ms more, for the limiter's look-ahead); Pro Tools compensates it in a render as before.
 
@@ -21,12 +21,26 @@ Shifting pitch can raise a sound's peaks, so a loud effect could clip when it wa
 - **The strip says** when the limiter had to act on the last render, when TRIM is off and the stamp would go over, and when the effect was already at full scale as learned.
 - **COPY VALUES** adds the trim when one is applied.
 
+### Zooming in on the effect
+
+A long selection (20 seconds, say, with the effect sounding for a few of them) left the pitch line small and its points hard to place.
+
+- **Zoom and scroll the effect's scan in time.** The wheel or a pinch zooms around the moment under the pointer; sideways, or with Shift, it scrolls.
+- **An overview bar** at the top of the scan shows the whole selection in miniature with the stretch on view lit. Drag it to scroll, drag its edges to zoom, double-click to see everything.
+- **FIT** shows the whole selection and **SOUND** frames just the part where the effect sounds. **-** and **+** step out and in.
+- **A time ruler** runs along the bottom of the scan.
+- **The view follows the playhead** while PLAY INPUT or PLAY OUTPUT plays.
+- **Freehand drawing keeps its detail when zoomed in**, and a line drawn slowly no longer collapses to a single point.
+
 ### Fixed
+
+- UNDO, REDO and RESET CURVE could sit on top of the effect's readout line.
+- A capture that stopped at the 60 second limit also asked for the selection to be learned again, which could not help.
 
 - An effect learned with a long silence before or after it (a selection much longer than the sound) could be read as having no clear pitch, or the wrong one. Only the part that sounds is analysed now, and the pitch line keeps its place in time.
 - The music's tuning could read `+-0 C`.
 
-![Tonal Recall](https://raw.githubusercontent.com/samueljustice/plugins/tonalrecall-v0.2.1/tonalrecall/docs/screenshot.png)
+![Tonal Recall](https://raw.githubusercontent.com/samueljustice/plugins/tonalrecall-v0.2.2/tonalrecall/docs/screenshot.png)
 
 The AAX for Pro Tools is in the [Sammy J's Plugins installer](https://github.com/samueljustice/plugins/releases/latest), which also installs the newest version of every other Sammy J plug-in.
 
@@ -34,9 +48,9 @@ The AAX for Pro Tools is in the [Sammy J's Plugins installer](https://github.com
 
 | File | Contents |
 |---|---|
-| `TonalRecall-0.2.1-macOS-Installer.pkg` | macOS installer (AU + VST3, universal) |
-| `TonalRecall-0.2.1-Windows-Installer.exe` | Windows installer (VST3) |
-| `TonalRecall-0.2.1-macOS-AU.zip`, `TonalRecall-0.2.1-macOS-VST3.zip`, `TonalRecall-0.2.1-Windows-VST3.zip` | The plug-ins on their own |
+| `TonalRecall-0.2.2-macOS-Installer.pkg` | macOS installer (AU + VST3, universal) |
+| `TonalRecall-0.2.2-Windows-Installer.exe` | Windows installer (VST3) |
+| `TonalRecall-0.2.2-macOS-AU.zip`, `TonalRecall-0.2.2-macOS-VST3.zip`, `TonalRecall-0.2.2-Windows-VST3.zip` | The plug-ins on their own |
 
 The macOS downloads are signed and notarised. Universal (Apple silicon and Intel), macOS 11 or later. Windows: 64-bit Windows 10 or later.
 

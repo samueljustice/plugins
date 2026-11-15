@@ -1,7 +1,7 @@
 // Offline tests for Tonal Recall: real processor instances driven with a fake play head and a fake
 // clock, checking what the capture store promises (passthrough, the shared store, pass-end rules,
-// merging, truncation, independent slots), Learn -> analysis -> match -> Stamp end to end, the
-// saved options, the editor, and that the log is written.
+// merging, truncation, independent slots), Learn -> analysis -> match -> Stamp end to end, long
+// windows, the saved options, the editor (its scan zoomed in time too), and that the log is written.
 //
 //   TonalRecallTests [log file [folder for editor PNGs]]   non-zero exit on failure
 
@@ -29,7 +29,12 @@
 #include <numbers>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
+
+#if JUCE_MAC || JUCE_LINUX
+ #include <sys/resource.h>
+#endif
 
 using namespace tonalrecall;
 
@@ -2156,6 +2161,536 @@ void testPlayback(const juce::File& pngFolder)
     }
 }
 
+//==============================================================================
+// Long windows: the music and the effect learned over the same 20 s selection, the effect
+// sounding only from 12 s to 19 s, and the effect's scan zoomed and scrolled in time; then a
+// capture at the 60 s limit.
+
+double secondsSince(std::chrono::steady_clock::time_point t)
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+}
+
+// The most this process has had resident, in megabytes (0 where it cannot be read).
+double peakMegabytes()
+{
+#if JUCE_MAC
+    rusage usage {};
+    return getrusage(RUSAGE_SELF, &usage) == 0 ? static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0) : 0.0;
+#elif JUCE_LINUX
+    rusage usage {};
+    return getrusage(RUSAGE_SELF, &usage) == 0 ? static_cast<double>(usage.ru_maxrss) / 1024.0 : 0.0;
+#else
+    return 0.0;
+#endif
+}
+
+// A pad that changes chord every 5 s (D minor, B flat, F, A minor), with a little noise.
+std::vector<float> chordPad(double seconds)
+{
+    std::vector<float> x(static_cast<std::size_t>(seconds * 48000.0), 0.0f);
+    const std::vector<std::vector<double>> chords { { 38, 45, 50, 53, 57 }, { 34, 41, 46, 50, 53 }, { 29, 41, 45, 48, 53 }, { 33, 40, 45, 48, 52 } };
+    const std::size_t every = 5 * 48000;
+    for (std::size_t c = 0; c * every < x.size(); ++c)
+        for (double midi : chords[c % chords.size()])
+            addNote(x, midi, 0.1, 6, c * every, std::min(x.size(), (c + 1) * every));
+    std::uint32_t seed = 7;
+    for (auto& v : x)
+    {
+        seed = seed * 1664525u + 1013904223u;
+        v += 0.003f * (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f);
+    }
+    return x;
+}
+
+// Silence, then the effect's tone (B2 +38 c with a little vibrato) from `from` to `to` seconds.
+std::vector<float> lateTone(double seconds, double from, double to)
+{
+    std::vector<float> x(static_cast<std::size_t>(seconds * 48000.0), 0.0f);
+    addNote(x, 47.38, 0.3, 8, static_cast<std::size_t>(from * 48000.0), static_cast<std::size_t>(to * 48000.0),
+            [](double t) { return 0.15 * std::sin(kTwoPi * 5.0 * t); });
+    return x;
+}
+
+// A mouse event at p on c, as the host would deliver it.
+juce::MouseEvent mouseAt(juce::Component& c, juce::Point<float> p, juce::Point<float> down, int clicks = 1)
+{
+    const auto now = juce::Time::getCurrentTime();
+    return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), p, juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),
+                            juce::MouseInputSource::defaultPressure, juce::MouseInputSource::defaultOrientation,
+                            juce::MouseInputSource::defaultRotation, juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY,
+                            &c, &c, now, down, now, clicks, p != down);
+}
+
+// A press, a drag through the given points, and a release (the last point is where it ends).
+void dragThrough(juce::Component& c, const std::vector<juce::Point<float>>& path, const std::function<void()>& beforeRelease = nullptr)
+{
+    const auto down = path.front();
+    c.mouseDown(mouseAt(c, down, down));
+    for (std::size_t i = 1; i < path.size(); ++i)
+        c.mouseDrag(mouseAt(c, path[i], down));
+    if (beforeRelease)
+        beforeRelease();
+    c.mouseUp(mouseAt(c, path.back(), down));
+}
+
+int editsBetween(const std::vector<core::CurvePoint>& edits, double from, double to)
+{
+    int n = 0;
+    for (const auto& p : edits)
+        n += p.seconds >= from && p.seconds <= to ? 1 : 0;
+    return n;
+}
+
+void testLongWindow(const juce::File& pngFolder)
+{
+    beginCase("long window: 20 s of music and an effect that sounds from 12 s to 19 s of the same selection");
+    auto& hub = MatchHub::instance();
+    auto& bus = AuditionBus::instance();
+    hub.setOptions({});   // as a new instance starts: Locked
+    Rig rig(2, 48000.0, 1024);
+    rig.processor->useLoopPointsAsSelection(true);
+
+    const auto music = chordPad(20.0);
+    auto musicRight = music;
+    for (auto& v : musicRight)
+        v *= 0.7f;
+    const auto effect = lateTone(20.0, 12.0, 19.0);
+    auto effectRight = effect;
+    for (auto& v : effectRight)
+        v *= 0.6f;
+    const double length = static_cast<double>(effect.size()) / 48000.0;
+
+    auto t = std::chrono::steady_clock::now();
+    learnChannels(rig, Slot::Music, { music, musicRight }, 480000);
+    const double learnMusic = secondsSince(t);
+    t = std::chrono::steady_clock::now();
+    check(hub.waitUntilIdle(120.0), "the music is analysed");
+    const double analyseMusic = secondsSince(t);
+    t = std::chrono::steady_clock::now();
+    learnChannels(rig, Slot::Sfx, { effect, effectRight }, 480000);
+    const double learnEffect = secondsSince(t);
+    t = std::chrono::steady_clock::now();
+    check(hub.waitUntilIdle(120.0), "the effect is analysed, matched and its level measured");
+    const double analyseEffect = secondsSince(t);
+    std::printf("    -> learning 20 s through 1024-sample blocks: music %.2f s, effect %.2f s; then the hub: music %.2f s, "
+                "effect + match + level %.2f s\n", learnMusic, learnEffect, analyseMusic, analyseEffect);
+    check(analyseMusic < 20.0 && analyseEffect < 20.0, "the hub takes less time than the audio lasts");
+
+    const auto musicSnap = snap(Slot::Music), effectSnap = snap(Slot::Sfx);
+    check(musicSnap.samplesCaptured == static_cast<std::int64_t>(music.size()) && musicSnap.lastEnd == PassEnd::SelectionEnd && musicSnap.channels == 2,
+          "the music is learned whole, in stereo: " + std::to_string(musicSnap.samplesCaptured));
+    check(effectSnap.samplesCaptured == static_cast<std::int64_t>(effect.size()) && effectSnap.lastEnd == PassEnd::SelectionEnd && effectSnap.channels == 2,
+          "the effect too, silence and all: " + std::to_string(effectSnap.samplesCaptured));
+
+    HubSnapshot h;
+    hub.snapshot(h);
+    check(h.offsetKnown && std::abs(h.sfxOffsetInMusicSeconds) < 1.0e-9, "the effect sits at the music's start (the same selection)");
+    check(h.sfx.pitched && h.match.valid && h.planReady, "matched, with a plan");
+    int firstPitched = -1, lastPitched = -1;
+    for (int f = 0; f < static_cast<int>(h.sfx.hz.size()); ++f)
+        if (h.sfx.hz[static_cast<std::size_t>(f)] > 0.0f)
+        {
+            if (firstPitched < 0)
+                firstPitched = f;
+            lastPitched = f;
+        }
+    const double soundFrom = firstPitched * h.sfx.hopSeconds, soundTo = lastPitched * h.sfx.hopSeconds;
+    std::printf("    -> %zu frames; the effect's pitch runs from %.2f s to %.2f s; shift %+.2f st to %s\n", h.sfx.hz.size(), soundFrom, soundTo,
+                h.match.semitones, core::noteName(h.match.targetMidi).c_str());
+    check(std::abs(soundFrom - 12.0) < 0.2 && std::abs(soundTo - 19.0) < 0.2, "and the effect's pitch line is where it sounds, 12 s to 19 s");
+
+    step("long window: Locked, Subtle and Moving all give finite curves");
+    {
+        bool finite = true;
+        for (const auto& curve : h.styleAfterMidi)
+        {
+            finite = finite && curve.size() == h.sfx.hz.size();
+            for (const float v : curve)
+                finite = finite && std::isfinite(v);
+        }
+        check(finite, "the three curves on offer are whole and finite");
+        for (const auto style : { MatchOptions::Style::Subtle, MatchOptions::Style::Moving, MatchOptions::Style::Locked })
+        {
+            t = std::chrono::steady_clock::now();
+            hub.setOptions(hub.options().withStyle(style));
+            check(hub.waitUntilIdle(60.0), "matched again");
+            const double took = secondsSince(t);
+            HubSnapshot s;
+            hub.snapshot(s);
+            bool ok = s.match.valid && s.match.curve.size() == s.sfx.hz.size() && s.trimKnown;
+            float low = 1.0e9f, high = -1.0e9f;
+            for (const float v : s.match.curve)
+            {
+                ok = ok && std::isfinite(v);
+                low = std::min(low, v);
+                high = std::max(high, v);
+            }
+            std::printf("    -> %s: match and level %.2f s; shift %.2f to %.2f st, %d note(s) followed\n",
+                        style == MatchOptions::Style::Locked ? "locked" : style == MatchOptions::Style::Subtle ? "subtle" : "moving", took, low, high,
+                        s.match.notesFollowed);
+            check(ok && high - low < 12.5f, "a finite curve, measured, within an octave");
+            check(took < 10.0, "in reasonable time");
+        }
+    }
+
+    step("long window: the audio is shared, never copied per plan");
+    {
+        std::shared_ptr<const StampPlan> before, after;
+        check(hub.tryAcquirePlan(before) && before != nullptr, "a plan");
+        HubSnapshot one;
+        hub.snapshot(one);
+        auto o = hub.options();
+        o.octaveShift = 1;
+        hub.setOptions(o);
+        check(hub.waitUntilIdle(60.0), "matched again");
+        check(hub.tryAcquirePlan(after) && after != nullptr && after != before, "a new plan");
+        HubSnapshot two;
+        hub.snapshot(two);
+        check(before->learnedMono != nullptr && before->learnedMono == after->learnedMono, "both plans hold the one copy of the learned effect");
+        check(one.sfxChannels != nullptr && one.sfxChannels == two.sfxChannels && one.musicChannels == two.musicChannels,
+              "and the editor's copies are the same audio, not copies");
+        o.octaveShift = 0;
+        hub.setOptions(o);
+        check(hub.waitUntilIdle(60.0), "and back");
+        std::printf("    -> peak resident memory so far %.0f MB (20 s of stereo music and effect is %.0f MB as floats)\n", peakMegabytes(),
+                    4.0 * 4.0 * static_cast<double>(effect.size()) / (1024.0 * 1024.0));
+    }
+    hub.snapshot(h);
+
+    step("long window: Render with 2 s handles in 32768-sample blocks, padded as Pro Tools pads them");
+    {
+        Rig renderRig(2, 48000.0, 32768);
+        const auto latency = static_cast<std::size_t>(renderRig.processor->getReportedLatency());
+        const std::size_t handle = 96000;
+        std::vector<std::vector<float>> stream;
+        for (const std::vector<float>* channel : { &effect, static_cast<const std::vector<float>*>(&effectRight) })
+        {
+            std::vector<float> s(handle + channel->size() + handle + latency, 0.0f);
+            addNote(s, 52.0, 0.2, 6, 0, handle);
+            addNote(s, 40.0, 0.2, 6, handle + channel->size(), handle + channel->size() + handle);
+            std::copy(channel->begin(), channel->end(), s.begin() + static_cast<std::ptrdiff_t>(handle));
+            s.resize((s.size() + 32767) / 32768 * 32768, 0.0f);
+            stream.push_back(std::move(s));
+        }
+        renderRig.processor->setNonRealtime(true);
+        renderRig.head.frozen = true;
+        renderRig.head.time = 0;
+        renderRig.head.selectionStart = 0;
+        renderRig.head.selectionLength = static_cast<std::int64_t>(effect.size());
+        t = std::chrono::steady_clock::now();
+        auto out = playChannels(renderRig, stream, 32768, 0);
+        const double took = secondsSince(t);
+        renderRig.stall();
+        for (auto& channel : out)
+            channel.erase(channel.begin(), channel.begin() + static_cast<std::ptrdiff_t>(latency));
+        const auto run = renderRig.processor->lastStampRun();
+        std::printf("    -> rendered %.1f s in stereo in %.2f s; effect found at %lld; trim %.2f dB, limiter %.3f dB\n",
+                    static_cast<double>(stream[0].size()) / 48000.0, took, static_cast<long long>(run.alignmentOffset),
+                    static_cast<double>(run.trimDb), static_cast<double>(run.limiterDb));
+        check(run.mode == StampRunInfo::Mode::Stamp && run.nonRealtime && run.aligned && run.alignmentOffset == static_cast<std::int64_t>(handle),
+              "the Render stamped and found the effect after the handle");
+        float before = 0.0f, peak = 0.0f;
+        for (std::size_t i = handle + 9600; i < handle + 12 * 48000 - 2400; ++i)
+            before = std::max({ before, std::abs(out[0][i]), std::abs(out[1][i]) });
+        for (const auto& channel : out)
+            for (const float v : channel)
+                peak = std::max(peak, std::abs(v));
+        check(before < 0.002f, "the 12 s before the effect stay silent: " + std::to_string(before));
+        check(peak > 0.1f && peak <= core::PeakLimiter::kCeiling, "the effect is stamped, under the ceiling: " + std::to_string(peak));
+        const double midi = medianMidi(out[0], handle + static_cast<std::size_t>(12.5 * 48000.0), handle + static_cast<std::size_t>(18.5 * 48000.0));
+        std::printf("    -> the effect after the stamp at %.3f, the target %.3f\n", midi, h.match.targetMidi);
+        check(std::abs(midi - h.match.targetMidi) < 0.15, "on the note");
+        check(took < 15.0, "in reasonable time");
+    }
+
+    step("long window: the editor at 20 s, the whole selection and zoomed in");
+    rig.stall();
+    rig.processor->setNonRealtime(false);
+    std::unique_ptr<juce::AudioProcessorEditor> e(rig.processor->createEditor());
+    auto* tr = dynamic_cast<TonalRecallEditor*>(e.get());
+    check(tr != nullptr, "editor");
+    if (tr == nullptr)
+        return;
+    TonalRecallEditor::setEditToolsForTesting(false, 0, false);
+    tr->refreshNow();
+    const double duration = static_cast<double>(h.sfx.hz.size() - 1) * h.sfx.hopSeconds;
+    const auto plot = tr->effectPlotForTesting();
+    const auto viewIs = [&](double a, double b, double tolerance = 1.0e-6)
+    {
+        const auto [s, v] = tr->effectViewForTesting();
+        return std::abs(s - a) < tolerance && std::abs(v - b) < tolerance;
+    };
+    check(viewIs(0.0, duration), "the scan starts on the whole selection");
+    check(writePng(e, pngFolder, "editor-long-fit.png"), "write the editor showing all 20 s");
+
+    // The time <-> x mapping, at several zooms and offsets.
+    {
+        bool roundTrip = true, edges = true;
+        for (const auto& [a, b] : std::vector<std::pair<double, double>> { { 0.0, duration }, { 12.0, 19.0 }, { 13.2, 13.45 }, { 5.0, 5.25 },
+                                                                          { duration - 0.25, duration }, { 0.0, 1.0 } })
+        {
+            tr->setEffectViewForTesting(a, b);
+            roundTrip = roundTrip && viewIs(a, b);
+            for (int k = 0; k <= 10; ++k)
+            {
+                const double at = a + (b - a) * k / 10.0;
+                roundTrip = roundTrip && std::abs(tr->effectSecondsForXForTesting(tr->effectXForSecondsForTesting(at)) - at) < 1.0e-6 * (b - a) + 1.0e-9;
+            }
+            edges = edges && std::abs(tr->effectXForSecondsForTesting(a) - plot.getX()) < 1.0e-3f
+                    && std::abs(tr->effectXForSecondsForTesting(b) - plot.getRight()) < 1.0e-3f;
+            // The playhead maps through the very same view.
+            edges = edges && std::abs(tr->effectPlayheadXForSecondsForTesting(0.5 * (a + b)) - tr->effectXForSecondsForTesting(0.5 * (a + b))) < 1.0e-3f;
+        }
+        check(roundTrip, "time to x and back is exact at every zoom and offset");
+        check(edges, "the view's ends are the plot's edges, and the playhead uses the same mapping");
+    }
+
+    // Limits, and the buttons.
+    {
+        tr->setEffectViewForTesting(10.0, 10.01);
+        const auto [s1, e1] = tr->effectViewForTesting();
+        check(std::abs((e1 - s1) - 0.25) < 1.0e-9, "never closer than a quarter of a second across");
+        tr->setEffectViewForTesting(-5.0, 40.0);
+        check(viewIs(0.0, duration), "never further out than the whole selection");
+        tr->setEffectViewForTesting(18.0, 23.0);
+        check(viewIs(duration - 5.0, duration), "scrolled past the end, it stops at the end, the same width");
+        tr->pressEffectViewButtonForTesting("FIT");
+        for (int i = 0; i < 20; ++i)
+            tr->pressEffectViewButtonForTesting("+");
+        const auto [s2, e2] = tr->effectViewForTesting();
+        check(std::abs((e2 - s2) - 0.25) < 1.0e-9 && std::abs(0.5 * (s2 + e2) - 0.5 * duration) < 1.0e-6, "+ zooms in on the middle, down to the limit");
+        for (int i = 0; i < 20; ++i)
+            tr->pressEffectViewButtonForTesting("-");
+        check(viewIs(0.0, duration), "- zooms back out to all of it");
+        tr->setEffectViewForTesting(3.0, 4.0);
+        tr->pressEffectViewButtonForTesting("FIT");
+        check(viewIs(0.0, duration), "FIT shows the whole selection");
+        tr->pressEffectViewButtonForTesting("SOUND");
+        const auto [from, to] = tr->effectSoundRangeForTesting();
+        std::printf("    -> SOUND frames %.2f s to %.2f s\n", from, to);
+        check(viewIs(from, to) && from > 11.3 && from < 12.0 && to > 19.0 && to < 19.7, "SOUND frames 12 s to 19 s, with a little either side");
+        check(writePng(e, pngFolder, "editor-long-sound.png"), "write the editor zoomed to the sound");
+    }
+
+    // The wheel zooms around the moment under the pointer; sideways it scrolls.
+    {
+        auto& scan = tr->effectScanForTesting();
+        tr->setEffectViewForTesting(12.0, 16.0);
+        const float x = tr->effectXForSecondsForTesting(13.0);
+        juce::MouseWheelDetails wheel {};
+        wheel.deltaY = 0.25f;
+        wheel.isSmooth = true;
+        scan.mouseWheelMove(mouseAt(scan, { x, plot.getCentreY() }, { x, plot.getCentreY() }), wheel);
+        const auto [s3, e3] = tr->effectViewForTesting();
+        check(e3 - s3 < 4.0 - 1.0e-3 && std::abs(tr->effectXForSecondsForTesting(13.0) - x) < 0.01f,
+              "the wheel zooms in, and the moment under the pointer stays under it");
+        wheel.deltaY = 0.0f;
+        wheel.deltaX = -0.1f;
+        scan.mouseWheelMove(mouseAt(scan, { x, plot.getCentreY() }, { x, plot.getCentreY() }), wheel);
+        const auto [s4, e4] = tr->effectViewForTesting();
+        check(s4 > s3 && std::abs((e4 - s4) - (e3 - s3)) < 1.0e-9, "sideways, it scrolls on at the same width");
+
+        // The overview: drag the lit stretch to scroll, double-click for all of it.
+        tr->setEffectViewForTesting(4.0, 6.0);
+        auto& bar = tr->effectOverviewForTesting();
+        const float barW = static_cast<float>(bar.getWidth());
+        const float litX = barW * static_cast<float>(5.0 / duration), y = 0.5f * static_cast<float>(bar.getHeight());
+        dragThrough(bar, { { litX, y }, { litX + 10.0f, y }, { litX + 20.0f, y } });
+        const auto [s5, e5] = tr->effectViewForTesting();
+        check(std::abs((e5 - s5) - 2.0) < 1.0e-9 && std::abs(s5 - (4.0 + 20.0 / barW * duration)) < 1.0e-6, "dragging the lit stretch scrolls");
+        // Its right edge drags to zoom.
+        const float rightEdge = barW * static_cast<float>(e5 / duration);
+        dragThrough(bar, { { rightEdge, y }, { rightEdge + 30.0f, y } });
+        const auto [s6, e6] = tr->effectViewForTesting();
+        check(std::abs(s6 - s5) < 1.0e-9 && e6 > e5 + 1.0, "dragging its edge zooms out, the other edge staying put");
+        bar.mouseDoubleClick(mouseAt(bar, { litX, y }, { litX, y }, 2));
+        check(viewIs(0.0, duration), "a double-click on the overview shows all of it");
+    }
+
+    // Edits made zoomed in land at the moment under the mouse, and stay there zoomed out.
+    {
+        auto& scan = tr->effectScanForTesting();
+        // (In the right half of the plot, clear of the curves' names at its left.)
+        tr->setEffectViewForTesting(14.0, 14.5);
+        const float y = plot.getCentreY();
+        const std::vector<std::pair<double, float>> pulls { { 14.30, -18.0f }, { 14.36, 14.0f }, { 14.46, -8.0f } };
+        for (const auto& [at, dy] : pulls)
+        {
+            const float x = tr->effectXForSecondsForTesting(at);
+            dragThrough(scan, { { x, y }, { x, y + 0.5f * dy }, { x, y + dy } });
+        }
+        // A fourth, caught mid-drag for the picture.
+        const float x4 = tr->effectXForSecondsForTesting(14.41);
+        dragThrough(scan, { { x4, y }, { x4, y - 10.0f }, { x4, y - 24.0f } }, [&]
+        {
+            check(writePng(e, pngFolder, "editor-long-close.png"), "write the editor zoomed in close, mid-drag");
+        });
+        check(hub.waitUntilIdle(30.0), "matched");
+        const auto edits = hub.options().edits;
+        bool landed = edits.size() == 4;
+        for (const double at : { 14.30, 14.36, 14.46, 14.41 })
+        {
+            bool found = false;
+            for (const auto& p : edits)
+                found = found || std::abs(p.seconds - at) < 1.0e-6;
+            landed = landed && found;
+        }
+        check(landed, "each point is stored at the moment it was made on: " + std::to_string(edits.size()) + " point(s)");
+        bool upAndDown = false;
+        for (const auto& p : edits)
+            upAndDown = upAndDown || (std::abs(p.seconds - 14.41) < 1.0e-6 && p.semitones > 0.2);
+        check(upAndDown, "and pulled up where it was pulled up");
+        tr->pressEffectViewButtonForTesting("FIT");
+        const auto kept = hub.options().edits;
+        bool same = kept.size() == edits.size();
+        for (std::size_t i = 0; same && i < kept.size(); ++i)
+            same = std::abs(kept[i].seconds - edits[i].seconds) < 1.0e-12 && std::abs(kept[i].semitones - edits[i].semitones) < 1.0e-12;
+        check(same, "zooming out leaves them where they are");
+        check(std::abs(tr->effectXForSecondsForTesting(14.41) - (plot.getX() + plot.getWidth() * static_cast<float>(14.41 / duration))) < 1.0e-3f,
+              "and they are drawn at their moment in the whole view");
+        auto o = hub.options();
+        o.edits.clear();
+        hub.setOptions(o);
+        check(hub.waitUntilIdle(30.0), "cleared");
+    }
+
+    // A line drawn zoomed in keeps its detail; the points in all stay within the limit.
+    {
+        TonalRecallEditor::setEditToolsForTesting(true, 0, false);
+        auto& scan = tr->effectScanForTesting();
+        const auto stroke = [&](double from, double to)
+        {
+            tr->setEffectViewForTesting(from, to);
+            // Drawn right to left, so it starts clear of the curves' names at the plot's left.
+            std::vector<juce::Point<float>> path;
+            for (int k = 0; k <= 300; ++k)
+            {
+                const double at = from + (to - from) * (0.97 - 0.94 * k / 300.0);
+                path.push_back({ tr->effectXForSecondsForTesting(at), plot.getCentreY() + 20.0f * static_cast<float>(std::sin(k * 0.05)) });
+            }
+            dragThrough(scan, path);
+            check(hub.waitUntilIdle(30.0), "matched");
+        };
+        stroke(15.0, 16.0);
+        auto edits = hub.options().edits;
+        std::printf("    -> a line drawn over 1 s, zoomed in: %d points there (%zu in all)\n", editsBetween(edits, 15.0, 16.0), edits.size());
+        check(editsBetween(edits, 15.0, 16.0) >= 150, "drawn zoomed in, a line keeps its detail (a point every few milliseconds)");
+        stroke(13.0, 14.0);
+        stroke(17.0, 18.0);
+        edits = hub.options().edits;
+        const int a = editsBetween(edits, 13.0, 14.0), b = editsBetween(edits, 15.0, 16.0), c = editsBetween(edits, 17.0, 18.0);
+        std::printf("    -> three lines: %d, %d and %d points (%zu in all, the limit %zu)\n", a, b, c, edits.size(), MatchOptions::kMaxEdits);
+        check(edits.size() <= MatchOptions::kMaxEdits, "never more points than the limit");
+        check(a >= 64 && b >= 64 && c >= 64, "and every line keeps a fair share of them");
+        TonalRecallEditor::setEditToolsForTesting(false, 0, false);
+        auto o = hub.options();
+        o.edits.clear();
+        hub.setOptions(o);
+        check(hub.waitUntilIdle(30.0), "cleared");
+    }
+
+    // Redrawing for a new view, with 4000 frames.
+    {
+        double total = 0.0, worst = 0.0;
+        int count = 0;
+        for (int k = 0; k < 20; ++k)
+        {
+            const double span = 0.3 + 0.9 * k;
+            tr->setEffectViewForTesting(0.4 * k, 0.4 * k + span);
+            total += tr->effectRedrawMsForTesting();
+            worst = std::max(worst, tr->effectRedrawMsForTesting());
+            ++count;
+        }
+        std::printf("    -> redrawing the scan for a new view: %.2f ms on average, %.2f ms at worst\n", total / count, worst);
+        check(worst < 40.0, "quick enough to follow the wheel");
+    }
+
+    step("long window: the play buttons' playheads run to 20 s, and the view follows the effect's");
+    {
+        auto o = hub.options();
+        o.stampEnabled = false;
+        hub.setOptions(o);
+        rig.stall();
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        for (const auto what : { Playback::Music, Playback::Input, Playback::Output })
+        {
+            if (what == Playback::Input)
+                tr->setEffectViewForTesting(13.0, 15.0);   // zoomed in close: the view has to follow
+            tr->togglePlayForTesting(what);
+            std::vector<double> heads;
+            bool followed = false, shot = false;
+            int blocks = 0;
+            playWatching(rig, previewBed(static_cast<std::size_t>(length * 48000.0) + 24000), 1024, 0, [&](std::size_t, int)
+            {
+                const auto p = bus.playhead();
+                if (p.what == what)
+                    heads.push_back(p.seconds);
+                if (what != Playback::Input || ++blocks % 4 != 0)
+                    return;
+                tr->refreshNow();   // the editor's timer: moves the playhead, and the view after it
+                const auto [s, v] = tr->effectViewForTesting();
+                const double at = tr->effectPlayheadSecondsForTesting();
+                if (at > 15.5 && s > 13.0 && at >= s && at <= v)
+                    followed = true;
+                if (! shot && at > 16.4)
+                {
+                    check(writePng(e, pngFolder, "editor-long-playing.png"), "write the editor playing, zoomed in, following");
+                    shot = true;
+                }
+            });
+            const char* name = what == Playback::Music ? "music" : what == Playback::Input ? "effect as learned" : "effect as stamped";
+            std::printf("    -> %s: the playhead ends at %.3f s\n", name, heads.empty() ? -1.0 : heads.back());
+            check(! heads.empty() && std::abs(heads.back() - length) < 1.0e-6, std::string("the ") + name + " playhead reaches the end, 20 s");
+            check(bus.playing() == Playback::None, "and stops by itself");
+            if (what == Playback::Input)
+                check(followed, "the view turned the page after the playhead");
+        }
+        o.stampEnabled = true;
+        hub.setOptions(o);
+        check(hub.waitUntilIdle(30.0), "idle");
+    }
+    step("long window: a capture at the 60 s limit (61 s selected): kept to 60 s, with its warning");
+    {
+        // Learned over the music's selection and on past it, with the window zoomed in on the
+        // old effect: the view goes back to the whole of the new one.
+        tr->setEffectViewForTesting(13.0, 15.0);
+        const auto longEffect = lateTone(61.0, 12.0, 50.0);
+        t = std::chrono::steady_clock::now();
+        learnChannels(rig, Slot::Sfx, { longEffect, longEffect }, 480000);
+        const double learnTook = secondsSince(t);
+        const auto s = snap(Slot::Sfx);
+        check(s.truncated && s.lastEnd == PassEnd::BufferFull && s.samplesCaptured == static_cast<std::int64_t>(CaptureStore::kMaxSeconds * 48000.0),
+              "stopped at 60 s: " + std::to_string(s.samplesCaptured));
+        t = std::chrono::steady_clock::now();
+        check(hub.waitUntilIdle(120.0), "analysed, matched and measured");
+        const double hubTook = secondsSince(t);
+        HubSnapshot l;
+        hub.snapshot(l);
+        std::printf("    -> learning 61 s %.2f s; the hub %.2f s; %zu frames; peak resident memory %.0f MB\n", learnTook, hubTook, l.sfx.hz.size(),
+                    peakMegabytes());
+        check(hubTook < 60.0, "in less time than the audio lasts");
+        check(l.sfx.pitched && l.match.valid && l.planReady && l.trimKnown && std::abs(l.sfx.durationSeconds - 60.0) < 0.05, "a match on all 60 s");
+        tr->refreshNow();
+        check(tr->currentWarnings().contains("CAPTURE STOPPED AT 60 S"), "the strip says it stopped: " + tr->currentWarnings().joinIntoString(" | ").toStdString());
+        check(! anyWarningStartsWith(tr->currentWarnings(), "ONLY "), "and does not ask for it to be learned again (that would stop at the limit too)");
+        const double longDuration = static_cast<double>(l.sfx.hz.size() - 1) * l.sfx.hopSeconds;
+        check(viewIs(0.0, longDuration), "the scan shows all of the new effect");
+        check(writePng(e, pngFolder, "editor-long-60.png"), "write the editor with 60 s learned");
+        tr->pressEffectViewButtonForTesting("SOUND");
+        const auto [w0, w1] = tr->effectViewForTesting();
+        check(w0 > 9.0 && w0 < 12.0 && w1 > 50.0 && w1 < 53.0, "SOUND frames 12 s to 50 s");
+
+        // Moving with the music, past the music's end: the hatching is cut off cleanly at the view.
+        hub.setOptions(hub.options().withStyle(MatchOptions::Style::Subtle));
+        check(hub.waitUntilIdle(60.0), "matched");
+        tr->setEffectViewForTesting(18.5, 21.5);
+        check(writePng(e, pngFolder, "editor-long-60-edge.png"), "write the editor zoomed in where the music ends");
+    }
+    check(TonalRecallEditor::textOverflowCount() == 0, "every text fits its box: " + std::to_string(TonalRecallEditor::textOverflowCount()) + " did not");
+    e.reset();
+}
+
 void testRunningPreview()
 {
     // Pro Tools users leave Preview looping while they work. What the run should be doing changes
@@ -2348,6 +2883,7 @@ int main(int argc, char* argv[])
     testRunningPreview();
     testMixedWidths();
     testPlayback(pngFolder);
+    testLongWindow(pngFolder);
     if (const auto example = juce::SystemStats::getEnvironmentVariable("TONALRECALL_EXAMPLE_DIR", {}); example.isNotEmpty())
         testRealPair(juce::File(example), pngFolder);
     testEndToEnd(pngFolder);

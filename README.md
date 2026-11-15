@@ -128,7 +128,7 @@ Tonal Recall is made for trailer sound design: stings, tails and hits that shoul
 - **Learn by playing**: arm LEARN, select the clip and press Preview in the AudioSuite window. Learn switches itself off at the end of the selection
 - **Finds what the music rests on**: the key, the root, the strong notes and the music's own tuning
 - **A sting, not a tune**: one fixed shift onto the nearest strong note by default, with two more ready-made curves, SUBTLE and MOVING, that lean with the music
-- **Editable curve**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo
+- **Editable curve**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo. Zoom and scroll it in time for long selections
 - **Hear it first**: PLAY MUSIC, PLAY INPUT and PLAY OUTPUT play the music, the effect as learned and the effect as it will be stamped, through Preview, with a playhead moving across each view. HEAR plays the pitch under the mouse as you drag, like a held key
 - **Keeps length and timing**: hits stay within a millisecond of where they were
 - **Stays under full scale**: shifting pitch can raise a sound's peaks, so TRIM turns the stamp down by just enough to keep it under full scale, with a limiter behind it

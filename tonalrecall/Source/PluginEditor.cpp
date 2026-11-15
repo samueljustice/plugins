@@ -778,13 +778,22 @@ public:
     struct Map
     {
         float x0 = 0.0f, width = 0.0f, top = 0.0f, height = 0.0f;
-        double duration = 0.0;   // seconds across the width
+        double duration = 0.0;   // seconds in the whole clip
+        // The stretch of the clip across the width (viewEnd <= viewStart: all of it).
+        double viewStart = 0.0, viewEnd = 0.0;
         bool valid = false;
+
+        double from() const noexcept { return viewEnd > viewStart ? viewStart : 0.0; }
+        double to() const noexcept { return viewEnd > viewStart ? viewEnd : duration; }
+        float xFor(double seconds) const noexcept
+        {
+            return x0 + width * static_cast<float>((seconds - from()) / std::max(1.0e-9, to() - from()));
+        }
         bool operator!=(const Map& o) const noexcept
         {
             const auto moved = [](double a, double b) { return std::abs(a - b) > 1.0e-6; };
             return moved(x0, o.x0) || moved(width, o.width) || moved(top, o.top) || moved(height, o.height) || moved(duration, o.duration)
-                || valid != o.valid;
+                || moved(from(), o.from()) || moved(to(), o.to()) || valid != o.valid;
         }
     };
 
@@ -809,9 +818,15 @@ public:
         if (map != m_map)
         {
             m_map = map;
+            // The line stays at its moment in the clip: where that is on screen has moved.
+            m_x = m_map.xFor(m_seconds);
             repaint();
         }
     }
+
+    const Map& map() const noexcept { return m_map; }
+    // Where the line is in the clip, and whether it is shown at all (it may be outside the view).
+    double seconds() const noexcept { return m_showing ? m_seconds : -1.0; }
 
     // The editor's timer calls this; while there is a line to move, the layer runs its own
     // 60 Hz timer, and stops it when the line goes.
@@ -826,6 +841,9 @@ public:
         if (! m_showing)
             return;
         const float x = m_x;
+        // Outside the stretch on view (the scan is zoomed in elsewhere): no line.
+        if (x < m_map.x0 - 0.5f || x > m_map.x0 + m_map.width + 0.5f)
+            return;
         const float top = m_map.top, h = m_map.height;
         // A faint glow either side, the line, and a small notch at its head.
         g.setColour(m_colour.withAlpha(m_strong ? 0.14f : 0.08f));
@@ -872,7 +890,7 @@ private:
             m_seconds = std::clamp(m_seconds, 0.0, m_map.duration);
         }
 
-        const float x = m_map.x0 + m_map.width * static_cast<float>(m_seconds / std::max(1.0e-9, m_map.duration));
+        const float x = m_map.xFor(m_seconds);
         if (show != m_showing || (show && (std::abs(x - m_x) >= 0.2f || r.colour != m_colour || r.strong != m_strong)))
         {
             const auto strip = [this](float at)
@@ -928,13 +946,28 @@ EditTools g_tools;
 class CurveEditor : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    // How the scan's picture maps time and pitch to pixels.
+    // How the scan's picture maps time and pitch to pixels. The picture, the editing and the
+    // playhead all go through this one mapping, so an edit lands at the moment under the mouse
+    // however far the scan is zoomed in.
     struct Axis
     {
         double lo = 0.0, hi = 1.0;                 // MIDI at the bottom and top of the plot
         float x0 = 0.0f, plotW = 1.0f, top = 0.0f, plotH = 1.0f;
-        double duration = 0.0;                     // seconds across the plot
+        double duration = 0.0;                     // seconds in the whole effect
+        double viewStart = 0.0, viewEnd = 0.0;     // the stretch across the plot (end <= start: all of it)
         bool valid = false;
+
+        double from() const noexcept { return viewEnd > viewStart ? viewStart : 0.0; }
+        double to() const noexcept { return viewEnd > viewStart ? viewEnd : duration; }
+        double span() const noexcept { return std::max(1.0e-9, to() - from()); }
+        // Not clamped: a moment outside the view maps outside the plot.
+        float xFor(double seconds) const noexcept { return x0 + plotW * static_cast<float>((seconds - from()) / span()); }
+        // Clamped to the view: the plot's edges are as far as the mouse reaches.
+        double secondsFor(float x) const noexcept
+        {
+            return from() + std::clamp(static_cast<double>((x - x0) / plotW), 0.0, 1.0) * span();
+        }
+        bool inView(double seconds) const noexcept { return seconds >= from() - 1.0e-9 && seconds <= to() + 1.0e-9; }
     };
 
     CurveEditor()
@@ -991,6 +1024,30 @@ public:
         repaint();
     }
 
+    // The view moved (zoomed or scrolled) with nothing else changed.
+    void setAxis(const Axis& axis)
+    {
+        m_axis = axis;
+        repaint();
+    }
+
+    // The wheel and the trackpad's pinch, for zooming and scrolling the view (x in this
+    // component's coordinates).
+    std::function<void(float x, const juce::MouseWheelDetails&, const juce::ModifierKeys&)> onWheel;
+    std::function<void(float x, float scale)> onMagnify;
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (onWheel && ! m_gesture)
+            onWheel(e.position.x, wheel, e.mods);
+    }
+
+    void mouseMagnify(const juce::MouseEvent& e, float scale) override
+    {
+        if (onMagnify && ! m_gesture)
+            onMagnify(e.position.x, scale);
+    }
+
     // The ready-made curves on offer (where each would put the effect's pitch), and which is
     // in use (-1: none of them, the curve has been set by hand).
     void setStyles(const std::array<std::vector<float>, MatchOptions::kNumStyles>& curves, int active)
@@ -1008,6 +1065,10 @@ public:
             return;
         const auto plot = juce::Rectangle<float>(m_axis.x0, m_axis.top, m_axis.plotW, m_axis.plotH);
         const auto frames = static_cast<int>(m_after.size());
+        // Zoomed in, what lies outside the view is cut off cleanly at the plot's sides (a little
+        // room above and below for the diamonds and the readout at the plot's edges).
+        const juce::Graphics::ScopedSaveState clipToView(g);
+        g.reduceClipRegion(plot.withY(0.0f).withHeight(static_cast<float>(getHeight())).getSmallestIntegerContainer());
 
         // Where the music was not heard: hatched, with its edge marked.
         const auto predicted = [&](int from, int to)
@@ -1016,24 +1077,29 @@ public:
                 return;
             const float xa = xForFrame(from), xb = xForFrame(to);
             const auto band = juce::Rectangle<float>(xa, plot.getY(), xb - xa, plot.getHeight());
-            if (band.getWidth() < 3.0f)
+            const auto shown = band.getIntersection(plot);
+            if (shown.getWidth() < 3.0f)
                 return;
             {
                 const juce::Graphics::ScopedSaveState state(g);
-                g.reduceClipRegion(band.toNearestInt());
+                g.reduceClipRegion(shown.getSmallestIntegerContainer());
                 g.setColour(Palette::amber.withAlpha(0.16f));
-                for (float x = band.getX() - band.getHeight(); x < band.getRight(); x += 7.0f)
+                // The hatching is anchored to the clip's time, so it scrolls with it.
+                const float step = 7.0f, startX = band.getX() - band.getHeight();
+                const float first = startX + step * std::floor((shown.getX() - band.getHeight() - startX) / step);
+                for (float x = first; x < shown.getRight(); x += step)
                     g.drawLine(x, band.getBottom(), x + band.getHeight(), band.getY(), 1.0f);
             }
             g.setColour(Palette::amber.withAlpha(0.55f));
             const float edge = from == 0 ? band.getRight() : band.getX();
-            for (float y = band.getY(); y < band.getBottom(); y += 6.0f)
-                g.fillRect(edge - 0.5f, y, 1.0f, 3.0f);
+            if (edge >= plot.getX() && edge <= plot.getRight())
+                for (float y = band.getY(); y < band.getBottom(); y += 6.0f)
+                    g.fillRect(edge - 0.5f, y, 1.0f, 3.0f);
             // Following the music, the bend here is a prediction; otherwise it is simply unheard.
             const juce::String text = m_following ? "PREDICTED" : "NO MUSIC LEARNED HERE";
             const float textW = m_following ? 76.0f : 168.0f;
-            if (band.getWidth() > textW + 6.0f)
-                drawText(g, text, { band.getX() + 5.0f, band.getY() + 2.0f, textW, 11.0f }, juce::Justification::centredLeft,
+            if (shown.getWidth() > textW + 6.0f)
+                drawText(g, text, { shown.getX() + 5.0f, band.getY() + 2.0f, textW, 11.0f }, juce::Justification::centredLeft,
                          font(Weight::Medium, 9.0f, 0.1f), Palette::amber);
         };
         // (Only when the effect is moving with the music: locked to one note, where the music was
@@ -1056,16 +1122,19 @@ public:
             const auto grey = Palette::dim.withAlpha(hot ? 1.0f : 0.75f);
             if (! active)
             {
+                // Only the frames on view, about two per pixel, so a zoomed-in curve keeps its detail.
                 juce::Path line;
-                const std::size_t stride = std::max<std::size_t>(1, curve.size() / 400);
-                for (std::size_t i = 0; i < curve.size(); i += stride)
+                const auto [first, last] = framesInView(curve.size());
+                const std::size_t stride = std::max<std::size_t>(1, (last - first) / static_cast<std::size_t>(std::max(1.0f, 2.0f * plot.getWidth())));
+                for (std::size_t i = first;; i = std::min(i + stride, last))   // (always ending on the last frame in view)
                 {
-                    const juce::Point<float> pt { plot.getX() + plot.getWidth() * static_cast<float>(i) / static_cast<float>(curve.size() - 1),
-                                                  std::clamp(yFor(curve[i]), plot.getY(), plot.getBottom()) };
-                    if (i == 0)
+                    const juce::Point<float> pt { xFor(static_cast<double>(i) * m_hop), std::clamp(yFor(curve[i]), plot.getY(), plot.getBottom()) };
+                    if (i == first)
                         line.startNewSubPath(pt);
                     else
                         line.lineTo(pt);
+                    if (i >= last)
+                        break;
                 }
                 g.setColour(grey);
                 g.strokePath(line, juce::PathStrokeType(hot ? 1.6f : 1.0f));
@@ -1096,9 +1165,16 @@ public:
         }
 
         // The user's points: diamonds on the line. A freehand line has many: draw those small.
-        const bool dense = m_points.size() > 24;
+        // (Dense or not is judged by what is on view: zoomed in on a drawn line, its points are
+        // far enough apart to be diamonds again.)
+        int onView = 0;
+        for (const auto& p : m_points)
+            onView += m_axis.inView(p.seconds) ? 1 : 0;
+        const bool dense = onView > 24;
         for (int i = 0; i < static_cast<int>(m_points.size()); ++i)
         {
+            if (! m_axis.inView(m_points[static_cast<std::size_t>(i)].seconds) && i != m_drag)
+                continue;
             const auto centre = pointPosition(m_points[static_cast<std::size_t>(i)]);
             const bool hot = ! m_drawing && (i == m_hover || i == m_drag);
             if (dense && ! hot)
@@ -1227,7 +1303,7 @@ public:
         const double fine = e.mods.isShiftDown() ? 0.2 : 1.0;
         const float dx = e.position.x - m_dragFrom.x;
         if (std::abs(dx) > 4.0f)
-            p.seconds = std::clamp(m_dragStart.seconds + static_cast<double>(dx) / static_cast<double>(m_axis.plotW) * m_axis.duration * fine,
+            p.seconds = std::clamp(m_dragStart.seconds + static_cast<double>(dx) / static_cast<double>(m_axis.plotW) * m_axis.span() * fine,
                                    0.0, m_axis.duration);
         // Up is sharper. Shift slows the move down for fine work; Alt lets go of the snap.
         const double perPixel = (m_axis.hi - m_axis.lo) / static_cast<double>(m_axis.plotH);
@@ -1291,14 +1367,12 @@ private:
     // that names do not sit on top of one another where the curves run together.
     juce::Rectangle<float> styleLabelArea(int style) const
     {
+        // (The names stay put on screen as the view moves; each sits over its curve as it is there.)
         const auto& curve = m_styles[static_cast<std::size_t>(style)];
         const float x = m_axis.x0 + 8.0f + 66.0f * static_cast<float>(style);
         float y = m_axis.top + 14.0f;
         if (curve.size() >= 2)
-        {
-            const auto at = static_cast<std::size_t>(std::clamp((x + 20.0f - m_axis.x0) / m_axis.plotW, 0.0f, 1.0f) * static_cast<float>(curve.size() - 1));
-            y = yFor(curve[at]);
-        }
+            y = yFor(valueAt(curve, m_hop, secondsFor(x + 20.0f)));
         // Stacked upwards in style order, so three curves on one note still read as three names.
         y = std::clamp(y - 16.0f - 13.0f * static_cast<float>(MatchOptions::kNumStyles - 1 - style), m_axis.top + 1.0f,
                        m_axis.top + m_axis.plotH - 13.0f);
@@ -1326,10 +1400,14 @@ private:
             pitch = core::snapToMusic(m_scale, pitch, g_tools.snap == 2);
         const double value = std::clamp(pitch - baseAt(seconds), -24.0, 24.0);
 
-        // One sample per 1/240 of the effect: a newer sample replaces a neighbour that close.
-        const double spacing = std::max(1.0e-4, m_axis.duration / 240.0);
+        // One sample per 1/240 of what is on view (so a line drawn zoomed in keeps its detail), but
+        // never closer than the curve's own frames. Time is cut into slots that wide, and a newer
+        // sample replaces the one in its slot: going back over the line redraws it, and a slow
+        // stroke (the mouse moving less than a slot at a time) still leaves one sample per slot.
+        const double spacing = std::max({ 1.0e-4, m_hop, m_axis.span() / 240.0 });
+        const auto slot = [spacing](double at) { return std::llround(at / spacing); };
         m_stroke.erase(std::remove_if(m_stroke.begin(), m_stroke.end(),
-                                      [&](const core::CurvePoint& p) { return std::abs(p.seconds - seconds) < spacing; }),
+                                      [&](const core::CurvePoint& p) { return slot(p.seconds) == slot(seconds); }),
                        m_stroke.end());
         m_stroke.push_back({ seconds, value });
 
@@ -1339,18 +1417,28 @@ private:
             lo = std::min(lo, p.seconds);
             hi = std::max(hi, p.seconds);
         }
-        const double eps = std::max(2.0e-4, m_axis.duration / 400.0);
-        std::vector<core::CurvePoint> points;
+        const double eps = std::max(2.0e-4, m_axis.span() / 400.0);
+        std::vector<core::CurvePoint> kept, pins, stroke = m_stroke;
         for (const auto& p : m_before)
             if (p.seconds < lo - eps || p.seconds > hi + eps)
-                points.push_back(p);
+                kept.push_back(p);
         if (lo - eps > 0.0)
-            points.push_back({ lo - eps, core::editOffsetAt(m_before, lo - eps, m_axis.duration) });
+            pins.push_back({ lo - eps, core::editOffsetAt(m_before, lo - eps, m_axis.duration) });
         if (hi + eps < m_axis.duration)
-            points.push_back({ hi + eps, core::editOffsetAt(m_before, hi + eps, m_axis.duration) });
-        points.insert(points.end(), m_stroke.begin(), m_stroke.end());
-        if (points.size() > MatchOptions::kMaxEdits)
-            points.resize(MatchOptions::kMaxEdits);
+            pins.push_back({ hi + eps, core::editOffsetAt(m_before, hi + eps, m_axis.duration) });
+
+        // Within the limit on points: the stroke is thinned first, but keeps a fair share; past
+        // that, the older points elsewhere are thinned too. Nothing is simply cut off the end.
+        const std::size_t limit = MatchOptions::kMaxEdits - pins.size();
+        if (kept.size() + stroke.size() > limit)
+        {
+            const std::size_t share = std::min(stroke.size(), std::max<std::size_t>(64, limit / 4));
+            thinTo(stroke, std::max(share, limit - std::min(limit, kept.size())));
+            thinTo(kept, limit - stroke.size());
+        }
+        std::vector<core::CurvePoint> points = std::move(kept);
+        points.insert(points.end(), pins.begin(), pins.end());
+        points.insert(points.end(), stroke.begin(), stroke.end());
         m_points = std::move(points);
 
         showReadout(seconds, value);
@@ -1368,19 +1456,38 @@ private:
         m_readoutAfter = baseAt(seconds) + value;
     }
 
+    // Keeps n of the points, evenly spread through them in time, the first and the last included.
+    static void thinTo(std::vector<core::CurvePoint>& points, std::size_t n)
+    {
+        if (points.size() <= n)
+            return;
+        std::sort(points.begin(), points.end(), [](const core::CurvePoint& a, const core::CurvePoint& b) { return a.seconds < b.seconds; });
+        std::vector<core::CurvePoint> kept;
+        kept.reserve(n);
+        for (std::size_t k = 0; k < n; ++k)
+            kept.push_back(points[n > 1 ? k * (points.size() - 1) / (n - 1) : 0]);
+        points = std::move(kept);
+    }
+
+    // The first and last of n frames that are on view (with one either side, so lines reach the
+    // plot's edges).
+    std::pair<std::size_t, std::size_t> framesInView(std::size_t n) const
+    {
+        if (n == 0 || m_hop <= 0.0)
+            return { 0, 0 };
+        const auto last = static_cast<double>(n - 1);
+        const auto a = static_cast<std::size_t>(std::clamp(std::floor(m_axis.from() / m_hop) - 1.0, 0.0, last));
+        const auto b = static_cast<std::size_t>(std::clamp(std::ceil(m_axis.to() / m_hop) + 1.0, 0.0, last));
+        return { a, std::max(a, b) };
+    }
+
     float xForFrame(int frame) const
     {
         const auto last = std::max<std::size_t>(1, m_after.size() - 1);
-        return m_axis.x0 + m_axis.plotW * static_cast<float>(std::clamp(frame, 0, static_cast<int>(last))) / static_cast<float>(last);
+        return xFor(static_cast<double>(std::clamp(frame, 0, static_cast<int>(last))) * m_hop);
     }
-    float xFor(double seconds) const
-    {
-        return m_axis.x0 + m_axis.plotW * static_cast<float>(m_axis.duration > 0.0 ? std::clamp(seconds / m_axis.duration, 0.0, 1.0) : 0.0);
-    }
-    double secondsFor(float x) const
-    {
-        return std::clamp(static_cast<double>((x - m_axis.x0) / m_axis.plotW), 0.0, 1.0) * m_axis.duration;
-    }
+    float xFor(double seconds) const { return m_axis.xFor(seconds); }
+    double secondsFor(float x) const { return m_axis.secondsFor(x); }
     float yFor(double midi) const
     {
         return m_axis.top + static_cast<float>((m_axis.hi - midi) / (m_axis.hi - m_axis.lo)) * m_axis.plotH;
@@ -1402,8 +1509,10 @@ private:
     }
     int hit(juce::Point<float> at) const
     {
+        // (Only the points on view: one just off the edge of a zoomed-in view cannot be grabbed.)
         for (int i = static_cast<int>(m_points.size()) - 1; i >= 0; --i)
-            if (pointPosition(m_points[static_cast<std::size_t>(i)]).getDistanceFrom(at) <= 8.0f)
+            if (m_axis.inView(m_points[static_cast<std::size_t>(i)].seconds)
+                && pointPosition(m_points[static_cast<std::size_t>(i)]).getDistanceFrom(at) <= 8.0f)
                 return i;
         return -1;
     }
@@ -1962,6 +2071,237 @@ private:
 };
 
 //==============================================================================
+// The effect's whole selection in miniature, along the top of its scan: the pitch line, the
+// stretch the scan is showing (lit), and where playback is. It is also the scroll bar: the lit
+// stretch drags to scroll, its edges drag to zoom, a click elsewhere jumps there, and a
+// double-click shows it all.
+
+class OverviewBar : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    // The pitch line across the bar: for each column, the lowest and highest pitch drawn there
+    // (as 0..1 of the bar's height, from the bottom), or a negative low where there is none.
+    struct Column { float low = -1.0f, high = -1.0f; };
+
+    OverviewBar() { setRepaintsOnMouseActivity(true); }
+
+    // Asks for a view (seconds; the panel keeps it within the selection and the zoom limits).
+    // move: the stretch is moved whole; otherwise one of its edges is.
+    std::function<void(double start, double end, bool move)> onView;
+    std::function<void()> onFit;
+    std::function<void(double seconds, const juce::MouseWheelDetails&, const juce::ModifierKeys&)> onWheel;
+
+    void setDuration(double seconds)
+    {
+        if (std::abs(seconds - m_duration) > 1.0e-9)
+        {
+            m_duration = seconds;
+            repaint();
+        }
+    }
+
+    void setView(double start, double end)
+    {
+        if (std::abs(start - m_start) > 1.0e-9 || std::abs(end - m_end) > 1.0e-9)
+        {
+            m_start = start;
+            m_end = end;
+            repaint();
+        }
+    }
+
+    void setColumns(std::vector<Column> columns)
+    {
+        m_columns = std::move(columns);
+        repaint();
+    }
+
+    // Where playback is (negative: nowhere), drawn in the colour of the line on the scan.
+    void setPlay(double seconds, juce::Colour colour)
+    {
+        const auto px = [this](double s) { return s < 0.0 ? -1 : static_cast<int>(std::floor(xFor(s))); };
+        if (px(seconds) != px(m_play) || colour != m_playColour)
+        {
+            m_play = seconds;
+            m_playColour = colour;
+            repaint();
+        }
+        m_play = seconds;
+    }
+
+    bool isDragging() const noexcept { return m_mode != Mode::None; }
+
+    // The bar inside the component (the component is taller, to be easy to grab).
+    juce::Rectangle<float> track() const
+    {
+        const auto r = getLocalBounds().toFloat();
+        return { r.getX(), std::round(r.getCentreY()) - 4.0f, r.getWidth(), 8.0f };
+    }
+
+    float xFor(double seconds) const
+    {
+        const auto t = track();
+        return t.getX() + t.getWidth() * static_cast<float>(m_duration > 0.0 ? seconds / m_duration : 0.0);
+    }
+
+    double secondsFor(float x) const
+    {
+        const auto t = track();
+        return std::clamp(static_cast<double>((x - t.getX()) / std::max(1.0f, t.getWidth())), 0.0, 1.0) * m_duration;
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (m_duration <= 0.0)
+            return;
+        const auto t = track();
+        const bool whole = m_end - m_start >= m_duration - 1.0e-6;
+        const bool hot = isMouseOverOrDragging();
+
+        // The bar: a faint band with the pitch line in miniature on it.
+        g.setColour(Palette::rule.withAlpha(0.6f));
+        g.fillRect(t);
+        const auto inner = t.reduced(1.0f, 1.5f);
+        const int columns = static_cast<int>(m_columns.size());
+        for (int c = 0; c < columns; ++c)
+        {
+            const auto& col = m_columns[static_cast<std::size_t>(c)];
+            if (col.low < 0.0f)
+                continue;
+            const float yTop = inner.getBottom() - inner.getHeight() * col.high, yBottom = inner.getBottom() - inner.getHeight() * col.low;
+            g.setColour(Palette::amber.withAlpha(0.7f));
+            g.fillRect(inner.getX() + static_cast<float>(c), yTop - 0.5f, 1.0f, std::max(1.0f, yBottom - yTop + 0.5f));
+        }
+
+        // The stretch on view, lit; the rest dimmed. At least a few pixels wide however far in.
+        float xa = xFor(m_start), xb = xFor(m_end);
+        if (xb - xa < 6.0f)
+        {
+            const float mid = 0.5f * (xa + xb);
+            xa = mid - 3.0f;
+            xb = mid + 3.0f;
+        }
+        // (Showing all of it, the bar stays quiet: only a faint outline, brighter under the mouse.)
+        const auto lit = juce::Rectangle<float>(xa, t.getY() - 2.0f, xb - xa, t.getHeight() + 4.0f);
+        if (! whole)
+        {
+            g.setColour(Palette::background.withAlpha(0.6f));
+            g.fillRect(juce::Rectangle<float>(t.getX(), t.getY(), xa - t.getX(), t.getHeight()).getIntersection(t));
+            g.fillRect(juce::Rectangle<float>(xb, t.getY(), t.getRight() - xb, t.getHeight()).getIntersection(t));
+            g.setColour(Palette::amber.withAlpha(0.12f));
+            g.fillRect(lit);
+        }
+        g.setColour(whole ? Palette::amberLine.withAlpha(hot ? 1.0f : 0.0f) : Palette::amber.withAlpha(hot ? 1.0f : 0.8f));
+        g.drawRect(lit, 1.0f);
+        // Grips at the two edges (they zoom when dragged).
+        if (! whole)
+        {
+            g.setColour(Palette::amber);
+            g.fillRect(lit.getX(), lit.getY(), 2.0f, lit.getHeight());
+            g.fillRect(lit.getRight() - 2.0f, lit.getY(), 2.0f, lit.getHeight());
+        }
+
+        if (m_play >= 0.0)
+        {
+            const float x = std::round(xFor(std::clamp(m_play, 0.0, m_duration)));
+            g.setColour(m_playColour);
+            g.fillRect(x - 0.5f, t.getY() - 3.0f, 1.0f, t.getHeight() + 6.0f);
+        }
+    }
+
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        const auto mode = modeAt(e.position.x);
+        setMouseCursor(mode == Mode::Left || mode == Mode::Right ? juce::MouseCursor::LeftRightResizeCursor
+                       : mode == Mode::Move                     ? juce::MouseCursor::DraggingHandCursor
+                                                                : juce::MouseCursor::PointingHandCursor);
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (m_duration <= 0.0)
+            return;
+        m_mode = modeAt(e.position.x);
+        if (m_mode == Mode::None)
+        {
+            // Elsewhere on the bar: the view jumps there, centred, and then drags from there.
+            const double span = m_end - m_start, at = secondsFor(e.position.x);
+            m_start = at - 0.5 * span;
+            m_end = m_start + span;
+            if (onView)
+                onView(m_start, m_end, true);
+            m_mode = Mode::Move;
+        }
+        m_downX = e.position.x;
+        m_downStart = m_start;
+        m_downEnd = m_end;
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (m_mode == Mode::None || m_duration <= 0.0 || ! onView)
+            return;
+        const auto t = track();
+        const double dt = static_cast<double>(e.position.x - m_downX) / std::max(1.0f, t.getWidth()) * m_duration;
+        if (m_mode == Mode::Move)
+            onView(m_downStart + dt, m_downEnd + dt, true);
+        else if (m_mode == Mode::Left)
+            onView(std::min(secondsFor(e.position.x), m_downEnd), m_downEnd, false);
+        else
+            onView(m_downStart, std::max(secondsFor(e.position.x), m_downStart), false);
+    }
+
+    void mouseUp(const juce::MouseEvent&) override { m_mode = Mode::None; }
+
+    void mouseDoubleClick(const juce::MouseEvent&) override
+    {
+        m_mode = Mode::None;
+        if (onFit)
+            onFit();
+    }
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (onWheel && m_mode == Mode::None)
+            onWheel(secondsFor(e.position.x), wheel, e.mods);
+    }
+
+private:
+    enum class Mode { None, Move, Left, Right };
+
+    // What a press at x would take hold of: an edge of the lit stretch, the stretch, or nothing.
+    Mode modeAt(float x) const
+    {
+        if (m_duration <= 0.0)
+            return Mode::None;
+        float xa = xFor(m_start), xb = xFor(m_end);
+        if (xb - xa < 6.0f)
+        {
+            // Zoomed far in, the lit stretch is drawn a few pixels wide: that is what is grabbed.
+            const float mid = 0.5f * (xa + xb);
+            xa = mid - 3.0f;
+            xb = mid + 3.0f;
+        }
+        const float reach = xb - xa < 12.0f ? 0.0f : 4.0f;   // a narrow stretch is grabbed whole; its edges from outside
+        if (x >= xa - 5.0f && x <= xa + reach && x < 0.5f * (xa + xb))
+            return Mode::Left;
+        if (x >= xb - reach && x <= xb + 5.0f && x > 0.5f * (xa + xb))
+            return Mode::Right;
+        if (x > xa && x < xb)
+            return Mode::Move;
+        return Mode::None;
+    }
+
+    double m_duration = 0.0, m_start = 0.0, m_end = 0.0;
+    std::vector<Column> m_columns;
+    double m_play = -1.0;
+    juce::Colour m_playColour = Palette::amber;
+    Mode m_mode = Mode::None;
+    float m_downX = 0.0f;
+    double m_downStart = 0.0, m_downEnd = 0.0;
+};
+
+//==============================================================================
 // 02 SOUND EFFECT
 
 class SfxPanel : public SlotPanel
@@ -1993,7 +2333,8 @@ public:
         m_editor.setTooltip("Click anywhere to listen from that moment. Drag to raise or lower the pitch there: each place "
                     "you pull stays as a diamond, and double-clicking a diamond removes it. Shift moves finely, Alt "
                     "ignores the snap. LOCKED, SUBTLE and MOVING are three ready-made curves: click a grey name to "
-                    "switch to it (it sets the target and Bend). Hatched stretches lie outside the learned music.");
+                    "switch to it (it sets the target and Bend). Hatched stretches lie outside the learned music. "
+                    "The wheel zooms in time around the pointer, and Shift with the wheel scrolls.");
         m_editor.onChange = [this](const std::vector<core::CurvePoint>& points) { if (onEdits) onEdits(points); };
         m_editor.onHold = [this](double seconds, double semitones)
         {
@@ -2117,7 +2458,64 @@ public:
                 onEdits({});
         };
         addChildComponent(m_resetEdits);
+
+        // The view in time: the overview along the top of the scan, the zoom buttons beside it,
+        // the wheel and the trackpad over the scan.
+        m_overview.setTooltip("The whole selection, with the stretch the scan shows lit. Drag the lit stretch to scroll, drag "
+                              "its edges to zoom, click elsewhere to jump there, and double-click to see it all.");
+        m_overview.onView = [this](double start, double end, bool move) { userView(start, end, false, move); };
+        m_overview.onFit = [this] { userView(0.0, m_duration, true); };
+        m_overview.onWheel = [this](double seconds, const juce::MouseWheelDetails& wheel, const juce::ModifierKeys& mods)
+        {
+            // Over the lit stretch, around the moment under the pointer; elsewhere on the bar, around the view's middle.
+            const auto [start, end] = viewTarget();
+            wheelAt(seconds >= start && seconds <= end ? seconds : 0.5 * (start + end), wheel, mods);
+        };
+        addChildComponent(m_overview);
+        m_editor.onWheel = [this](float x, const juce::MouseWheelDetails& wheel, const juce::ModifierKeys& mods)
+        {
+            wheelAt(m_axis.secondsFor(x), wheel, mods);
+        };
+        m_editor.onMagnify = [this](float x, float scale)
+        {
+            if (scale > 0.0f)
+                zoomAround(m_axis.secondsFor(x), 1.0 / static_cast<double>(scale), false);
+        };
+        for (auto* b : { &m_zoomOut, &m_zoomIn, &m_fit, &m_soundView })
+        {
+            b->setAccent(Palette::amber, Palette::dim, Palette::amberLine);
+            const bool sign = b == &m_zoomOut || b == &m_zoomIn;
+            b->setFontSize(sign ? 12.0f : 8.5f, sign ? Weight::Bold : Weight::Medium, sign ? 0.0f : 0.14f);
+            b->setPlain(true);
+            addChildComponent(*b);
+        }
+        m_zoomOut.setTooltip("Zooms out: more of the selection across the scan.");
+        m_zoomIn.setTooltip("Zooms in on the middle of the scan. The wheel over the scan zooms around the pointer, and "
+                            "Shift with the wheel scrolls.");
+        m_fit.setTooltip("Shows the whole selection the effect was learned over. Double-clicking the bar beside does the same.");
+        m_soundView.setTooltip("Frames the stretch where the effect sounds, with a little either side.");
+        m_zoomOut.onClick = [this] { zoomAround(0.5 * (m_viewStart + m_viewEnd), 2.0, true); };
+        m_zoomIn.onClick = [this] { zoomAround(0.5 * (m_viewStart + m_viewEnd), 0.5, true); };
+        m_fit.onClick = [this] { userView(0.0, m_duration, true); };
+        m_soundView.onClick = [this] { userView(m_soundFrom, m_soundTo, true); };
+
+        // The playhead also moves the overview's marker, and the view follows it (see follow()).
+        m_editor.addMouseListener(this, false);     // (see mouseMove(): the pointer at work over the scan)
+        m_overview.addMouseListener(this, false);
+        m_playhead.onMoved = [this](double seconds)
+        {
+            showPlayTime(seconds);
+            m_overview.setPlay(seconds, AuditionBus::instance().playing() == Playback::Input ? Palette::text : Palette::amber);
+            follow(seconds);
+        };
     }
+
+    // The pointer moving over the scan or the overview (this panel listens to both): the user is
+    // at work there, and the view does not follow a playhead away from under them for a moment.
+    void mouseMove(const juce::MouseEvent& e) override { notePointer(e); }
+    void mouseDrag(const juce::MouseEvent& e) override { notePointer(e); }
+    void mouseDown(const juce::MouseEvent& e) override { notePointer(e); }
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails&) override { notePointer(e); }
 
     std::function<void(core::SfxMethod)> onMethod;
     std::function<void(const std::vector<core::CurvePoint>&)> onEdits;
@@ -2177,15 +2575,26 @@ public:
             m_undo.clear();
             m_redo.clear();
         }
+        m_hubData = &hub;
         if (hubChanged || ! m_haveImage)
         {
             m_haveImage = true;
+            // Another effect (or none): the view goes back to the whole selection.
+            const double duration = drawable && s.hz.size() >= 2 ? static_cast<double>(s.hz.size() - 1) * s.hopSeconds : 0.0;
+            if (hub.sfxChannels != m_viewFor || std::abs(duration - m_duration) > 1.0e-9)
+            {
+                m_viewFor = hub.sfxChannels;
+                m_duration = duration;
+                m_viewStart = 0.0;
+                m_viewEnd = duration;
+                m_viewMotion.stopTimer();
+                m_followHead = false;
+            }
+            if (drawable)
+                measureOverview(hub);
             m_axis.valid = m_axis.valid && m_editor.isDragging();   // the pitch axis holds still under a drag
             m_scan.setPicture(drawable ? renderCurves(hub) : juce::Image(), m_editor.isDragging());
-            PlayheadLayer::Map map;
-            if (drawable && m_axis.valid)
-                map = { m_axis.x0, m_axis.plotW, m_axis.top, m_axis.plotH, m_axis.duration, true };
-            m_playhead.setMap(map);
+            showAxis(drawable);
             m_editor.setData(m_axis, hub.options.edits, hub.match.afterMidi, hub.match.hopSeconds, hub.match.coveredFrom, hub.match.coveredTo,
                              hub.options.bend > 1.0e-6, hub.options.target == core::Target::Follow || hub.options.bend > 1.0e-6,
                              s.centreMidi, hub.music);
@@ -2207,6 +2616,12 @@ public:
         m_smooth.setVisible(editable);
         m_undoButton.setVisible(editable && ! m_undo.empty());
         m_redoButton.setVisible(editable && ! m_redo.empty());
+        // The view controls go with the picture (they work before there is a match to edit).
+        const bool viewable = drawable && m_axis.valid && ! message && m_duration > 0.0;
+        m_overview.setVisible(viewable);
+        for (auto* b : { &m_zoomOut, &m_zoomIn, &m_fit, &m_soundView })
+            b->setVisible(viewable);
+        showViewButtons();
     }
 
     void resized() override
@@ -2225,8 +2640,9 @@ public:
         transport.removeFromLeft(6);
         m_playOutput.setBounds(transport.removeFromLeft(kOutputW));
         m_transportLeft = m_playOutput.getRight();
-        // Reset, redo and undo sit at the right of the readout line, above the tools.
-        auto history = juce::Rectangle<int>(PanelLayout::pad, PanelLayout::dimY - 2, getWidth() - 2 * PanelLayout::pad, 18);
+        // Reset, redo and undo sit at the right of the note (the line under it runs too long to
+        // share its row with them).
+        auto history = juce::Rectangle<int>(PanelLayout::pad, PanelLayout::bigY + (PanelLayout::bigH - 18) / 2, getWidth() - 2 * PanelLayout::pad, 18);
         m_resetEdits.setBounds(history.removeFromRight(92));
         history.removeFromRight(14);
         m_redoButton.setBounds(history.removeFromRight(38));
@@ -2241,7 +2657,42 @@ public:
         m_snap.setBounds(row.removeFromRight(84));
         row.removeFromRight(10);
         m_draw.setBounds(row.removeFromRight(62));
+
+        // Along the top of the scan, over the plot's width: the overview, then the zoom buttons
+        // (clear of the corner brackets).
+        const auto scan = m_scan.getBounds();
+        auto nav = juce::Rectangle<int>(scan.getX() + PanelLayout::gutter, scan.getY() + kNavTop,
+                                        scan.getWidth() - PanelLayout::gutter - 14, kNavH);
+        m_soundView.setBounds(nav.removeFromRight(44));
+        nav.removeFromRight(4);
+        m_fit.setBounds(nav.removeFromRight(28));
+        nav.removeFromRight(4);
+        m_zoomIn.setBounds(nav.removeFromRight(16));
+        m_zoomOut.setBounds(nav.removeFromRight(16));
+        nav.removeFromRight(8);
+        m_overview.setBounds(nav);
     }
+
+    //==========================================================================
+    // Tests: the view in time and the mapping it gives (in the scan's own coordinates, which the
+    // curve editor and the playhead share).
+    std::pair<double, double> view() const { return { m_viewStart, m_viewEnd }; }
+    void setViewForTesting(double start, double end) { setView(start, end, true); }
+    void pressViewButton(const juce::String& name)
+    {
+        for (auto* b : { &m_zoomOut, &m_zoomIn, &m_fit, &m_soundView })
+            if (b->getButtonText() == name && b->onClick)
+                b->onClick();
+    }
+    float xForSeconds(double seconds) const { return m_axis.xFor(seconds); }
+    double secondsForX(float x) const { return m_axis.secondsFor(x); }
+    float playheadXForSeconds(double seconds) const { return m_playhead.map().xFor(seconds); }
+    double playheadSeconds() const { return m_playhead.seconds(); }
+    juce::Rectangle<float> plotBounds() const { return { m_axis.x0, m_axis.top, m_axis.plotW, m_axis.plotH }; }
+    std::pair<double, double> soundRange() const { return { m_soundFrom, m_soundTo }; }
+    juce::Component& curveEditor() { return m_editor; }
+    juce::Component& overview() { return m_overview; }
+    double lastRenderMs() const { return m_lastRenderMs; }
 
 private:
     // The curve's history: every finished edit can be taken back, and put back again.
@@ -2296,31 +2747,300 @@ private:
         m_editor.repaint();
     }
 
+    //==========================================================================
+    // The view in time. The scan shows [m_viewStart, m_viewEnd] of the effect; by default, and
+    // whenever another effect is learned, that is the whole selection. It is not saved: it belongs
+    // to this window.
+
+    static constexpr double kShortestView = 0.25;   // seconds across the scan, at the most zoomed in
+
+    double shortestView() const { return std::min(kShortestView, m_duration); }
+    bool showingAll() const { return m_viewEnd - m_viewStart >= m_duration - 1.0e-6; }
+
+    // Puts a view on the scan, kept within the selection and the zoom limits. keepSpan: the
+    // stretch moves as a whole (a scroll); otherwise its two ends are kept where they can be (an
+    // edge dragged on the overview).
+    void setView(double start, double end, bool keepSpan)
+    {
+        // (Never under a drag on the curve: the point being moved would slide away from the mouse.)
+        if (m_duration <= 0.0 || m_editor.isDragging())
+            return;
+        const double shortest = shortestView();
+        if (keepSpan)
+        {
+            const double span = std::clamp(end - start, shortest, m_duration);
+            start = std::clamp(start, 0.0, m_duration - span);
+            end = start + span;
+        }
+        else
+        {
+            start = std::clamp(start, 0.0, m_duration);
+            end = std::clamp(end, 0.0, m_duration);
+            if (end - start < shortest)
+            {
+                // Grow it at whichever end has room: the one being dragged stays.
+                if (std::abs(start - m_viewStart) > std::abs(end - m_viewEnd))
+                    start = std::max(0.0, end - shortest);
+                end = std::min(m_duration, start + shortest);
+                start = std::min(start, end - shortest);
+            }
+        }
+        if (std::abs(start - m_viewStart) < 1.0e-9 && std::abs(end - m_viewEnd) < 1.0e-9)
+            return;
+        m_viewStart = start;
+        m_viewEnd = end;
+        redrawView();
+    }
+
+    // The picture again at the new view (drawn afresh, never stretched), and everything that maps
+    // time to x told of it.
+    void redrawView()
+    {
+        if (m_hubData == nullptr || m_duration <= 0.0 || ! m_axis.valid || m_editor.isDragging())
+        {
+            showViewButtons();
+            return;
+        }
+        const auto started = juce::Time::getMillisecondCounterHiRes();
+        m_axis.valid = false;   // the pitch axis ranges over what is now on view
+        m_scan.setPicture(renderCurves(*m_hubData), true);
+        m_lastRenderMs = juce::Time::getMillisecondCounterHiRes() - started;
+        showAxis(true);
+        m_editor.setAxis(m_axis);
+        showViewButtons();
+    }
+
+    void showAxis(bool drawable)
+    {
+        PlayheadLayer::Map map;
+        if (drawable && m_axis.valid)
+            map = { m_axis.x0, m_axis.plotW, m_axis.top, m_axis.plotH, m_axis.duration, m_axis.from(), m_axis.to(), true };
+        m_playhead.setMap(map);
+        m_overview.setDuration(m_duration);
+        m_overview.setView(m_viewStart, m_viewEnd);
+    }
+
+    void showViewButtons()
+    {
+        const bool all = showingAll();
+        m_fit.setToggleState(all, juce::dontSendNotification);
+        const bool onSound = std::abs(m_viewStart - m_soundFrom) < 1.0e-3 && std::abs(m_viewEnd - m_soundTo) < 1.0e-3 && ! all;
+        m_soundView.setToggleState(onSound, juce::dontSendNotification);
+        m_zoomOut.setEnabled(! all);
+        m_zoomIn.setEnabled(m_viewEnd - m_viewStart > shortestView() + 1.0e-6);
+        m_overview.setView(m_viewStart, m_viewEnd);
+    }
+
+    void notePointer(const juce::MouseEvent& e)
+    {
+        if (e.eventComponent == &m_editor || e.eventComponent == &m_overview)
+            m_lastPointer = nowSeconds();
+    }
+
+    // Where a run of view changes is heading (the end of a glide, or the view itself).
+    std::pair<double, double> viewTarget() const
+    {
+        return m_viewMotion.isTimerRunning() ? std::make_pair(m_targetStart, m_targetEnd) : std::make_pair(m_viewStart, m_viewEnd);
+    }
+
+    // A view the user asked for. glide: eased into over a few frames (a button, a wheel's notch);
+    // otherwise at once (a drag, a trackpad, which are smooth already).
+    void userView(double start, double end, bool glide, bool keepSpan = true)
+    {
+        m_lastUserView = nowSeconds();
+        if (glide && g_motionOn.load(std::memory_order_relaxed) && m_duration > 0.0)
+        {
+            // Where it would land, kept within the limits now so the glide does not bounce.
+            const double span = std::clamp(end - start, shortestView(), m_duration);
+            m_targetStart = std::clamp(start, 0.0, m_duration - span);
+            m_targetEnd = m_targetStart + span;
+            if (! m_viewMotion.isTimerRunning())
+                m_viewMotion.startTimerHz(60);
+        }
+        else
+        {
+            m_viewMotion.stopTimer();
+            setView(start, end, keepSpan);
+        }
+        // Moved away from a playhead it was following: stop following it until it comes back.
+        const double head = m_playhead.seconds();
+        const auto [ts, te] = viewTarget();
+        m_followHead = head >= ts && head <= te;
+    }
+
+    void stepViewMotion()
+    {
+        const double span = m_targetEnd - m_targetStart;
+        double start = m_viewStart + (m_targetStart - m_viewStart) * 0.35;
+        double end = m_viewEnd + (m_targetEnd - m_viewEnd) * 0.35;
+        if (std::abs(start - m_targetStart) < 2.0e-3 * span && std::abs(end - m_targetEnd) < 2.0e-3 * span)
+        {
+            start = m_targetStart;
+            end = m_targetEnd;
+            m_viewMotion.stopTimer();
+        }
+        setView(start, end, false);
+    }
+
+    // Zooms by factor (under 1: in), keeping the moment `at` where it is on the scan.
+    void zoomAround(double at, double factor, bool glide)
+    {
+        if (m_duration <= 0.0)
+            return;
+        const auto [start, end] = viewTarget();
+        const double span = end - start;
+        const double newSpan = std::clamp(span * factor, shortestView(), m_duration);
+        const double fraction = span > 0.0 ? std::clamp((at - start) / span, 0.0, 1.0) : 0.5;
+        const double newStart = at - fraction * newSpan;
+        userView(newStart, newStart + newSpan, glide);
+    }
+
+    // The wheel: up and down zoom around the moment under the pointer, sideways (or with Shift)
+    // scrolls. A trackpad's stream of small steps is followed as it comes; a mouse wheel's
+    // notches are eased.
+    void wheelAt(double seconds, const juce::MouseWheelDetails& wheel, const juce::ModifierKeys& mods)
+    {
+        if (m_duration <= 0.0 || ! m_overview.isVisible())
+            return;
+        float across = wheel.deltaX, along = wheel.deltaY;
+        if (mods.isShiftDown() && std::abs(across) < 1.0e-6f)
+            std::swap(across, along);
+        const auto [start, end] = viewTarget();
+        if (std::abs(across) > std::abs(along))
+        {
+            const double by = -std::clamp(static_cast<double>(across) * 2.0, -0.5, 0.5) * (end - start);
+            userView(start + by, end + by, ! wheel.isSmooth);
+        }
+        else if (std::abs(along) > 0.0f)
+        {
+            zoomAround(seconds, std::clamp(std::exp2(-static_cast<double>(along) * 4.0), 0.5, 2.0), ! wheel.isSmooth);
+        }
+    }
+
+    // While something plays and its playhead leaves the view, the view turns the page after it
+    // (a page at a time, so the picture is redrawn only now and then). It follows only a playhead
+    // that was on view, and only what the play buttons or a click on the scan started: Preview
+    // looping its own stamp in the background never pulls the view away from where the user is
+    // working. Nor does anything while the user is busy with the view or the curve, or has just
+    // had the pointer over them.
+    void follow(double seconds)
+    {
+        if (seconds < 0.0)
+        {
+            m_followHead = false;
+            return;
+        }
+        if (m_duration <= 0.0 || showingAll())
+            return;
+        if (seconds >= m_viewStart && seconds <= m_viewEnd)
+        {
+            m_followHead = true;
+            return;
+        }
+        const auto role = AuditionBus::instance().playing();
+        const double now = nowSeconds();
+        const bool busy = m_editor.isDragging() || m_overview.isDragging() || m_viewMotion.isTimerRunning()
+                          || now - m_lastUserView < 0.6 || now - m_lastPointer < 1.5;
+        if (! m_followHead || busy || (role != Playback::Input && role != Playback::Output))
+            return;
+        const double span = m_viewEnd - m_viewStart;
+        setView(seconds - 0.06 * span, seconds + 0.94 * span, true);
+    }
+
+    // What the overview draws: the pitch line, column by column, over the whole selection; and
+    // where the effect sounds, for SOUND.
+    void measureOverview(const HubSnapshot& hub)
+    {
+        const auto& s = hub.sfx;
+        const auto& line = hub.match.valid && hub.match.afterHz.size() == s.hz.size() ? hub.match.afterHz : s.hz;
+        const std::size_t n = line.size();
+        double lo = 1.0e9, hi = -1.0e9;
+        int first = -1, last = -1;
+        for (std::size_t i = 0; i < n; ++i)
+            if (line[i] > 0.0f)
+            {
+                const double midi = core::hzToMidi(line[i]);
+                lo = std::min(lo, midi);
+                hi = std::max(hi, midi);
+                if (first < 0)
+                    first = static_cast<int>(i);
+                last = static_cast<int>(i);
+            }
+        const int width = std::max(1, static_cast<int>(m_overview.track().reduced(1.0f, 0.0f).getWidth()));
+        std::vector<OverviewBar::Column> columns(static_cast<std::size_t>(width));
+        if (first >= 0 && n >= 2)
+        {
+            // At least an octave tall, so a steady tone reads as a line through the middle.
+            const double mid = 0.5 * (lo + hi);
+            lo = std::min(lo, mid - 6.0);
+            hi = std::max(hi, mid + 6.0);
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                if (line[i] <= 0.0f)
+                    continue;
+                const auto c = static_cast<std::size_t>(std::min<double>(width - 1, std::floor(static_cast<double>(i) / static_cast<double>(n - 1) * width)));
+                const auto v = static_cast<float>((core::hzToMidi(line[i]) - lo) / (hi - lo));
+                auto& col = columns[c];
+                col.low = col.low < 0.0f ? v : std::min(col.low, v);
+                col.high = std::max(col.high, v);
+            }
+        }
+        m_overview.setColumns(std::move(columns));
+
+        // SOUND: from the first to the last moment with a pitch, a little either side.
+        if (first >= 0 && last > first)
+        {
+            const double from = first * s.hopSeconds, to = last * s.hopSeconds;
+            const double margin = std::max(0.1, 0.06 * (to - from));
+            m_soundFrom = std::max(0.0, from - margin);
+            m_soundTo = std::min(m_duration, to + margin);
+            if (m_soundTo - m_soundFrom < shortestView())
+                m_soundTo = std::min(m_duration, m_soundFrom + shortestView());
+        }
+        else
+        {
+            m_soundFrom = 0.0;
+            m_soundTo = m_duration;
+        }
+    }
+
+    // The scan's picture inside: the overview and the zoom buttons along the top, the plot, and
+    // the time ruler along the bottom.
+    static constexpr int kNavTop = 3, kNavH = 14;
+    static constexpr float kPlotTop = 22.0f, kRulerH = 18.0f;
+
     juce::Image renderCurves(const HubSnapshot& hub)
     {
         const auto& s = hub.sfx;
         const auto& r = hub.match;
         const int w = m_scan.getWidth(), h = m_scan.getHeight();
         const std::size_t n = s.hz.size();
-        if (w <= PanelLayout::gutter + 4 || h <= 8 || n < 2)
+        if (w <= PanelLayout::gutter + 4 || h <= 40 || n < 2)
             return {};
 
-        // The pitch axis: everything that is drawn, plus a margin, at least an octave.
+        const double duration = static_cast<double>(n - 1) * s.hopSeconds;
+        const double viewStart = m_viewEnd > m_viewStart ? m_viewStart : 0.0;
+        const double viewEnd = m_viewEnd > m_viewStart ? m_viewEnd : duration;
+        // The frames on view, with one either side so the lines run to the plot's edges.
+        const auto firstFrame = static_cast<std::size_t>(std::clamp(std::floor(viewStart / s.hopSeconds) - 1.0, 0.0, static_cast<double>(n - 1)));
+        const auto lastFrame = static_cast<std::size_t>(std::clamp(std::ceil(viewEnd / s.hopSeconds) + 1.0, 0.0, static_cast<double>(n - 1)));
+
+        // The pitch axis: everything that is drawn on view, plus a margin, at least an octave.
         double lo = s.centreMidi, hi = s.centreMidi;
         const auto include = [&](double midi) { lo = std::min(lo, midi); hi = std::max(hi, midi); };
-        for (float hz : s.hz)
-            if (hz > 0.0f)
-                include(core::hzToMidi(hz));
+        for (std::size_t i = firstFrame; i <= lastFrame; ++i)
+            if (s.hz[i] > 0.0f)
+                include(core::hzToMidi(s.hz[i]));
         if (r.valid)
         {
             include(r.targetMidi);
-            for (float hz : r.afterHz)
-                if (hz > 0.0f)
-                    include(core::hzToMidi(hz));
+            for (std::size_t i = firstFrame; i <= lastFrame && i < r.afterHz.size(); ++i)
+                if (r.afterHz[i] > 0.0f)
+                    include(core::hzToMidi(r.afterHz[i]));
             // Room for the curves on offer too, so every one of them can be seen and picked.
             for (const auto& curve : hub.styleAfterMidi)
-                for (float midi : curve)
-                    include(midi);
+                for (std::size_t i = firstFrame; i <= lastFrame && i < curve.size(); ++i)
+                    include(curve[i]);
         }
         lo = std::floor(lo - 1.5);
         hi = std::ceil(hi + 1.5);
@@ -2338,9 +3058,7 @@ private:
         }
 
         const float x0 = static_cast<float>(PanelLayout::gutter), plotW = static_cast<float>(w) - x0 - 4.0f;
-        const float top = 6.0f, plotH = static_cast<float>(h) - 12.0f;
-        const auto yFor = [&](double midi) { return top + static_cast<float>((hi - midi) / (hi - lo)) * plotH; };
-        const auto xFor = [&](std::size_t i) { return x0 + plotW * static_cast<float>(i) / static_cast<float>(n - 1); };
+        const float top = kPlotTop, plotH = static_cast<float>(h) - kRulerH - top;
 
         m_axis.lo = lo;
         m_axis.hi = hi;
@@ -2348,11 +3066,17 @@ private:
         m_axis.plotW = plotW;
         m_axis.top = top;
         m_axis.plotH = plotH;
-        m_axis.duration = static_cast<double>(n - 1) * s.hopSeconds;
+        m_axis.duration = duration;
+        m_axis.viewStart = viewStart;
+        m_axis.viewEnd = viewEnd;
         m_axis.valid = true;
+
+        const auto yFor = [&](double midi) { return top + static_cast<float>((hi - midi) / (hi - lo)) * plotH; };
+        const auto xFor = [&](std::size_t i) { return m_axis.xFor(static_cast<double>(i) * s.hopSeconds); };
 
         juce::Image image(juce::Image::ARGB, w, h, true);
         juce::Graphics g(image);
+        const auto plot = juce::Rectangle<float>(x0, top, plotW, plotH);
 
         // Semitone grid, with the octave lines a little stronger.
         for (int midi = static_cast<int>(std::ceil(lo)); midi <= static_cast<int>(std::floor(hi)); ++midi)
@@ -2361,11 +3085,13 @@ private:
             g.fillRect(x0, std::round(yFor(midi)), plotW, 1.0f);
         }
 
+        paintRuler(g, plot);
+
         const auto curve = [&](const std::vector<float>& hz)
         {
             juce::Path p;
             bool open = false;
-            for (std::size_t i = 0; i < n && i < hz.size(); ++i)
+            for (std::size_t i = firstFrame; i <= lastFrame && i < hz.size(); ++i)
             {
                 if (hz[i] <= 0.0f)
                 {
@@ -2385,47 +3111,106 @@ private:
         const auto label = [&](const juce::String& text, double midi, juce::Colour colour)
         {
             const float th = 9.0f;
-            const float y = std::clamp(yFor(midi) - 0.5f * th, 0.0f, static_cast<float>(h) - th);
+            const float y = std::clamp(yFor(midi) - 0.5f * th, top - 3.0f, top + plotH - th + 3.0f);
             drawText(g, text, { 3.0f, y, x0 - 5.0f, th }, juce::Justification::centredLeft, font(Weight::Medium, 8.5f, 0.04f), colour);
         };
 
-        // Before: the tracked pitch, dashed.
         {
+            // The lines, cut off at the plot's sides when zoomed in.
+            const juce::Graphics::ScopedSaveState state(g);
+            g.reduceClipRegion(plot.withY(0.0f).withHeight(static_cast<float>(h)).getSmallestIntegerContainer());
+
+            // Before: the tracked pitch, dashed.
             juce::Path dashed;
             const float dashes[] { 4.0f, 3.0f };
             juce::PathStrokeType(1.2f).createDashedStroke(dashed, curve(s.hz), dashes, 2);
             g.setColour(Palette::amber.withAlpha(0.6f));
             g.fillPath(dashed);
-        }
-        label(upper(core::noteName(s.centreMidi)), s.centreMidi, Palette::amber.withAlpha(0.7f));
 
-        if (r.valid)
-        {
-            // The target: one note, or when the effect moves with the music, the line it moves along.
-            g.setColour(Palette::teal);
-            if (r.notesFollowed >= 2 && r.afterMidi.size() == n)
+            if (r.valid)
             {
-                juce::Path steps;
-                for (std::size_t i = 0; i < n; ++i)
+                // The target: one note, or when the effect moves with the music, the line it moves along.
+                g.setColour(Palette::teal);
+                if (r.notesFollowed >= 2 && r.afterMidi.size() == n)
                 {
-                    const juce::Point<float> pt { xFor(i), yFor(r.afterMidi[i]) };
-                    if (i == 0)
-                        steps.startNewSubPath(pt);
-                    else
-                        steps.lineTo(pt);
+                    juce::Path steps;
+                    for (std::size_t i = firstFrame; i <= lastFrame; ++i)
+                    {
+                        const juce::Point<float> pt { xFor(i), yFor(r.afterMidi[i]) };
+                        if (i == firstFrame)
+                            steps.startNewSubPath(pt);
+                        else
+                            steps.lineTo(pt);
+                    }
+                    g.strokePath(steps, juce::PathStrokeType(1.2f));
                 }
-                g.strokePath(steps, juce::PathStrokeType(1.2f));
+                else
+                {
+                    g.fillRect(x0, std::round(yFor(r.targetMidi)) - 0.5f, plotW, 1.0f);
+                }
+                g.setColour(Palette::amber);
+                g.strokePath(curve(r.afterHz), juce::PathStrokeType(1.8f, juce::PathStrokeType::curved));
             }
-            else
-            {
-                g.fillRect(x0, std::round(yFor(r.targetMidi)) - 0.5f, plotW, 1.0f);
-            }
-            g.setColour(Palette::amber);
-            g.strokePath(curve(r.afterHz), juce::PathStrokeType(1.8f, juce::PathStrokeType::curved));
-            if (std::abs(r.targetMidi - s.centreMidi) > 0.9)
-                label(upper(core::noteName(r.targetMidi)), r.targetMidi, Palette::tealText);
         }
+
+        label(upper(core::noteName(s.centreMidi)), s.centreMidi, Palette::amber.withAlpha(0.7f));
+        if (r.valid && std::abs(r.targetMidi - s.centreMidi) > 0.9)
+            label(upper(core::noteName(r.targetMidi)), r.targetMidi, Palette::tealText);
         return image;
+    }
+
+    // The time ruler under the plot: ticks at a spacing that suits the zoom (labelled ones far
+    // enough apart to read), seconds written beside them, and the unit in the gutter. Quiet, in
+    // the console's dim colours.
+    void paintRuler(juce::Graphics& g, juce::Rectangle<float> plot) const
+    {
+        const double span = m_axis.span();
+        if (span <= 0.0 || plot.getWidth() < 40.0f)
+            return;
+        const auto f = font(Weight::Medium, 8.5f, 0.06f);
+        const float y = plot.getBottom() + 1.0f;
+        const float labelY = y + 4.0f, labelH = 10.0f;
+
+        // Labelled ticks at least 56 px apart; finer ticks between them when there is room.
+        static constexpr double steps[] { 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0 };
+        const double pxPerSecond = static_cast<double>(plot.getWidth()) / span;
+        double step = steps[std::size(steps) - 1];
+        for (const double candidate : steps)
+            if (candidate * pxPerSecond >= 56.0)
+            {
+                step = candidate;
+                break;
+            }
+        const double lead = step / std::pow(10.0, std::floor(std::log10(step) + 1.0e-9));
+        const int divisions = std::abs(lead - 2.0) < 1.0e-6 ? 4 : std::abs(lead - 1.5) < 1.0e-6 ? 3 : 5;
+        const double minor = step / divisions;
+        const bool showMinor = minor * pxPerSecond >= 6.0;
+        const int decimals = std::max(0, static_cast<int>(-std::floor(std::log10(step) + 1.0e-9)));
+
+        const double from = m_axis.from(), to = m_axis.to();
+        const auto firstTick = static_cast<long long>(std::ceil((from - 1.0e-9) / minor));
+        const auto lastTick = static_cast<long long>(std::floor((to + 1.0e-9) / minor));
+        for (long long k = firstTick; k <= lastTick; ++k)
+        {
+            const double t = static_cast<double>(k) * minor;
+            const bool major = k % divisions == 0;
+            if (! major && ! showMinor)
+                continue;
+            const float x = std::round(m_axis.xFor(t)) - 0.5f;
+            if (x < plot.getX() - 0.5f || x > plot.getRight())
+                continue;
+            g.setColour(major ? Palette::rule.brighter(0.7f) : Palette::rule.brighter(0.3f));
+            g.fillRect(x, y, 1.0f, major ? 4.0f : 2.0f);
+            if (! major)
+                continue;
+            const auto text = juce::String(t, decimals);
+            const float textW = std::ceil(juce::GlyphArrangement::getStringWidth(f, text)) + 1.0f;
+            if (x + 3.0f + textW > plot.getRight() - 10.0f)
+                continue;   // no room at the right-hand end (the corner bracket): the tick alone
+            drawText(g, text, { x + 3.0f, labelY, textW, labelH }, juce::Justification::centredLeft, f, Palette::dim);
+        }
+        // The unit, in the gutter under the note names (clear of the corner bracket).
+        drawText(g, "S", { 15.0f, labelY, plot.getX() - 17.0f, labelH }, juce::Justification::centredLeft, f, Palette::dim.withAlpha(0.7f));
     }
 
     std::array<ConsoleButton, 4> m_methods;
@@ -2441,6 +3226,17 @@ private:
     std::vector<std::vector<core::CurvePoint>> m_undo, m_redo;
     std::shared_ptr<const AuditionBus::Channels> m_historyFor;
     bool m_haveImage = false;
+
+    // The view (see setView()).
+    const HubSnapshot* m_hubData = nullptr;   // the editor's copy of the hub, to redraw from
+    std::shared_ptr<const AuditionBus::Channels> m_viewFor;   // the effect the view was set on
+    double m_duration = 0.0, m_viewStart = 0.0, m_viewEnd = 0.0;
+    double m_soundFrom = 0.0, m_soundTo = 0.0;
+    double m_targetStart = 0.0, m_targetEnd = 0.0, m_lastUserView = 0.0, m_lastPointer = 0.0, m_lastRenderMs = 0.0;
+    bool m_followHead = false;
+    OverviewBar m_overview;
+    ConsoleButton m_zoomOut { "-" }, m_zoomIn { "+" }, m_fit { "FIT" }, m_soundView { "SOUND" };
+    juce::TimedCallback m_viewMotion { [this] { stepViewMotion(); } };
 };
 
 //==============================================================================
@@ -2681,6 +3477,9 @@ public:
             auto summary = (m.valid && m.notesFollowed >= 2 ? "MOVES THROUGH " + juce::String(m.notesFollowed) + " NOTES, FIRST SHOWN"
                                                             : "OCTAVE " + octaveText(m_hub.options.octaveShift))
                            + " / BEND " + bendText(m_hub.options.bend);
+            // (With a long bend figure the full wording runs out of room: the shorter one says the same.)
+            if (juce::GlyphArrangement::getStringWidth(summaryFont, summary) > box.getWidth() && m.valid && m.notesFollowed >= 2)
+                summary = "MOVES THROUGH " + juce::String(m.notesFollowed) + " NOTES / BEND " + bendText(m_hub.options.bend);
             // The trim, when one is applied and there is room for it.
             if (m.valid && m_hub.options.trimEnabled && m_hub.trimKnown && m_hub.trimDb < -0.05f)
             {
@@ -3151,6 +3950,26 @@ void TonalRecallEditor::showInsertNotice(bool shouldShow)
     }
 }
 
+std::pair<double, double> TonalRecallEditor::effectViewForTesting() const { return m_sfx->view(); }
+void TonalRecallEditor::setEffectViewForTesting(double start, double end) { m_sfx->setViewForTesting(start, end); }
+void TonalRecallEditor::pressEffectViewButtonForTesting(const juce::String& name) { m_sfx->pressViewButton(name); }
+float TonalRecallEditor::effectXForSecondsForTesting(double seconds) const { return m_sfx->xForSeconds(seconds); }
+double TonalRecallEditor::effectSecondsForXForTesting(float x) const { return m_sfx->secondsForX(x); }
+float TonalRecallEditor::effectPlayheadXForSecondsForTesting(double seconds) const { return m_sfx->playheadXForSeconds(seconds); }
+double TonalRecallEditor::effectPlayheadSecondsForTesting() const { return m_sfx->playheadSeconds(); }
+juce::Rectangle<float> TonalRecallEditor::effectPlotForTesting() const { return m_sfx->plotBounds(); }
+std::pair<double, double> TonalRecallEditor::effectSoundRangeForTesting() const { return m_sfx->soundRange(); }
+juce::Component& TonalRecallEditor::effectScanForTesting() { return m_sfx->curveEditor(); }
+juce::Component& TonalRecallEditor::effectOverviewForTesting() { return m_sfx->overview(); }
+double TonalRecallEditor::effectRedrawMsForTesting() const { return m_sfx->lastRenderMs(); }
+
+void TonalRecallEditor::setEditToolsForTesting(bool draw, int snap, bool hear) noexcept
+{
+    g_tools.draw = draw;
+    g_tools.snap = snap;
+    g_tools.hear = hear;
+}
+
 int TonalRecallEditor::textOverflowCount() noexcept
 {
     return g_overflows.load(std::memory_order_relaxed);
@@ -3462,7 +4281,9 @@ juce::StringArray TonalRecallEditor::buildWarnings() const
             lines.add("CAPTURE STOPPED AT " + juce::String(juce::roundToInt(CaptureStore::kMaxSeconds)) + " S");
         if (snap.samplesCaptured > 0 && snap.peak < 1.0e-5f)
             lines.add("CAPTURED AUDIO IS SILENT");
-        else if (snap.samplesCaptured > 0 && snap.lastEnd != PassEnd::SelectionEnd && snap.fractionHeard && *snap.fractionHeard < 0.995)
+        // (Stopped at the limit, the rest of the selection could never be heard: learning again would not help.)
+        else if (snap.samplesCaptured > 0 && snap.lastEnd != PassEnd::SelectionEnd && snap.lastEnd != PassEnd::BufferFull && snap.fractionHeard
+                 && *snap.fractionHeard < 0.995)
             lines.add("ONLY " + juce::String(juce::roundToInt(*snap.fractionHeard * 100.0)) + "% OF THE SELECTION WAS HEARD: LEARN AGAIN AND LET PREVIEW PLAY IT THROUGH");
     }
 
