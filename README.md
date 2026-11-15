@@ -2,7 +2,7 @@
 
 # Sammy J's Plugins
 
-**Toys and utilities I've made for sound designers.**
+**Some of the toys and utilities I've made for us at [Sweet Justice Sound](https://www.sweetjusticesound.com), given for free.**
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
