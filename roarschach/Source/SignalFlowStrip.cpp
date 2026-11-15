@@ -39,7 +39,7 @@ namespace
     constexpr float c_chamberEdgeFrom = 60.0f;   // CHAMBER Amount (%) from which Edge is clearly heard
     constexpr int c_diceSize = 18;    // a module's die (its pill, as large as the On button), at the right end of its chip row
     constexpr int c_diceHit = c_hit;  // ... and its clickable area, larger than the pill
-    constexpr int c_diceGap = 5;      // between the mode chip and the die's pill
+    constexpr int c_diceGap = 7;      // between the mode chip and the die's pill (6 px or more, clear of its click area)
     constexpr int c_rollAllSize = 34; // ROLL ALL's die, in the empty slot at the end of row 2
     constexpr const char* c_rollAllCaption = "RANDOMISE ALL";
 
