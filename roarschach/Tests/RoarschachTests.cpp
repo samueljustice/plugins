@@ -22,6 +22,7 @@
 //                                          OUTPUT's filters, auto gain and Ride off
 //                   [--roll from to]       one render per seed from..to: the preset (and sets),
 //                                          then ROLL ALL with that seed (the dice's batch check)
+//                   [--block n]            host block size of the render (default 512)
 //                   [--passes n]           render the input n times through one instance with
 //                                          reset() between; the last pass is written and measured
 //                   [--from seconds]       every pass starts this far into the input
@@ -8498,6 +8499,7 @@ namespace
         bool rawOutput = false;    // --raw-out: OUTPUT's filters, auto gain and Ride off (module-level measurements)
         int rollFrom = 0, rollTo = -1;   // --roll from to: one render per seed, ROLL ALL (seeded) after the sets
         int passes = 1;            // --passes n
+        int block = 512;           // --block n: the host block size of the render
         double fromSeconds = 0.0;  // --from seconds
         juce::File stateIn, stateOut;   // --state-in / --state-out
     };
@@ -8720,7 +8722,7 @@ namespace
 
             for (const double sweepValue : sweepValues)
             {
-                auto p = makeProcessor(sr, 512, monoIn ? 1 : 2, 2);
+                auto p = makeProcessor(sr, opt.block, monoIn ? 1 : 2, 2);
                 p->setCurrentProgram(index);
                 juce::String suffix;
                 if (opt.stateIn != juce::File())
@@ -8787,8 +8789,10 @@ namespace
                     p->getChainForTests().setOutputTestOptions(false, false, false);
                     suffix << "-raw";
                 }
-                restart(*p, sr, 512);
+                restart(*p, sr, opt.block);
                 const int latency = p->getLatencySamples();
+                if (opt.block != 512)
+                    suffix << "-block" << opt.block;
                 if (opt.passes > 1)
                     suffix << "-pass" << opt.passes;
                 if (from > 0)
@@ -8802,7 +8806,7 @@ namespace
                 // Earlier passes (reset() between, as a host does at every start of playback).
                 for (int pass = 1; pass < opt.passes; ++pass)
                 {
-                    (void) render(*p, padded, 512);
+                    (void) render(*p, padded, opt.block);
                     p->reset();
                 }
                 // OUTPUT's maximizer gain reduction per block (95th percentile over the input's
@@ -8810,7 +8814,7 @@ namespace
                 std::vector<double> gr;
                 LevelTrace levels;
                 levels.begin(p->getChain());
-                auto out = render(*p, padded, 512, false, [&](int start)
+                auto out = render(*p, padded, opt.block, false, [&](int start)
                 {
                     if (start >= 4 * 512 && start < length + latency)
                         gr.push_back(-static_cast<double>(p->getChain().getOutput().getReductionDb()));
@@ -9608,6 +9612,8 @@ int main(int argc, char* argv[])
                 opt.rawOutput = true;
             else if (a == "--passes" && i + 1 < argc)
                 opt.passes = std::max(1, std::atoi(argv[++i]));
+            else if (a == "--block" && i + 1 < argc)
+                opt.block = std::clamp(std::atoi(argv[++i]), 1, 8192);
             else if (a == "--from" && i + 1 < argc)
                 opt.fromSeconds = std::max(0.0, std::atof(argv[++i]));
             else if (a == "--state-in" && i + 1 < argc)

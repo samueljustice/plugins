@@ -115,8 +115,8 @@ namespace roar
         void copyLeftStateToRight() override;
         VoiceRewriter* getVoiceRewriter() override { return this; }
 
-        // VoiceRewriter: f0 of the frames that line up with the chunk just output.
-        void rewriteVoice (VoiceFrame* frames, int numFrames) override;
+        // VoiceRewriter: f0 of the frames downstream, from what was applied to the audio they describe.
+        void rewriteVoice (VoiceFrame* frames, int numFrames, std::int64_t firstFrame, int skewSamples) override;
 
         void setParams (const PitchSettings& s);
 
@@ -155,6 +155,8 @@ namespace roar
         };
 
         static constexpr int c_maxMarks = 256;
+        static constexpr int c_frameRing = 256;   // frames of rewrite history (62 needed at 192 kHz)
+        static constexpr int c_maxRewriteLag = 200;
         static constexpr int c_maxGrains = 48;
         static constexpr int c_windowSize = 1024;
         static constexpr int c_makeupPoints = 11;
@@ -199,6 +201,11 @@ namespace roar
             double tapeXY = 0.0, tapeXX = 0.0, tapeYY = 0.0;   // running head correlation
             double voicedShare = 0.0;      // smoothed share of the output from voiced grains
 
+            // What the stream downstream should say, recorded at the first sample of every global
+            // frame g (before that sample is processed), at g mod c_frameRing: the applied log
+            // ratio and the Snap / Mono target (0: none).
+            std::array<float, c_frameRing> ringLogRatio {}, ringTargetHz {};
+
             // Parameter targets.
             float pitchTarget = -2.0f, sizeTarget = 0.0f, driveTarget = 0.05f;
             Params::PitchMode mode = Params::PitchMode::shift;
@@ -242,6 +249,7 @@ namespace roar
         void applyBody (float& yl, float& yr, bool stereo);
         void applyDrive (float& yl, float& yr, bool stereo);
         void restartWet();
+        void recordFrame (std::int64_t g, bool active, float fadeWeight, bool fullyOn);
 
         // Shifter (TD-PSOLA).
         void findMarks();
@@ -300,10 +308,6 @@ namespace roar
         std::array<DriveChannel, 2> m_driveCh {};
         DelayLine m_driveDelayL, m_driveDelayR;
         OnFade m_fade;
-
-        // Per-frame record of the chunk just output, for rewriteVoice().
-        std::vector<float> m_frameLogRatio, m_frameTargetHz;
-        int m_frameCount = 0;
 
         // Readouts.
         std::atomic<float> m_readShiftSt { 0.0f };

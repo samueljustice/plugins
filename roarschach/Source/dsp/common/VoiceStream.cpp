@@ -175,7 +175,7 @@ namespace roar
             return delayed;
 
         m_scratch.assign (delayed);
-        rewriter->rewriteVoice (m_scratch.frames(), m_scratch.numFrames());
+        rewriter->rewriteVoice (m_scratch.frames(), m_scratch.numFrames(), delayed.firstFrameIndex(), delayed.skewSamples());
         return m_scratch.view();
     }
 

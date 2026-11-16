@@ -311,11 +311,6 @@ namespace roar
         m_driveDelayL.setFixedDelay (Oversampler2x::c_latency);
         m_driveDelayR.setFixedDelay (Oversampler2x::c_latency);
 
-        const int frames = VoiceStream::maxFramesFor (m_maxBlock);
-        m_frameLogRatio.assign (static_cast<size_t> (frames), 0.0f);
-        m_frameTargetHz.assign (static_cast<size_t> (frames), 0.0f);
-        m_frameCount = 0;
-
         m_fade.prepare (m_fs, m_maxBlock, m_latency);
         reset();
     }
@@ -374,10 +369,6 @@ namespace roar
         m_driveDelayR.reset();
         m_fade.reset();
 
-        std::fill (m_frameLogRatio.begin(), m_frameLogRatio.end(), 0.0f);
-        std::fill (m_frameTargetHz.begin(), m_frameTargetHz.end(), 0.0f);
-        m_frameCount = 0;
-
         m_readShiftSt.store (0.0f, std::memory_order_relaxed);
         m_readFormantSt.store (0.0f, std::memory_order_relaxed);
         m_readHeat.store (0.0f, std::memory_order_relaxed);
@@ -413,14 +404,15 @@ namespace roar
 
         const float fadeWeight = m_fade.getValue();
         const bool fullyOn = m_fade.isFullyOn();
-        const int frames = std::min (static_cast<int> (m_frameLogRatio.size()), voice.frameIndexForSample (std::max (0, n - 1)) + 1);
-        m_frameCount = frames;
 
         for (int i = 0; i < n;)
         {
             const int end = voice.frameEnd (i, n);
             for (; i < end; ++i)
             {
+                if (((voice.startOffset() + i) & (c_voiceFrameSize - 1)) == 0)
+                    recordFrame (voice.firstFrameIndex() + ((voice.startOffset() + i) >> c_voiceFrameShift), active, fadeWeight, fullyOn);
+
                 const float xl = sanitize (l[i]);
                 const float xr = stereo ? sanitize (r[i]) : 0.0f;
                 analyse (xl, xr, stereo);
@@ -443,24 +435,6 @@ namespace roar
                 l[i] = yl;
                 if (stereo)
                     r[i] = yr;
-            }
-
-            // What the stream downstream should say for this frame (rewriteVoice).
-            const int k = std::min (voice.frameIndexForSample (std::max (0, end - 1)), frames - 1);
-            if (k >= 0)
-            {
-                const Core& c = m_core;
-                const double w = active ? static_cast<double> (fadeWeight) * static_cast<double> (c.wet) : 0.0;
-                m_frameLogRatio[static_cast<size_t> (k)] = static_cast<float> (w * c.logRatio);
-                float target = 0.0f;
-                if (active && fullyOn && c.wet >= 1.0f && c.voicedShare > 0.5)
-                {
-                    if (c.mode == Params::PitchMode::snap && c.haveSnapNote)
-                        target = static_cast<float> (440.0 * std::exp2 ((c.snapNote - 69) / 12.0));
-                    else if (c.mode == Params::PitchMode::mono && c.monoInRange)
-                        target = static_cast<float> (c_monoBaseHz * std::exp2 (c.knobSt / 12.0));
-                }
-                m_frameTargetHz[static_cast<size_t> (k)] = target;
             }
         }
 
@@ -485,23 +459,47 @@ namespace roar
                         std::memory_order_relaxed);
     }
 
-    void PitchModule::rewriteVoice (VoiceFrame* frames, int numFrames)
+    void PitchModule::recordFrame (std::int64_t g, bool active, float fadeWeight, bool fullyOn)
     {
-        if (frames == nullptr || m_frameCount <= 0)
+        // What the stream downstream should say for the audio of global frame g: the ratio
+        // applied to it, and the Snap / Mono target where the output is clearly the shifted voice.
+        Core& c = m_core;
+        const auto at = static_cast<size_t> (g & (c_frameRing - 1));
+        const double w = active ? static_cast<double> (fadeWeight) * static_cast<double> (c.wet) : 0.0;
+        c.ringLogRatio[at] = static_cast<float> (w * c.logRatio);
+        float target = 0.0f;
+        if (active && fullyOn && c.wet >= 1.0f && c.voicedShare > 0.5)
+        {
+            if (c.mode == Params::PitchMode::snap && c.haveSnapNote)
+                target = static_cast<float> (440.0 * std::exp2 ((c.snapNote - 69) / 12.0));
+            else if (c.mode == Params::PitchMode::mono && c.monoInRange)
+                target = static_cast<float> (c_monoBaseHz * std::exp2 (c.knobSt / 12.0));
+        }
+        c.ringTargetHz[at] = target;
+    }
+
+    void PitchModule::rewriteVoice (VoiceFrame* frames, int numFrames, std::int64_t firstFrame, int skewSamples)
+    {
+        if (frames == nullptr)
             return;
 
+        // Frame firstFrame + k describes the audio skewSamples before that output frame: it takes
+        // what was recorded for the output frame that many samples earlier.
+        const std::int64_t lag = std::clamp ((skewSamples + c_voiceFrameSize / 2) >> c_voiceFrameShift, 0, c_maxRewriteLag);
+        const Core& c = m_core;
         for (int k = 0; k < numFrames; ++k)
         {
             VoiceFrame& f = frames[k];
-            if (! (f.f0Hz > 0.0f))
+            const std::int64_t g = firstFrame + k - lag;
+            if (! (f.f0Hz > 0.0f) || g < 0)
                 continue;
 
-            const int j = std::min (k, m_frameCount - 1);
-            const float target = m_frameTargetHz[static_cast<size_t> (j)];
+            const auto at = static_cast<size_t> (g & (c_frameRing - 1));
+            const float target = c.ringTargetHz[at];
             if (target > 0.0f && f.voiced)
                 f.f0Hz = target;
             else
-                f.f0Hz *= std::exp (m_frameLogRatio[static_cast<size_t> (j)]);
+                f.f0Hz *= std::exp (c.ringLogRatio[at]);
         }
     }
 
@@ -524,9 +522,6 @@ namespace roar
         copyRing (m_band, o.m_band);
         copyRing (m_throatL, o.m_throatL);
         copyRing (m_throatR, o.m_throatR);
-        copyRing (m_frameLogRatio, o.m_frameLogRatio);
-        copyRing (m_frameTargetHz, o.m_frameTargetHz);
-        m_frameCount = std::min (o.m_frameCount, static_cast<int> (m_frameLogRatio.size()));
 
         m_body = o.m_body;
         m_driveCh = o.m_driveCh;

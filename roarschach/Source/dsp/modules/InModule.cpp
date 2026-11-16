@@ -499,8 +499,14 @@ namespace roar
             jawFast += (a > jawFast ? m_jawAttack : m_jawFastRelease) * (a - jawFast);
 
             m_detector.pushSample (out);
-            const VoiceInfo& v = m_detector.getVoiceInfo();
-            m_stream.frameForSample (i) = VoiceFrame { v.f0Hz, v.confidence, v.voiced };
+            // The frame is written once, at its first sample on the global grid (a frame that
+            // began in the previous chunk keeps its value: beginChunk copies it), so where the
+            // host's blocks end cannot change what the stream says.
+            if (m_stream.isFrameStart (i))
+            {
+                const VoiceInfo& v = m_detector.getVoiceInfo();
+                m_stream.frameForSample (i) = VoiceFrame { v.f0Hz, v.confidence, v.voiced };
+            }
 
             if (++s.framePhase >= c_voiceFrameSize)
                 endFrame();
