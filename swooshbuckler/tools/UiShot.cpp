@@ -323,6 +323,20 @@ namespace
                     shots.crop(window, "room-strip", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
                     shots.crop(window, "output-room", ed.m_sections[3].bounds, 2);
                 }
+                // The manual's main picture: the window at 7.1.4 with both buses flying, the hits landing with their
+                // pass, every speaker meter moving, the plan of the room lit and the mark in the stars. It replaces
+                // the Stereo window shot above (the crops already taken from that one stay Stereo).
+                {
+                    set(ParamIDs::hitAim, 0.0f);
+                    set(ParamIDs::gateMode, 3.0f); // Open: the hits sound, so they glow on the plan
+                    set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitWithPass));
+                    ed.m_sea.showConstellation(true);
+                    rig.run(2.0);
+                    shots.shoot("screenshot");
+                    ed.m_sea.showConstellation(false);
+                    for (auto* id : { ParamIDs::hitAim, ParamIDs::gateMode, ParamIDs::hitPosition })
+                        proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                }
                 paths(2); // Overhead: the tops light on the plan
                 rig.run(2.4);
                 {
