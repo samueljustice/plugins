@@ -127,7 +127,8 @@ namespace stageb4
 
     roar::VoiceFrame voiced(double hz) { return roar::VoiceFrame { static_cast<float>(hz), 0.9f, true }; }
 
-    /** Runs a module in blocks (sizes from `blocks`, cycled); frameAt(sample) is the voice frame;
+    /** Runs a module in blocks (sizes from `blocks`, cycled); frameAt(sample) is the voice frame (read at
+        the first sample of each 32-sample frame);
         after(end) runs after each block. Mono when `stereo` is false (the right channel ignored). */
     template <typename ModuleType, typename FrameAt, typename After>
     Stereo runModule(ModuleType& module, const Stereo& in, bool stereo, const std::vector<int>& blocks, FrameAt&& frameAt, After&& after)
@@ -146,7 +147,7 @@ namespace stageb4
             const int n = std::min(blocks[b++ % blocks.size()], out.size() - pos);
             stream.beginChunk(n);
             for (int k = 0; k < n; ++k)
-                stream.frameForSample(k) = frameAt(pos + k);
+                stream.frameForSample(k) = frameAt((pos + k) & ~31);   // a frame's value from its first sample, whatever the blocks
             module.process(out.l.data() + pos, stereo ? out.r.data() + pos : scratch.data(), n, stereo, stream.view());
             pos += n;
             after(pos);
@@ -950,6 +951,329 @@ namespace stageb4
         }
     }
 
+    // ------------------------------------------------------------------------------ SUB
+
+    /** Hann-windowed amplitude of the component at hz over [from, to). */
+    double hannTone(const Signal& x, double sr, double hz, int from, int to)
+    {
+        const int n = std::max(1, to - from);
+        const std::complex<double> step = std::polar(1.0, -2.0 * c_pi * hz / sr);
+        std::complex<double> rot = std::polar(1.0, -2.0 * c_pi * hz * from / sr), acc { 0.0, 0.0 };
+        double wsum = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double w = 0.5 - 0.5 * std::cos(2.0 * c_pi * (i + 0.5) / n);
+            acc += w * static_cast<double>(x[static_cast<size_t>(from + i)]) * rot;
+            rot *= step;
+            wsum += w;
+        }
+        return 2.0 * std::abs(acc) / wsum;
+    }
+
+    /** The frequency of the strongest component between lo and hi over [from, to). */
+    double peakFrequency(const Signal& x, double sr, double lo, double hi, int from, int to)
+    {
+        const int steps = 300;
+        double best = lo, bestA = -1.0;
+        for (int k = 0; k <= steps; ++k)
+        {
+            const double f = lo + (hi - lo) * k / steps;
+            const double a = hannTone(x, sr, f, from, to);
+            if (a > bestA)
+            {
+                bestA = a;
+                best = f;
+            }
+        }
+        double a = best - (hi - lo) / steps, b = best + (hi - lo) / steps;
+        for (int it = 0; it < 30; ++it)
+        {
+            const double m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+            if (hannTone(x, sr, m1, from, to) > hannTone(x, sr, m2, from, to))
+                b = m2;
+            else
+                a = m1;
+        }
+        return 0.5 * (a + b);
+    }
+
+    roar::SubSettings subSettings(Params::SubRegister reg, Params::SubCharacter character = Params::SubCharacter::clean, double level = 0.49, double drive = 0.2)
+    {
+        roar::SubSettings s;
+        s.on = true;
+        s.level = static_cast<float>(level);
+        s.drive = static_cast<float>(drive);
+        s.reg = reg;
+        s.character = character;
+        return s;
+    }
+
+    std::unique_ptr<roar::SubModule> makeSub(double sr, const roar::SubSettings& s, int block = 512)
+    {
+        auto m = std::make_unique<roar::SubModule>();
+        m->setParams(s);
+        m->prepare(sr, block);
+        m->setParams(s);
+        m->reset();
+        return m;
+    }
+
+    const char* registerName(Params::SubRegister r)
+    {
+        return r == Params::SubRegister::deep ? "Deep" : (r == Params::SubRegister::tight ? "Tight" : "Follow");
+    }
+
+    /** A howl whose pitch follows f0(t) (the phase integrated), partials 0 / -14 / -22 / -30 / -36 dB at -20 dBFS. */
+    template <typename PitchAt>
+    Signal glidingHowl(double sr, double seconds, PitchAt&& pitchAt)
+    {
+        const int n = static_cast<int>(sr * seconds);
+        Signal s(static_cast<size_t>(n));
+        const double amps[5] { 1.0, std::pow(10.0, -14.0 / 20.0), std::pow(10.0, -22.0 / 20.0), std::pow(10.0, -30.0 / 20.0), std::pow(10.0, -36.0 / 20.0) };
+        double phase = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double f = pitchAt(i / sr);
+            double v = 0.0;
+            for (int k = 0; k < 5; ++k)
+                if (f * (k + 1) < 0.45 * sr)
+                    v += amps[k] * std::sin((k + 1) * phase);
+            s[static_cast<size_t>(i)] = f > 0.0 ? static_cast<float>(v) : 0.0f;
+            phase += 2.0 * c_pi * std::max(0.0, f) / sr;
+            if (phase > 2.0 * c_pi * 1000.0)
+                phase -= 2.0 * c_pi * 1000.0;
+        }
+        scaleToRmsDb(s, -20.0);
+        return s;
+    }
+
+    struct SubRun
+    {
+        Signal out, layer;
+        std::vector<double> times, subHz, inHz, pitch;   // per 32-sample frame end
+    };
+
+    /** Runs SUB over `in` with pitch frames from pitchAt (seconds -> Hz, <= 0 for none). */
+    template <typename PitchAt>
+    SubRun runSub(roar::SubModule& m, const Signal& in, double sr, PitchAt&& pitchAt, const std::vector<int>& blocks = { 512 })
+    {
+        SubRun r;
+        const auto frame = [&](int i)
+        {
+            const double f = pitchAt(i / sr);
+            return f > 0.0 ? voiced(f) : roar::VoiceFrame { 0.0f, 0.0f, false };
+        };
+        std::vector<int> bl = blocks;
+        r.out = runModule(m, Stereo { in, {} }, false, bl, frame, [&](int end)
+        {
+            r.times.push_back(end / sr);
+            r.subHz.push_back(m.getSubHz());
+            r.inHz.push_back(m.getInputHz());
+            r.pitch.push_back(pitchAt(end / sr));
+        }).l;
+        r.layer = minus(r.out, in);
+        return r;
+    }
+
+    void testSubRegisters()
+    {
+        std::printf("[stageb4] SUB: registers (Deep divides again on high voices), hysteresis, re-pick\n");
+        const auto deep = Params::SubRegister::deep;
+
+        // T-SUB-1: Deep's divisions; Follow and Tight at 571 Hz.
+        std::map<int, std::pair<double, double>> sub48;   // voice Hz -> (layer Hz, layer dB)
+        const auto divisionCase = [&](double sr, double f0, Params::SubRegister reg, bool assert, double& layerHz, double& layerDb)
+        {
+            auto m = makeSub(sr, subSettings(reg), 32);
+            const auto in = howl(sr, 2.0, f0);
+            const auto r = runSub(*m, in, sr, [f0](double) { return f0; }, { 32 });
+            const int from = static_cast<int>(0.5 * sr), to = static_cast<int>(2.0 * sr);
+            const double expected = reg == deep ? f0 / (f0 < 131.0 * 2.0 ? 2.0 : (f0 < 131.0 * 4.0 ? 4.0 : (f0 < 131.0 * 8.0 ? 8.0 : 16.0))) : f0 / 2.0;
+            layerHz = peakFrequency(r.layer, sr, 0.6 * expected, 1.4 * expected, from, to);
+            layerDb = rmsDb(r.layer, from, to);
+            double readout = 0.0;
+            for (size_t k = 0; k < r.times.size(); ++k)
+                if (r.times[k] >= 0.5)
+                    readout = std::max(readout, std::abs(r.subHz[k] / expected - 1.0));
+            if (assert)
+            {
+                check(std::abs(layerHz / expected - 1.0) <= 0.01, juce::String("T-SUB-1 ") + registerName(reg) + " at " + juce::String(f0, 0) + " Hz: layer "
+                                                                      + juce::String(layerHz, 1) + " Hz (" + juce::String(expected, 1) + " +-1 %)");
+                check(readout <= 0.02, juce::String("T-SUB-1 ") + registerName(reg) + " at " + juce::String(f0, 0) + " Hz: readout off by "
+                                           + juce::String(readout * 100.0, 1) + " % (<= 2 %)");
+            }
+            return r;
+        };
+        {
+            juce::String line;
+            for (const double f0 : { 100.0, 150.0, 300.0, 440.0, 571.0, 800.0 })
+            {
+                double hz = 0.0, db = 0.0;
+                const auto r = divisionCase(c_fs, f0, deep, true, hz, db);
+                sub48[static_cast<int>(f0)] = { hz, db };
+                line << juce::String(f0, 0) << " -> " << juce::String(hz, 1) << " Hz; ";
+                if (f0 == 571.0)
+                {
+                    const auto lowPart = bandLimit(r.layer, c_fs, 0.0, 115.0);
+                    const int from = static_cast<int>(0.5 * c_fs);
+                    const double share = std::pow(10.0, (rmsDb(lowPart, from) - rmsDb(r.layer, from)) / 10.0);
+                    std::printf("  T-SUB-1 Deep at 571 Hz: %.1f %% of the layer's power under 115 Hz\n", share * 100.0);
+                    check(share >= 0.95, "T-SUB-1 Deep at 571 Hz: " + juce::String(share * 100.0, 1) + " % of the layer under 115 Hz (>= 95 %)");
+                }
+            }
+            std::printf("  T-SUB-1 Deep layer: %s\n", line.toRawUTF8());
+            for (const auto reg : { Params::SubRegister::follow, Params::SubRegister::tight })
+            {
+                double hz = 0.0, db = 0.0;
+                divisionCase(c_fs, 571.0, reg, true, hz, db);
+                std::printf("  T-SUB-1 %s at 571 Hz: layer %.1f Hz\n", registerName(reg), hz);
+            }
+        }
+
+        // Division in use, read from the readouts (fIn / fsub glide together over 30 ms).
+        const auto divisionsAt = [](const SubRun& r, size_t k) { return static_cast<int>(std::lround(std::log2(r.inHz[k] / r.subHz[k]))); };
+        const auto changes = [&](const SubRun& r, double fromSeconds)
+        {
+            std::vector<std::pair<double, int>> c;   // (pitch at the change, new count)
+            int last = -1;
+            for (size_t k = 0; k < r.times.size(); ++k)
+            {
+                if (r.times[k] < fromSeconds)
+                    continue;
+                const int d = divisionsAt(r, k);
+                if (last >= 0 && d != last)
+                    c.emplace_back(r.pitch[k], d);
+                last = d;
+            }
+            return c;
+        };
+
+        // T-SUB-2 and T-SUB-3: Deep's ceiling and return on glides; no splatter at a change.
+        {
+            const auto glide1 = [](double t) { return t < 2.0 ? 200.0 + 27.5 * t : 255.0 - 27.5 * (t - 2.0); };
+            auto m1 = makeSub(c_fs, subSettings(deep), 32);
+            const auto r1 = runSub(*m1, glidingHowl(c_fs, 4.0, glide1), c_fs, glide1, { 32 });
+            const auto c1 = changes(r1, 0.2);
+            check(c1.empty(), "T-SUB-2 Deep changes division " + juce::String(static_cast<int>(c1.size())) + " times on a 200-255-200 Hz glide (0)");
+
+            const auto glide2 = [](double t) { return t < 2.0 ? 200.0 + 50.0 * t : 300.0 - 65.0 * (t - 2.0); };
+            auto m2 = makeSub(c_fs, subSettings(deep), 32);
+            const auto r2 = runSub(*m2, glidingHowl(c_fs, 4.0, glide2), c_fs, glide2, { 32 });
+            const auto c2 = changes(r2, 0.2);
+            juce::String line;
+            for (const auto& [hz, d] : c2)
+                line << juce::String(hz, 1) << " Hz -> " << d << "; ";
+            std::printf("  T-SUB-2 Deep, 200-255-200 Hz: %d changes; 200-300-170 Hz: %s\n", static_cast<int>(c1.size()), line.toRawUTF8());
+            const bool shape = c2.size() == 2 && c2[0].second == 2 && c2[1].second == 1;
+            check(shape, "T-SUB-2 Deep on a 200-300-170 Hz glide: " + juce::String(static_cast<int>(c2.size())) + " changes (one down, one back)");
+            if (shape)
+            {
+                check(std::abs(c2[0].first / 262.0 - 1.0) <= 0.03, "T-SUB-2 the change down at " + juce::String(c2[0].first, 1) + " Hz (262 +-3 %)");
+                check(std::abs(c2[1].first / 184.0 - 1.0) <= 0.03, "T-SUB-2 the change back at " + juce::String(c2[1].first, 1) + " Hz (184 +-3 %)");
+                // T-SUB-3: the layer's content above 1.5 kHz around each change.
+                const auto high = bandLimit(r2.layer, c_fs, 1500.0, 0.0);
+                double worst = -200.0;
+                for (size_t k = 0, j = 0; k < r2.times.size() && j < c2.size(); ++k)
+                    if (r2.pitch[k] == c2[j].first)
+                    {
+                        const int at = static_cast<int>(r2.times[k] * c_fs), a = std::max(0, at - 4800), b = std::min(static_cast<int>(r2.layer.size()), at + 4800);
+                        worst = std::max(worst, rmsDb(high, a, b) - rmsDb(r2.layer, a, b));
+                        ++j;
+                    }
+                std::printf("  T-SUB-3 the layer above 1.5 kHz within 100 ms of a change: %.1f dB re the layer\n", worst);
+                check(worst < -45.0, "T-SUB-3 splatter at a change of division: " + juce::String(worst, 1) + " dB (< -45)");
+            }
+        }
+
+        // T-SUB-4: Follow's floor with 3 semitones of hysteresis.
+        {
+            const auto multiplierAt = [](const SubRun& r, size_t k) { return static_cast<int>(std::lround(std::log2(r.inHz[k] / r.pitch[k]))); };
+            const auto registerChanges = [&](const SubRun& r)
+            {
+                std::vector<double> c;
+                int last = -1;
+                for (size_t k = 0; k < r.times.size(); ++k)
+                {
+                    if (r.times[k] < 0.2)
+                        continue;
+                    const int mult = multiplierAt(r, k);
+                    if (last >= 0 && mult != last)
+                        c.push_back(r.pitch[k]);
+                    last = mult;
+                }
+                return c;
+            };
+            const auto glide1 = [](double t)
+            {
+                if (t < 1.5) return 86.0 - 10.0 * t / 1.5;
+                if (t < 3.0) return 76.0 + 16.0 * (t - 1.5) / 1.5;
+                return 92.0 - 6.0 * std::min(1.0, (t - 3.0) / 1.5);
+            };
+            auto m1 = makeSub(c_fs, subSettings(Params::SubRegister::follow), 32);
+            const auto c1 = registerChanges(runSub(*m1, glidingHowl(c_fs, 4.5, glide1), c_fs, glide1, { 32 }));
+            const auto glide2 = [](double t) { return 86.0 - 20.0 * std::min(1.0, t / 3.0); };
+            auto m2 = makeSub(c_fs, subSettings(Params::SubRegister::follow), 32);
+            const auto c2 = registerChanges(runSub(*m2, glidingHowl(c_fs, 4.0, glide2), c_fs, glide2, { 32 }));
+            std::printf("  T-SUB-4 Follow: %d register changes on 86-76-92-86 Hz; %d on 86-66 Hz (at %.1f Hz)\n", static_cast<int>(c1.size()),
+                        static_cast<int>(c2.size()), c2.empty() ? 0.0 : c2.front());
+            check(c1.empty(), "T-SUB-4 Follow changes register " + juce::String(static_cast<int>(c1.size())) + " times on 86-76-92-86 Hz (0)");
+            check(c2.size() == 1 && std::abs(c2.front() / 70.6 - 1.0) <= 0.03, "T-SUB-4 Follow on 86-66 Hz: " + juce::String(static_cast<int>(c2.size()))
+                                                                                  + " changes (one, at 70.6 Hz +-3 %)");
+        }
+
+        // T-SUB-5: a new phrase after 300 ms without pitch picks afresh; two runs identical.
+        {
+            const auto pitch = [](double t) { return t < 1.0 ? 300.0 : (t < 1.3 ? 0.0 : 240.0); };
+            Signal in = glidingHowl(c_fs, 2.5, pitch);
+            auto a = makeSub(c_fs, subSettings(deep), 32);
+            const auto ra = runSub(*a, in, c_fs, pitch, { 32 });
+            auto b = makeSub(c_fs, subSettings(deep), 32);
+            const auto rb = runSub(*b, in, c_fs, pitch, { 32 });
+            const double second = peakFrequency(ra.layer, c_fs, 40.0, 160.0, static_cast<int>(1.6 * c_fs), static_cast<int>(2.5 * c_fs));
+            std::printf("  T-SUB-5 Deep, 300 Hz, 300 ms without pitch, 240 Hz: the second phrase's layer %.1f Hz\n", second);
+            check(std::abs(second / 120.0 - 1.0) <= 0.01, "T-SUB-5 the second phrase's layer is " + juce::String(second, 1) + " Hz (120)");
+            check(identical(ra.out, rb.out), "T-SUB-5 two runs from reset differ");
+        }
+
+        // T-SUB-6: blocks, copy, rates.
+        {
+            const auto pitch = [](double t) { return t < 1.0 ? 300.0 : (t < 1.3 ? 0.0 : 240.0 + 40.0 * std::sin(t)); };
+            const Signal in = glidingHowl(c_fs, 3.0, pitch);
+            for (const auto reg : { deep, Params::SubRegister::follow })
+            {
+                auto ref = makeSub(c_fs, subSettings(reg, Params::SubCharacter::thick), 4096);
+                const auto a = runSub(*ref, in, c_fs, pitch, { 512 });
+                bool same = true;
+                for (const auto& blocks : { std::vector<int> { 16 }, std::vector<int> { 64 }, std::vector<int> { 4096 }, randomBlocks(5) })
+                {
+                    auto m = makeSub(c_fs, subSettings(reg, Params::SubCharacter::thick), 4096);
+                    same = same && identical(a.out, runSub(*m, in, c_fs, pitch, blocks).out);
+                }
+                check(same, juce::String("T-SUB-6 ") + registerName(reg) + ": output depends on the block size");
+                auto first = makeSub(c_fs, subSettings(reg, Params::SubCharacter::thick), 4096), second = makeSub(c_fs, subSettings(reg, Params::SubCharacter::thick), 4096);
+                const int half = static_cast<int>(1.15 * c_fs) / 512 * 512;
+                const auto offsetPitch = [&](double t) { return pitch(t + half / c_fs); };
+                runSub(*first, Signal(in.begin(), in.begin() + half), c_fs, pitch);
+                second->copyStateFrom(*first);
+                // (the copy continues on the same frame grid: the stream restarts at 0, half is a multiple of 32)
+                const auto tail = runSub(*second, Signal(in.begin() + half, in.end()), c_fs, offsetPitch);
+                check(identical(Signal(a.out.begin() + half, a.out.end()), tail.out), juce::String("T-SUB-6 ") + registerName(reg) + ": copyStateFrom does not continue exactly");
+            }
+            double worstHz = 0.0, worstDb = 0.0;
+            for (const double rate : { 44100.0, 96000.0, 192000.0 })
+                for (const double f0 : { 100.0, 150.0, 300.0, 440.0, 571.0, 800.0 })
+                {
+                    double hz = 0.0, db = 0.0;
+                    divisionCase(rate, f0, deep, false, hz, db);
+                    worstHz = std::max(worstHz, std::abs(hz / sub48[static_cast<int>(f0)].first - 1.0));
+                    worstDb = std::max(worstDb, std::abs(db - sub48[static_cast<int>(f0)].second));
+                }
+            std::printf("  T-SUB-6 44.1 / 96 / 192 kHz: layer frequency within %.2f %%, level within %.2f dB of 48 kHz\n", worstHz * 100.0, worstDb);
+            check(worstHz <= 0.01, "T-SUB-6 layer frequency across rates off by " + juce::String(worstHz * 100.0, 2) + " % (<= 1 %)");
+            check(worstDb <= 0.5, "T-SUB-6 layer level across rates off by " + juce::String(worstDb, 2) + " dB (<= 0.5)");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -964,5 +1288,7 @@ namespace stageb4
             testEnsembleLow();
         if (sectionWanted("en2"))
             testEnsembleCap();
+        if (sectionWanted("sub"))
+            testSubRegisters();
     }
 }

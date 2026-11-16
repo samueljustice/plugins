@@ -39,12 +39,22 @@ namespace roar
      * in f0 must persist for 40 ms. The Register chip picks the harmonic that is divided:
      *   Follow  f0 (sub = f0 / 2); 2 f0 when f0 / 2 < 42 Hz (sub = f0)
      *   Tight   the lowest of f0 / 2, f0, 2 f0 that is 55 Hz or above (divides f0, 2 f0 or 4 f0)
-     *   Deep    f0 (sub = f0 / 2) down to a 32 Hz sub; below that 2 f0 (sub = f0)
-     * Register switches have 3 % hysteresis. fIn and fsub glide in log2 over 30 ms. When the
-     * stream is not confident, fsub (the output filters) follows the dividers' own toggle rate.
+     *   Deep    f0 divided as many times as it takes (f0 / 2 .. f0 / 16) to put the layer at or
+     *           under 131 Hz; one division is given back when the layer an octave up would sit
+     *           under 92 Hz. In steady state the layer lies in (46, 131] Hz for any voice above
+     *           92 Hz: a true sub under a howl or a screech. Below that as Follow, with a 32 Hz floor.
+     * Register floors have 3 semitones of hysteresis (x 1.19) each side. A pitch that returns
+     * after 150 ms or more without one picks afresh, so a phrase starts from the nominal choice
+     * wherever playback started. A change of division waits for the next toggle of divider 1
+     * (where both waveforms are at zero), 40 ms at most. fIn and fsub glide in log2 over 30 ms.
+     * When the stream is not confident, fsub (the output filters) follows the dividers' own
+     * toggle rate.
      *
      * Divider: envelope e = |b| (1 ms attack, 30 ms release); armed when b < -0.15 e; an armed
-     * upward zero crossing toggles q. u = q b has f / 2 at 0.849 |b| and nothing at f.
+     * upward zero crossing toggles q. u = q b has f / 2 at 0.849 |b| and nothing at f. For k > 1
+     * divisions u = q_k |b| c_k, q_k the k-th flip-flop of the toggle count (f / 2^k): |b| is zero
+     * at every toggle, so u is continuous; c_k (computed in prepare()) gives the layer's
+     * fundamental the level one division gives.
      *
      * Drive: -12 + 24 uDrive dB into f(v) = (tanh (v + beta) - tanh beta) / sech^2 beta, beta 0.1
      * (Clean) or 0.25 (Resonant, Thick), ADAA-1 at the base rate, on the band-passed sub (a near
@@ -113,6 +123,7 @@ namespace roar
             float env = 0.0f;
             float prev = 0.0f;
             float q = 1.0f;
+            unsigned count = 0;        // toggles so far: bit k - 1 is the state of the k-th flip-flop
             bool armed = false;
             int sinceToggle = 0;
         };
@@ -122,6 +133,7 @@ namespace roar
         void updateTracker (const VoiceFrame& frame);
         void updateFilters();
         float processDivider (Divider& d, float b, bool estimate);
+        float waveFor (const Divider& d, float b) const;
         double curve (double v) const;
         double antiderivative (double v) const;
         double driveMakeup (double driveDb, int betaIndex) const;
@@ -148,7 +160,9 @@ namespace roar
         float m_dividedFundamental = 0.849f;   // the divided waveform's f / 2 component per unit band amplitude
         std::array<float, 3> m_filterMakeup {};                                // per character
         TptSvf m_even;                 // at fsub: lp and bp of u1 for the 2nd harmonic
-        std::array<float, 3> m_evenScale {};   // per character: output-filter tilt / unit H2 of the doubler
+        std::array<std::array<float, 3>, 2> m_evenScale {};   // per waveform (one division, more), per character:
+                                                              // output-filter tilt / unit H2 of the doubler
+        std::array<float, 5> m_divisionScale {};   // c_k: per division count, the layer's fundamental re one division
         float m_evenGain = 0.0f;
 
         // Gains.
@@ -170,6 +184,12 @@ namespace roar
         int m_octaveConfirmSamples = 1920;
         bool m_tracked = false;
         int m_multiplier = 1;          // which harmonic band 1 sits on (1 = f0, 2 = 2 f0, 4 = 4 f0)
+        int m_divisionsWanted = 1;     // Deep: flip-flops in the chain (1 = one octave under band 1)
+        int m_divisions = 1;           // in use (changes at a toggle of divider 1, or after the wait)
+        int m_divisionWait = 0;        // samples a pending change has waited
+        int m_divisionWaitMax = 1920;
+        int m_untrackedSamples = 1 << 30;   // samples since the last usable pitch frame
+        int m_repickSamples = 7200;
         double m_inLog = 0.0;          // glided log2 fIn
         double m_subLog = 0.0;         // glided log2 fsub (output filters)
         double m_estimateLog = 0.0;    // log2 of the band-1 frequency from the divider toggles
