@@ -57,7 +57,8 @@ juce_add_plugin(Swooshbuckler
     PLUGIN_CODE Swsh
     FORMATS ${SWOOSHBUCKLER_FORMATS}
     PRODUCT_NAME "Swooshbuckler"
-    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png"   # app icon (.icns / .ico are made from it)
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png"         # app icon (.icns / .ico are made from these):
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon-small.png" # 32 px, drawn simpler, for the 16 and 32 px sizes
 )
 
 if(APPLE)

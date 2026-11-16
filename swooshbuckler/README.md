@@ -1158,7 +1158,7 @@ Each picture is shown at half the width it was drawn at, so it stays sharp on a 
 
 ### Icon
 
-The icon is drawn in code, in [tools/IconRender.cpp](tools/IconRender.cpp). After changing it, regenerate `Resources/icon.png` and `Resources/icon.ico` and commit them:
+The icon is drawn in code, in [tools/IconRender.cpp](tools/IconRender.cpp). After changing it, regenerate `Resources/icon.png` (the 1024 px master), `Resources/icon-small.png` (32 px, drawn simpler for the smallest sizes) and `Resources/icon.ico` (the Windows installer's), and commit all three. `--sheet` writes a sheet of the icon from 256 down to 16 px on dark and light grounds to judge it small:
 
 ```bash
 cmake -B build-icon -DSWOOSHBUCKLER_TOOLS=ON -DSWOOSHBUCKLER_TESTS=OFF -DSWOOSHBUCKLER_FORMATS=Standalone

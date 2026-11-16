@@ -42,6 +42,7 @@
 - **Render Variations: every whoosh is a whoosh of its own.** With My Settings, New Passes your settings stay exactly as they are, and each whoosh of a batch carries on through your sounds from where the last one stopped, the way the rig does when you press Throw several times in a row. The first starts at each track's flag. Whole Ride files carry on from one to the next in the same way.
 - **Each pass flies its own way.** How near it comes (so how loud and bright it is, and how steeply the pitch bends: Chaos sets how much this varies), when it is closest (anywhere from a third to two thirds of the way through), the balance of your tracks as the ride moves them, and where each modulator is in its cycle. The same batch number still gives the same files.
 - **The constellation in the sea's sky is the logo now.** Some forty stars draw the grenade (a clear circle for the pull ring, the cap as one block, the lever and the round body), the cherry in front of it in rosy stars and the two stems, over a faint haze of the two shapes, and it is nearly twice the size, so you can tell what it is. It used to be a small tangle.
+- **A new app icon in the window's look.** The crossed cutlasses on a brass plate with cut corners and bolted gussets, over a night sea with a coral comet and the moon. The smallest sizes (a Finder list, the Windows taskbar) are drawn simpler so they stay sharp.
 
 ## 2.1.0
 
