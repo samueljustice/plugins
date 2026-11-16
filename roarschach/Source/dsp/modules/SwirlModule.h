@@ -44,6 +44,9 @@ namespace roar
      *         between 100 Hz and 8 kHz (first-order high-pass then low-pass of P, added back), so
      *         the ends of the spectrum, where the lattice takes nothing, are not lifted
      *   P   -> soft safety knee: linear up to R + 14 dB (-6 dBFS), then tanh towards -3 dBFS
+     *   Below 50 kHz the stages, the mix, the makeup and the knee run inside the 2x section (two
+     *   chain updates per base sample, coefficients for 2 fs), so 44.1 / 48 kHz match 96 kHz in
+     *   the top octave and a hot high note does not fold. 88.2 kHz and up run them at the base rate.
      *   out = (1 - a) dry + a P
      *
      * Circuits (chip): stages, spread (decades), Freq, sweep (octaves), k, colour, polarity,
@@ -95,6 +98,7 @@ namespace roar
         static constexpr double c_modernMinK = -0.95;
         static constexpr double c_makeupLowHz = 100.0;    // the band the Modern makeup above unity acts in
         static constexpr double c_makeupHighHz = 8000.0;
+        static constexpr double c_chain2xBelowHz = 50000.0;  // below this rate the stages run at 2 fs
         static constexpr double c_safetyKneeDb = c_referenceDb + 14.0;
         static constexpr double c_safetyCeilingDb = -3.0;
         static constexpr double c_minStageHz = 20.0;
@@ -153,6 +157,7 @@ namespace roar
             bool safety = true;        // false: no output knee
             bool makeup = true;
             double k = -1.0;           // >= 0: this |k| (signed by the circuit), ignoring Amount
+            bool chain2x = true;       // false: the stages run at the base rate at every rate
         };
 
         void prepare (double fs, int maxBlock) override;
@@ -172,6 +177,7 @@ namespace roar
         float getModulationOctaves() const { return m_state.modOctaves; }
         float getK() const { return m_state.kNow; }
         float getOnValue() const { return m_fade.getValue(); }
+        bool runsChainAt2x() const { return m_chain2x; }
 
         /** k for a circuit's k0 and Amount a (before the resonance polarity). */
         static double kFor (double k0, double amount);
@@ -220,6 +226,7 @@ namespace roar
             std::uint32_t random = 0x6b43a9b5u;
         };
 
+        void prepareChainRate();
         void resetWet();
         void resetMotion();
         void runLatencyOnly (const float* l, const float* r, int n, bool stereo);
@@ -239,6 +246,7 @@ namespace roar
         float m_engineStep = 1.0f / 960.0f;  // 20 ms
         float m_motionStep = 1.0f / 2400.0f; // 50 ms
         float m_kneeLevel = 0.5f, m_kneeRange = 0.2f;
+        bool m_chain2x = false;              // the stages, makeup and knee run at 2 fs (fs < 50 kHz)
 
         SwirlSettings m_settings;
         Diagnostics m_diagnostics;

@@ -403,7 +403,7 @@ namespace stageb4
 
             // Rates: the two lattice circuits (the ones this batch changes) are held to 0.5 dB. The four
             // feedback circuits are reported only: they are bit-identical to before at every rate (their
-            // makeup path adds exactly zero), and already move by up to 1.7 dB between 48 and 192 kHz.
+            // makeup path adds exactly zero) and move by up to 0.9 dB between 48 and 192 kHz on their own.
             double worst = 0.0, worstFeedback = 0.0;
             for (const double rate : { 44100.0, 96000.0, 192000.0 })
             {
@@ -426,11 +426,145 @@ namespace stageb4
         }
     }
 
+    /** Power spectrum (Hann, 2^16 points, Welch: windows hopped by half from `from` to the end,
+        averaged); bin width sr / 65536. */
+    std::vector<double> spectrum(const Signal& x, int from)
+    {
+        constexpr int order = 16, size = 1 << order;
+        juce::dsp::FFT fft(order);
+        std::vector<double> sum(size / 2, 0.0);
+        std::vector<float> buf(2 * size, 0.0f);
+        int count = 0;
+        for (int start = from; start + size <= static_cast<int>(x.size()); start += size / 2, ++count)
+        {
+            std::fill(buf.begin(), buf.end(), 0.0f);
+            for (int i = 0; i < size; ++i)
+                buf[static_cast<size_t>(i)] = x[static_cast<size_t>(start + i)] * static_cast<float>(0.5 - 0.5 * std::cos(2.0 * c_pi * i / size));
+            fft.performFrequencyOnlyForwardTransform(buf.data());
+            for (size_t k = 0; k < sum.size(); ++k)
+                sum[k] += static_cast<double>(buf[k]) * buf[k];
+        }
+        for (auto& v : sum)
+            v /= std::max(1, count);
+        return sum;
+    }
+
+    void testSwirl2x()
+    {
+        std::printf("[stageb4] SWIRL: the stages inside the 2x section at 44.1 / 48 kHz\n");
+        // T-SW-5: full-band pink at -20 dBFS, Amount 100 %, band level re dry against 96 kHz.
+        {
+            const double bands[3][2] { { 5000, 10000 }, { 10000, 14000 }, { 14000, 18000 } };
+            const auto bandsReDry = [&](double rate, int circuit)
+            {
+                const auto in = fullBandPink(rate, 40.0, -20.0);
+                auto m = makeSwirl(rate, swirlSettings(circuit, 1.0));
+                const auto out = runMono(*m, in);
+                // Band power from the averaged spectrum (bins inside the band only), so the steep
+                // response of some circuits up there is not mixed with what a filter's skirts let in.
+                const int from = static_cast<int>(rate);
+                const auto so = spectrum(out, from), si = spectrum(in, from);
+                std::array<double, 3> r {};
+                for (size_t b = 0; b < 3; ++b)
+                {
+                    double po = 0.0, pi = 0.0;
+                    for (size_t k = 0; k < so.size(); ++k)
+                    {
+                        const double hz = static_cast<double>(k) * rate / 65536.0;
+                        if (hz >= bands[b][0] && hz < bands[b][1])
+                        {
+                            po += so[k];
+                            pi += si[k];
+                        }
+                    }
+                    r[b] = 10.0 * std::log10(po / std::max(pi, 1.0e-30));
+                }
+                return r;
+            };
+            for (int c = 0; c < 6; ++c)
+            {
+                const auto ref = bandsReDry(96000.0, c);
+                for (const double rate : { 48000.0, 44100.0 })
+                {
+                    const auto r = bandsReDry(rate, c);
+                    double worst = 0.0;
+                    for (size_t b = 0; b < 3; ++b)
+                        worst = std::max(worst, std::abs(r[b] - ref[b]));
+                    const double bound = rate > 46000.0 ? 1.0 : 1.5;
+                    std::printf("  T-SW-5 %-8s %.1f kHz re 96 kHz, 5-10 / 10-14 / 14-18 kHz: %+.2f / %+.2f / %+.2f dB\n", swirlName(c), rate / 1000.0,
+                                r[0] - ref[0], r[1] - ref[1], r[2] - ref[2]);
+                    check(worst <= bound, juce::String("T-SW-5 ") + swirlName(c) + " at " + juce::String(rate / 1000.0, 1) + " kHz: top bands off 96 kHz by "
+                                              + juce::String(worst, 2) + " dB (<= " + juce::String(bound, 1) + ")");
+                }
+            }
+        }
+
+        // T-SW-6: a 17 kHz sine at 0 dBFS, Amount 100 %, 48 kHz: the strongest fold below 16.5 kHz.
+        {
+            const std::pair<Params::SwirlCircuit, double> cases[] { { Params::SwirlCircuit::smooth4, -33.0 }, { Params::SwirlCircuit::liquid4, -40.0 },
+                                                                    { Params::SwirlCircuit::talky4, -27.0 }, { Params::SwirlCircuit::deep6, -33.0 } };
+            const auto in = makeSine(c_fs, 12.0, 17000.0, 1.0);
+            for (const auto& [circuit, bound] : cases)
+            {
+                auto m = makeSwirl(c_fs, swirlSettings(circuitIndex(circuit), 1.0));
+                const auto spec = spectrum(runMono(*m, in), static_cast<int>(1.0 * c_fs));
+                const double binHz = c_fs / 65536.0;
+                double line = 0.0, fold = 0.0;
+                for (size_t k = 0; k < spec.size(); ++k)
+                {
+                    const double hz = static_cast<double>(k) * binHz;
+                    if (std::abs(hz - 17000.0) < 30.0)
+                        line = std::max(line, spec[k]);
+                    else if (hz > 20.0 && hz < 16500.0)
+                        fold = std::max(fold, spec[k]);
+                }
+                const double db = 10.0 * std::log10(fold / std::max(line, 1.0e-24));
+                std::printf("  T-SW-6 %-8s 17 kHz at 0 dBFS: strongest component below 16.5 kHz %.1f dB re the line\n", swirlName(circuitIndex(circuit)), db);
+                check(db <= bound, juce::String("T-SW-6 ") + swirlName(circuitIndex(circuit)) + ": fold " + juce::String(db, 1) + " dB (<= " + juce::String(bound, 0) + ")");
+            }
+        }
+
+        // T-SW-7: SWIRL alone at 48 kHz, Deep 12, stereo, 64-sample blocks, best of five, against the
+        // same with the stages at the base rate.
+        {
+            const auto in = fullBandPink(c_fs, 10.0);
+            const Stereo st { in, in };
+            const auto timeIt = [&](bool chain2x)
+            {
+                double best = 1.0e9;
+                for (int run = 0; run < 5; ++run)
+                {
+                    roar::SwirlModule::Diagnostics d;
+                    d.chain2x = chain2x;
+                    auto m = makeSwirl(c_fs, swirlSettings(circuitIndex(Params::SwirlCircuit::deep12), 0.45), 64, &d);
+                    const auto t0 = std::chrono::steady_clock::now();
+                    runModule(*m, st, true, { 64 }, [](int) { return roar::VoiceFrame {}; }, [](int) {});
+                    best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+                }
+                return best;
+            };
+            auto probe = makeSwirl(c_fs, swirlSettings(0, 0.5));
+            check(probe->runsChainAt2x(), "T-SW-7 the stages do not run at 2x at 48 kHz");
+            auto probe96 = makeSwirl(96000.0, swirlSettings(0, 0.5));
+            check(!probe96->runsChainAt2x(), "T-SW-7 the stages run at 2x at 96 kHz");
+            double ratio = 0.0;
+            for (int attempt = 0; attempt < 3; ++attempt)   // other work on the machine: take the best of three
+            {
+                const double off = timeIt(false), on = timeIt(true);
+                ratio = attempt == 0 ? on / off : std::min(ratio, on / off);
+            }
+            std::printf("  T-SW-7 Deep 12 stereo at 48 kHz: %.2f times the time of the base-rate stages\n", ratio);
+            check(ratio <= 1.8, "T-SW-7 the 2x stages cost " + juce::String(ratio, 2) + " times (<= 1.8)");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
     {
         if (sectionWanted("sw"))
             testSwirl();
+        if (sectionWanted("sw2"))
+            testSwirl2x();
     }
 }

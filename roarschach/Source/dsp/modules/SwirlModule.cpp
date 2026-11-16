@@ -163,14 +163,24 @@ namespace roar
             ch.os.prepare();
             ch.drive.prepare (2.0 * m_fs);
             ch.drive.setCurve (CharacterSaturator::Curve::warm);
-            ch.makeupLow.prepare (m_fs);
-            ch.makeupLow.setCutoff (c_makeupLowHz);
-            ch.makeupHigh.prepare (m_fs);
-            ch.makeupHigh.setCutoff (c_makeupHighHz);
         }
+        prepareChainRate();
 
         m_fade.prepare (m_fs, m_maxBlock, getLatencySamples());
         reset();
+    }
+
+    void SwirlModule::prepareChainRate()
+    {
+        m_chain2x = m_diagnostics.chain2x && m_fs < c_chain2xBelowHz;
+        const double chainRate = m_chain2x ? 2.0 * m_fs : m_fs;
+        for (auto& ch : m_channels)
+        {
+            ch.makeupLow.prepare (chainRate);
+            ch.makeupLow.setCutoff (c_makeupLowHz);
+            ch.makeupHigh.prepare (chainRate);
+            ch.makeupHigh.setCutoff (c_makeupHighHz);
+        }
     }
 
     void SwirlModule::reset()
@@ -260,6 +270,7 @@ namespace roar
     void SwirlModule::setDiagnostics (const Diagnostics& d)
     {
         m_diagnostics = d;
+        prepareChainRate();
         snapToTargets();
     }
 
@@ -298,8 +309,9 @@ namespace roar
     {
         const double octaves = m_diagnostics.motion ? e.circuit.sweepOctaves * q + envOct : 0.0;
         const double base = e.circuit.freqHz * std::exp2 (octaves);
-        const double hiHz = c_maxStageRatio * m_fs;
-        const double piOverFs = dsp::c_pi / m_fs;
+        const double chainRate = m_chain2x ? 2.0 * m_fs : m_fs;
+        const double hiHz = c_maxStageRatio * chainRate;
+        const double piOverFs = dsp::c_pi / chainRate;
         for (int i = 0; i < e.circuit.stages; ++i)
         {
             const double f = std::clamp (base * e.ratio[static_cast<size_t> (i)], c_minStageHz, hiHz);
@@ -446,22 +458,37 @@ namespace roar
                 ch.os.upsample (io[c][i] * st.drive, a, b);
                 a = ch.drive.process (a);
                 b = ch.drive.process (b);
-                const float xIn = ch.os.downsample (a, b);
 
-                const float yTo = eTo.chains[ci].process (xIn, eTo.coeffs, kTo, eTo.circuit.modern);
-                float p = 0.5f * (xIn + polTo * yTo) * (eTo.circuit.modern ? std::min (makeupTo, 1.0f) : makeupTo);
-                float over = eTo.circuit.modern ? std::max (makeupTo - 1.0f, 0.0f) : 0.0f;
-                if (fading)
+                // The stages, the mix, the makeup and the knee for one sample at the chain's rate.
+                const auto wet = [&] (float xIn)
                 {
-                    const float yFrom = eFrom.chains[ci].process (xIn, eFrom.coeffs, kFrom, eFrom.circuit.modern);
-                    const float pFrom = 0.5f * (xIn + polFrom * yFrom) * (eFrom.circuit.modern ? std::min (makeupFrom, 1.0f) : makeupFrom);
-                    const float overFrom = eFrom.circuit.modern ? std::max (makeupFrom - 1.0f, 0.0f) : 0.0f;
-                    p = pFrom + wTo * (p - pFrom);
-                    over = overFrom + wTo * (over - overFrom);
+                    const float yTo = eTo.chains[ci].process (xIn, eTo.coeffs, kTo, eTo.circuit.modern);
+                    float p = 0.5f * (xIn + polTo * yTo) * (eTo.circuit.modern ? std::min (makeupTo, 1.0f) : makeupTo);
+                    float over = eTo.circuit.modern ? std::max (makeupTo - 1.0f, 0.0f) : 0.0f;
+                    if (fading)
+                    {
+                        const float yFrom = eFrom.chains[ci].process (xIn, eFrom.coeffs, kFrom, eFrom.circuit.modern);
+                        const float pFrom = 0.5f * (xIn + polFrom * yFrom) * (eFrom.circuit.modern ? std::min (makeupFrom, 1.0f) : makeupFrom);
+                        const float overFrom = eFrom.circuit.modern ? std::max (makeupFrom - 1.0f, 0.0f) : 0.0f;
+                        p = pFrom + wTo * (p - pFrom);
+                        over = overFrom + wTo * (over - overFrom);
+                    }
+                    // The makeup above unity, between 100 Hz and 8 kHz only (the filters always run).
+                    p += over * ch.makeupHigh.processLowpass (ch.makeupLow.processHighpass (p));
+                    return safety (p);
+                };
+
+                // Below 50 kHz the chain runs inside the 2x section (both samples in time order), so
+                // the top octave is not squeezed by the base rate and the knee does not fold.
+                float p;
+                if (m_chain2x)
+                {
+                    const float pa = wet (a);
+                    const float pb = wet (b);
+                    p = ch.os.downsample (pa, pb);
                 }
-                // The makeup above unity, between 100 Hz and 8 kHz only (the filters always run).
-                p += over * ch.makeupHigh.processLowpass (ch.makeupLow.processHighpass (p));
-                p = safety (p);
+                else
+                    p = wet (ch.os.downsample (a, b));
 
                 const float d = dry[c][i];
                 io[c][i] = d + st.amount * (p - d);
@@ -484,6 +511,8 @@ namespace roar
         const auto& o = sameType<SwirlModule> (other);
         m_settings = o.m_settings;
         m_diagnostics = o.m_diagnostics;
+        if (m_chain2x != o.m_chain2x)
+            prepareChainRate();   // (test-only: the Diagnostics switch differs)
         m_state = o.m_state;
         for (size_t e = 0; e < m_engines.size(); ++e)
         {
