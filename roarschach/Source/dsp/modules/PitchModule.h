@@ -18,7 +18,7 @@
 // The single-head reader for the resampling path (consonant-safe splices). 0 keeps the two-head
 // path (A / B renders from one tree); the switch goes once the reader is accepted by ear.
 #ifndef ROARSCHACH_PITCH_READER
- #define ROARSCHACH_PITCH_READER 0
+ #define ROARSCHACH_PITCH_READER 1
 #endif
 
 // Prototype (audit D14): PITCH's own mark chain for rough voice, continuing and restarting runs of
@@ -215,6 +215,7 @@ namespace roar
         struct Onset
         {
             std::int64_t pos = -1, end = -1;
+            double energy = 0.0;   // its hop energy (tilted mid)
         };
         static constexpr int c_maxOnsets = 16;
 
@@ -369,6 +370,7 @@ namespace roar
         double bandPower (std::int64_t from, std::int64_t to) const;
         bool liveAt (double syn, double markPos, double period) const;
         bool protectedNear (double lo, double hi) const;
+        bool onsetStartsIn (double lo, double hi) const;
         void detectOnsets (float mid);
         void pruneMarks (std::int64_t outPos);
         void scheduleGrains (std::int64_t outPos);
@@ -389,6 +391,8 @@ namespace roar
         double followRate() const;
         float airTarget (std::int64_t outPos) const;
         double alignTapeHead (double other, double nominal, double share, bool stereo, double* matchOut = nullptr) const;
+        double alignFullBand (double other, double nominal, bool stereo, double* matchOut) const;
+        float joinCorrelation (double a, double b, double length, bool stereo) const;
 
         void updateBodyCoeffs();
         void updateDriveCoeffs();

@@ -9685,6 +9685,7 @@ int main(int argc, char* argv[])
         { "pitch", pitchbatch::testKeepHandOver },
         { "pitchsplice", pitchbatch::testOnsetDetector },
         { "pitchsplice", pitchbatch::testSplices },
+        { "pitchsplice", pitchbatch::testSpliceRepairs },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },

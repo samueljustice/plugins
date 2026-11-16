@@ -146,6 +146,19 @@ namespace roar
         constexpr double c_onsetEndShare = 0.063;             // -12 dB from its first hop
         constexpr double c_onsetMinSeconds = 0.004, c_onsetMaxSeconds = 0.016;
         constexpr double c_onsetLeadSeconds = 0.002;          // protection starts this far before an onset
+        // An open onset moves to a hop 30 dB louder than its own (it was the faint start of a
+        // fade-in, often the first hop after digital silence): the protected stretch and the
+        // steering then serve the real rise. (20 dB also moved the voicing that leads a burst.)
+        constexpr double c_onsetReanchor = 1000.0;
+        // Steering towards an onset ignores the protected stretches of onsets more than 12 dB
+        // weaker than it: re-reading a faint tick in room tone is not heard, a plosive or click
+        // that comes out early is (30 dB left a click 11 ms early after a run of faint ticks).
+        constexpr double c_onsetWeakShare = 0.063;
+        // Where the band copy finds no match for a splice (content above the band: sibilance, a
+        // tone), the full-band mid is searched +-c_fullAlignSeconds around the nominal place,
+        // compared over +-c_fullAlignWindow; a splice that lands nowhere matched takes the
+        // measured correlation of the two stretches it joins as its gain law.
+        constexpr double c_fullAlignSeconds = 0.001, c_fullAlignWindow = 0.0005;
 
         // Formant model.
         constexpr double c_sizeFormantSt = 6.0;
@@ -1159,6 +1172,14 @@ namespace roar
         return false;
     }
 
+    bool PitchModule::onsetStartsIn (double lo, double hi) const
+    {
+        for (const Onset& o : m_core.onsets)
+            if (o.pos >= 0 && static_cast<double> (o.pos) > lo && static_cast<double> (o.pos) <= hi)
+                return true;
+        return false;
+    }
+
     bool PitchModule::liveAt (double syn, double markPos, double period) const
     {
         // Is the input still sounding where a grain past the end of a run would play? Band power
@@ -1199,6 +1220,12 @@ namespace roar
         if (c.onsetOpen)
         {
             Onset& o = c.onsets[static_cast<size_t> ((c.onsetWrite + c_maxOnsets - 1) % c_maxOnsets)];
+            if (e > c_onsetReanchor * o.energy)
+            {
+                o.pos = hopStart;
+                o.energy = e;
+                c.onsetEndLevel = e * c_onsetEndShare;
+            }
             const std::int64_t since = hopStart - o.pos;
             if ((e < c.onsetEndLevel && since >= static_cast<std::int64_t> (c_onsetMinSeconds * m_fs))
                 || since >= static_cast<std::int64_t> (c_onsetMaxSeconds * m_fs))
@@ -1223,6 +1250,7 @@ namespace roar
                     Onset& o = c.onsets[static_cast<size_t> (c.onsetWrite)];
                     o.pos = hopStart;
                     o.end = -1;
+                    o.energy = e;
                     c.onsetWrite = (c.onsetWrite + 1) % c_maxOnsets;
                     c.onsetEndLevel = e * c_onsetEndShare;
                     c.onsetOpen = true;
@@ -1734,6 +1762,26 @@ namespace roar
                 voiced = false;
         }
 
+        // A grain placed before its mark plays the mark's cycle that much early. Where an onset
+        // starts inside the stretch it reads, the onset would sound ahead of its time (a faint
+        // early copy before a hard word start): take the mark before, whose cycle lies before the
+        // onset, or leave this stretch to the resampling path, which is steered to the onset.
+        while (voiced && static_cast<double> (mark.pos) - voicedSyn > c_spliceGoalSeconds * m_fs
+               && onsetStartsIn (static_cast<double> (mark.pos) - period, static_cast<double> (mark.pos) + period))
+        {
+            if (nearest == 0)
+            {
+                voiced = false;
+                break;
+            }
+            --nearest;
+            mark = c.marks[static_cast<size_t> ((c.markHead + nearest) % c_maxMarks)];
+            period = std::clamp (localPeriod (nearest), static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod));
+            halfWidth = period / c.rate;
+            if (voicedSyn - static_cast<double> (mark.pos) > 3.0 * static_cast<double> (mark.period))
+                voiced = false;
+        }
+
         if (c.grainCount >= c_maxGrains)
         {
             // Cannot happen with the clamps above (overlap is at most ~16); keep time moving.
@@ -2186,21 +2234,15 @@ namespace roar
         // 1. Arrive at the next onset on time: the place from which a head moving at `rate`
         // reaches it 1 ms after the output time does.
         const Onset* next = nullptr;
-        double prevEnd = -1.0e18;
         for (const Onset& o : c.onsets)
-        {
-            if (o.pos < 0)
-                continue;
-            if (static_cast<double> (o.pos) - lead > t.pos)
-            {
-                if (next == nullptr || o.pos < next->pos)
-                    next = &o;
-            }
-            else
-                prevEnd = std::max (prevEnd, protEnd (o));
-        }
+            if (o.pos >= 0 && static_cast<double> (o.pos) - lead > t.pos && (next == nullptr || o.pos < next->pos))
+                next = &o;
         if (next != nullptr)
         {
+            double prevEnd = -1.0e18;
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0 && &o != next && static_cast<double> (o.pos) - lead <= t.pos && o.energy >= c_onsetWeakShare * next->energy)
+                    prevEnd = std::max (prevEnd, protEnd (o));
             const double edge = static_cast<double> (next->pos) - lead;
             const double toOnset = static_cast<double> (next->pos) - now;
             const double goal = c_spliceGoalSeconds * fs;
@@ -2215,7 +2257,7 @@ namespace roar
                 t.handledOnset = next->pos;
                 if (t.pos >= prevEnd && target >= prevEnd && edge - t.pos - span >= 0.0 && target + span + c_readAhead < newest)
                 {
-                    start (target, 0.0f);
+                    start (target, joinCorrelation (t.pos, target, span, stereo));
                     ++c.steered;
                     return;
                 }
@@ -2274,7 +2316,9 @@ namespace roar
         // Where the waveform matches, the head lands there, carrying its fraction of a sample
         // (the match is found between whole samples), so periodic sound stays periodic.
         double match = 0.0;
-        const double offset = alignTapeHead (t.pos, target, share, stereo, &match);
+        double offset = alignTapeHead (t.pos, target, share, stereo, &match);
+        if (offset == 0.0 && ! blocked)
+            offset = alignFullBand (t.pos, target, stereo, &match);
         double landing = target;
         if (offset != 0.0 && ! blocked)
         {
@@ -2295,7 +2339,93 @@ namespace roar
         }
         else
             match = 0.0;
-        start (landing, match > 0.0 ? 1.0f : 0.0f);
+        start (landing, match > 0.0 ? 1.0f : joinCorrelation (t.pos, landing, span, stereo));
+    }
+
+    double PitchModule::alignFullBand (double other, double nominal, bool stereo, double* matchOut) const
+    {
+        // As alignTapeHead, on the full-band mid at single samples over a short range: for joins
+        // whose content the band copy does not hold.
+        *matchOut = 0.0;
+        const std::int64_t newest = m_core.writePos - 1;
+        const int half = std::max (2, static_cast<int> (c_fullAlignWindow * m_fs));
+        const int range = std::max (2, static_cast<int> (c_fullAlignSeconds * m_fs));
+        const auto a = static_cast<std::int64_t> (std::llround (other));
+        const auto b = static_cast<std::int64_t> (std::llround (nominal));
+        const int hi = static_cast<int> (std::min<std::int64_t> (range, newest - half - b));
+        const int lo = -range;
+        if (a + half > newest || hi - lo < 2)
+            return 0.0;
+        const auto mid = [&] (std::int64_t i)
+        {
+            const auto at = static_cast<size_t> (i & m_mask);
+            return static_cast<double> (stereo ? 0.5f * (m_inL[at] + m_inR[at]) : m_inL[at]);
+        };
+        double xx = 1.0e-20;
+        for (int j = -half; j <= half; ++j)
+            xx += mid (a + j) * mid (a + j);
+        const auto match = [&] (int d)
+        {
+            double xy = 0.0, yy = 1.0e-20;
+            for (int j = -half; j <= half; ++j)
+            {
+                const double u = mid (a + j), v = mid (b + d + j);
+                xy += u * v;
+                yy += v * v;
+            }
+            return xy / std::sqrt (xx * yy);
+        };
+        const double bias = c_tapeAlignBias / static_cast<double> (hi - lo);
+        int best = 0;
+        double bestScore = -1.0e9, bestMatch = 0.0;
+        for (int d = lo; d <= hi; ++d)
+        {
+            const double m = match (d);
+            const double score = m - bias * std::abs (static_cast<double> (d));
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMatch = m;
+                best = d;
+            }
+        }
+        if (bestMatch < c_tapeAlignMatch)
+            return 0.0;
+        *matchOut = bestMatch;
+        double offset = static_cast<double> (best);
+        if (best > lo && best < hi)
+        {
+            const double below = match (best - 1), above = match (best + 1);
+            const double curvature = below - 2.0 * bestMatch + above;
+            if (curvature < -1.0e-12)
+                offset += std::clamp (0.5 * (below - above) / curvature, -0.5, 0.5);
+        }
+        // A zero offset means "no match" to the caller: a match exactly on the nominal place is
+        // the nominal place anyway.
+        return offset;
+    }
+
+    float PitchModule::joinCorrelation (double a, double b, double length, bool stereo) const
+    {
+        // Correlation of the input the two heads of a splice will read (whole samples, as far as
+        // the input exists): the crossfade then keeps the level of like and unlike sound alike.
+        const std::int64_t newest = m_core.writePos - 1;
+        const auto ia = static_cast<std::int64_t> (std::llround (a));
+        const auto ib = static_cast<std::int64_t> (std::llround (b));
+        const auto n = static_cast<std::int64_t> (std::min<double> (length, static_cast<double> (newest - std::max (ia, ib))));
+        if (n < 8)
+            return 0.0f;
+        double xy = 0.0, xx = 1.0e-30, yy = 1.0e-30;
+        for (std::int64_t k = 0; k < n; ++k)
+        {
+            const auto pa = static_cast<size_t> ((ia + k) & m_mask), pb = static_cast<size_t> ((ib + k) & m_mask);
+            const double u = stereo ? 0.5 * (static_cast<double> (m_inL[pa]) + m_inR[pa]) : m_inL[pa];
+            const double v = stereo ? 0.5 * (static_cast<double> (m_inL[pb]) + m_inR[pb]) : m_inL[pb];
+            xy += u * v;
+            xx += u * u;
+            yy += v * v;
+        }
+        return static_cast<float> (std::clamp (xy / std::sqrt (xx * yy), -1.0, 1.0));
     }
 
     void PitchModule::readReader (Reader& t, double rate, double now, bool needed, float& left, float& right, bool stereo)

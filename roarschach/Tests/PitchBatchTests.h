@@ -644,8 +644,11 @@ namespace pitchbatch
             }
         }
         run.out.assign(x.begin() + latency, x.end());
-        for (const auto& o : found)
-            run.onsets.push_back(o);
+        // An open onset can still move to a much louder hop (a fade-in's real rise): the place it
+        // was seen at first then never gets an end. Only the last onset may be open at the end.
+        for (auto it = found.begin(); it != found.end(); ++it)
+            if (it->second >= 0 || std::next(it) == found.end())
+                run.onsets.push_back(*it);
         return run;
     }
 
@@ -1293,6 +1296,105 @@ namespace pitchbatch
             check(bad == 0, juce::String(bad) + " slow pulse trains come out off the shifted rate (> 20 %) or level (> 1.5 dB)");
         }
     }
+    // ------------------------------------------------------------------------------------ repairs
+    /** Three faults the measurement step found on real dialogue with the reader, rebuilt from
+        synthetic sound: a fade-in after digital silence whose real rise was not an onset, a run of
+        faint ticks that kept the head ahead of a click, and a grain that played the first cycle
+        of a hard vowel before its time. */
+    inline void testSpliceRepairs()
+    {
+        std::printf("[pitchsplice] repairs: a fade-in after silence, faint ticks before a click, a grain before an onset\n");
+        if (! roar::PitchModule::usesReader())
+        {
+            std::printf("  the two-head path is built (ROARSCHACH_PITCH_READER 0): not run\n");
+            return;
+        }
+        const double fs = 48000.0;
+        const auto ms = [fs](double m) { return static_cast<int>(m * 0.001 * fs); };
+        const auto preOnsetDb = [&](const Signal& y, int t)
+        {
+            const double pre = meanSquare(y, t - ms(15.0), t - ms(1.0));
+            const double post = meanSquare(y, t, t + ms(20.0));
+            return 10.0 * std::log10(pre / std::max(post, 1e-30) + 1e-30);
+        };
+
+        // (1) Digital silence, then noise fading in from -80 to -50 dBFS over 12 ms, then a step to
+        //     -15 dBFS: the onset is the step (within 3 ms), not the fade's first faint hop.
+        {
+            std::mt19937 rng(41);
+            std::normal_distribution<float> gauss(0.0f, 1.0f);
+            const int t0 = ms(300.0), step = t0 + ms(12.0);
+            Signal x(static_cast<size_t>(ms(600.0)), 0.0f);
+            for (int i = t0; i < ms(400.0); ++i)
+            {
+                const double db = i < step ? -80.0 + 30.0 * (i - t0) / static_cast<double>(step - t0) : -15.0;
+                x[static_cast<size_t>(i)] = static_cast<float>(std::pow(10.0, db / 20.0) * gauss(rng));
+            }
+            const auto found = runPitch(fs, x, pitchSettings(-5.0f, Params::PitchFormant::follow)).onsets;
+            int onStep = 0, early = 0;
+            for (const auto& o : found)
+            {
+                if (std::abs(static_cast<double>(o.first - step)) <= ms(3.0))
+                    ++onStep;
+                else if (o.first < step)
+                    ++early;
+            }
+            std::printf("  fade-in after silence: %d onset(s) on the step, %d before it\n", onStep, early);
+            check(onStep == 1 && early == 0, "a fade-in after digital silence: the onset is not on the step (" + juce::String(onStep) + " on it, " + juce::String(early) + " before it)");
+        }
+
+        // (2) Room noise at -70 dBFS, faint ticks (-50 dBFS, 2 ms) every 14 ms, then a click at
+        //     -15 dBFS: at +7 st and Size 50 % nothing of the click comes out before it.
+        {
+            std::mt19937 rng(43);
+            std::normal_distribution<float> gauss(0.0f, 1.0f);
+            Signal x(static_cast<size_t>(ms(900.0)), 0.0f);
+            for (int i = ms(300.0); i < static_cast<int>(x.size()); ++i)
+                x[static_cast<size_t>(i)] = static_cast<float>(3.16e-4 * gauss(rng));
+            for (int t = ms(320.0); t < ms(470.0); t += ms(14.0))
+                for (int i = 0; i < ms(2.0); ++i)
+                    x[static_cast<size_t>(t + i)] += static_cast<float>(3.16e-3 * gauss(rng));
+            const int click = ms(480.0);
+            for (int i = 0; i < ms(3.0); ++i)
+                x[static_cast<size_t>(click + i)] += static_cast<float>(0.178 * gauss(rng));
+            const double input = preOnsetDb(x, click);
+            for (const auto& [name, ps] : { std::pair<const char*, roar::PitchSettings> { "Follow +7", pitchSettings(7.0f, Params::PitchFormant::follow) },
+                                            std::pair<const char*, roar::PitchSettings> { "Size 50 %", pitchSettings(0.0f, Params::PitchFormant::follow, 0.5f) } })
+            {
+                const auto y = runSplices(fs, x, ps).out;
+                const double pre = preOnsetDb(y, click);
+                std::printf("  faint ticks before a click, %s: before the click %.1f dB (input %.1f dB)\n", name, pre, input);
+                check(pre <= std::max(-40.0, input + 4.0), juce::String("faint ticks before a click, ") + name + ": " + juce::String(pre, 1) + " dB before it");
+            }
+        }
+
+        // (3) A vowel murmuring at -40 dB that steps to full level: in Keep the first loud cycle
+        //     is not played early by a grain placed before its mark.
+        {
+            int worst = 0;
+            double worstDb = -300.0;
+            for (const double f0 : { 90.0, 110.0, 140.0, 180.0 })
+            {
+                auto x = pulseVowel(fs, f0, 0.9, 0.005, 51u + static_cast<unsigned>(f0));
+                const int step = ms(500.0) + ms(3.3 * (f0 - 90.0) / 30.0);   // not on a cycle boundary
+                for (int i = 0; i < step; ++i)
+                    x[static_cast<size_t>(i)] *= 0.01f;
+                const double input = preOnsetDb(x, step);
+                for (const float st : { -5.0f, -12.0f })
+                {
+                    const double pre = preOnsetDb(runSplices(fs, x, pitchSettings(st, Params::PitchFormant::keep)).out, step);
+                    if (pre - std::max(-40.0, input + 4.0) > worstDb)
+                    {
+                        worstDb = pre - std::max(-40.0, input + 4.0);
+                        worst = static_cast<int>(f0);
+                    }
+                }
+            }
+            std::printf("  murmur stepping to full level, Keep -5 and -12 st: worst %+.1f dB against the bound (%d Hz)\n", worstDb, worst);
+            check(worstDb <= 0.0, "a vowel stepping from a murmur: energy before the step " + juce::String(worstDb, 1) + " dB over the bound in Keep");
+        }
+    }
+
     // ------------------------------------------------------------------------------------ T12
     /** Third-octave band powers (125 Hz .. 16 kHz centres) of x, averaged spectrum over [from, to). */
     inline std::vector<double> thirdOctaves(const Signal& x, double fs, int from, int to)
