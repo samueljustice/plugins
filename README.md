@@ -44,7 +44,7 @@ Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.
   <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
 </p>
 
-A modular voice processor. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from.
+A modular voice processor. It has fifteen modules (pitch and throat size, a small speaker in a room, a vocoder, a ring modulator, growl, tube saturation, a tracked sub and others) and you can drag them into any order. Each module has a die that randomises it within sensible ranges, and there are 51 presets to start from. The input and output stages learn one level for each take and keep it with the session, so a bounce matches what you heard.
 
 The picture above the chain is an ink blot that forms out of cloud and moves with the voice. It does nothing to the sound.
 

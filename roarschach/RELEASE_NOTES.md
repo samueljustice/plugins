@@ -1,66 +1,55 @@
-## Roarschach 1.3.0
+## Roarschach 1.3.1
 
-Roarschach 1.3.0 gives the whole window a new look: ink on paper, in the colour of the creature's cloud. The creature now sleeps while the host bypasses the plug-in, a hit ripples it more clearly, its view can be set to Full, Low or Off, and knobs the current settings do not use are dimmed. These notes also cover what 1.2.0 brought: the ink creature, the sound fixes and the larger window.
+Roarschach 1.3.1 changes how the levels are set, reworks the sound of several modules, re-voices the factory presets for them and adds quicker ways to work with the controls. The creature looks as it did.
 
-Parameter IDs, their order and their types are unchanged, so sessions, presets and hosts keep finding every control. Latency is unchanged: about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order.
+Sessions from earlier versions load, and every parameter ID and its place in the host's list is as it was; one parameter is added at the end (OUTPUT's Level Match). Sessions keep every setting, but they will not sound exactly as they did: most of the modules below sound different, and the levels are set in a different way. Latency is unchanged: about 46 ms (2192 samples at 48 kHz).
 
-### New: the ink creature
+### Levels you can bounce
 
-The view above the chain now draws an abstract creature in ink. It is not a face: it is a mirrored blot that the voice gathers out of the sky.
+IN's Auto Level learns one gain for the take from the performance itself, not from room tone, hum or noise before it, and holds it. A whisper stays a whisper and a roar stays a roar, instead of every phrase being pulled to the same level. It turns down when a louder passage arrives and does not turn up again by itself, so it holds one working level per instance: on a track with several takes at different levels, the loudest sets it. Turn Auto off and on to learn again. A take heard only as breath, hiss or unpitched rasp is raised by at most 12 dB until a pitched voice comes in.
 
-- **It forms out of lit cloud by flow.** Asleep, the view is a slow sky of lit cloud in three layers, with banks, gaps and shaded undersides. When a voice comes in, the cloud near the middle starts to turn, and the faint ink in it streams inwards along mirrored eddies, leaving the cloud it came from paler. It gathers first as shreds, then joins into one folded mass, the cloud parting round it.
-- **It swirls with the voice.** The mass never holds still: the flow keeps carrying its edge off as smoke and the voice keeps pulling more in, its inside marbled by where the ink came from, with banks of cloud drifting in front of it.
-- **A roar tears it open.** On loud, heated sound a ragged rift opens down its middle with the weight of the phrase, and the blot swells larger and darker. In some blots the rift is lit from inside by a warm, drifting glow; in others it stays a dark tear onto the cloud behind. The light comes and goes.
-- **A hit ripples it.** A stomp, a thump or a heavy low attack at the start of a roar sends one broad swell out from the blot's edge, like a struck water surface: it catches the light as it spreads, so the cloud visibly heaves and settles, and a stronger hit makes a larger swell. Steady talking, sung notes and bright consonants do not. A sustained low end makes the surface tremble finely instead.
-- **It tears back to smoke.** When the voice stops, the ink lets go: its limbs tear into ribbons, then smoke, then the grey of the cloud. After 1.5 seconds of silence it is asleep.
-- **It sleeps while the host bypasses the plug-in.** The chain still runs underneath, so leaving bypass stays seamless, but the creature treats it as silence: the ink lets go at once, nothing ripples it, the readouts and meters rest and the unheard sound does not grow it. It wakes with the first sound once the host processes again. It also sleeps at once when the host stops sending audio.
-- **A different blot every time.** Each instance grows its own blot from its own seed, and each preset gives it a different one. Right-click the view and choose Reset creature to grow a new one.
-- **It evolves slowly.** Over minutes of sustained, intense sound the blot grows from a dense mass into a larger, torn, branching one, and the modules doing the work lean its character: SHIMMER, SWIRL and ENSEMBLE make it longer and more fluid, ROAR, GROWL and the clipper heavier and more torn, the VOCODER, RING and OVERTONE quicker to branch, SUB and a low PITCH lower and slower. Quiet lets it settle back. Evolution: Frozen holds its form and colour.
-- **Every module leaves its own trace.** Each module changes the blot in its own way (the shape, the flow or the ink itself, never only a tint), and their traces share one limit, so with every module on they still bend one blot. For example: GROWL runs a ruffle along its edge at the growl's rate, SWIRL winds its limbs into spiral arms, SUB heaves the whole mass and hangs a dark pool under it, the VOCODER lays layers through it from its 32 bands, SHIMMER sends pale beads rising through it, CHAMBER turns the cloud into the room's walls, and OVERTONE draws thin wisps up out of it, one for each overtone. The [manual](https://github.com/samueljustice/plugins/blob/main/roarschach/README.md#visualiser) lists them all.
-- **OVERTONE draws nothing at low settings.** Its wisps appear from about 10% of Amount and are full from about a third, so the few per cent a new instance has leave the blot alone.
-- **Its colour still follows your settings.** The clouds drift towards ember red, electric blue, violet or lichen green-grey to suit the sound, while the ink itself stays near black, with only its thin edges taking the colour.
-- **On slower graphics cards it lowers its own detail** to stay smooth, and without OpenGL the view shows a still cloud.
-- **Visualiser: Full, Low or Off.** Right-click the view to choose how much it draws: Full draws the creature as smoothly as the graphics card allows, Low draws it at a lighter quality and at most 15 frames a second, and Off shows a still cloud and leaves the graphics card alone, while the readouts and the ASLEEP label still follow the sound. The choice is kept on this computer and applies to every instance. The view draws nothing while it is hidden; on macOS it also stops while its window is minimised, and slows to two frames a second while its window is covered or on another desktop.
+OUTPUT's level match learns what the modules do to the level and holds that one gain. It no longer rides the level or ducks after a loud sound, so CLEAN's leveller and the other dynamics are heard as they are. After a settings change it moves only once the voice has shown a clear difference. A **MATCH** switch at the top of the OUTPUT tile (Level Match in the host, on by default) turns it off.
 
-Saved sessions and presets keep every setting, but they grow a different creature from the one they showed when they were saved.
+What IN, ROAR and the match have learnt is kept when playback stops and saved with the session, so a region plays the same from wherever playback starts and a bounce matches what you heard. The levels are learnt on the first play of a take: play it through once, loudest part included, before bouncing. Each factory preset starts from a match measured for it on dialogue, so the first play is already close.
 
-### New: ink on paper
+Mix holds the level at every setting. A processed voice close to the dry (light settings, CHAMBER alone, ENSEMBLE alone) was up to 3 dB louder at mid Mix; it now stays level. On heavy drive or the vocoder, an ess straight after a loud vowel can sit up to about 3 dB under at mid Mix.
 
-The window is drawn as one sheet of paper with the creature as its picture.
+Push's default is +6.5 dB.
 
-- **Ink on paper.** The sheet takes the pale tone of the creature's cloud, and text, knobs and marks are near-black ink: flat black knobs with a brushed arc for their value, ruled meters with a solid dark fill, and module tiles as faint washes on the sheet. The view is a box with the same corners and edge as the tiles, the largest one on the sheet.
-- **The colour of the cloud.** As the cloud drifts towards ember red, electric blue, violet or green-grey, the paper takes a pale wash of the same colour and the controls one deeper accent of it. Warm settings give a blushed bone sheet with ember accents. In every colour the text stays easy to read.
-- **One accent, modules by name.** Modules are told apart by their number, name and place in the chain. Names, headings and the wordmark are set in flared roman capitals, and words and values in a clear sans.
-- **Off is shown by shape.** A module that is Off has a hollow light, open knobs and OFF in its footer, and stays readable. Mode chips have a caret, CHAMBER's chip names its room (the speaker and Boom are in its menu), and the ST tag sits at the end of the footer of the module where the chain turns stereo.
-- **Everywhere.** Tooltips, menus and submenus, the preset list, the About window, the update notice, the save dialog, value boxes, scrollbars, focus rings, the readouts and ASLEEP label over the view and the creature's menu all take the same look.
-- **Readable when small.** At the smallest window size (65%) the smallest text is still legible and the On lights, dice, ••• buttons and mode chips are still easy to hit.
+### What the modules do
 
-### New: easier to use
+- **ROAR** changes the tone with Drive, not the level: it learns one makeup gain per setting, holds it and saves it with the session. The first play at a new Drive, Tone or Voicing is a learning pass: the level settles over the first seconds and again at the first louder passage. From the second play it holds. Changing anything before ROAR in the chain starts a new learn.
+- **DE-ESS** dips a shelf only while an ess sounds and follows how bright the voice normally is, so a breathy or rasping performance keeps its top end while esses in speech are caught. Rasp comes through much brighter at the same setting. Sessions and user presets saved in 1.1 to 1.3.0 load with their De-ess setting moved so that esses are reduced as much as they were.
+- **TAME** compares the top end with the voice's usual share of it, so a voice that is bright all the way through keeps its top at low settings. Below about 7% a screech keeps its edge; use 15 to 25% to hold a scream back.
+- **VOCODER**: esses and breath come out at the level they went in, not hotter than the vowels. After a host reset it starts exactly as a new instance does.
+- **DETAIL** is clean on low notes and after PITCH down or SUB.
+- **PITCH** places word starts and plosives once, with no faint early copy, and no longer repeats the last cycle after a dead stop. In Keep, growls, croaks and breathy sound move with the pitch while esses stay; at large shifts a rough voice can flutter in tone between its pitched and unpitched parts. The VOCODER, RING Follow, SUB, OVERTONE Tracked and GROWL Throat take each phrase's pitch about 30 ms sooner, so there is no step at the start of a phrase. A bounce at an odd buffer size matches playback.
+- **SUB**: Deep divides a high voice down until the layer is a real sub (46 to 131 Hz), so there is weight under a howl or a screech. The layer follows the whole voice and does not come out above it at the default Level and Drive. The register no longer flips octave inside a phrase when a low voice sits on its edge; each phrase after a pause picks its own.
+- **OVERTONE**: Chest, Throat, Beast, Speaker and Broad move up an octave or two with a high voice, so they work on howls and higher voices. Each phrase picks its own octave, so bounce from a pause. The layer never comes out above the voice.
+- **SWIRL**: Deep 6 keeps its level over the whole Amount travel. At 44.1 and 48 kHz the top octave matches higher sample rates, and very hot high notes no longer fold.
+- **GROWL**: Sine, Opto, Square and Rattle vary a little from cycle to cycle above about 10 Hz, like a rough voice, instead of a fixed chop; Rate sets the average. Grind sits at Warm's level on a voice at working level (it was 2 to 5 dB quieter).
+- **ENSEMBLE** keeps the low end out of the chorus and mono below about 60 Hz, and wide settings no longer turn the image out of phase.
+- **SHIMMER** in Up+Down sounds the same at 44.1 kHz and at 88.2 kHz and above as at 48 kHz.
 
-- **A bigger window that remembers its size.** A new window opens as large as the display comfortably allows (80% to 100%). The size you last chose is remembered on this computer and used for new instances, and each session keeps its own. The window can now be made as small as 65% (up to 125%, never larger than the screen).
-- **Undo for preset loads.** A preset loaded from the preset bar (the list, the arrows or the die) is one step in the same history as the dice. Choose Undo Load in the preset list, or press Cmd+Z (Ctrl+Z on Windows) straight after loading, to get back the sound you had, edits and all; Redo loads the preset again, so you can compare the two.
-- **A hint line.** Until a new instance first hears sound, the view shows one line of help after a moment of quiet: play a voice through it to wake the creature, and pick a preset or roll a die to change it.
-- **Dimmed knobs.** A knob the current settings do not use is dimmed (it still turns): for example SHIMMER's Rate at Amount 0, SUB's Drive at Level 0, CHAMBER's TAIL and EDGE with no room blended in, and GROWL's Rate with the Throat shape. A knob that does only a little, such as CHAMBER's EDGE at a low AMT, is half-dimmed.
-- **Quick start and latency in About.** The About window (the **?** at the top right) has a five-step quick start and shows the latency the plug-in reports to the host, in milliseconds and samples. On a short display it is never taller than the screen.
+### Factory presets
 
-### Sound fixes
+The presets are re-voiced for these modules and sound different from the same presets in 1.3.0. Every one except Loud & Contained, Crunch Lift and Smashed plays within about 0.6 LU of Init on dialogue once learnt. Rasp comes through 5 to 9 dB brighter above 5 kHz on most presets, since DE-ESS no longer dulls it; five presets take a little more TAME for it. OVERTONE layers are either raised to where they are heard or switched off, GROWL rates are spread out instead of shared, the Grind presets chop a little deeper and the choruses sit a little lower. Sessions that used a factory preset keep their own saved settings; load the preset again to hear its new voicing.
 
-- **PITCH** holds a steady shifted vowel as smoothly as it went in, no longer sags in pitch at the end of a phrase, and no longer combs a steady tone. Size, and Formant on Keep, keep the voice at the same level as Follow.
-- **VOCODER** follows the low end of a word without lagging behind it, so the bass of each syllable lands with the word.
-- **The carrier pitch of VOCODER and RING Follow** is taken only from clear, voiced sound. Room noise between phrases and the quiet tail of a word no longer leave the carrier an octave off; in a pause it waits at your usual pitch, and the first pitch of a new phrase is taken at once, even when it is much quieter than the last.
-- **GROWL**'s Throat shape no longer drops out in the middle of rough or breathy words. S sounds stay unchopped.
-- **ROAR** keeps its top octave at 44.1 and 48 kHz: at 15 to 18 kHz it is within about 1 dB of a 96 kHz session.
-- **OUTPUT** has less low-end distortion when Push is high: the DC removal after the limiter and the clipper sits lower (2.5 Hz), so it no longer disturbs bass notes.
+### Easier to use
 
-These change the sound a little, in the direction of what each module was meant to do. Sessions and presets keep every setting.
+- **Knobs**: Shift-drag for fine control. The mouse wheel moves a knob in round steps (PITCH a semitone at a time, with Shift a cent). Right-click a knob to reset it or type a value, with the host's own options below where the host offers them.
+- **Mode chips** open one list of all the module's choices under headings, without submenus. Scroll over a chip, or Tab to it and press Up or Down, to step its first choice without opening the list.
+- **Solo**: Alt-click a module's On switch to hear it alone, and Alt-click it again to turn back on the modules that were on. Which ones were on is forgotten when another preset or the session is loaded.
+- **Hold in Randomise All**: right-click a module's die to keep that module as it is when Randomise All rolls the rest. A held die shows a small ink pin, and holds are saved with the session. Shift-click Randomise All to roll only the modules that are on.
+- **Names in the host** start with the module: PITCH Size, ROAR Drive, CHAMBER Resonance. Automation lanes in existing sessions show the new names; they are the same parameters.
 
 ### Downloads
 
 | File | Contents |
 |---|---|
-| `Roarschach-1.3.0-macOS-Installer.pkg` | macOS installer (AU + VST3, universal) |
-| `Roarschach-1.3.0-Windows-Installer.exe` | Windows installer (VST3) |
-| `Roarschach-1.3.0-macOS-AU.zip`, `Roarschach-1.3.0-macOS-VST3.zip`, `Roarschach-1.3.0-Windows-VST3.zip` | The plug-ins on their own |
+| `Roarschach-1.3.1-macOS-Installer.pkg` | macOS installer (AU + VST3, universal) |
+| `Roarschach-1.3.1-Windows-Installer.exe` | Windows installer (VST3) |
+| `Roarschach-1.3.1-macOS-AU.zip`, `Roarschach-1.3.1-macOS-VST3.zip`, `Roarschach-1.3.1-Windows-VST3.zip` | The plug-ins on their own |
 
 The macOS downloads are signed and notarised. Universal (Apple silicon and Intel), macOS 11 or later. Windows: 64-bit Windows 10 or later.
 
