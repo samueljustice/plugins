@@ -301,7 +301,7 @@ page = f"""<!doctype html>
     </div>
     <div>
       <ul class="inside">{inside_html}</ul>
-      <p>One installer with the newest version of every plug-in: apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies and comes with an uninstaller. Older versions are on the <a href="https://github.com/{repo}/releases">releases page</a>.</p>
+      <p>One installer with the newest version of every plug-in: apps, VST3, AU and AAX. It replaces older copies and comes with an uninstaller. Older versions are on the <a href="https://github.com/{repo}/releases">releases page</a>.</p>
       <p class="built">{f"Built {html.escape(built)}" if built else ""}</p>
       {f'<p>If these get some use in your work and you would like to chip in, you can <a href="{html.escape(donate)}">toss a coin in the jar</a> on PayPal.</p>' if donate else ''}
     </div>
