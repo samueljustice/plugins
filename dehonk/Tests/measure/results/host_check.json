@@ -1,0 +1,95 @@
+{
+  "latency": [
+    {
+      "sample_rate": 48000,
+      "component": "mono",
+      "reported_latency_samples": 0,
+      "impulse_least_effect_lag": 0,
+      "impulse_max_intensity_original_out_lag": 0,
+      "noise_burst_least_effect_lag": 0,
+      "noise_burst_max_intensity_original_out_lag": 459,
+      "lag_used": 0,
+      "impulse_and_noise_agree": true,
+      "lag_same_at_max_setting": true
+    },
+    {
+      "sample_rate": 48000,
+      "component": "stereo",
+      "reported_latency_samples": 0,
+      "impulse_least_effect_lag": 0,
+      "impulse_max_intensity_original_out_lag": 0,
+      "noise_burst_least_effect_lag": 0,
+      "noise_burst_max_intensity_original_out_lag": 459,
+      "lag_used": 0,
+      "impulse_and_noise_agree": true,
+      "lag_same_at_max_setting": true
+    }
+  ],
+  "null_pink_noise": [
+    {
+      "component": "mono",
+      "sample_rate": 48000,
+      "lag_used": 0,
+      "signal": "pink noise -18 dBFS RMS, 5 s",
+      "settings": {
+        "bypass": "Off",
+        "bypass_raw": 0.0,
+        "frequency": "80 Hz",
+        "frequency_raw": 0.441,
+        "intensity": "-24.0 dB",
+        "intensity_raw": 0.001,
+        "out_gain": "0.0 dB",
+        "out_gain_raw": 1.0,
+        "orig_in_out": "In ",
+        "orig_in_out_raw": 0.25
+      },
+      "residual_db_re_dry": -3.9266398326849323,
+      "residual_peak_dbfs": -9.700559871613233,
+      "level_change_db": 0.059852806857810276,
+      "best_gain_db": -1.8895438853669488,
+      "residual_after_best_gain_db": -4.357288411706806,
+      "change_below_100_db": 0.05302565386098834,
+      "change_100_150_db": 0.6605184911644884,
+      "change_150_250_db": 0.1886271790551568,
+      "change_250_500_db": 0.023491297405417555,
+      "change_500_1000_db": 0.0016271637225671043
+    },
+    {
+      "component": "stereo",
+      "sample_rate": 48000,
+      "lag_used": 0,
+      "signal": "pink noise -18 dBFS RMS, 5 s",
+      "settings": {
+        "bypass": "Off",
+        "bypass_raw": 0.0,
+        "frequency": "80 Hz",
+        "frequency_raw": 0.441,
+        "intensity": "-24.0 dB",
+        "intensity_raw": 0.001,
+        "out_gain": "0.0 dB",
+        "out_gain_raw": 1.0,
+        "orig_in_out": "In ",
+        "orig_in_out_raw": 0.25
+      },
+      "residual_db_re_dry": -3.9266398326849323,
+      "residual_peak_dbfs": -9.700559871613233,
+      "level_change_db": 0.059852806857810276,
+      "best_gain_db": -1.8895438853669488,
+      "residual_after_best_gain_db": -4.357288411706806,
+      "change_below_100_db": 0.05302565386098834,
+      "change_100_150_db": 0.6605184911644884,
+      "change_150_250_db": 0.1886271790551568,
+      "change_250_500_db": 0.023491297405417555,
+      "change_500_1000_db": 0.0016271637225671043
+    }
+  ],
+  "run": {
+    "date_utc": "2026-11-16T16:48:04+00:00",
+    "os": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.14",
+    "pedalboard": "0.9.26",
+    "numpy": "2.5.3",
+    "machine": "arm64",
+    "macos": "27.0.1"
+  }
+}
