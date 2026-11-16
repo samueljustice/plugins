@@ -71,6 +71,15 @@ for level, name, body in chunks:
     plugins.append((name, body, in_wip))
 
 
+# What the installer holds, from the README's "every plug-in: Name 1.2.3 · ..." line (rewritten with each installer).
+_inside = re.search(r"every plug-in: (.*?)\.\s*<br", doc, re.S)
+VERSIONS = {}
+for item in (html.unescape(_inside.group(1)).split("·") if _inside else []):
+    m = re.match(r"\s*(.+?)\s+(\d+(?:\.\d+)+)\s*$", item)
+    if m:
+        VERSIONS[m.group(1)] = m.group(2)
+
+
 def entry(number: int, name: str, body: str, group_wip: bool) -> str:
     wip = group_wip or "WORK_IN_PROGRESS" in body
     gallery = ""
@@ -106,11 +115,15 @@ def entry(number: int, name: str, body: str, group_wip: bool) -> str:
         # Not a shape we know: show the section as GitHub rendered it.
         return f'<section class="entry plain" id="{slug(name)}"><h2>{html.escape(name)}</h2>{fix_links(body)}</section>'
     tag = '<span class="wip">Work in progress</span>' if wip else ""
+    version = VERSIONS.get(name)
+    version_html = (f'<p class="version" data-plugin="{html.escape(name)}">Version <span>{html.escape(version)}</span> in the installer</p>'
+                    if version else "")
     return f"""
 <section class="entry" id="{slug(name)}">
   <header>
     <span class="no">{number:02d}</span>
     <h2>{html.escape(name)}</h2>
+    {version_html}
     {tag}
     <p class="formats">{html.escape(formats)}</p>
     <p class="links"><a href="#get">Get it</a>{links}</p>
@@ -144,7 +157,14 @@ m = re.search(r"<p[^>]*>\s*<strong>(.*?)</strong>\s*</p>", doc, re.S)
 tagline_html = m.group(1).strip() if m else "Some of the toys and utilities I've made for us at Sweet Justice Sound, given for free."
 tagline_html = re.sub(r'<a ([^>]*)>', lambda a: '<a ' + re.sub(r'\s*(target|rel)="[^"]*"', '', a.group(1)) + ' target="_blank" rel="noopener">', tagline_html)
 tagline = html.unescape(re.sub(r"<[^>]+>", "", tagline_html))
-inside_html = "".join(f"<li>{html.escape(v)}</li>" for v in inside)
+def _inside_item(v: str) -> str:
+    m = re.match(r"(.+?)\s+(\d+(?:\.\d+)+)$", v)
+    if not m:
+        return f"<li>{html.escape(v)}</li>"
+    return f'<li data-plugin="{html.escape(m.group(1))}">{html.escape(m.group(1))} <span>{html.escape(m.group(2))}</span></li>'
+
+
+inside_html = "".join(_inside_item(v) for v in inside)
 
 # A drawn waveform for the rule under the title: a few decaying bursts, the same every build.
 points = []
@@ -210,6 +230,8 @@ page = f"""<!doctype html>
   .entry {{ display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 48px; padding: 72px 0; border-bottom: 1px solid var(--rule); scroll-margin-top: 48px; }}
   .entry header {{ position: sticky; top: 76px; align-self: start; min-width: 0; }}
   .no {{ display: block; color: var(--red); margin-bottom: 14px; }}
+  .version {{ font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--paper); margin: 10px 0 0; }}
+  .version span {{ color: var(--red); }}
   h2 {{ font: 800 clamp(32px, 3vw, 40px)/.98 var(--display); letter-spacing: -.03em; margin: 0 0 16px; overflow-wrap: anywhere; }}
   .wip {{ display: inline-block; color: var(--red); border: 1px solid var(--red); padding: 3px 8px 2px; margin-bottom: 16px; }}
   .formats {{ color: var(--dim); margin: 0 0 18px; }}
@@ -316,6 +338,11 @@ page = f"""<!doctype html>
     .then(function (r) {{ return r.ok ? r.json() : null; }})
     .then(function (release) {{
       if (!release || !/^bundle-v/.test(release.tag_name || '')) return;
+      // The installer's notes list what it holds as "| [Name](...) | 1.2.3 |"; show those versions.
+      var re = /^\\|\\s*\\[([^\\]]+)\\]\\([^)]*\\)\\s*\\|\\s*([0-9][0-9.]*)\\s*\\|/gm, row;
+      while ((row = re.exec(release.body || '')) !== null) {{
+        document.querySelectorAll('[data-plugin="' + row[1].replace(/"/g, '') + '"] span').forEach(function (el) {{ el.textContent = row[2]; }});
+      }}
       (release.assets || []).forEach(function (a) {{
         if (/macOS\\.dmg$/.test(a.name)) document.getElementById('get-mac').href = a.browser_download_url;
         if (/Windows-Installer\\.exe$/.test(a.name)) document.getElementById('get-win').href = a.browser_download_url;
