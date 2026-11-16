@@ -55,13 +55,14 @@ namespace roar
 
         for (auto& ch : m_channels)
         {
-            ch.hilbert.prepare (m_fs);
+            ch.hilbert.prepare (m_fs, m_diagnostics.sameAtEveryRate ? HilbertPair::Design::sameAtEveryRate : HilbertPair::Design::perRate);
             ch.loopHighpass.prepare (m_fs);
             ch.loopHighpass.setCutoff (c_loopHighpassHz);
             ch.loopLowpass.prepare (m_fs);
             ch.loopLowpass.setCutoff (std::min (c_loopLowpassHz, 0.4 * m_fs));
         }
 
+        m_loopDelay = std::clamp (static_cast<int> (std::lround (m_fs / 48000.0)), 1, 4);
         m_drift.prepare (m_fs / c_controlBlock);
         m_drift.setRate (c_driftRateHz);
 
@@ -87,6 +88,8 @@ namespace roar
             ch.loopHighpass.reset();
             ch.loopLowpass.reset();
             ch.feedback = 0.0f;
+            ch.fbRing.fill (0.0f);
+            ch.fbWrite = 0;
         }
     }
 
@@ -205,7 +208,9 @@ namespace roar
                 auto& ch = m_channels[static_cast<size_t> (c)];
                 const float x = dsp::finiteOrZero (io[c][i]);
 
-                const float u = x + g * ch.loopLowpass.processLowpass (ch.loopHighpass.processHighpass (ch.feedback));
+                // The loop is closed m_loopDelay samples back: the same time at every rate.
+                const float fed = ch.fbRing[static_cast<size_t> ((ch.fbWrite - m_loopDelay) & 3)];
+                const float u = x + g * ch.loopLowpass.processLowpass (ch.loopHighpass.processHighpass (fed));
                 float iPath = 0.0f, qPath = 0.0f;
                 ch.hilbert.process (u, iPath, qPath);
                 const float up = iPath * cs - qPath * sn;
@@ -215,6 +220,8 @@ namespace roar
                 const float wDown = ch.wDown.step (targetDown[c], m_weightCoeff);
                 const float wet = wUp * up + wDown * down;
                 ch.feedback = dsp::flushTiny (dsp::finiteOrZero (wet / std::max (1.0f, wUp + wDown)));
+                ch.fbRing[static_cast<size_t> (ch.fbWrite)] = ch.feedback;
+                ch.fbWrite = (ch.fbWrite + 1) & 3;
 
                 io[c][i] = dsp::flushTiny (dryGain * x + wetGain * wet);
             }
@@ -242,6 +249,8 @@ namespace roar
             m_channels[c].loopHighpass.copyStateFrom (o.m_channels[c].loopHighpass);
             m_channels[c].loopLowpass.copyStateFrom (o.m_channels[c].loopLowpass);
             m_channels[c].feedback = o.m_channels[c].feedback;
+            m_channels[c].fbRing = o.m_channels[c].fbRing;
+            m_channels[c].fbWrite = o.m_channels[c].fbWrite;
             m_channels[c].wUp = o.m_channels[c].wUp;
             m_channels[c].wDown = o.m_channels[c].wDown;
         }
@@ -257,6 +266,8 @@ namespace roar
         right.loopHighpass.copyStateFrom (left.loopHighpass);
         right.loopLowpass.copyStateFrom (left.loopLowpass);
         right.feedback = left.feedback;
+        right.fbRing = left.fbRing;
+        right.fbWrite = left.fbWrite;
         // An exact copy, sideband weights included: in Stereo mode the right channel then glides
         // from the left's sideband to its own over 20 ms instead of jumping to the mirror image.
         right.wUp = left.wUp;

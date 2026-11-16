@@ -24,15 +24,25 @@ namespace roar
         };
     }
 
-    void HilbertPair::prepare (double sampleRate)
+    void HilbertPair::prepare (double sampleRate, Design design)
     {
         m_fs = dsp::safeSampleRate (sampleRate);
-        m_numSections = m_fs > 50000.0 ? 8 : 6;
-
-        const double highHz = std::min (c_highHz, 0.45 * m_fs);
-        const double wl = std::tan (dsp::c_pi * c_lowHz / m_fs);
-        const double wh = std::tan (dsp::c_pi * highHz / m_fs);
-        const double centre = std::sqrt (wl * wh);
+        double centre = 0.0;
+        if (design == Design::sameAtEveryRate)
+        {
+            constexpr double ref = 48000.0;
+            m_numSections = 6;
+            const double centreRef = std::sqrt (std::tan (dsp::c_pi * c_lowHz / ref) * std::tan (dsp::c_pi * c_highHz / ref));
+            centre = m_fs == ref ? centreRef : std::tan (std::atan (centreRef) * ref / m_fs);
+        }
+        else
+        {
+            m_numSections = m_fs > 50000.0 ? 8 : 6;
+            const double highHz = std::min (c_highHz, 0.45 * m_fs);
+            const double wl = std::tan (dsp::c_pi * c_lowHz / m_fs);
+            const double wh = std::tan (dsp::c_pi * highHz / m_fs);
+            centre = std::sqrt (wl * wh);
+        }
 
         const double* poles = m_numSections == 8 ? c_poles8.data() : c_poles6.data();
         for (int k = 0; k < m_numSections; ++k)

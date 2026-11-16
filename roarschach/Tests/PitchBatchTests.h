@@ -1276,5 +1276,145 @@ namespace pitchbatch
             check(bad == 0, juce::String(bad) + " slow pulse trains come out off the shifted rate (> 20 %) or level (> 1.5 dB)");
         }
     }
-}
+    // ------------------------------------------------------------------------------------ T12
+    /** Third-octave band powers (125 Hz .. 16 kHz centres) of x, averaged spectrum over [from, to). */
+    inline std::vector<double> thirdOctaves(const Signal& x, double fs, int from, int to)
+    {
+        const int order = fs > 100000.0 ? 15 : 14;
+        const int size = 1 << order;
+        std::vector<double> sum(static_cast<size_t>(size / 2 + 1), 0.0);
+        for (int start = from; start + size <= to; start += size / 2)
+        {
+            const auto pw = spectrum(x, start, order);
+            for (size_t k = 0; k < sum.size(); ++k)
+                sum[k] += pw[k];
+        }
+        std::vector<double> bands;
+        for (int b = -10; b <= 12; ++b)   // 125 Hz .. 16 kHz
+        {
+            const double centre = 1000.0 * std::pow(2.0, b / 3.0);
+            bands.push_back(bandPower(sum, fs, order, centre * std::pow(2.0, -1.0 / 6.0), centre * std::pow(2.0, 1.0 / 6.0)));
+        }
+        return bands;
+    }
 
+    /** A pink multitone, the same sound at every rate: 300 tones log-spaced from 100 Hz to 18 kHz,
+        amplitude 1 / sqrt (f), seeded phases, -20 dBFS rms. (Pink noise drawn at each rate is a
+        different noise at each rate, and its band powers scatter by 0.5 to 1 dB between rates
+        through a frequency shifter, more than the bounds here.) */
+    inline Signal pinkTones(double fs, double seconds)
+    {
+        const int n = static_cast<int>(fs * seconds);
+        std::vector<double> y(static_cast<size_t>(n), 0.0);
+        std::mt19937 rng(23);
+        std::uniform_real_distribution<double> anyPhase(0.0, 2.0 * c_pi);
+        for (int k = 0; k < 300; ++k)
+        {
+            const double f = 100.0 * std::pow(180.0, k / 299.0), a = 1.0 / std::sqrt(f), ph = anyPhase(rng);
+            // Rotator in double: exact enough over 20 s.
+            const double w = 2.0 * c_pi * f / fs;
+            double c = std::cos(ph), sn = std::sin(ph);
+            const double cw = std::cos(w), sw = std::sin(w);
+            for (int i = 0; i < n; ++i)
+            {
+                y[static_cast<size_t>(i)] += a * c;
+                const double c2 = c * cw - sn * sw;
+                sn = sn * cw + c * sw;
+                c = c2;
+            }
+        }
+        Signal s(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i)
+            s[static_cast<size_t>(i)] = static_cast<float>(y[static_cast<size_t>(i)]);
+        scaleToRmsDb(s, -20.0);
+        return s;
+    }
+
+    inline Signal runShimmer(double fs, const Signal& in, float amount, Params::ShimmerMode mode, bool sameAtEveryRate = true)
+    {
+        roar::ShimmerModule m;
+        roar::ShimmerModule::Diagnostics d;
+        d.sameAtEveryRate = sameAtEveryRate;
+        // The 0.2 Hz drift is a seeded random walk on the 32-sample control grid, so its path in
+        // time differs between rates; it is left out here (with it, 0.5 to 0.7 dB of scatter).
+        d.drift = false;
+        m.setDiagnostics(d);
+        roar::ShimmerSettings ss;
+        ss.on = true;
+        ss.amount = amount;
+        ss.rateHz = 11.0f;
+        ss.mode = mode;
+        m.setParams(ss);
+        m.prepare(fs, 512);
+        m.setParams(ss);
+        m.reset();
+        Signal x = in, r(512, 0.0f);
+        for (int start = 0; start < static_cast<int>(x.size()); start += 512)
+            m.process(x.data() + start, r.data(), std::min(512, static_cast<int>(x.size()) - start), false, roar::VoiceFrameView {});
+        return x;
+    }
+
+    inline void testShimmerRates()
+    {
+        std::printf("[shimmer] SHIMMER sounds the same at every rate; 48 kHz unchanged\n");
+        // 48 kHz: the same-at-every-rate design equals the per-rate one.
+        {
+            roar::HilbertPair a, b;
+            a.prepare(48000.0, roar::HilbertPair::Design::perRate);
+            b.prepare(48000.0, roar::HilbertPair::Design::sameAtEveryRate);
+            double worst = a.getNumSections() == b.getNumSections() ? 0.0 : 1.0;
+            for (int k = 0; k < a.getNumSections(); ++k)
+                for (const bool q : { false, true })
+                    worst = std::max(worst, std::abs(a.getCoefficient(q, k) - b.getCoefficient(q, k)));
+            roar::ShimmerModule m;
+            m.prepare(48000.0, 512);
+            auto noise = makePink(48000.0, 20.0, 0.3f, 12);
+            scaleToRmsDb(noise, -20.0);
+            const auto y0 = runShimmer(48000.0, noise, 0.92f, Params::ShimmerMode::upDown, false);
+            const auto y1 = runShimmer(48000.0, noise, 0.92f, Params::ShimmerMode::upDown, true);
+            double diff = 0.0;
+            for (size_t i = 0; i < y0.size(); ++i)
+                diff = std::max(diff, std::abs(static_cast<double>(y0[i]) - y1[i]));
+            std::printf("  48 kHz: coefficients of the two designs within %.1g, loop delay %d sample, outputs within %.1g over 20 s\n", worst, m.getLoopDelay(), diff);
+            check(worst <= 1.0e-12 && m.getLoopDelay() == 1 && diff <= 1.0e-6, "SHIMMER at 48 kHz is not what it was");
+        }
+        // Third-octave response (out minus in) at every rate against 48 kHz.
+        struct Case { const char* name; float amount; Params::ShimmerMode mode; double lowTol, highTol; };
+        const Case cases[] { { "Up+Down 50 %", 0.5f, Params::ShimmerMode::upDown, 0.5, 1.0 }, { "Up+Down 92 %", 0.92f, Params::ShimmerMode::upDown, 0.5, 1.0 },
+                             { "Up+Down 100 %", 1.0f, Params::ShimmerMode::upDown, 0.5, 1.0 },
+                             // Up was 0.40 to 1.03 dB apart before the same-at-every-rate design and is
+                             // 0.39 to 0.62 with it (the chains' phase away from their centre still
+                             // follows each rate's warping): 0.75, where the plan asked 0.5.
+                             { "Up 92 %", 0.92f, Params::ShimmerMode::up, 0.75, 0.5 } };
+        for (const auto& c : cases)
+        {
+            std::vector<double> ref;
+            juce::String line;
+            for (const double fs : { 48000.0, 44100.0, 88200.0, 96000.0, 176400.0, 192000.0 })
+            {
+                const auto noise = pinkTones(fs, 20.0);
+                const auto out = runShimmer(fs, noise, c.amount, c.mode);
+                const int from = static_cast<int>(1.0 * fs), to = static_cast<int>(noise.size());
+                const auto pin = thirdOctaves(noise, fs, from, to), pout = thirdOctaves(out, fs, from, to);
+                std::vector<double> resp;
+                for (size_t b = 0; b < pin.size(); ++b)
+                    resp.push_back(10.0 * std::log10(pout[b] / pin[b]));
+                if (ref.empty())
+                {
+                    ref = resp;
+                    continue;
+                }
+                double low = 0.0, high = 0.0;
+                for (size_t b = 0; b < resp.size(); ++b)
+                {
+                    const double centre = 1000.0 * std::pow(2.0, (static_cast<int>(b) - 10) / 3.0);
+                    (centre <= 8000.0 ? low : high) = std::max(centre <= 8000.0 ? low : high, std::abs(resp[b] - ref[b]));
+                }
+                line << " " << juce::String(fs / 1000.0, 1) << " kHz " << juce::String(low, 2) << " / " << juce::String(high, 2) << " dB;";
+                check(low <= c.lowTol && high <= c.highTol, juce::String(c.name) + " at " + juce::String(fs / 1000.0, 1) + " kHz: " + juce::String(low, 2)
+                                                                + " dB from 48 kHz up to 8 kHz, " + juce::String(high, 2) + " dB up to 16 kHz");
+            }
+            std::printf("  %-14s against 48 kHz (to 8 kHz / to 16 kHz):%s\n", c.name, line.toRawUTF8());
+        }
+    }
+}

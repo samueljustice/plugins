@@ -64,6 +64,7 @@
 #include "dsp/modules/ChamberModule.h"
 #include "dsp/modules/CleanModule.h"
 #include "dsp/modules/InModule.h"
+#include "dsp/modules/ShimmerModule.h"
 #include "dsp/modules/TameModule.h"
 #include "dsp/KnobLaws.h"
 #include "RenderMetrics.h"
@@ -9677,6 +9678,7 @@ int main(int argc, char* argv[])
         { "silence", pitchbatch::testSilence },
         { "reset", pitchbatch::testResetEqualsFresh },
         { "in", pitchbatch::testInClamp },
+        { "shimmer", pitchbatch::testShimmerRates },
         { "pitchstream", pitchbatch::testPitchStream },
         { "pitch", pitchbatch::testPitchTail },
         { "pitch", pitchbatch::testKeepHandOver },

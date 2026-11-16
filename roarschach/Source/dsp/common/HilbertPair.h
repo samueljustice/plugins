@@ -31,13 +31,22 @@ namespace roar
         static constexpr double c_lowHz = 30.0;
         static constexpr double c_highHz = 18000.0;
 
-        void prepare (double sampleRate);
+        /** perRate: the design above, fitted to each rate's band (OVERTONE). sameAtEveryRate: six
+            sections at every rate with the prototype's centre at the frequency in Hz the 48 kHz
+            design has (1050.3 Hz), so each chain's own phase is the same function of frequency at
+            every rate (a feedback loop through one chain then sounds the same at every rate; the
+            quadrature error stays 0.36 degrees over 30 Hz .. 18 kHz). At 48 kHz the two are equal. */
+        enum class Design { perRate, sameAtEveryRate };
+
+        void prepare (double sampleRate, Design design = Design::perRate);
         void reset();
 
         /** One sample in, the in-phase and quadrature outputs. Non-finite input is taken as 0. */
         void process (float x, float& i, float& q);
 
         int getNumSections() const { return m_numSections; }
+        /** Section k's allpass coefficient of the in-phase (quadrature = false) or quadrature chain (tests). */
+        double getCoefficient (bool quadrature, int k) const { return (quadrature ? m_q : m_i).c[static_cast<size_t> (k)]; }
 
         /** Designed responses (for tests). */
         std::complex<double> responseI (double hz) const;
