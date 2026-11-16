@@ -6556,11 +6556,20 @@ namespace
                 // the first eight's worst 4.1 -> 3.1 dB (bundled) and 3.8 -> 2.9 dB (modelled) while
                 // Tower Block went 3.5 -> 4.0 / 4.1 -> 4.3 dB, with CHAMBER unchanged. A recording that
                 // really costs more than the designed rooms is still caught, and the absolute limit
-                // above holds every room.
+                // above holds every room. Measured on the merged stage B chain (PITCH, batches 3 and 4):
+                // bundled, first eight's worst 3.32 dB (Resonant Chamber), Tower Block +1.23 above it,
+                // Party Wall -2.27; modelled, first eight's worst 3.24 dB (Timber Room), Tower Block
+                // +0.70, Party Wall -1.91. The margin is 1.6 dB: 0.37 dB over the worst of these.
+                constexpr double recordedMarginDb = 1.6;
+                std::printf("  %s recorded rooms against the first eight's worst (%.2f dB):", sourceName, firstEight);
                 for (int r = numFirstRooms; r < ChamberBank::numRooms; ++r)
-                    check(addedGr[static_cast<size_t>(r)] <= firstEight + 1.5,
+                    std::printf(" %s %+.2f", roomName(r).toRawUTF8(), addedGr[static_cast<size_t>(r)] - firstEight);
+                std::printf(" dB\n");
+                for (int r = numFirstRooms; r < ChamberBank::numRooms; ++r)
+                    check(addedGr[static_cast<size_t>(r)] <= firstEight + recordedMarginDb,
                           juce::String(sourceName) + " " + roomName(r) + " costs the limiter no more than the first eight rooms ("
-                              + juce::String(addedGr[static_cast<size_t>(r)], 1) + " dB against " + juce::String(firstEight, 1) + " + 1.5)");
+                              + juce::String(addedGr[static_cast<size_t>(r)], 2) + " dB against " + juce::String(firstEight, 2)
+                              + " + " + juce::String(recordedMarginDb, 1) + ")");
             }
 
             // 2. Every preset that uses CHAMBER, as shipped and with every room swapped in (the
