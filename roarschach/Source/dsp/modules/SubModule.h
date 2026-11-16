@@ -39,12 +39,23 @@ namespace roar
      * in f0 must persist for 40 ms. The Register chip picks the harmonic that is divided:
      *   Follow  f0 (sub = f0 / 2); 2 f0 when f0 / 2 < 42 Hz (sub = f0)
      *   Tight   the lowest of f0 / 2, f0, 2 f0 that is 55 Hz or above (divides f0, 2 f0 or 4 f0)
-     *   Deep    f0 (sub = f0 / 2) down to a 32 Hz sub; below that 2 f0 (sub = f0)
-     * Register switches have 3 % hysteresis. fIn and fsub glide in log2 over 30 ms. When the
-     * stream is not confident, fsub (the output filters) follows the dividers' own toggle rate.
+     *   Deep    f0 divided as many times as it takes (f0 / 2 .. f0 / 16) to put the layer at or
+     *           under 131 Hz; one division is given back when the layer an octave up would sit
+     *           under 92 Hz. In steady state the layer lies in (46, 131] Hz for any voice above
+     *           92 Hz: a true sub under a howl or a screech. Below that as Follow, with a 32 Hz floor.
+     * Register floors have 3 semitones of hysteresis (x 1.19) each side. A voiced pitch that
+     * returns after 150 ms or more without one picks afresh, and keeps picking afresh over its
+     * first 40 ms (the stream's first frames after a gap can still carry the last phrase's pitch),
+     * so a phrase starts from the nominal choice wherever playback started. A change of division
+     * waits for the next toggle of divider 1 (where both waveforms are at zero), 40 ms at most. fIn and fsub glide in log2 over 30 ms.
+     * When the stream is not confident, fsub (the output filters) follows the dividers' own
+     * toggle rate.
      *
      * Divider: envelope e = |b| (1 ms attack, 30 ms release); armed when b < -0.15 e; an armed
-     * upward zero crossing toggles q. u = q b has f / 2 at 0.849 |b| and nothing at f.
+     * upward zero crossing toggles q. u = q b has f / 2 at 0.849 |b| and nothing at f. For k > 1
+     * divisions u = q_k |b| c_k, q_k the k-th flip-flop of the toggle count (f / 2^k): |b| is zero
+     * at every toggle, so u is continuous; c_k (computed in prepare()) gives the layer's
+     * fundamental the level one division gives.
      *
      * Drive: -12 + 24 uDrive dB into f(v) = (tanh (v + beta) - tanh beta) / sech^2 beta, beta 0.1
      * (Clean) or 0.25 (Resonant, Thick), ADAA-1 at the base rate, on the band-passed sub (a near
@@ -62,6 +73,13 @@ namespace roar
      * with the divided input partial (it adds to it, never thins it). Its level re the sub at the
      * output is evenDbFor (Drive): -30 dB at -6 dB, -25 dB at 0 dB, -20 dB at +6 dB (the
      * default), capped at -12 dB.
+     *
+     * Voice reference: the divided harmonic is never counted as more than -4.4 dB of the whole
+     * voice (the module's input as a sine's amplitude, from an 8 ms mean square): when band 1's
+     * envelope (Thick: the power sum of both bands' shares, + 0.8 dB) is above that, the gain is
+     * scaled down by the ratio. A voice that is one partial then gets a layer about 1 dB under
+     * it at the default Level and Drive; a voice whose first partial is 4.4 dB or more under its
+     * total is untouched. It rides the 20 ms gain smoothing.
      *
      * Level law: the sub's f / 2 component = H1 (the band 1 amplitude) x
      * 10^((-14 + 24 uLevel^0.5) / 20) in the steady state (laws::subLevelDb; 50 % -> +3.0 dB), faded linearly to
@@ -88,6 +106,13 @@ namespace roar
 
         void setParams (const SubSettings& s);
 
+        /** Test-only overrides. */
+        struct Diagnostics
+        {
+            bool voiceCap = true;   // false: the layer is not referenced to the voice
+        };
+        void setDiagnostics (const Diagnostics& d) { m_diagnostics = d; }
+
         // Readouts.
         /** Smoothed peak level of the added layer, linear (scaled by the On fade). */
         float getLevel() const { return m_levelEnv * m_fade.getValue(); }
@@ -113,6 +138,7 @@ namespace roar
             float env = 0.0f;
             float prev = 0.0f;
             float q = 1.0f;
+            unsigned count = 0;        // toggles so far: bit k - 1 is the state of the k-th flip-flop
             bool armed = false;
             int sinceToggle = 0;
         };
@@ -122,14 +148,17 @@ namespace roar
         void updateTracker (const VoiceFrame& frame);
         void updateFilters();
         float processDivider (Divider& d, float b, bool estimate);
+        float waveFor (const Divider& d, float b) const;
         double curve (double v) const;
         double antiderivative (double v) const;
         double driveMakeup (double driveDb, int betaIndex) const;
-        float gainTarget() const;   // level law x drive makeup x filter makeup
+        float gainTarget() const;   // level law x drive makeup x filter makeup x voice reference
+        void updateVoiceCap();
         float evenGainTarget() const;
         int betaIndex() const { return m_settings.character == Params::SubCharacter::clean ? 0 : 1; }
 
         SubSettings m_settings;
+        Diagnostics m_diagnostics;
         OnFade m_fade;
         double m_fs = 48000.0;
 
@@ -148,7 +177,9 @@ namespace roar
         float m_dividedFundamental = 0.849f;   // the divided waveform's f / 2 component per unit band amplitude
         std::array<float, 3> m_filterMakeup {};                                // per character
         TptSvf m_even;                 // at fsub: lp and bp of u1 for the 2nd harmonic
-        std::array<float, 3> m_evenScale {};   // per character: output-filter tilt / unit H2 of the doubler
+        std::array<std::array<float, 3>, 2> m_evenScale {};   // per waveform (one division, more), per character:
+                                                              // output-filter tilt / unit H2 of the doubler
+        std::array<float, 5> m_divisionScale {};   // c_k: per division count, the layer's fundamental re one division
         float m_evenGain = 0.0f;
 
         // Gains.
@@ -170,6 +201,17 @@ namespace roar
         int m_octaveConfirmSamples = 1920;
         bool m_tracked = false;
         int m_multiplier = 1;          // which harmonic band 1 sits on (1 = f0, 2 = 2 f0, 4 = 4 f0)
+        int m_divisionsWanted = 1;     // Deep: flip-flops in the chain (1 = one octave under band 1)
+        int m_divisions = 1;           // in use (changes at a toggle of divider 1, or after the wait)
+        int m_divisionWait = 0;        // samples a pending change has waited
+        int m_divisionWaitMax = 1920;
+        int m_untrackedSamples = 1 << 30;   // samples since the last usable voiced pitch frame
+        int m_repickSamples = 7200;
+        int m_repickSettleLeft = 0;    // samples of usable frames left in which the register is still picked afresh
+        int m_repickSettleSamples = 1920;
+        double m_voicePower = 0.0;     // mean square of the module's mono input (8 ms)
+        double m_voiceCoeff = 0.0;
+        float m_capGain = 1.0f;        // the voice reference's scale on the gain
         double m_inLog = 0.0;          // glided log2 fIn
         double m_subLog = 0.0;         // glided log2 fsub (output filters)
         double m_estimateLog = 0.0;    // log2 of the band-1 frequency from the divider toggles

@@ -5,6 +5,7 @@
 #include "../common/LampLfo.h"
 #include "../common/Module.h"
 #include "../common/Oversampler2x.h"
+#include "../common/TptOnePole.h"
 
 #include <array>
 #include <cstdint>
@@ -36,8 +37,16 @@ namespace roar
      *   The stages then run on u. Res polarity - uses -k.
      *
      *   P   = 1/2 (x_in + pol y) makeup,   makeup = (1/2 (1 + 1 / (1 - |k|)))^-1/2 for Classic, with
-     *         |k| capped at 0.6 (at most -2.4 dB); Modern needs none (|P| <= |x_in|)
+     *         |k| capped at 0.6 (at most -2.4 dB)
+     *   Modern: over the band the stages sweep the wet averages (1 - k) / 2 of the input's power
+     *         (k signed), so makeup = 1 / sqrt (1 - k), k in [-0.95, 0.75] (positive k is held at
+     *         0.75: +6 dB at most). The part under unity scales P; the part above unity acts only
+     *         between 100 Hz and 8 kHz (first-order high-pass then low-pass of P, added back), so
+     *         the ends of the spectrum, where the lattice takes nothing, are not lifted
      *   P   -> soft safety knee: linear up to R + 14 dB (-6 dBFS), then tanh towards -3 dBFS
+     *   Below 50 kHz the stages, the mix, the makeup and the knee run inside the 2x section (two
+     *   chain updates per base sample, coefficients for 2 fs), so 44.1 / 48 kHz match 96 kHz in
+     *   the top octave and a hot high note does not fold. 88.2 kHz and up run them at the base rate.
      *   out = (1 - a) dry + a P
      *
      * Circuits (chip): stages, spread (decades), Freq, sweep (octaves), k, colour, polarity,
@@ -85,6 +94,11 @@ namespace roar
         static constexpr double c_defaultAmount = 0.35;
         static constexpr double c_maxK = 0.95;
         static constexpr double c_makeupKCap = 0.6;
+        static constexpr double c_modernMaxK = 0.75;      // Modern, positive resonance: the makeup stops at +6 dB
+        static constexpr double c_modernMinK = -0.95;
+        static constexpr double c_makeupLowHz = 100.0;    // the band the Modern makeup above unity acts in
+        static constexpr double c_makeupHighHz = 8000.0;
+        static constexpr double c_chain2xBelowHz = 50000.0;  // below this rate the stages run at 2 fs
         static constexpr double c_safetyKneeDb = c_referenceDb + 14.0;
         static constexpr double c_safetyCeilingDb = -3.0;
         static constexpr double c_minStageHz = 20.0;
@@ -143,6 +157,7 @@ namespace roar
             bool safety = true;        // false: no output knee
             bool makeup = true;
             double k = -1.0;           // >= 0: this |k| (signed by the circuit), ignoring Amount
+            bool chain2x = true;       // false: the stages run at the base rate at every rate
         };
 
         void prepare (double fs, int maxBlock) override;
@@ -162,12 +177,16 @@ namespace roar
         float getModulationOctaves() const { return m_state.modOctaves; }
         float getK() const { return m_state.kNow; }
         float getOnValue() const { return m_fade.getValue(); }
+        bool runsChainAt2x() const { return m_chain2x; }
 
         /** k for a circuit's k0 and Amount a (before the resonance polarity). */
         static double kFor (double k0, double amount);
 
         /** Classic resonance makeup for |k|. */
         static double makeupFor (double k);
+
+        /** Modern (lattice) makeup for the signed k: 1 / sqrt (1 - k). */
+        static double modernMakeupFor (double signedK);
 
     private:
         struct Engine
@@ -185,6 +204,7 @@ namespace roar
         {
             Oversampler2x os;
             CharacterSaturator drive;   // Warm, at 2 fs
+            TptOnePole makeupLow, makeupHigh;   // the Modern makeup's band (high-pass, then low-pass)
         };
 
         struct State
@@ -206,6 +226,7 @@ namespace roar
             std::uint32_t random = 0x6b43a9b5u;
         };
 
+        void prepareChainRate();
         void resetWet();
         void resetMotion();
         void runLatencyOnly (const float* l, const float* r, int n, bool stereo);
@@ -214,6 +235,7 @@ namespace roar
         Circuit requestedCircuit() const;
         void updateCoeffs (Engine& e, double q, double envOct);
         float kForEngine (const Engine& e, float amount) const;
+        float makeupForEngine (const Engine& e, float k) const;
         float nextUnit();
         float safety (float p) const;
 
@@ -224,6 +246,7 @@ namespace roar
         float m_engineStep = 1.0f / 960.0f;  // 20 ms
         float m_motionStep = 1.0f / 2400.0f; // 50 ms
         float m_kneeLevel = 0.5f, m_kneeRange = 0.2f;
+        bool m_chain2x = false;              // the stages, makeup and knee run at 2 fs (fs < 50 kHz)
 
         SwirlSettings m_settings;
         Diagnostics m_diagnostics;

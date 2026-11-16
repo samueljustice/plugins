@@ -113,6 +113,11 @@ namespace roar
         return std::min (k, c_maxK);
     }
 
+    double SwirlModule::modernMakeupFor (double signedK)
+    {
+        return 1.0 / std::sqrt (1.0 - std::clamp (signedK, c_modernMinK, c_modernMaxK));
+    }
+
     double SwirlModule::makeupFor (double k)
     {
         const double kk = std::min (std::abs (k), c_makeupKCap);
@@ -159,9 +164,23 @@ namespace roar
             ch.drive.prepare (2.0 * m_fs);
             ch.drive.setCurve (CharacterSaturator::Curve::warm);
         }
+        prepareChainRate();
 
         m_fade.prepare (m_fs, m_maxBlock, getLatencySamples());
         reset();
+    }
+
+    void SwirlModule::prepareChainRate()
+    {
+        m_chain2x = m_diagnostics.chain2x && m_fs < c_chain2xBelowHz;
+        const double chainRate = m_chain2x ? 2.0 * m_fs : m_fs;
+        for (auto& ch : m_channels)
+        {
+            ch.makeupLow.prepare (chainRate);
+            ch.makeupLow.setCutoff (c_makeupLowHz);
+            ch.makeupHigh.prepare (chainRate);
+            ch.makeupHigh.setCutoff (c_makeupHighHz);
+        }
     }
 
     void SwirlModule::reset()
@@ -182,6 +201,11 @@ namespace roar
 
     void SwirlModule::resetMotion()
     {
+        for (auto& ch : m_channels)
+        {
+            ch.makeupLow.reset();
+            ch.makeupHigh.reset();
+        }
         m_state = State {};
         m_lamp.reset (0.0f);
         snapToTargets();
@@ -246,6 +270,7 @@ namespace roar
     void SwirlModule::setDiagnostics (const Diagnostics& d)
     {
         m_diagnostics = d;
+        prepareChainRate();
         snapToTargets();
     }
 
@@ -268,15 +293,25 @@ namespace roar
     {
         const double k = m_diagnostics.k >= 0.0 ? std::min (m_diagnostics.k, 0.99)
                                                 : kFor (e.circuit.k, static_cast<double> (amount));
-        return static_cast<float> (k * (e.circuit.resPolarity < 0.0 ? -1.0 : 1.0));
+        const bool positive = ! (e.circuit.resPolarity < 0.0);
+        const double held = (e.circuit.modern && positive && m_diagnostics.k < 0.0) ? std::min (k, c_modernMaxK) : k;
+        return static_cast<float> (positive ? held : -held);
+    }
+
+    float SwirlModule::makeupForEngine (const Engine& e, float k) const
+    {
+        if (! m_diagnostics.makeup)
+            return 1.0f;
+        return static_cast<float> (e.circuit.modern ? modernMakeupFor (static_cast<double> (k)) : makeupFor (static_cast<double> (k)));
     }
 
     void SwirlModule::updateCoeffs (Engine& e, double q, double envOct)
     {
         const double octaves = m_diagnostics.motion ? e.circuit.sweepOctaves * q + envOct : 0.0;
         const double base = e.circuit.freqHz * std::exp2 (octaves);
-        const double hiHz = c_maxStageRatio * m_fs;
-        const double piOverFs = dsp::c_pi / m_fs;
+        const double chainRate = m_chain2x ? 2.0 * m_fs : m_fs;
+        const double hiHz = c_maxStageRatio * chainRate;
+        const double piOverFs = dsp::c_pi / chainRate;
         for (int i = 0; i < e.circuit.stages; ++i)
         {
             const double f = std::clamp (base * e.ratio[static_cast<size_t> (i)], c_minStageHz, hiHz);
@@ -401,7 +436,7 @@ namespace roar
 
             updateCoeffs (eTo, q, envOct);
             const float kTo = kForEngine (eTo, st.amount);
-            const float makeupTo = (m_diagnostics.makeup && ! eTo.circuit.modern) ? static_cast<float> (makeupFor (static_cast<double> (kTo))) : 1.0f;
+            const float makeupTo = makeupForEngine (eTo, kTo);
             const float polTo = eTo.circuit.polarity < 0.0 ? -1.0f : 1.0f;
 
             float kFrom = 0.0f, makeupFrom = 1.0f, polFrom = 1.0f;
@@ -409,7 +444,7 @@ namespace roar
             {
                 updateCoeffs (eFrom, q, envOct);
                 kFrom = kForEngine (eFrom, st.amount);
-                makeupFrom = (m_diagnostics.makeup && ! eFrom.circuit.modern) ? static_cast<float> (makeupFor (static_cast<double> (kFrom))) : 1.0f;
+                makeupFrom = makeupForEngine (eFrom, kFrom);
                 polFrom = eFrom.circuit.polarity < 0.0 ? -1.0f : 1.0f;
             }
 
@@ -423,17 +458,37 @@ namespace roar
                 ch.os.upsample (io[c][i] * st.drive, a, b);
                 a = ch.drive.process (a);
                 b = ch.drive.process (b);
-                const float xIn = ch.os.downsample (a, b);
 
-                const float yTo = eTo.chains[ci].process (xIn, eTo.coeffs, kTo, eTo.circuit.modern);
-                float p = 0.5f * (xIn + polTo * yTo) * makeupTo;
-                if (fading)
+                // The stages, the mix, the makeup and the knee for one sample at the chain's rate.
+                const auto wet = [&] (float xIn)
                 {
-                    const float yFrom = eFrom.chains[ci].process (xIn, eFrom.coeffs, kFrom, eFrom.circuit.modern);
-                    const float pFrom = 0.5f * (xIn + polFrom * yFrom) * makeupFrom;
-                    p = pFrom + wTo * (p - pFrom);
+                    const float yTo = eTo.chains[ci].process (xIn, eTo.coeffs, kTo, eTo.circuit.modern);
+                    float p = 0.5f * (xIn + polTo * yTo) * (eTo.circuit.modern ? std::min (makeupTo, 1.0f) : makeupTo);
+                    float over = eTo.circuit.modern ? std::max (makeupTo - 1.0f, 0.0f) : 0.0f;
+                    if (fading)
+                    {
+                        const float yFrom = eFrom.chains[ci].process (xIn, eFrom.coeffs, kFrom, eFrom.circuit.modern);
+                        const float pFrom = 0.5f * (xIn + polFrom * yFrom) * (eFrom.circuit.modern ? std::min (makeupFrom, 1.0f) : makeupFrom);
+                        const float overFrom = eFrom.circuit.modern ? std::max (makeupFrom - 1.0f, 0.0f) : 0.0f;
+                        p = pFrom + wTo * (p - pFrom);
+                        over = overFrom + wTo * (over - overFrom);
+                    }
+                    // The makeup above unity, between 100 Hz and 8 kHz only (the filters always run).
+                    p += over * ch.makeupHigh.processLowpass (ch.makeupLow.processHighpass (p));
+                    return safety (p);
+                };
+
+                // Below 50 kHz the chain runs inside the 2x section (both samples in time order), so
+                // the top octave is not squeezed by the base rate and the knee does not fold.
+                float p;
+                if (m_chain2x)
+                {
+                    const float pa = wet (a);
+                    const float pb = wet (b);
+                    p = ch.os.downsample (pa, pb);
                 }
-                p = safety (p);
+                else
+                    p = wet (ch.os.downsample (a, b));
 
                 const float d = dry[c][i];
                 io[c][i] = d + st.amount * (p - d);
@@ -456,6 +511,8 @@ namespace roar
         const auto& o = sameType<SwirlModule> (other);
         m_settings = o.m_settings;
         m_diagnostics = o.m_diagnostics;
+        if (m_chain2x != o.m_chain2x)
+            prepareChainRate();   // (test-only: the Diagnostics switch differs)
         m_state = o.m_state;
         for (size_t e = 0; e < m_engines.size(); ++e)
         {
@@ -470,6 +527,8 @@ namespace roar
         {
             m_channels[c].os.copyStateFrom (o.m_channels[c].os);
             m_channels[c].drive.copyStateFrom (o.m_channels[c].drive);
+            m_channels[c].makeupLow.reset (o.m_channels[c].makeupLow.getState());
+            m_channels[c].makeupHigh.reset (o.m_channels[c].makeupHigh.getState());
         }
         m_lamp.setRate (m_state.lampRate);
         m_lamp.copyStateFrom (o.m_lamp);
@@ -482,6 +541,8 @@ namespace roar
             e.chains[1].copyStateFrom (e.chains[0]);
         m_channels[1].os.copyStateFrom (m_channels[0].os);
         m_channels[1].drive.copyStateFrom (m_channels[0].drive);
+        m_channels[1].makeupLow.reset (m_channels[0].makeupLow.getState());
+        m_channels[1].makeupHigh.reset (m_channels[0].makeupHigh.getState());
         m_fade.copyLeftStateToRight();
     }
 
