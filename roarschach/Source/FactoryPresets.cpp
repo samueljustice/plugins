@@ -410,7 +410,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 40.0f, 0.0f, pat::chest, om::add)
             .ch(on, 25.0f, 45.0f, 15.0f, 50.0f, room::resonantChamber, spk::small, boom::off)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(6.0f)),
+            .match(5.9f)),
 
         // Snarling, with a fast rattle that speeds up when it barks, a gritty tube and a crunched
         // output.
@@ -432,7 +432,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 49.0f, 70.0f, reg::follow, sc::clean)
             .ov(on, 35.0f, 0.0f, pat::throat, om::add)
             .out(7.5f, -2.0f, 3.0f, 32.0f, 0.5f, 3.0f, off, 100.0f)
-            .match(3.8f)),
+            .match(3.7f)),
 
         // Mechanical and heavy, with stepped pitch, a slow square stomp and big detail: dry stone,
         // no motion.
@@ -1143,7 +1143,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 45.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.2f)),
+            .match(5.1f)),
 
         // A wide chorus ring-modulated into its own bell cluster per voice: a wide metallic crowd.
         preset("Clanking Choir", "Signal Flow", Sound()
@@ -1249,7 +1249,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.6f)),
+            .match(3.5f)),
 
         // UTILITY ----------------------------------------------------------------------------------
         // Just the detail lift on a natural voice.
@@ -1314,7 +1314,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.7f)),
+            .match(3.8f)),
 
         // Init pushed hard into the output for trailer-loud density: a soft clip takes the tips.
         preset("Loud & Contained", "Utility", Sound()
