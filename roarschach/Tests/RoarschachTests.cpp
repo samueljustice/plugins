@@ -2537,6 +2537,7 @@ namespace
                 roar::RoarModule roarModule;
                 roarModule.prepare(rate, 256);
                 roarModule.setParams(roar::RoarSettings {});
+                roarModule.setLevelFollowForTests(false);   // the static response (the learnt makeup would level each tone)
                 roarModule.reset();
                 const auto out = runModuleMono(roarModule, makeSine(rate, 0.5, hz, 0.003), 256, [](int) { return roar::VoiceFrame {}; }, [](int) {});
                 return toDb(toneAmplitude(out, rate, hz, static_cast<int>(0.25 * rate), static_cast<int>(0.5 * rate)) / 0.003);

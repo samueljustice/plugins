@@ -68,9 +68,19 @@ namespace roar
      * the magnitude its bilinear form has at 96 kHz, so 15-18 kHz at 44.1 / 48 kHz sit within
      * about 0.5 dB of a 96 kHz session (1 dB at 18 kHz at 44.1 kHz).
      *
-     * Level: there is no output-measuring level follower. A static makeup gain (a function of
-     * Drive and Tone only) keeps the loudness of a voice at the reference level within +-1.5 dB
-     * across Drive, so louder input still comes out louder and denser.
+     * Level: a static makeup (a table over Drive and Tone, plus a voice trim over Drive) and on top
+     * of it one learnt correction per setting, on the pattern of IN's take level and OUTPUT's
+     * match. The correction is the ratio of the cumulative loudness-weighted power going in (80 Hz
+     * high-pass, +4 dB above 1.5 kHz) to the power coming out with the static makeup, over 0.1 s
+     * frames of everything that has sounded at this setting (above -70 dBFS and within 30 dB of the
+     * mean so far): the loud end decides. It moves only while it learns, on a schedule tied to the
+     * evidence (effective seconds, (sum p dt)^2 / (sum p^2 dt)): nothing below 0.15 s, then 6, 1.5
+     * and 0.5 dB/s to 0.5, 2 and 6 s, then held, bounded to +-6 dB. Sound louder than anything
+     * heard lowers the evidence and so re-opens the learn; quieter sound never does. It is kept
+     * across reset(), switch-off and prepare(), so a second pass over the same material renders
+     * the same wherever it starts. A Drive (2 %), Tone (4 %) or Voicing move of the targets from
+     * where the learn began starts a new learn from the held value; while a knob glides nothing
+     * is learnt. Louder input still comes out louder and denser inside a take.
      *
      * Latency: Oversampler2x::c_latency (23) at every rate and every setting. The two ADAA steps
      * add half a 2x-rate sample each (half a base-rate sample in all), which sits inside the group
@@ -115,6 +125,30 @@ namespace roar
         static double drive1For (double a);
         static double drive2For (double a);
 
+        // ---- The learnt makeup
+        /** What the level correction has learnt (power x seconds sums, so it holds across rates). */
+        struct LevelLearning
+        {
+            double corrDb = 0.0;                       // the held correction, dB
+            double s1 = 0.0, s2 = 0.0, so = 0.0;       // sum p dt, sum p^2 dt (in), sum p dt (out, static makeup)
+            double seconds = 0.0, evidence = 0.0;      // sounding seconds; effective seconds
+            double anchorA = 0.0, anchorTone = 0.0, anchorMic = 0.0;
+            bool anchored = false;
+        };
+
+        /** For the session. */
+        LevelLearning getLearning() const { return m_learn; }
+        /** Sets what was learnt; clears the pass state. */
+        void restoreLearning (const LevelLearning& l);
+        /** What feeds ROAR has changed: learn again from the held correction. */
+        void relearnLevel();
+        /** Correction 0, as new. */
+        void forgetLevel();
+        /** Test hook: false forces the correction to 0 and learns nothing (default true). */
+        void setLevelFollowForTests (bool on) { m_follow = on; }
+        /** The correction applied now (dB; 0 while the follower is off). */
+        float getCorrectionDb() const { return static_cast<float> (m_follow ? m_learn.corrDb : 0.0); }
+
     private:
         struct Channel
         {
@@ -140,6 +174,9 @@ namespace roar
         };
 
         void resetWet();
+        void clearPass();
+        void relearn();
+        double learnLevel (double staticDb);
         void updateControl();
         void designFilters();
         void updateHeat();
@@ -172,5 +209,17 @@ namespace roar
         double m_vu1 = 0.0, m_vu2 = 0.0, m_vuCoeff = 0.0;
         float m_heat = 0.0f;
         float m_blockingDb = 0.0f;
+
+        // The learnt makeup: loudness-weighted power in and out (before the makeup) per control
+        // block, 0.1 s frames of it, and what has been learnt.
+        std::array<Biquad, 2> m_inHp, m_inShelf, m_outHp, m_outShelf;
+        double m_blockIn = 0.0, m_blockOut = 0.0, m_staticDbPrev = 0.0;
+        double m_frameIn = 0.0, m_frameOut = 0.0, m_frameT = 0.0;
+        int m_frameBlocks = 0, m_frameLength = 150;
+        double m_blockSeconds = static_cast<double> (c_controlBlock) / 48000.0;
+        double m_raw = 0.0;
+        bool m_haveRaw = false;
+        bool m_follow = true;
+        LevelLearning m_learn;
     };
 }

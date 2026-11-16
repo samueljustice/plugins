@@ -182,10 +182,15 @@ namespace stageb3
     }
 
     /** White noise through LP1 at 500 Hz (ROAR's test input). */
-    Signal voiceNoise(double sr, double seconds, double levelDb = -20.0, unsigned seed = 41u)
+    Signal voiceNoise(double sr, double seconds, double levelDb = -20.0, unsigned seed = 41u, bool bandLimited = false)
     {
         auto w = gaussian(static_cast<int>(seconds * sr), seed);
         runBiquad(w, roar::Biquad::lowpass1(sr, 500.0));
+        if (bandLimited)   // the same signal at every rate (nothing above 10 kHz)
+        {
+            runBiquad(w, roar::Biquad::lowpass(sr, 10000.0, roar::Biquad::c_bw4Q1));
+            runBiquad(w, roar::Biquad::lowpass(sr, 10000.0, roar::Biquad::c_bw4Q2));
+        }
         scaleToRmsDb(w, levelDb);
         return toSignal(w);
     }
@@ -844,6 +849,397 @@ namespace stageb3
         }
     }
 
+    // ============================================================================== ROAR level (D18)
+
+    /** One ROAR instance kept across passes (its learnt makeup lives in the module). */
+    struct RoarRig
+    {
+        roar::RoarModule m;
+        double sr;
+        int block;
+
+        RoarRig(double rate = c_fs, int blockSize = 512, double drive = 0.8, double tone = 0.0, bool follow = true)
+            : sr(rate), block(blockSize)
+        {
+            m.prepare(sr, block);
+            set(drive, tone);
+            m.setLevelFollowForTests(follow);
+            m.reset();
+            m.forgetLevel();
+        }
+
+        void set(double drive, double tone = 0.0, bool mic = false)
+        {
+            roar::RoarSettings s;
+            s.drive = static_cast<float>(drive);
+            s.tone = static_cast<float>(tone);
+            s.voicing = mic ? Params::RoarVoicing::mic : Params::RoarVoicing::line;
+            m.setParams(s);
+        }
+
+        /** Runs x; perBlock (start sample) before each block. With traces the blocks are 32 samples
+            (one control block) and the correction / evidence are recorded after each. */
+        Signal run(const Signal& x, std::function<void(int)> perBlock = {}, std::vector<double>* corr = nullptr, std::vector<double>* evid = nullptr)
+        {
+            const int b = (corr != nullptr || evid != nullptr) ? roar::RoarModule::c_controlBlock : block;
+            Signal y = x, right(static_cast<size_t>(b), 0.0f);
+            const roar::VoiceFrameView none;
+            for (int pos = 0; pos < static_cast<int>(x.size()); pos += b)
+            {
+                const int n = std::min(b, static_cast<int>(x.size()) - pos);
+                if (perBlock)
+                    perBlock(pos);
+                m.process(y.data() + pos, right.data(), n, false, none);
+                if (corr != nullptr)
+                    corr->push_back(m.getCorrectionDb());
+                if (evid != nullptr)
+                    evid->push_back(m.getLearning().evidence);
+            }
+            return y;
+        }
+    };
+
+    Signal slice(const Signal& x, double from, double to, double sr)
+    {
+        const auto a = static_cast<size_t>(std::clamp(from * sr, 0.0, static_cast<double>(x.size())));
+        const auto b = static_cast<size_t>(std::clamp(to * sr, 0.0, static_cast<double>(x.size())));
+        return Signal(x.begin() + static_cast<std::ptrdiff_t>(a), x.begin() + static_cast<std::ptrdiff_t>(b));
+    }
+
+    /** Weighted level (IN's weighting) of out against in over [from, to) seconds. */
+    double weightedChangeDb(const Signal& in, const Signal& out, double from, double to, double sr)
+    {
+        return levels::weightedRmsDb(slice(out, from, to, sr), sr) - levels::weightedRmsDb(slice(in, from, to, sr), sr);
+    }
+
+    void testRoarLevel()
+    {
+        const double sr = c_fs;
+        const auto noise = voiceNoise(sr, 8.0);
+        const double blockSec = roar::RoarModule::c_controlBlock / sr;
+        const auto tIndex = [&](double t) { return static_cast<size_t>(std::max(0.0, t / blockSec - 1.0)); };
+
+        // ---- S14: the start
+        {
+            RoarRig rig;
+            std::vector<double> corr;
+            rig.run(noise, {}, &corr);
+            double early = 0.0;
+            for (size_t k = 0; k <= tIndex(0.19); ++k)
+                early = std::max(early, std::abs(corr[k]));
+            const double at06 = corr[tIndex(0.6)], at3 = corr[tIndex(3.0)];
+            std::printf("  S14 ROAR start: |correction| over the first 0.19 s %.4f dB; %.2f dB at 0.5 s, %.2f at 0.6 s, %.2f at 3 s\n",
+                        early, corr[tIndex(0.5)], at06, at3);
+            check(early == 0.0, "S14: the correction moves in the first 0.19 s (" + db1(early) + ")");
+            check(std::abs(at06 - at3) <= 0.5, "S14: the correction at 0.6 s " + db1(at06) + " is not within 0.5 dB of its 3 s value " + db1(at3));
+        }
+
+        // ---- S15a: the static table (follower off); S15b: the learnt level
+        {
+            const std::vector<int> drives { 0, 20, 45, 62, 80, 100 };
+            const std::vector<double> proto { -0.14, -0.28, -0.11, 0.48, 1.19, 0.66 };
+            juce::String line;
+            for (size_t k = 0; k < drives.size(); ++k)
+            {
+                RoarRig rig(sr, 512, drives[k] / 100.0, 0.0, false);
+                const auto y = rig.run(noise);
+                const double d = rmsDbOf(y, static_cast<int>(3.0 * sr), static_cast<int>(8.0 * sr)) - rmsDbOf(noise, static_cast<int>(3.0 * sr), static_cast<int>(8.0 * sr));
+                line << drives[k] << " % " << juce::String(d, 2) << "  ";
+                check(std::abs(d) <= 1.5 && std::abs(d - proto[k]) <= 0.3,
+                      "S15a: ROAR's static makeup at Drive " + juce::String(drives[k]) + " % leaves " + db1(d) + " (prototype " + db1(proto[k]) + ")");
+            }
+            std::printf("  S15a static makeup, out - in (follower off): %s\n", line.toRawUTF8());
+            line.clear();
+            double worst = 0.0;
+            for (const int drive : drives)
+                for (const double tone : { -1.0, 0.0, 1.0 })
+                {
+                    RoarRig rig(sr, 512, drive / 100.0, tone);
+                    const double d = weightedChangeDb(noise, rig.run(noise), 3.0, 8.0, sr);
+                    worst = std::abs(d) > std::abs(worst) ? d : worst;
+                    check(std::abs(d) <= 0.5, "S15b: learnt level at Drive " + juce::String(drive) + " %, Tone " + juce::String(tone * 100.0, 0) + " is " + db1(d));
+                }
+            std::printf("  S15b learnt weighted level, seconds 3-8: worst %+.3f dB over 18 settings\n", worst);
+        }
+
+        // ---- S15c: held; S15d: the schedule
+        {
+            RoarRig rig;
+            std::vector<double> corr, evid;
+            rig.run(voiceNoise(sr, 12.0), {}, &corr, &evid);
+            double lo = 1e9, hi = -1e9;
+            for (size_t k = tIndex(7.0); k < corr.size(); ++k)
+            {
+                lo = std::min(lo, corr[k]);
+                hi = std::max(hi, corr[k]);
+            }
+            std::printf("  S15c held: correction %.3f / %.3f / %.3f dB at 1 / 3 / 7 s; 7-12 s travel %.5f dB\n", corr[tIndex(1.0)], corr[tIndex(3.0)], corr[tIndex(7.0)], hi - lo);
+            check(hi - lo <= 0.001, "S15c: the correction moves " + db1(hi - lo) + " once the evidence has passed 6 s");
+            const size_t w = static_cast<size_t>(std::lround(0.1 / blockSec));
+            bool ok = true;
+            double worstRate = 0.0;
+            for (size_t k = 0; k + w < corr.size(); ++k)
+            {
+                const double rate = std::abs(corr[k + w] - corr[k]) / (static_cast<double>(w) * blockSec);
+                const double e = evid[k];
+                const double limit = e >= 6.0 ? 0.0 : e >= 2.0 ? 0.5 : e >= 0.5 ? 1.5 : 6.0;
+                if (rate > limit * 1.01 + 1.0e-9)
+                    ok = false;
+                worstRate = std::max(worstRate, rate);
+            }
+            std::printf("  S15d schedule: fastest move %.2f dB/s\n", worstRate);
+            check(ok, "S15d: the correction moves faster than its schedule allows");
+        }
+
+        // ---- S16: the bound
+        {
+            for (const double level : { -10.0, -50.0 })
+            {
+                RoarRig rig(sr, 512, 1.0);
+                std::vector<double> corr;
+                const auto y = rig.run(voiceNoise(sr, 8.0, level), {}, &corr);
+                const auto [mn, mx] = std::minmax_element(corr.begin(), corr.end());
+                bool finite = true;
+                for (float v : y)
+                    finite = finite && std::isfinite(v);
+                std::printf("  S16 noise at %.0f dBFS, Drive 100 %%: correction %.2f dB at the end (range %.2f .. %.2f)\n", level, corr.back(), *mn, *mx);
+                check(*mn >= -6.0 && *mx <= 6.0 && finite, "S16: the correction leaves +-6 dB or the output is not finite at " + juce::String(level, 0) + " dBFS");
+            }
+        }
+
+        // ---- S17: a pause
+        for (const bool quietNoise : { false, true })
+        {
+            Signal gap(static_cast<size_t>(3.0 * sr), 0.0f);
+            if (quietNoise)
+                gap = voiceNoise(sr, 3.0, -75.0, 5u);
+            const auto x = join({ voiceNoise(sr, 3.0), gap, voiceNoise(sr, 3.0, -20.0, 7u) });
+            RoarRig rig;
+            std::vector<double> corr;
+            rig.run(x, {}, &corr);
+            const double a = corr[tIndex(3.0)], b = corr[tIndex(6.0)];
+            std::printf("  S17 pause (%s): correction %.4f dB at its start, %.4f at its end\n", quietNoise ? "-75 dBFS noise" : "silence", a, b);
+            check(std::abs(a - b) <= 0.01, "S17: the correction moves over a pause by " + db1(b - a));
+        }
+
+        // ---- S18a / S18c: a Drive step; S18b: automation; S18d: a small move
+        const auto stepRun = [&](double rate, int blockSize, std::vector<double>& corr, Signal& in, Signal& out)
+        {
+            in = voiceNoise(rate, 8.0, -20.0, 41u, true);
+            RoarRig rig(rate, blockSize, 0.2);
+            const int stepAt = static_cast<int>(4.0 * rate);
+            out = rig.run(in, [&](int pos) { rig.set(pos >= stepAt ? 0.9 : 0.2); }, &corr);
+        };
+        {
+            std::vector<double> corr;
+            Signal in, out;
+            stepRun(sr, 512, corr, in, out);
+            // The glide (30 ms per control block) is within 0.005 of the target after 0.148 s.
+            const double glideEnd = 4.0 + 0.149;
+            double moved = 0.0;
+            for (size_t k = tIndex(4.0); k <= tIndex(glideEnd + 0.15); ++k)
+                moved = std::max(moved, std::abs(corr[k] - corr[tIndex(4.0)]));
+            size_t first = tIndex(4.0);
+            while (first < corr.size() && std::abs(corr[first] - corr[tIndex(4.0)]) < 1.0e-12)
+                ++first;
+            const double level = weightedChangeDb(in, out, 6.0, 7.0, sr);
+            RoarRig fixedLow(sr, 512, 0.2), fixedHigh(sr, 512, 0.9);
+            const double fixedStep = std::max(maxStep(fixedLow.run(in), static_cast<int>(3.9 * sr), static_cast<int>(5.0 * sr)),
+                                              maxStep(fixedHigh.run(in), static_cast<int>(3.9 * sr), static_cast<int>(5.0 * sr)));
+            const double stepStep = maxStep(out, static_cast<int>(3.9 * sr), static_cast<int>(5.0 * sr));
+            std::printf("  S18a Drive 20 -> 90 %% at 4 s: first move of the correction %.3f s after the step; level 2-3 s later %+.2f dB; largest step %.4f (fixed %.4f)\n",
+                        (static_cast<double>(first + 1) * blockSec) - 4.0, level, stepStep, fixedStep);
+            check(moved == 0.0, "S18a: the correction moves before the glide has ended and 0.15 s more has passed");
+            check(std::abs(level) <= 1.5, "S18a: 2 s after the step the level is " + db1(level));
+            check(stepStep <= 1.1 * fixedStep, "S18a: the Drive step makes a sample step of " + juce::String(stepStep, 4));
+
+            std::vector<std::vector<double>> runs;
+            for (const auto& [rate, b] : std::vector<std::pair<double, int>> { { 48000.0, 64 }, { 48000.0, 512 }, { 192000.0, 64 }, { 192000.0, 512 } })
+            {
+                std::vector<double> c;
+                Signal i2, o2;
+                stepRun(rate, b, c, i2, o2);
+                const double bs = roar::RoarModule::c_controlBlock / rate;
+                runs.push_back({ c[static_cast<size_t>(4.5 / bs) - 1], c[static_cast<size_t>(5.0 / bs) - 1], c[static_cast<size_t>(6.0 / bs) - 1] });
+            }
+            double spread = 0.0;
+            for (size_t t = 0; t < 3; ++t)
+                for (const auto& r : runs)
+                    spread = std::max(spread, std::abs(r[t] - runs[0][t]));
+            std::printf("  S18c the same at 48 / 192 kHz, blocks 64 / 512: largest difference %.3f dB\n", spread);
+            check(spread <= 0.3, "S18c: the correction after a Drive step depends on the rate or block (" + db1(spread) + ")");
+        }
+        {
+            // (the ramp starts once the learn at 20 % is held, so only the automation can move it)
+            RoarRig rig(sr, 512, 0.2);
+            std::vector<double> corr;
+            const int from = static_cast<int>(7.0 * sr), len = static_cast<int>(3.0 * sr);
+            rig.run(voiceNoise(sr, 11.0), [&](int pos) { rig.set(0.2 + 0.7 * std::clamp(static_cast<double>(pos - from) / len, 0.0, 1.0)); }, &corr);
+            double travel = 0.0;
+            for (size_t k = tIndex(7.0); k <= tIndex(10.0); ++k)
+                travel = std::max(travel, std::abs(corr[k] - corr[tIndex(7.0)]));
+            std::printf("  S18b Drive ramped 20 -> 90 %% over 3 s: the correction moves %.5f dB\n", travel);
+            check(travel <= 0.001, "S18b: the correction moves " + db1(travel) + " during automation");
+        }
+        {
+            RoarRig rig(sr, 512, 0.8);
+            std::vector<double> evid;
+            const int at = static_cast<int>(4.0 * sr);
+            rig.run(voiceNoise(sr, 6.0), [&](int pos) { rig.set(pos >= at ? 0.81 : 0.8); }, nullptr, &evid);
+            bool fell = false;
+            for (size_t k = 1; k < evid.size(); ++k)
+                fell = fell || evid[k] < evid[k - 1] - 1.0e-9;
+            check(! fell, "S18d: Drive 80 -> 81 % starts a new learn");
+        }
+
+        // ---- S19: the dynamics are kept
+        for (const double drive : { 0.8, 1.0 })
+        {
+            const auto x = join({ voiceNoise(sr, 5.0, -14.0, 1u), voiceNoise(sr, 10.0, -34.0, 2u), voiceNoise(sr, 5.0, -14.0, 3u) });
+            RoarRig on(sr, 512, drive), off(sr, 512, drive, 0.0, false);
+            std::vector<double> corr;
+            const auto yOn = on.run(x, {}, &corr), yOff = off.run(x);
+            const auto [mn, mx] = std::minmax_element(corr.begin() + static_cast<std::ptrdiff_t>(tIndex(5.0)), corr.end());
+            const auto gap = [&](const Signal& y) { return rmsDbOf(y, static_cast<int>(16.0 * sr), static_cast<int>(20.0 * sr)) - rmsDbOf(y, static_cast<int>(7.0 * sr), static_cast<int>(15.0 * sr)); };
+            const double gOn = gap(yOn), gOff = gap(yOff);
+            std::printf("  S19 Drive %.0f %%, -14 / -34 / -14 dBFS: correction travel 5-20 s %.3f dB; loud - quiet %.2f dB (follower off %.2f)\n",
+                        drive * 100.0, *mx - *mn, gOn, gOff);
+            check(*mx - *mn <= 0.6, "S19: the correction travels " + db1(*mx - *mn) + " across a quiet section");
+            check(std::abs(gOn - gOff) <= 0.6, "S19: the follower changes the loud - quiet difference by " + db1(gOn - gOff));
+        }
+
+        // ---- S19b: passes; S19c: the start position
+        {
+            RoarRig rig;
+            std::vector<double> c1, c2, c3;
+            rig.run(noise, {}, &c1);
+            rig.m.reset();
+            const auto y2 = rig.run(noise, {}, &c2);
+            rig.m.reset();
+            const auto y3 = rig.run(noise, {}, &c3);
+            std::printf("  S19b passes: pass 1 ends at %.4f dB, pass 2 starts at %.4f and ends at %.4f; pass 3 differs by %.2g\n", c1.back(), c2.front(), c2.back(), maxAbsDiff(y2, y3));
+            check(std::abs(c2.front() - c1.back()) <= 0.001, "S19b: pass 2 does not start with pass 1's correction");
+            check(maxAbsDiff(y2, y3) <= 1.0e-6, "S19b: passes 2 and 3 differ");
+
+            const auto half = slice(noise, 4.0, 8.0, sr);
+            const auto compare = [&](bool follow)
+            {
+                RoarRig r(sr, 512, 0.8, 0.0, follow);
+                r.run(noise);
+                r.m.reset();
+                const auto full = r.run(noise);
+                r.m.reset();
+                const auto part = r.run(half);
+                std::array<double, 3> d {};
+                for (int k = 0; k < 3; ++k)
+                    d[static_cast<size_t>(k)] = rmsDbOf(part, static_cast<int>(k * sr), static_cast<int>((k + 1) * sr))
+                                              - rmsDbOf(full, static_cast<int>((4.0 + k) * sr), static_cast<int>((5.0 + k) * sr));
+                return d;
+            };
+            const auto dOn = compare(true), dOff = compare(false);
+            std::printf("  S19c second half alone against pass 2: %+.3f / %+.3f / %+.3f dB (follower off %+.3f / %+.3f / %+.3f)\n",
+                        dOn[0], dOn[1], dOn[2], dOff[0], dOff[1], dOff[2]);
+            bool ok = true;
+            for (size_t k = 0; k < 3; ++k)
+                ok = ok && std::abs(dOn[k] - dOff[k]) <= 0.05;
+            check(ok, "S19c: the same audio renders at another level when the pass starts later");
+        }
+
+        // ---- S19d: louder sound re-opens the learn
+        {
+            const auto x = join({ voiceNoise(sr, 8.0, -30.0, 11u), voiceNoise(sr, 4.0, -14.0, 12u) });
+            RoarRig rig(sr, 512, 1.0);
+            std::vector<double> corr, evid;
+            rig.run(x, {}, &corr, &evid);
+            const size_t change = tIndex(8.0);
+            const size_t firstFrame = change + static_cast<size_t>(std::lround(0.1 / blockSec)) + 1;
+            bool monotonic = true;
+            for (size_t k = change + 1; k <= tIndex(11.9); ++k)
+                monotonic = monotonic && corr[k] >= corr[k - 1] - 1.0e-9;
+            const double rise = corr[tIndex(11.9)] - corr[change];
+            std::printf("  S19d quiet then loud: correction %.2f dB before, %.2f / %.2f / %.2f at 0.5 / 1 / 3.9 s after; evidence %.2f s a frame after the change\n",
+                        corr[change], corr[tIndex(8.5)], corr[tIndex(9.0)], corr[tIndex(11.9)], evid[firstFrame]);
+            check(evid[firstFrame] < 2.0, "S19d: louder sound does not re-open the learn (evidence " + juce::String(evid[firstFrame], 2) + " s)");
+            check(monotonic && rise >= 2.5, "S19d: the correction rises " + db1(rise) + (monotonic ? "" : ", not monotonically"));
+
+            const auto y = join({ voiceNoise(sr, 8.0, -14.0, 12u), voiceNoise(sr, 4.0, -30.0, 11u) });
+            RoarRig rev(sr, 512, 1.0);
+            std::vector<double> c2;
+            rev.run(y, {}, &c2);
+            const auto [mn, mx] = std::minmax_element(c2.begin() + static_cast<std::ptrdiff_t>(tIndex(8.0)), c2.end());
+            std::printf("  S19d loud then quiet: the correction moves %.3f dB in the quiet part\n", *mx - *mn);
+            check(*mx - *mn < 0.6, "S19d: quieter sound moves the correction by " + db1(*mx - *mn));
+        }
+
+        // ---- S20: rates and blocks; S20b: learning carried; S20c: relearn
+        {
+            juce::String line;
+            for (const double rate : { 44100.0, 96000.0, 192000.0 })
+            {
+                const auto x = voiceNoise(rate, 8.0);
+                double worst = 0.0;
+                for (const int drive : { 0, 45, 100 })
+                {
+                    RoarRig rig(rate, 512, drive / 100.0);
+                    const double d = weightedChangeDb(x, rig.run(x), 3.0, 8.0, rate);
+                    worst = std::abs(d) > std::abs(worst) ? d : worst;
+                }
+                line << juce::String(rate / 1000.0, 1) << " kHz " << juce::String(worst, 3) << "  ";
+                check(std::abs(worst) <= 0.5, "S20: learnt level at " + juce::String(rate / 1000.0, 1) + " kHz is " + db1(worst));
+            }
+            RoarRig ref(sr, 512);
+            const auto y512 = ref.run(noise);
+            double blocks = 0.0;
+            for (const int b : { 16, 4096 })
+            {
+                RoarRig rig(sr, b);
+                blocks = std::max(blocks, maxAbsDiff(y512, rig.run(noise)));
+            }
+            std::printf("  S20 learnt level (worst of Drive 0 / 45 / 100 %%): %s; blocks 16 / 4096 against 512: %.2g\n", line.toRawUTF8(), blocks);
+            check(blocks <= 1.0e-6, "S20: ROAR's learnt makeup depends on the block size (" + juce::String(blocks) + ")");
+        }
+        {
+            RoarRig a;
+            const auto first = a.run(noise);
+            const auto learnt = a.m.getLearning();
+            a.m.reset();
+            a.run(noise);
+            a.m.reset();
+            const auto third = a.run(noise);
+            RoarRig b;
+            b.m.restoreLearning(learnt);
+            const auto restored = b.run(noise);
+            b.m.forgetLevel();
+            b.m.reset();
+            const auto again = b.run(noise);
+            std::printf("  S20b restored learning against a third pass: %.2g; after forgetLevel against a first pass: %.2g\n",
+                        maxAbsDiff(restored, third), maxAbsDiff(again, first));
+            check(maxAbsDiff(restored, third) <= 1.0e-6, "S20b: a restored learning does not render as a later pass");
+            check(maxAbsDiff(again, first) <= 1.0e-6, "S20b: forgetLevel does not give a first pass again");
+        }
+        {
+            // A copy (the twin chain's reorder) continues exactly as the original.
+            RoarRig a, b;
+            const auto head = slice(noise, 0.0, 1.0, sr), tail = slice(noise, 1.0, 1.5, sr);
+            a.run(head);
+            b.m.copyStateFrom(a.m);
+            const double d = maxAbsDiff(a.run(tail), b.run(tail));
+            std::printf("  ROAR copy continues: %.2g\n", d);
+            check(d <= 1.0e-7, "ROAR: a copied instance does not continue as the original (" + juce::String(d) + ")");
+        }
+        {
+            RoarRig rig;
+            std::vector<double> corr, evid;
+            rig.run(noise);
+            const double before = rig.m.getCorrectionDb();
+            rig.m.relearnLevel();
+            const double after = rig.m.getCorrectionDb(), e0 = rig.m.getLearning().evidence;
+            rig.run(slice(noise, 0.0, 1.0, sr), {}, &corr, &evid);
+            std::printf("  S20c relearn: correction %.4f -> %.4f dB, evidence %.2f, then %.2f s after 1 s\n", before, after, e0, evid.back());
+            check(std::abs(after - before) < 1.0e-9 && e0 == 0.0 && evid.back() > 0.5 && evid.back() < 1.2, "S20c: relearnLevel does not start the schedule again from the held correction");
+        }
+    }
+
     // ============================================================================== CLEAN (D20)
 
     void testCleanGate()
@@ -913,5 +1309,6 @@ void testStageB3()
     stageb3::testDeess();
     stageb3::testTame();
     stageb3::testVocoder();
+    stageb3::testRoarLevel();
     stageb3::testCleanGate();
 }
