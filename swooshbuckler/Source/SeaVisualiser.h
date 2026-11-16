@@ -80,6 +80,13 @@ public:
     static juce::Point<float> planPoint(juce::Rectangle<float> roomBox, float x, float y, float z);
     /** How far in the tops sit on the plan, as a share of the way to the middle. */
     static constexpr float c_planHeightIn = 0.45f;
+    /** The hit's flash on the plan: where its glow is centred (this component's coordinates), its radius across and
+        up the plan, and how bright it is now (0: none). Its size follows Hit Spread: a small glow at 0%, the whole
+        room at 100% (a stereo hit's two sides draw it wider across). For the tests. */
+    struct PlanFlash { juce::Point<float> at; float radiusX = 0.0f, radiusY = 0.0f, level = 0.0f; };
+    PlanFlash planFlash() const;
+    /** The smallest flash (Hit Spread 0%) and how far past the room's half-width it reaches at 100%. */
+    static constexpr float c_flashPoint = 6.0f, c_flashRoom = 1.15f;
 
     /** Shows the constellation now, and (held) keeps it showing: for the offline pictures. */
     void showConstellation(bool holdOn);
@@ -177,7 +184,7 @@ private:
     float m_roomShown = 0.0f;
     bool m_inRoom = false;
     std::array<float, room::c_maxChannels> m_lamps {};
-    static constexpr int c_dotTrail = 14;
+    static constexpr int c_dotTrail = 14, c_headingSpan = 4; // the trail, and how much of it a heading needs
     struct Dot
     {
         std::array<P3, c_dotTrail> trail {}; // room positions, the newest at head
@@ -185,6 +192,10 @@ private:
         float level = 0.0f;
     };
     std::array<Dot, RigEngine::c_objects> m_dots;
+    // The hit on the plan: one soft flash as a hit comes in (it rises over about 50 ms and fades over about half a
+    // second, so a run of hits glows steadily rather than flickering), where the hit is, as big as Hit Spread makes it.
+    struct HitGlow { P3 at {}; float spread = 0.0f, apart = 0.0f, level = 0.0f; };
+    HitGlow m_hitGlow;
 
     // Hits: a flash on the horizon and a ring on the water.
     float m_hitFlash = 0.0f, m_hitRing = 0.0f, m_lastGate = 0.0f;

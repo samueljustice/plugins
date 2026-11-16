@@ -916,6 +916,44 @@ int main(int argc, char* argv[])
                     }
                 }
 
+                // Output at 7.1 too (5.1 and 7.1.4 are above), and where a hit lands on the plan: the gate held open so the
+                // hits always play, a hit in front at Hit Spread 0% (a small glow) and 100% (the whole room), and one
+                // going with its pass at the default.
+                {
+                    widen(room::Width::Surround71);
+                    paths(0);
+                    rig.run(2.0);
+                    shots.crop(shots.shoot("window-71"), "output-71", ed.m_sections[3].bounds);
+                    widen(room::Width::Surround714);
+                    set(ParamIDs::hitAim, 0.0f);
+                    set(ParamIDs::gateMode, 3.0f);
+                    set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitFront));
+                    for (const float spread : { 0.0f, 1.0f })
+                    {
+                        set(ParamIDs::hitSpread, spread);
+                        rig.run(2.0);
+                        const juce::String which = spread > 0.5f ? "100" : "0";
+                        {
+                            const auto flash = ed.m_sea.planFlash();
+                            const auto hit = proc.getEngine().getHitView();
+                            std::cout << "hit flash at Hit Spread " << which << "%: level " << flash.level << ", radius " << flash.radiusX << " x " << flash.radiusY
+                                      << " (the hits' level " << hit.level << ", spread " << hit.spread << ")" << std::endl;
+                        }
+                        planCrop(shots.shoot("window-714-hit-" + which), "sea-plan-714-hit-" + which);
+                    }
+                    set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitWithPass));
+                    set(ParamIDs::hitSpread, ParamIDs::hitSpreadDefault);
+                    rig.run(2.0);
+                    {
+                        const auto window = shots.shoot("window-714-hit-with-pass");
+                        planCrop(window, "sea-plan-714-hit-with-pass");
+                        shots.crop(window, "hits-714", ed.m_sections[2].bounds);
+                    }
+                    for (auto* id : { ParamIDs::hitAim, ParamIDs::gateMode, ParamIDs::hitPosition, ParamIDs::hitSpread })
+                        proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                    rig.run(0.3);
+                }
+
                 // Direction and Side held: bus A Through, front to back, on your right, with a modulator deciding bus A's
                 // Direction pass by pass; Link on, so bus B shows (and flies) bus A's. Then back as they were.
                 {
@@ -968,6 +1006,24 @@ int main(int argc, char* argv[])
                 paths(0);
                 widen(room::Width::Stereo);
                 rig.run(0.5);
+
+                // The Hits panel with each Hit Position (at Stereo, where they work: the hit moves between left and
+                // right), then at Mono, where Hit Position and Hit Spread rest and the group says why.
+                {
+                    const char* names[ParamIDs::numHitPositions] = { "with-pass", "front", "random" };
+                    for (int position = 0; position < ParamIDs::numHitPositions; ++position)
+                    {
+                        set(ParamIDs::hitPosition, static_cast<float>(position));
+                        rig.run(0.2);
+                        shots.crop(shots.shoot(juce::String("window-hits-") + names[position]), juce::String("hits-") + names[position], ed.m_sections[2].bounds);
+                    }
+                    set(ParamIDs::hitPosition, 0.0f);
+                    widen(room::Width::Mono);
+                    rig.run(0.5);
+                    shots.crop(shots.shoot("window-mono"), "hits-mono", ed.m_sections[2].bounds);
+                    widen(room::Width::Stereo);
+                    rig.run(0.5);
+                }
             }
 
             ed.m_about.setVisible(true);

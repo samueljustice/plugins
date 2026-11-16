@@ -1129,6 +1129,21 @@ juce::Point<float> SeaVisualiser::planDot(int object, float* brightness) const
     return planPoint(planRoomBox(roomPlanArea()), p.x, p.y, p.z);
 }
 
+SeaVisualiser::PlanFlash SeaVisualiser::planFlash() const
+{
+    PlanFlash f;
+    const auto box = planRoomBox(roomPlanArea());
+    // Spread out, a hit is all over the room: its glow's centre moves from where it lands to the middle.
+    f.at = planPoint(box, m_hitGlow.at.x, m_hitGlow.at.y, m_hitGlow.at.z);
+    // (on a curve: a little spread keeps the glow on the hit, all of it centres it on the room)
+    f.at += (box.getCentre() - f.at) * (m_hitGlow.spread * m_hitGlow.spread);
+    const float half = box.getWidth() * 0.5f;
+    f.radiusY = c_flashPoint + (c_flashRoom * half - c_flashPoint) * m_hitGlow.spread;
+    f.radiusX = f.radiusY + half * m_hitGlow.apart * (1.0f - m_hitGlow.spread);
+    f.level = m_hitGlow.level * m_roomShown;
+    return f;
+}
+
 void SeaVisualiser::stepRoom(float dt)
 {
     // The plan shows in a room and fades away at Mono and Stereo (keeping the last room's shape while it goes).
@@ -1157,6 +1172,23 @@ void SeaVisualiser::stepRoom(float dt)
 
     // The objects: where each is, with a short trail, and a level that eases in and out.
     const auto& engine = m_processor.getEngine();
+    {
+        // The hit's flash: up softly with the hits' level, down slowly; it takes the hit's place and Hit Spread as
+        // they are (a hit that lands somewhere new starts its own flash there, it does not fly across).
+        const auto hit = engine.getHitView();
+        // (on a curve, as the lamps are, so a quiet hit still shows)
+        const float want = m_inRoom ? juce::jlimit(0.0f, 1.0f, 1.6f * std::sqrt(juce::jmax(0.0f, hit.level))) : 0.0f;
+        auto& glow = m_hitGlow;
+        glow.level += (want - glow.level) * (1.0f - std::exp(-dt / (want > glow.level ? 0.05f : 0.45f)));
+        if (glow.level < 1.0e-3f)
+            glow.level = 0.0f;
+        if (want > 0.0f)
+        {
+            glow.at = { hit.x, hit.y, hit.z };
+            glow.spread = juce::jlimit(0.0f, 1.0f, hit.spread);
+            glow.apart = juce::jlimit(0.0f, 1.0f, hit.apart);
+        }
+    }
     for (int i = 0; i < RigEngine::c_objects; ++i)
     {
         auto& dot = m_dots[static_cast<size_t>(i)];
@@ -1257,7 +1289,23 @@ void SeaVisualiser::paintRoom(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at));
     }
 
-    // The objects: a dot in its colour where it is, with a short fading trail behind it.
+    // The hit: a soft glow where it lands, as wide as Hit Spread makes it (filling the room at 100%), under the dots.
+    if (const auto flash = planFlash(); flash.level > 0.01f)
+    {
+        juce::Graphics::ScopedSaveState clip(g);
+        g.reduceClipRegion(plate.reduced(2.0f).toNearestInt());
+        // Spread thin, the same hit is fainter in each place: the glow's brightness goes down as it widens.
+        const float strength = flash.level * (0.8f - 0.4f * m_hitGlow.spread) * alpha;
+        const auto area = juce::Rectangle<float>(2.0f * flash.radiusX, 2.0f * flash.radiusY).withCentre(flash.at);
+        juce::ColourGradient glow(TC::hits.withAlpha(strength), flash.at.x, flash.at.y, TC::hits.withAlpha(0.0f), flash.at.x + flash.radiusY, flash.at.y, true);
+        glow.addColour(0.5, TC::hits.withAlpha(0.55f * strength));
+        g.setGradientFill(glow);
+        g.addTransform(juce::AffineTransform::scale(flash.radiusX / juce::jmax(1.0f, flash.radiusY), 1.0f, flash.at.x, flash.at.y));
+        g.fillEllipse(area.withSizeKeepingCentre(2.0f * flash.radiusY, 2.0f * flash.radiusY));
+    }
+
+    // The objects: a dot in its colour where it is, with a short fading trail behind it; a pass or a throw that is
+    // moving has a small arrowhead ahead of its dot, pointing the way it goes.
     for (int i = 0; i < RigEngine::c_objects; ++i)
     {
         const auto& dot = m_dots[static_cast<size_t>(i)];
@@ -1284,5 +1332,22 @@ void SeaVisualiser::paintRoom(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(r * 2.0f + 2.0f, r * 2.0f + 2.0f).withCentre(at));
         g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
         g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at));
+        if (i <= RigEngine::ObjThrow4 && dot.count > c_headingSpan)
+        {
+            // Its heading, from the far end of its trail: steady, as the trail is.
+            const auto& was = dot.trail[static_cast<size_t>((dot.head - (dot.count - 1) + c_dotTrail) % c_dotTrail)];
+            const auto from = planPoint(box, was.x, was.y, was.z);
+            const float moved = at.getDistanceFrom(from);
+            if (moved > 1.5f)
+            {
+                const auto d = (at - from) / moved;
+                const juce::Point<float> n { -d.y, d.x };
+                const auto tip = at + d * (r + 5.0f), back = at + d * (r + 1.0f);
+                juce::Path head;
+                head.addTriangle(tip, back + n * 2.6f, back - n * 2.6f);
+                g.setColour(colour.withAlpha(juce::jmin(1.0f, (moved - 1.5f) / 2.0f) * juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
+                g.fillPath(head);
+            }
+        }
     }
 }

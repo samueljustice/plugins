@@ -923,7 +923,8 @@ int main(int argc, char* argv[])
                           + " small), whole in their boxes with the dial clear of the caption and the value," + at);
 
                 // Bus A, bus B and the Hits: each a row on the one shared column pitch, and the Hits' knobs sit on
-                // the very columns of bus A's, the panel above them.
+                // the very columns of bus A's, the panel above them. (Hit Spread is not one of the row: it is in its
+                // own group with Hit Position, checked below.)
                 std::vector<int> pitches;
                 std::array<std::vector<int>, 3> columns;
                 bool even = true;
@@ -932,7 +933,8 @@ int main(int argc, char* argv[])
                     auto& xs = columns[static_cast<size_t>(section)];
                     for (auto* k : knobs)
                         if (k->getParentComponent() == &ed.m_content && k->getSize() == WheelKnob::Size::Primary
-                            && ed.m_sections[static_cast<size_t>(section)].bounds.contains(k->getBounds().getCentre()))
+                            && ed.m_sections[static_cast<size_t>(section)].bounds.contains(k->getBounds().getCentre())
+                            && ! ed.m_hitGroup.contains(k->getBounds().getCentre()))
                             xs.push_back(k->getBounds().getCentreX());
                     std::sort(xs.begin(), xs.end());
                     even = even && xs.size() >= 7;
@@ -1697,6 +1699,28 @@ int main(int argc, char* argv[])
         const auto& out = ed.m_sections[3].bounds;
         const int stereoKnobY = ed.m_controls[ParamIDs::space]->getY();
         const auto stereoScope = ed.m_sectionScopes[3]->getBounds();
+        // Output at Stereo, every box of it: the layout as it was before rooms re-planned the panel (the numbers are
+        // that layout's; a change to them is a change to the Stereo user's Output).
+        auto outputGeometry = [&ed]
+        {
+            juce::StringArray boxes;
+            for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold, ParamIDs::space, ParamIDs::inflate,
+                                    ParamIDs::push, ParamIDs::ceiling })
+                boxes.add(ed.m_controls[id]->getBounds().toString());
+            for (const juce::Component* c : { static_cast<const juce::Component*>(&ed.m_tremOn), static_cast<const juce::Component*>(&ed.m_tremShape),
+                                              static_cast<const juce::Component*>(&ed.m_tremTarget), static_cast<const juce::Component*>(&ed.m_trim),
+                                              static_cast<const juce::Component*>(ed.m_sectionScopes[3].get()) })
+                boxes.add(c->getBounds().toString());
+            for (const auto& r : { ed.m_tremGroup, ed.m_tremCaption, ed.m_meterArea, ed.m_trimLabel, ed.m_trimValue })
+                boxes.add(r.toString());
+            return boxes.joinIntoString(" | ");
+        };
+        const juce::String stereoOutput = "1014 657 52 70 | 1066 657 52 70 | 1118 657 52 70 | 1181 649 45 70 | 1226 649 45 70 | 1271 649 45 70 | 1316 649 45 70"
+                                          " | 926 635 30 16 | 926 660 84 22 | 926 688 84 22 | 1462 648 28 67 | 920 732 576 16"
+                                          " | 918 632 256 97 | 962 635 124 16 | 1366 634 88 95 | 1456 634 40 13 | 1456 716 40 13";
+        check(outputGeometry() == stereoOutput && ed.m_sectionScopes[3]->isVisible() && ! ed.m_speakerMeters->isVisible(),
+              "room: at Stereo Output is laid out exactly as it was (the tremolo group, its menus and knobs, the four knobs, GR, OUT, Trim and the scope)"
+                  + (outputGeometry() == stereoOutput ? juce::String() : "\n         now: " + outputGeometry()));
 
         // Calm: how far a comet's head moves on the screen from one frame of the sea to the next, at its worst.
         auto worstCometStep = [&](double seconds, float& nearest)
@@ -1825,12 +1849,31 @@ int main(int argc, char* argv[])
             check(meters.isVisible() && names.joinIntoString(" ") == "L C R Ls Rs LFE" && sounding,
                   "room: Output shows a meter for each speaker, in the room's order with the LFE last: " + names.joinIntoString(" ")
                       + (sounding ? ", every one moving" : ", NOT all moving"));
+            // Output in a room: the tremolo group and the four knobs in one row under the title bar, the meters in a
+            // strip along the foot as wide as that row, GR, OUT and Trim the panel's full height beside them, and the
+            // scope making way. Each bar is taller than the 28 px the meters had under the knobs.
             const auto m = meters.getBounds();
-            const bool placed = out.contains(m) && ! m.intersects(ed.m_meterArea) && ! m.intersects(ed.m_trim.getBounds()) && ! m.intersects(ed.m_tremGroup)
-                                && m.getY() >= ed.m_controls[ParamIDs::space]->getBottom() && ed.m_controls[ParamIDs::space]->getY() < stereoKnobY
-                                && ed.m_sectionScopes[3]->getRight() <= ed.m_tremGroup.getRight() && ! ed.m_sectionScopes[3]->getBounds().intersects(m);
-            check(placed, "room: the meters sit under Output's four knobs (moved up " + juce::String(stereoKnobY - ed.m_controls[ParamIDs::space]->getY())
-                              + " px), clear of GR, OUT, Trim and the tremolo, and the scope keeps to the tremolo's width");
+            int rowBottom = ed.m_tremGroup.getBottom();
+            bool row = ed.m_tremGroup.getY() >= out.getY() + 32;
+            for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold, ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
+            {
+                const auto k = ed.m_controls[id]->getBounds();
+                rowBottom = juce::jmax(rowBottom, k.getBottom());
+                row = row && k.getY() == ed.m_controls[ParamIDs::tremDepth]->getY() && ! k.intersects(m) && ! k.intersects(ed.m_meterArea);
+            }
+            for (const juce::Component* c : { static_cast<const juce::Component*>(&ed.m_tremShape), static_cast<const juce::Component*>(&ed.m_tremTarget),
+                                              static_cast<const juce::Component*>(&ed.m_tremOn) })
+                row = row && ed.m_tremGroup.contains(c->getBounds());
+            const bool placed = out.contains(m) && ! m.intersects(ed.m_meterArea) && ! m.intersects(ed.m_trim.getBounds()) && m.getY() >= rowBottom
+                                && m.getX() <= ed.m_tremGroup.getX() && m.getRight() >= ed.m_controls[ParamIDs::ceiling]->getRight() - 2
+                                && ed.m_meterArea.getBottom() >= out.getBottom() - 6 && ! ed.m_sectionScopes[3]->isVisible();
+            float barH = 0.0f;
+            for (int i = 0; i < meters.numMeters(); ++i)
+                barH = juce::jmax(barH, meters.barArea(i).getHeight());
+            check(row && placed && barH > 28.0f && meters.barWidth() > SpeakerMeters::c_minBarW,
+                  "room: the meters run along Output's foot under the tremolo and the four knobs (one row), clear of GR, OUT and Trim (full height, "
+                      + juce::String(ed.m_meterArea.getHeight()) + " px), each bar " + juce::String(barH, 0) + " px tall and " + juce::String(meters.barWidth(), 0)
+                      + " px wide at a " + juce::String(meters.pitch(), 0) + " px pitch; the scope makes way");
             bool lamps = sea.roomShown() > 0.99f;
             for (int ch = 0; ch < 6; ++ch)
                 lamps = lamps && (ch == 3 || sea.lampLevel(ch) > 0.05f);
@@ -1894,10 +1937,14 @@ int main(int argc, char* argv[])
             }
             const int last = meters.numMeters() - 1;
             const bool lfeApart = last == 11 && meters.barArea(last).getX() - meters.barArea(last - 1).getRight() >= SpeakerMeters::c_lfeGap
-                                  && ! meters.lfeReductionArea().isEmpty() && meters.lfeReductionArea().getX() >= meters.barArea(last).getRight();
+                                  && ! meters.lfeReductionArea().isEmpty() && meters.lfeReductionArea().getX() >= meters.barArea(last).getRight() + 6.0f
+                                  && meters.lfeReductionArea().getWidth() == meters.barArea(last).getWidth()
+                                  && meters.lfePlate().contains(meters.barArea(last)) && meters.lfePlate().contains(meters.lfeReductionArea())
+                                  && ! meters.lfePlate().intersects(meters.barArea(last - 1));
             check(names.joinIntoString(" ") == "L C R Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr LFE" && apart && lfeApart,
                   "room: at 7.1.4 twelve meters, " + names.joinIntoString(" ") + ", every name whole under its own meter, the tops after a gap, the LFE "
-                      "set apart with its own limiter beside it");
+                      "set apart on its own plate with its own limiter beside it, as wide as a meter and named GR (bars " + juce::String(meters.barArea(0).getHeight(), 0) + " x "
+                      + juce::String(meters.barWidth(), 0) + " px at a " + juce::String(meters.pitch(), 0) + " px pitch)");
             checkTexts("the window at 7.1.4", ed, 1.0f, 1.0f);
         }
 
@@ -2042,7 +2089,8 @@ int main(int argc, char* argv[])
         set(ParamIDs::roomLfeMode, 0.0f);
         rig.run(1.5);
         check(sea.roomShown() == 0.0f && ! ed.m_speakerMeters->isVisible() && ed.m_controls[ParamIDs::space]->getY() == stereoKnobY
-                  && ed.m_sectionScopes[3]->getBounds() == stereoScope && lookOf(spread) == Theme::Look::Resting,
+                  && ed.m_sectionScopes[3]->getBounds() == stereoScope && ed.m_sectionScopes[3]->isVisible() && outputGeometry() == stereoOutput
+                  && lookOf(spread) == Theme::Look::Resting,
               "room: back at Stereo the plan has faded away, the meters are gone, Output is as it was and the strip rests");
 
         // At 7.1.4, at the smallest size, the design size and half as big again: every text in the window fits.
@@ -2326,6 +2374,182 @@ int main(int argc, char* argv[])
             check(held && least > 60 && ! Theme::isCovered(ed.m_sea),
                   "panels: over a playing rig nothing under Render Variations, Settings, Takes or About repaints in a second (" + counts
                       + "with none open at least " + juce::String(least) + "), and it all moves again when the panel closes");
+        }
+    }
+
+    // Where a hit lands ------------------------------------------------------------------------------------------
+    std::cout << "Where a hit lands" << std::endl;
+    {
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        DemoSounds::loadInto(proc);
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        proc.setPlaying(true);
+        rig.run(0.5);
+        auto widen = [&](room::Width width)
+        {
+            auto layout = proc.getBusesLayout();
+            layout.outputBuses.getReference(0) = room::channelSet(width);
+            proc.setBusesLayout(layout);
+            proc.prepareToPlay(c_fs, c_block);
+            rig.block.setSize(room::layout(width).numChannels, c_block);
+            rig.run(0.3);
+        };
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto value = [&](const char* id) { return proc.getState().getRawParameterValue(id)->load(); };
+        auto& sw = *ed.m_hitPosition;
+        auto* spread = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::hitSpread]);
+        const auto& hits = ed.m_sections[2].bounds;
+        juce::SharedResourcePointer<Theme::Fonts> fonts;
+
+        // The group: in the Hits panel between Aim and the knobs, holding the three keys, their two lines and the
+        // wheel, clear of everything else; Gate and Duck in the title bar, clear of the subtitle and the die.
+        {
+            const auto g = ed.m_hitGroup;
+            bool clear = hits.contains(g) && g.getX() >= ed.m_aimHits.getRight() + 8 && g.getRight() <= ed.m_sections[0].bounds.getX()
+                         && ! g.intersects(ed.m_gateLamp) && ! g.intersects(ed.m_syncHits.getBounds());
+            for (const auto* id : { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor, ParamIDs::hitDuck,
+                                    ParamIDs::duckReturn })
+                clear = clear && ! g.intersects(ed.m_controls[id]->getBounds());
+            const bool inside = spread != nullptr && g.contains(spread->getBounds()) && g.contains(sw.getBounds()) && g.contains(ed.m_hitPositionText)
+                                && g.contains(ed.m_hitGroupCaption) && ! sw.getBounds().intersects(spread->getBounds())
+                                && ! sw.getBounds().intersects(ed.m_hitPositionText) && ! ed.m_hitGroupCaption.intersects(sw.getBounds())
+                                && spread->getSize() == WheelKnob::Size::Primary && spread->getY() == ed.m_controls[ParamIDs::hitSense]->getY()
+                                && ed.m_hitPositionText.getBottom() == spread->getBottom()
+                                && std::abs(sw.getBounds().getCentreY() - (spread->getY() + WheelKnob::dialWidth(WheelKnob::Size::Primary) / 2)) <= 2;
+            const int titleBottom = hits.getY() + 33;
+            const bool title = ed.m_gateMode.getBottom() <= titleBottom && ed.m_duckMode.getBottom() <= titleBottom
+                               && ed.m_gateModeLabel.getX() > ed.m_sections[2].subtitleRight && ed.m_duckMode.getRight() < ed.m_sectionDice[Presets::Hits]->getX()
+                               && ! ed.m_gateMode.getBounds().intersects(ed.m_duckModeLabel) && ed.m_gateModeLabel.getRight() <= ed.m_gateMode.getX();
+            check(clear && inside && title, "hits: Hit Position and Hit Spread sit in a group of their own between Aim and the knobs, the keys centred on "
+                                            "the wheel's dial and their name and choice on the wheel's two lines; Gate and Duck are in the title bar");
+        }
+
+        // A click on a key chooses it, one undo step; a double-click goes back to With the Pass; the choice is written
+        // under the keys. Hit Spread is a wheel like the others: typed read-out, a modulation target with a socket.
+        {
+            auto click = [&sw](int key)
+            {
+                const auto at = sw.keyArea(key).getCentre();
+                sw.mouseDown(mouseAt(sw, at, at, false));
+                sw.mouseUp(mouseAt(sw, at, at, false));
+            };
+            click(ParamIDs::HitRandom);
+            const bool random = juce::roundToInt(value(ParamIDs::hitPosition)) == ParamIDs::HitRandom && sw.words() == "Random"
+                                && sw.getProperties()["tipLine"].toString() == "Random";
+            proc.getHistory().undo();
+            const bool undone = juce::roundToInt(value(ParamIDs::hitPosition)) == ParamIDs::HitWithPass && sw.words() == "With the Pass";
+            click(ParamIDs::HitFront);
+            const bool front = juce::roundToInt(value(ParamIDs::hitPosition)) == ParamIDs::HitFront;
+            sw.mouseDoubleClick(mouseAt(sw, sw.keyArea(2).getCentre(), sw.keyArea(2).getCentre(), false));
+            const bool home = front && juce::roundToInt(value(ParamIDs::hitPosition)) == ParamIDs::HitWithPass && sw.words() == "With the Pass";
+            check(random && undone && home, "hits: a click on a key chooses where a hit lands (Random, its tooltip's first line says so) and Undo "
+                                            "takes it back; a double-click goes back to With the Pass");
+            bool drawn = true;
+            for (int choice = 0; choice < ParamIDs::numHitPositions; ++choice)
+            {
+                set(ParamIDs::hitPosition, static_cast<float>(choice));
+                rig.run(0.05);
+                drawn = drawn && sw.words() == ParamIDs::hitPositionNames[choice]
+                        && Theme::textWidth(fonts->caption(), sw.words()) <= static_cast<float>(ed.m_hitPositionText.getWidth()) - 2.0f;
+            }
+            set(ParamIDs::hitPosition, 0.0f);
+            check(drawn, "hits: each choice's name is written under the keys and fits its line");
+            check(spread != nullptr && spread->getTextFromValue(0.2).contains("20") && ModMatrix::targetIndex(ParamIDs::hitSpread) >= 0
+                      && ModMatrix::targetIndex(ParamIDs::hitPosition) < 0 && spread->getTooltip().startsWith("Hit Spread\n"),
+                  "hits: Hit Spread is a wheel with its value written (" + (spread != nullptr ? spread->getTextFromValue(0.2) : juce::String()) + "), a "
+                  "modulation target with its socket; Hit Position is chosen, not wired");
+            const int wire = proc.getMods().connect(0, ParamIDs::hitSpread, 0.5f);
+            ed.m_wires.rebuild();
+            rig.run(0.2);
+            check(wire >= 0 && spread->isModulated(), "hits: a modulator wired to Hit Spread is drawn on its wheel as on any other");
+            proc.getMods().disconnect(wire);
+            ed.m_wires.rebuild();
+        }
+
+        // Randomise and presets: the Hits die sets Hit Spread (never Hit Position, which is set to the picture as
+        // Direction is), and nothing at all while the Hits are locked.
+        {
+            const auto rolled = proc.rollLook(Presets::Hits);
+            proc.setSectionLocked(Presets::Hits, true);
+            const auto locked = proc.rollLook(-1);
+            proc.setSectionLocked(Presets::Hits, false);
+            check(rolled.values.count(ParamIDs::hitSpread) == 1 && rolled.values.count(ParamIDs::hitPosition) == 0
+                      && locked.values.count(ParamIDs::hitSpread) == 0 && Presets::isSessionParameter(ParamIDs::hitPosition)
+                      && ! Presets::isSessionParameter(ParamIDs::hitSpread),
+                  "hits: the Hits die rolls Hit Spread and leaves Hit Position; locked, it rolls neither; a preset carries Hit Spread");
+        }
+
+        // Where they rest: at Stereo both work (the hit pans with its pass and is as wide as Hit Spread); at Mono both
+        // rest, still usable, and the group's caption says why in place, whole in its box; in a room both work.
+        {
+            auto tipOf = [&ed](juce::Component& c) { return ed.m_tooltips.summary(c, dynamic_cast<juce::SettableTooltipClient&>(c).getTooltip()); };
+            const bool stereo = Theme::getLook(sw) == Theme::Look::Normal && Theme::getLook(*spread) == Theme::Look::Normal
+                                && ed.hitGroupCaption() == "Where It Lands" && ! sw.getTooltip().contains("rests");
+            widen(room::Width::Mono);
+            const auto caption = ed.hitGroupCaption();
+            const bool mono = Theme::getLook(sw) == Theme::Look::Resting && Theme::getLook(*spread) == Theme::Look::Resting && sw.isEnabled() && spread->isEnabled()
+                              && tipOf(sw).contains("rests at Mono") && tipOf(*spread).contains("rests at Mono") && caption.contains("Mono")
+                              && Theme::textWidth(fonts->caption(), caption) <= static_cast<float>(ed.m_hitGroupCaption.getWidth());
+            checkTexts("the window at Mono", ed, 1.0f, 1.0f);
+            widen(room::Width::Surround51);
+            const bool room = Theme::getLook(sw) == Theme::Look::Normal && Theme::getLook(*spread) == Theme::Look::Normal && ed.hitGroupCaption() == "Where It Lands";
+            check(stereo && mono && room, "hits: at Stereo Hit Position and Hit Spread work; at Mono they rest (still usable), each tooltip saying so first "
+                                          "and the group saying \"" + caption + "\" in place; at 5.1 they work");
+        }
+
+        // The plan: a hit is a soft glow where it lands, as big as Hit Spread makes it (a point at 0%, the room at
+        // 100%), that comes up over a few frames and fades over half a second: no flicker.
+        {
+            widen(room::Width::Surround714);
+            auto& sea = ed.m_sea;
+            set(ParamIDs::hitAim, 0.0f);
+            set(ParamIDs::gateMode, 3.0f); // Open: the hits always play
+            set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitFront));
+            const auto box = sea.roomPlanArea().withTrimmedLeft(15.0f).withTrimmedRight(15.0f).withTrimmedTop(13.0f).withTrimmedBottom(21.0f);
+            set(ParamIDs::hitSpread, 0.0f);
+            rig.run(2.0);
+            const auto point = sea.planFlash();
+            set(ParamIDs::hitSpread, 1.0f);
+            rig.run(2.0);
+            const auto room = sea.planFlash();
+            const bool sized = point.level > 0.3f && room.level > 0.3f && point.radiusY <= SeaVisualiser::c_flashPoint + 0.5f
+                               && room.radiusY >= box.getWidth() * 0.5f && point.at.y < box.getY() + 0.2f * box.getHeight()
+                               && std::abs(point.at.x - box.getCentreX()) < 2.0f && room.at.getDistanceFrom(box.getCentre()) < 3.0f;
+            check(sized, "hits: on the plan a hit in front is a glow " + juce::String(point.radiusY, 1) + " px across at the front wall at Hit Spread 0%, and "
+                             "fills the room (" + juce::String(room.radiusY, 1) + " px, the room is " + juce::String(box.getWidth(), 0) + ") at 100%");
+            // Calm: the glow's brightness never jumps by more than a fifth of full from one frame to the next, and
+            // never flickers (no more than a few turns from rising to falling a second) with the hits firing on Peaks.
+            set(ParamIDs::gateMode, 0.0f);
+            set(ParamIDs::hitSpread, ParamIDs::hitSpreadDefault);
+            float last = sea.planFlash().level, worst = 0.0f;
+            int turns = 0, direction = 0;
+            const int frames = 6 * 60;
+            for (int f = 0; f < frames; ++f)
+            {
+                rig.run(1.0 / 60.0);
+                const float now = sea.planFlash().level;
+                worst = juce::jmax(worst, std::abs(now - last));
+                const int d = now > last + 0.01f ? 1 : now < last - 0.01f ? -1 : 0;
+                if (d != 0 && direction != 0 && d != direction)
+                    ++turns;
+                if (d != 0)
+                    direction = d;
+                last = now;
+            }
+            check(worst <= 0.35f && turns <= 6 * 8, "hits: the glow is calm: at most " + juce::String(worst, 2) + " of full brightness from one frame to the next, "
+                                                   + juce::String(turns) + " turns in 6 s");
+            for (auto* id : { ParamIDs::hitAim, ParamIDs::gateMode, ParamIDs::hitPosition, ParamIDs::hitSpread })
+                proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+            widen(room::Width::Stereo);
+            rig.run(1.0);
+            check(sea.planFlash().level < 0.01f, "hits: at Stereo there is no plan, and no glow on it");
         }
     }
 

@@ -495,7 +495,12 @@ Sessions saved before Aim existed open with it off, so they keep the gate they w
 
 #### Where a hit lands
 
-Two settings decide where a hit is heard and how big it is. They have no control on the panel yet: they are host parameters, **Hit Position** and **Hit Spread**, in your host's parameter and automation lists. Hit Spread can also be wired to a modulator, and Randomise sets it.
+Two controls decide where a hit is heard and how big it is. They sit together in the Hits panel, in the cherry-edged group named **Where It Lands** between Aim and the knobs: **Hit Position**, three stamped keys, and the **Hit Spread** wheel. Under the keys is the choice in words; each key's tooltip names it too.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Hit Position** | With the Pass / Front / Random (With the Pass) | Where a hit lands (below). The keys: an arrow with a square riding it (With the Pass), a square in front of a head (Front), squares scattered round a head (Random). Click a key to choose it; double-click to go back to With the Pass. It takes no wire. |
+| **Hit Spread** | 0–100% (20%) | How far a hit bleeds into the other speakers (below). You can wire a modulator to it, and Randomise and the Hits die set it. |
 
 **Hit Position**
 
@@ -511,9 +516,11 @@ Two settings decide where a hit is heard and how big it is. They have no control
 
 **Stereo hits.** A stereo hit is placed as two sounds, its left and its right, a little apart either side of its place: a tenth of the room's half width at 0%, further apart as Hit Spread rises, and at 100% its left is in every speaker on your left and its right in every speaker on your right. So turning Hit Spread down narrows a stereo hit smoothly to a point; it never snaps to mono. It is as loud all the way: at a point it is its mono sum, exactly as loud as every track is levelled to be, and spread out its two sides together are held to that same level, measured from the sound itself as it plays. Hits whose two sides are alike, unrelated or half opposed, and mono ones, all stay within 0.1 dB of power from 0 to 100%, and bringing a hit to a point costs no extra limiting. (A file whose two sides cancel is kept as its louder side when you load it, so it cannot vanish.) At Stereo, Hit Spread is therefore how wide a stereo hit is: 100% is as wide as the file. A hit track with **Vari** off plays its mono sum.
 
-At Mono neither setting does anything: the hits are in the middle. Hit Position stays as you set it when you load a preset or Randomise.
+At Mono neither control does anything: the hits are in the middle. Both rest there (still settable, for wider files from Render Variations), the group's name reads "At Mono every hit is in the middle." and each tooltip says why from its first line. At Stereo and wider both work. Hit Position stays as you set it when you load a preset or Randomise; a preset carries Hit Spread, and while the Hits panel is locked the dice leave it alone.
 
-The strip along the bottom of the panel shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed. The gate light, Aim, Sync Hits and the Gate and Duck boxes are at the left of the panel; the seven knobs sit under Bus A's.
+On the [plan of the room](#the-room-on-the-sea) a hit is a soft cherry glow where it lands, as big as Hit Spread makes it.
+
+The strip along the bottom of the panel shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed. The gate light, Aim and Sync Hits are at the left of the panel, then Where It Lands; the Gate and Duck boxes are in the title bar, and the seven knobs sit under Bus A's.
 
 ### Output
 
@@ -539,7 +546,7 @@ The last stage before your speakers and the tape. At its left is the **Peak Trem
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
 
-**In a surround room** Space, Inflate, Push and Ceiling move up to the top of the panel and a row of **speaker meters** appears under them, one for each speaker of the room. GR and Out stay where they are. See [The speaker meters](#the-speaker-meters).
+**In a surround room** the Peak Tremolo and Space, Inflate, Push and Ceiling rise into one row under the title bar, and a row of **speaker meters**, one for each speaker of the room, runs along the foot of the panel where the scope strip was. GR, Out and Trim stay where they are, the panel's full height. See [The speaker meters](#the-speaker-meters).
 
 **How the limiter lets go.** A short over, such as a hit, is let go within a few hundredths of a second, so it doesn't leave a dip in the sound behind it. Reduction that lasts, such as a long loud swell or a heavy low end, is held steadily and let go over about a second, so the swell keeps its shape and the bass stays clean.
 
@@ -563,7 +570,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
 <img src="docs/images/cables.png" width="1520" alt="Cables">
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
-- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), **Hit Spread** (a host parameter for now: see [where a hit lands](#where-a-hit-lands)), each bus's and Stowaway's **Direction** and **Side** (a wire there decides pass by pass, see [Flight Paths](#flight-paths)), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, Height Varies, LFE Level, or the modulators' own knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), **Hit Spread** (see [where a hit lands](#where-a-hit-lands)), each bus's and Stowaway's **Direction** and **Side** (a wire there decides pass by pass, see [Flight Paths](#flight-paths)), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, Height Varies, LFE Level, or the modulators' own knobs.
 - Each wire leaves a **plug**, a small coloured dot on the right of the knob's rim, and draws a thin ring outside the knob's value ring, in the modulator's colour, showing how far it moves the knob. Several wires on one knob stack their rings outwards, and a dot on the rings shows where the modulation has the value at this moment:
   - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
   - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
@@ -805,7 +812,7 @@ Inflate, Push, the limiter and its Ceiling work the same at every width. Each si
 
 <img src="docs/images/output-room.png" width="604" alt="Output at 7.1.4 with the speaker meters">
 
-In a room Output shows a meter for each speaker, on the same scale as Out, each with its name under it and a line holding its recent peak: the front speakers L C R first, then the surrounds, then the speakers overhead, and the LFE last, in green, with a small bar beside it for its own limiter. A speaker that plays nothing (the centre with Centre Speaker off, the LFE with LFE Mode Off) stays dark.
+In a room Output shows a meter for each speaker along the foot of the panel, on the same scale as Out, each with its name under it and a line holding its recent peak: the front speakers L C R first, then the surrounds, then the speakers overhead after a gap, and the LFE last, set apart on a green plate of its own. Beside the LFE's meter on that plate is a bar named **GR**: the LFE's own limiter, which grows down as GR does (12 dB at the bottom). The main speakers' reduction is on the GR meter beside the knobs. The meters spread out over the strip, wider apart in a smaller room. A speaker that plays nothing (the centre with Centre Speaker off, the LFE with LFE Mode Off) stays dark.
 
 ### The room on the sea
 
@@ -817,7 +824,8 @@ In a room the comets fly where the passes are: the front of the room is out towa
 
 - **The ship's hull** in the middle is you.
 - **A lamp for each speaker** on the walls, lighting with what it plays. The speakers overhead are on the inner square (7.1.2 and 7.1.4), and the LFE is the square green lamp under the room.
-- **A dot for each sound**, with a short trail: the passes in their bus's colour, throws in brass, the hits in cherry and Stowaway in kelp green. A sound higher up is drawn nearer the middle.
+- **A dot for each sound**, with a short trail: the passes in their bus's colour, throws in brass, the hits in cherry and Stowaway in kelp green. A sound higher up is drawn nearer the middle. A pass or a throw on the move has a small arrowhead ahead of its dot, pointing the way it goes.
+- **A hit** is a soft cherry glow where it lands, as big as [Hit Spread](#where-a-hit-lands) makes it: a small glow at 0%, the whole room at 100%, wider across for a stereo hit. It comes up with the hit and fades over about half a second, so a run of hits glows steadily rather than flickering.
 
 ### Exporting at any width
 

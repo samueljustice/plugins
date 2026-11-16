@@ -7,11 +7,11 @@ SpeakerMeters::SpeakerMeters(SwooshbucklerAudioProcessor& processor, const Theme
     setInterceptsMouseClicks(true, false);
     setTooltip("Speaker Meters\nEach speaker's level, after the limiter and before Master Trim, on the Out meter's scale: the fronts, "
                "the surrounds, the tops, and the LFE set apart at the end. A sound shared between speakers peaks lower in each of "
-               "them than it would in one, so the limiter can be at work with no meter near the top: GR shows it. The thin bar by "
-               "the LFE is its own limiter, which holds the LFE on its own.");
+               "them than it would in one, so the limiter can be at work with no meter near the top: the GR meter beside them "
+               "shows it. The bar named GR by the LFE is the LFE's own limiter, which holds the LFE on its own.");
 }
 
-float SpeakerMeters::widthFor(room::Width width)
+float SpeakerMeters::widthFor(room::Width width, float pitch)
 {
     const auto& layout = room::layout(width);
     if (width < room::Width::Quad)
@@ -23,9 +23,9 @@ float SpeakerMeters::widthFor(room::Width width)
         mains += role == room::Role::Main ? 1 : 0;
         tops += role == room::Role::Height ? 1 : 0;
     }
-    float w = static_cast<float>(mains + tops) * c_pitch + (tops > 0 ? c_topsGap : 0.0f);
+    float w = static_cast<float>(mains + tops) * pitch + (tops > 0 ? c_topsGap : 0.0f);
     if (layout.lfe >= 0)
-        w += c_lfeGap + c_pitch + c_lfeGrW;
+        w += c_lfeGap + 2.0f * pitch; // its plate: its meter and its own reduction
     return w;
 }
 
@@ -44,15 +44,19 @@ void SpeakerMeters::setWidth(room::Width width)
 void SpeakerMeters::place()
 {
     m_count = 0;
-    m_lfeGr = {};
+    m_lfeGr = m_lfeGrName = m_lfePlate = {};
     if (m_width < room::Width::Quad)
         return;
     const auto order = room::displayChannels(m_width);
     const auto& layout = room::layout(m_width);
     const auto r = getLocalBounds().toFloat();
+    // As wide a pitch as the strip allows (whole pixels, the names' overhang kept inside), and the bars widening with it.
+    const float slots = widthFor(m_width, 1.0f) - widthFor(m_width, 0.0f);
+    m_pitch = juce::jlimit(c_minPitch, c_maxPitch, std::floor((r.getWidth() - 8.0f - widthFor(m_width, 0.0f)) / juce::jmax(1.0f, slots)));
+    m_barW = juce::jlimit(c_minBarW, c_maxBarW, std::round(m_pitch * 0.42f));
     // Centred in the space it is given, bars over names.
-    float x = r.getX() + std::floor((r.getWidth() - widthFor(m_width)) * 0.5f);
-    const float barTop = r.getY(), barBottom = r.getBottom() - c_nameH - 1.0f;
+    float x = r.getX() + std::floor((r.getWidth() - widthFor(m_width, m_pitch)) * 0.5f);
+    const float barTop = r.getY() + 1.0f, barBottom = r.getBottom() - c_nameH - 1.0f;
     bool wasMain = true;
     for (int i = 0; i < layout.numChannels; ++i)
     {
@@ -65,11 +69,16 @@ void SpeakerMeters::place()
         wasMain = role == room::Role::Main;
         const auto i_ = static_cast<size_t>(i);
         m_channels[i_] = ch;
-        m_bars[i_] = { x + (c_pitch - c_barW) * 0.5f, barTop, c_barW, barBottom - barTop };
-        m_names[i_] = { x - 2.0f, r.getBottom() - c_nameH, c_pitch + 4.0f, c_nameH };
+        m_bars[i_] = { x + std::floor((m_pitch - m_barW) * 0.5f), barTop, m_barW, barBottom - barTop };
+        m_names[i_] = { x - 2.0f, r.getBottom() - c_nameH, m_pitch + 4.0f, c_nameH };
         if (role == room::Role::Lfe)
-            m_lfeGr = { m_bars[i_].getRight() + 2.0f, barTop, c_lfeGrW, barBottom - barTop };
-        x += c_pitch;
+        {
+            // Its own limiter in the next column, the two on one plate.
+            m_lfeGr = m_bars[i_].translated(m_pitch, 0.0f);
+            m_lfeGrName = m_names[i_].translated(m_pitch, 0.0f);
+            m_lfePlate = juce::Rectangle<float>(x - 4.0f, r.getY(), 2.0f * m_pitch + 8.0f, r.getHeight());
+        }
+        x += m_pitch;
         ++m_count;
     }
 }
@@ -124,6 +133,14 @@ void SpeakerMeters::paint(juce::Graphics& g)
     m_paintedHold = m_hold;
     m_paintedLfeGrDb = m_lfeGrDb;
     const auto& layout = room::layout(m_width);
+    // The LFE's plate: a tint in its colour behind its meter and its own reduction.
+    if (! m_lfePlate.isEmpty())
+    {
+        g.setColour(TC::stowaway.withAlpha(0.07f));
+        g.fillRect(m_lfePlate);
+        g.setColour(TC::stowaway.withAlpha(0.4f));
+        Theme::Plate::stroke(g, m_lfePlate, 0.0f);
+    }
     for (int i = 0; i < m_count; ++i)
     {
         const auto i_ = static_cast<size_t>(i);
@@ -171,16 +188,23 @@ void SpeakerMeters::paint(juce::Graphics& g)
         Theme::fitText(g, room::info(layout.speakers[static_cast<size_t>(ch)]).name, m_names[i_], m_fonts.caption(), juce::Justification::centred);
     }
 
-    // The LFE's own limiter: a thin bar beside its meter that grows down, 12 dB at the bottom, as GR does.
+    // The LFE's own limiter: a bar beside its meter that grows down, 12 dB at the bottom, as GR does, named GR.
     if (! m_lfeGr.isEmpty())
     {
         g.setColour(TC::well);
         g.fillRect(m_lfeGr);
+        g.setColour(TC::edgeDark);
+        g.drawRect(m_lfeGr, 1.0f);
+        const auto in = m_lfeGr.reduced(2.0f);
         if (m_lfeGrDb < -0.05f)
         {
-            const auto in = m_lfeGr.reduced(1.0f);
             g.setColour(TC::busA);
             g.fillRect(in.withHeight(in.getHeight() * juce::jlimit(0.0f, 1.0f, -m_lfeGrDb / 12.0f)));
         }
+        g.setColour(TC::well);
+        for (float y = in.getBottom() - 3.0f; y > in.getY(); y -= 3.0f)
+            g.fillRect(juce::Rectangle<float>(in.getX(), y, in.getWidth(), 1.0f));
+        g.setColour(TC::stowaway.brighter(0.3f));
+        Theme::fitText(g, "GR", m_lfeGrName, m_fonts.caption(), juce::Justification::centred);
     }
 }

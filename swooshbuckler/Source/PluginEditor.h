@@ -387,8 +387,16 @@ private:
     int m_grReadoutTenths = 0, m_outReadoutTenths = 0;
     void updateMeterReadouts();
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_syncAttachment;
-    // Gate and ducking options
+    // Gate and ducking options (menus in the Hits panel's title bar)
     juce::ComboBox m_gateMode, m_duckMode;
+    // Where a hit lands: a tinted group in the Hits panel, between Aim and its knobs: Hit Position (three keys, its
+    // name and its choice under them, as a knob's) and the Hit Spread wheel. At Mono both rest, and the group's
+    // caption says why in place.
+    std::unique_ptr<PassSwitch> m_hitPosition;
+    juce::Rectangle<int> m_hitGroup, m_hitGroupCaption, m_hitPositionText;
+    static constexpr int c_hitKeyW = 30, c_hitKeyH = 26;
+    /** The group's caption: what it is, or at Mono why it rests. */
+    juce::String hitGroupCaption() const;
     juce::TextButton m_takeTurns { "Take Turns" };
     juce::TextButton m_linkBuses { "Link" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_linkBusesAttachment;

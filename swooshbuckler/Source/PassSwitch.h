@@ -18,6 +18,9 @@
  *   Side        Random (a head with a mark on both sides), then a mark on the left or the right of the head
  *               (Through, Overhead), or in front or behind it (Around: where the pass is loudest). Across has no
  *               sides: the switch rests.
+ *   Hit Position  In the Hits panel, where a hit lands: With the Pass (a hit, the square mark, riding a pass's
+ *               arrow), Front (a mark in front of the head) and Random (three open marks scattered round the head).
+ *               It follows no path and takes no wire; its first key is With the Pass, the default.
  *
  * It is a modulation target like a knob (a ModTarget): a wire decides pass by pass, so while one is plugged in the
  * key its modulator picks now is marked under the switch in the wire's colour and the switch's own choice is drawn
@@ -30,7 +33,7 @@
 class PassSwitch final : public ModTarget
 {
 public:
-    enum class Kind { Direction, Side };
+    enum class Kind { Direction, Side, HitPosition };
 
     PassSwitch(Kind kind, juce::Colour accent) : m_kind(kind), m_accent(accent)
     {
@@ -41,8 +44,11 @@ public:
         setWantsKeyboardFocus(false);
         setScrollWheelEnabled(false);
         setMouseCursor(juce::MouseCursor::PointingHandCursor);
-        getProperties().set("howTo", "Click a key to choose it; double-click to go back to Random. Drag a Mod jack onto it to have a "
-                                     "modulator decide, pass by pass.");
+        getProperties().set("howTo", kind == Kind::HitPosition
+                                         ? "Click a key to choose it; double-click to go back to With the Pass."
+                                         : "Click a key to choose it; double-click to go back to Random. Drag a Mod jack onto it to have a "
+                                           "modulator decide, pass by pass.");
+        updateWords();
     }
 
     /** Follows a choice parameter (Random, then the two ways or sides) and sets it, each click one undo step. */
@@ -87,6 +93,8 @@ public:
     /** The words for a choice on this path ("Left to Right", "Loudest Behind"); empty for a Side on Across. */
     juce::String wordsFor(int choice) const
     {
+        if (m_kind == Kind::HitPosition)
+            return ParamIDs::hitPositionNames[juce::jlimit(0, ParamIDs::numHitPositions - 1, choice)];
         if (m_kind == Kind::Direction)
             return Params::directionLabel(m_path, choice);
         const char* words = Params::sideLabel(m_path, choice);
@@ -254,6 +262,11 @@ private:
         const float s = juce::jmin(box.getWidth(), box.getHeight()) * 0.5f; // half the glyph's size
         constexpr float stroke = 1.5f;
         const float head = juce::jmax(3.2f, s * 0.62f);
+        if (m_kind == Kind::HitPosition)
+        {
+            drawHitGlyph(g, c, s, key, stroke, head);
+            return;
+        }
         if (m_kind == Kind::Direction)
         {
             if (m_path == 3)
@@ -320,6 +333,43 @@ private:
         }
         else
             markAt(around ? (key == 1 ? 1.0f : -1.0f) : (key == 1 ? -1.0f : 1.0f), true);
+    }
+
+    // Hit Position: the hit is a solid square (Side's mark), the pass an arrow (Direction's), the listener a ring.
+    static void drawHitGlyph(juce::Graphics& g, juce::Point<float> c, float s, int key, float stroke, float head)
+    {
+        const float mark = juce::jmax(3.0f, s * 0.5f);
+        auto square = [&g, mark](juce::Point<float> at, bool solid)
+        {
+            const auto r = juce::Rectangle<float>(mark, mark).withCentre(at);
+            if (solid)
+                g.fillRect(r);
+            else
+                g.drawRect(r, 1.0f);
+        };
+        if (key == 0)
+        {
+            // With the Pass: a pass going by (left to right, as Across draws it), the hit riding on it.
+            const juce::Point<float> a { c.x - s, c.y }, b { c.x + s, c.y };
+            line(g, a, b - (b - a) * 0.2f, stroke);
+            juce::Path arrow;
+            arrowHead(arrow, b, a, head);
+            g.fillPath(arrow);
+            square({ c.x - s * 0.22f, c.y }, true);
+            return;
+        }
+        // The listener, as Side draws it, with the hit in front (the top: the plan's front) or anywhere round.
+        const float headR = juce::jmax(2.2f, s * 0.36f);
+        const juce::Point<float> listener { c.x, c.y + s * 0.22f };
+        g.drawEllipse(juce::Rectangle<float>(2.0f * headR, 2.0f * headR).withCentre(listener), 1.2f);
+        if (key == 1)
+        {
+            square({ listener.x, listener.y - s * 0.95f }, true);
+            return;
+        }
+        square({ listener.x - s * 0.74f, listener.y - s * 0.66f }, false);
+        square({ listener.x + s * 0.78f, listener.y - s * 0.18f }, false);
+        square({ listener.x - s * 0.46f, listener.y + s * 0.56f }, false);
     }
 
     Kind m_kind;
