@@ -258,6 +258,8 @@ namespace usability
             check(!onAll.has_value() && !onPreset.has_value(), "dice: Randomise All's and the preset die's menus have no hold item");
             check(die.getTooltip().startsWith("Held:") && strip.getModuleDice(pitch)->getTooltip().contains("Hold in Randomise All"),
                   "dice: a held die's tooltip says it is held; every module die's tooltip names the hold");
+            check(die.getTitle() == "Randomise SWIRL, held" && strip.getModuleDice(pitch)->getTitle() == "Randomise PITCH",
+                  "dice: a held die's accessible name does not say it is held (" + die.getTitle() + ")");
             check(changes.stateChanges == 1 && changes.parameterChanges == 0,
                   "dice: holding a module marks the session changed once and writes no parameter (" + juce::String(changes.stateChanges) + " state changes, "
                       + juce::String(changes.parameterChanges) + " parameter changes)");
@@ -565,7 +567,7 @@ namespace usability
         pushKnob->hideTextBox(true);
 
         // Tooltips: every knob says how it handles; PITCH's names the semitone and the cent.
-        int withLine = 0, knobs = 0;
+        int withLine = 0, knobs = 0, titled = 0;
         std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
         for (int m = 0; m < Params::numModules; ++m)
             tiles.push_back(strip.getModuleTile(m));
@@ -573,11 +575,15 @@ namespace usability
             for (const auto& [slider, id] : strip.getKnobs(tile))
             {
                 ++knobs;
+                titled += slider->getTitle() == juce::String(Params::hostName(id)) ? 1 : 0;
                 const auto tip = slider->getTooltip();
                 withLine += tip.contains("Shift-drag for fine control") && tip.contains("Right-click to reset it or type a value") ? 1 : 0;
             }
         check(withLine == knobs && pitchKnob->getTooltip().contains("a semitone at a time, with Shift a cent"),
               "knobs: every knob's tooltip explains Shift-drag, the wheel and the right-click menu (" + juce::String(withLine) + " of " + juce::String(knobs) + ")");
+        std::printf("  accessible names: %d of %d knobs carry the host's name (PITCH's Size: \"%s\")\n", titled, knobs,
+                    strip.getKnobFor(Params::pitchSize) != nullptr ? strip.getKnobFor(Params::pitchSize)->getTitle().toRawUTF8() : "");
+        check(titled == knobs, "knobs: a knob's accessible name is not the name the host shows");
 
         // Every knob walks end to end with the wheel, plain and with Shift, up and down: each notch moves
         // it the wheel's way until it reaches the end (RING Ratio has a value step finer than its travel's).

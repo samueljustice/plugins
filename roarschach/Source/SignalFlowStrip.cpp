@@ -648,7 +648,7 @@ public:
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 18);
         slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
         slider.setTooltip(tooltipFor(id) + "\n" + knobHandlingTip(id));
-        slider.setTitle(Params::spec(id).name);
+        slider.setTitle(juce::String(Params::hostName(id)));   // the name a host shows ("PITCH Size")
         RoarschachLookAndFeel::setValueFontHeight(slider, Type::value);
         knob->attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_owner.m_parameters, id, slider);
 
@@ -968,6 +968,7 @@ public:
     {
         const juce::String name(m_spec.uiName);
         m_dice.setHeld(held);
+        m_dice.setTitle("Randomise " + name + (held ? ", held" : ""));
         m_dice.setTooltip((held ? "Held: Randomise All leaves " + name + " as it is, its On switch and its settings. " : juce::String())
                           + "Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
                           "Its On switch and its place in the chain stay as they are. "
