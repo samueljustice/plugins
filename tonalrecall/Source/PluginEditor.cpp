@@ -4245,6 +4245,8 @@ juce::StringArray TonalRecallEditor::buildWarnings() const
         lines.add("THE EFFECT WAS LEARNED AT " + juce::String(juce::roundToInt(m_hub.sfxRate)) + " HZ: STAMP DOES NOTHING UNTIL THE SESSION IS AT THAT RATE");
     if (m_run.ended && m_run.mode == StampRunInfo::Mode::Stamp && m_run.stampOn && m_run.bendActive && ! m_run.aligned)
         lines.add("THE CURVE WAS NOT APPLIED: THE LEARNED EFFECT WAS NOT FOUND IN WHAT WAS PLAYED. ONLY THE FIXED SHIFT WAS APPLIED.");
+    if (m_run.mode == StampRunInfo::Mode::Stamp && m_run.music)
+        lines.add("THAT IS THE LEARNED MUSIC: IT IS LEFT AS IT IS. SELECT THE EFFECT TO STAMP IT.");
     if (const float held = m_processor.lastRenderLimiterDb(); held > 0.5f)
         lines.add("THE LAST RENDER WENT OVER FULL SCALE: THE LIMITER HELD ITS PEAKS DOWN BY " + juce::String(held, 1) + " DB");
     if (m_hub.match.valid && ! m_hub.options.trimEnabled && m_hub.trimKnown && m_hub.trimDb < -0.05f)

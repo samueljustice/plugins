@@ -373,6 +373,7 @@ void MatchHub::recomputeMatchLocked()
         p->curveHopSeconds = m_match.hopSeconds;
         p->curve = m_match.curve;
         p->learnedMono = m_sfxAudio;
+        p->musicChannels = m_musicChannels;
         p->preserveFormants = m_options.preserveFormants;
         p->bendActive = m_options.bendActive();
         p->targetMidi = m_match.targetMidi;

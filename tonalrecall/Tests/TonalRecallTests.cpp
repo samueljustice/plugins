@@ -2716,8 +2716,10 @@ void testRunningPreview()
     check(! store.isArmed(Slot::Sfx) && snap(Slot::Sfx).lastEnd == PassEnd::SelectionEnd, "Learn switched itself off at the end of the selection");
     // (The run stopped being a Learn pass in the very block Learn ended in.)
     check(rig.processor->lastStampRun().mode != StampRunInfo::Mode::Learn, "the run stopped being a Learn pass as Learn ended");
-    check(hub.waitUntilIdle(60.0), "effect analysed");
+    // (Asked straight away: "running" means audio was asked for a moment ago by the real clock,
+    // and waiting for the analysis below takes longer than that moment.)
     check(AuditionBus::instance().previewRunning(), "Preview is known to be running while Learn listens");
+    check(hub.waitUntilIdle(60.0), "effect analysed");
 
     playStereo(rig, stream, 1024, 480000 + static_cast<std::int64_t>(tone.size()));   // the loop carries on
     auto run = rig.processor->lastStampRun();
@@ -2848,6 +2850,140 @@ void testLog(const juce::File& logFile)
 }
 } // namespace
 
+// Learning the music again while an effect is already learned: Preview carries on round the music
+// after Learn has finished, and must not start stamping it when the new match arrives.
+void testRelearnMusicStaysDry();
+void testRelearnMusicStaysDry()
+{
+    beginCase("learning the music again: the Preview that learned it is never stamped");
+    CaptureStore::instance().resetForTesting();
+    MatchHub::instance().resetForTesting();
+    AuditionBus::instance().resetForTesting();
+    auto& hub = MatchHub::instance();
+
+    const int n = 96000;
+    std::vector<float> pad(static_cast<std::size_t>(n), 0.0f), tone(static_cast<std::size_t>(n), 0.0f);
+    for (double midi : { 38.0, 45.0, 50.0, 53.0, 57.0 })
+        addNote(pad, midi, 0.12, 6, 0, n);
+    addNote(tone, 47.38, 0.4, 8, 0, n);
+
+    Rig rig(2, 48000.0, 1024);
+    rig.processor->useLoopPointsAsSelection(true);
+    learnChannels(rig, Slot::Music, { pad, pad }, 480000);
+    learnChannels(rig, Slot::Sfx, { tone, tone }, 480000);
+    check(hub.waitUntilIdle(60.0), "music and effect learned and matched");
+    HubSnapshot h;
+    hub.snapshot(h);
+    check(h.match.valid && h.planReady && std::abs(h.match.semitones) > 0.5, "there is a shift to stamp: " + std::to_string(h.match.semitones) + " st");
+
+    // CLEAR the music, arm Learn, press Preview on the music: it goes round three times without stopping.
+    CaptureStore::instance().clear(Slot::Music);
+    check(hub.waitUntilIdle(60.0), "the music is cleared");
+    rig.head.frozen = false;
+    rig.head.selectionStart = 480000;
+    rig.head.selectionLength = n;
+    CaptureStore::instance().arm(Slot::Music);
+
+    const std::vector<std::vector<float>> music { pad, pad };
+    const auto first = playChannels(rig, music, 1024, 480000);
+    check(snap(Slot::Music).samplesCaptured == n && ! snap(Slot::Music).armed, "the first time round is learned, and Learn has switched itself off");
+    check(hub.waitUntilIdle(60.0), "and matched while Preview is still going");
+    hub.snapshot(h);
+    check(h.match.valid && h.planReady, "the new match is ready");
+    const auto second = playChannels(rig, music, 1024, 480000);
+    const auto third = playChannels(rig, music, 1024, 480000);
+    check(first == music && second == music && third == music, "every time round, the music comes out untouched, bit for bit");
+    check(rig.processor->lastStampRun().mode != StampRunInfo::Mode::Stamp, "the run never turned into a stamp");
+    rig.stall();
+
+    // The next Preview, on the effect, is stamped as usual.
+    rig.head.selectionStart = 960000;
+    const std::vector<std::vector<float>> effect { tone, tone };
+    const auto stamped = playChannels(rig, effect, 1024, 960000);
+    check(rig.processor->lastStampRun().mode == StampRunInfo::Mode::Stamp, "the next Preview is a stamp");
+    check(stamped != effect, "and the effect is shifted");
+    rig.stall();
+
+    // Learning the effect, on the other hand, goes straight on to stamping it in the same Preview.
+    CaptureStore::instance().arm(Slot::Sfx);
+    playChannels(rig, effect, 1024, 960000);
+    check(hub.waitUntilIdle(60.0), "the effect is learned again");
+    const auto after = playChannels(rig, effect, 1024, 960000);
+    check(rig.processor->lastStampRun().mode == StampRunInfo::Mode::Stamp, "a Preview that learned the effect goes on to stamp it");
+    check(! rig.processor->lastStampRun().music && rig.processor->lastStampRun().stampOn, "and it is not mistaken for the music");
+    rig.stall();
+
+    step("the learned music is never stamped: Preview and Render leave it as it is");
+    const auto latency = static_cast<std::size_t>(rig.processor->getReportedLatency());
+    // The music comes out exactly as it went in, later by the latency (Stamp is on, so the stream is late).
+    const auto untouched = [&](const std::vector<std::vector<float>>& out, const std::vector<std::vector<float>>& in, std::size_t lag)
+    {
+        for (std::size_t c = 0; c < in.size(); ++c)
+        {
+            for (std::size_t i = 0; i < lag && i < out[c].size(); ++i)
+                if (std::abs(out[c][i]) > 0.0f)
+                    return false;
+            for (std::size_t i = 0; i + lag < out[c].size() && i < in[c].size(); ++i)
+                if (std::abs(out[c][i + lag] - in[c][i]) > 0.0f)
+                    return false;
+        }
+        return true;
+    };
+
+    // Preview on the music with Stamp on and no Learn.
+    {
+        auto in = music;
+        for (auto& c : in)
+            c.resize(c.size() + latency + 2048, 0.0f);
+        const auto out = playChannels(rig, in, 1024, 480000);
+        const auto run = rig.processor->lastStampRun();
+        check(run.mode == StampRunInfo::Mode::Stamp && run.music && ! run.stampOn, "Preview on the music: recognised, and not stamped");
+        check(untouched(out, in, latency), "it is heard exactly as it is");
+        rig.stall();
+    }
+    // A different selection of the same music (it starts part of the way in).
+    {
+        std::vector<std::vector<float>> in;
+        for (const auto& c : music)
+            in.emplace_back(c.begin() + 30011, c.begin() + 80000);
+        for (auto& c : in)
+            c.resize(c.size() + latency + 2048, 0.0f);
+        const auto out = playChannels(rig, in, 1024, 480000 + 30011);
+        check(rig.processor->lastStampRun().music && untouched(out, in, latency), "another selection of the same music is left alone too");
+        rig.stall();
+    }
+    // A Render of the music, with other audio in the handles.
+    {
+        const auto out = renderChannels(rig, music);
+        const auto run = rig.processor->lastStampRun();
+        check(run.nonRealtime && run.music, "a Render of the music recognises it after the handle");
+        bool same = true;
+        for (std::size_t c = 0; c < music.size() && same; ++c)
+            for (std::size_t i = 0; i < music[c].size() && same; ++i)
+                same = ! (std::abs(out[c][96000 + i] - music[c][i]) > 0.0f);
+        check(same, "and writes the music back exactly as it was");
+    }
+    // Something that is neither the music nor the effect still gets the fixed shift.
+    {
+        std::vector<float> other(static_cast<std::size_t>(n), 0.0f);
+        addNote(other, 55.0, 0.3, 6, 0, n);
+        std::vector<std::vector<float>> in { other, other };
+        for (auto& c : in)
+            c.resize(c.size() + latency + 2048, 0.0f);
+        const auto out = playChannels(rig, in, 1024, 0);
+        const auto run = rig.processor->lastStampRun();
+        check(run.mode == StampRunInfo::Mode::Stamp && ! run.music && run.stampOn, "another clip is still stamped");
+        check(! untouched(out, in, latency), "with the shift on it");
+        rig.stall();
+    }
+    // And the effect, after all that.
+    {
+        const auto out = renderChannels(rig, effect);
+        const auto run = rig.processor->lastStampRun();
+        check(run.aligned && ! run.music && run.stampOn, "the effect is still found and stamped in a Render");
+    }
+}
+
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
@@ -2887,6 +3023,7 @@ int main(int argc, char* argv[])
     if (const auto example = juce::SystemStats::getEnvironmentVariable("TONALRECALL_EXAMPLE_DIR", {}); example.isNotEmpty())
         testRealPair(juce::File(example), pngFolder);
     testEndToEnd(pngFolder);
+    testRelearnMusicStaysDry();
     testOutputSafety(pngFolder);
     testState();
     check(TonalRecallProcessor::liveInstanceCount() == 0, "all instances destroyed");

@@ -7,6 +7,7 @@
 #include "CaptureStore.h"
 #include "DiagnosticLog.h"
 #include "MatchHub.h"
+#include "core/ClipFinder.h"
 #include "core/Stamper.h"
 
 #include <atomic>
@@ -27,6 +28,7 @@ struct StampRunInfo
     double semitones = 0.0;              // the fixed shift of the plan
     std::uint64_t planGeneration = 0;
     bool aligned = false;                // the learned effect was found in the stream
+    bool music = false;                  // the stream was the learned music: it was left as it is
     std::int64_t alignmentOffset = 0;    // stream sample where it starts
     std::int64_t samples = 0;            // samples processed in the run
     std::int64_t selectionLength = 0;    // from the loop points (0 = unknown)
@@ -145,6 +147,7 @@ private:
     std::atomic<std::uint32_t> m_srRunIndex { 0 };
     std::atomic<bool> m_srEnded { false }, m_srNonRealtime { false }, m_srStampOn { false }, m_srBend { false };
     std::atomic<bool> m_srAligned { false };
+    std::atomic<bool> m_srMusic { false };
     std::atomic<double> m_srSemitones { 0.0 };
     std::atomic<std::uint64_t> m_srPlanGeneration { 0 };
     std::atomic<std::int64_t> m_srOffset { 0 }, m_srSamples { 0 }, m_srSelection { 0 };
@@ -167,6 +170,8 @@ private:
     StampRunInfo::Mode m_runMode = StampRunInfo::Mode::None;
     // What the run in hand saw when it began, to tell when it has to begin again (audio thread).
     bool m_runStampWanted = false, m_restartStamp = false;
+    tonalrecall::core::ClipFinder m_musicFinder;        // recognises the learned music in what is being stamped (audio thread only)
+    bool m_musicLearnedInStream = false;   // this Preview learned the music: it is not stamped (audio thread only)
     std::uint64_t m_runPlanSeen = 0;
     // The trim the Stamper was last given, and the one the audition is played at (audio thread).
     float m_trimApplied = 1.0f, m_auditionTrim = 1.0f;
