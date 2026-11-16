@@ -18,7 +18,7 @@
 [![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.16.201/SammyJ-Plugins-2026-11-16-1813-Windows-Installer.exe)
 
 <sub>One installer with the newest version of every plug-in: Swooshbuckler 2.2.0 · Sound Advice 1.0.13 · Subbertone 1.4.0 · Pitch Flattener 3.1.1 · Reversinator 2.1.0 · Roarschach 1.3.0 · Tonal Recall 0.2.3.<br>
-Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
+Apps, VST3, AU and AAX. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
 Built 16 Nov 2026, 18:13 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
 <!-- get-them-all:end -->
 

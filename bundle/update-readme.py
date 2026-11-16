@@ -52,7 +52,7 @@ def main() -> int:
         f"[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)]({base}/{win})",
         "",
         f"<sub>One installer with the newest version of every plug-in: {inside}.<br>",
-        "Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller "
+        "Apps, VST3, AU and AAX. It replaces older copies, and comes with an uninstaller "
         "(macOS: on the disk image; Windows: Settings &gt; Apps).<br>",
         f"Built {built}. Older versions are on the <a href=\"https://github.com/{repo}/releases\">releases</a> page.</sub>",
         END,
