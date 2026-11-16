@@ -45,11 +45,16 @@ namespace roar
      *
      * Where no mark is convincing (consonants, breaths, an irregular or creaky voice), unvoiced
      * grains crossfade to a resampling path instead: two read heads sweeping 20 ms read the input
-     * continuously at phi (readTape); a head that wraps starts where the waveform matches what the
-     * other head is reading, so periodic sound does not comb. Long continuous reads keep the fine
-     * structure of the input; short grains cut at a foreign rate smear it. In Follow (phi = ratio) this path is itself a
-     * correct pitch and formant shift, so marks must correlate >= 0.85 there; where phi and the
-     * ratio differ (Keep, Size) only the grains can shift the pitch and 0.5 is enough.
+     * continuously at a rate (readTape); a head that wraps starts where the waveform matches what
+     * the other head is reading, so periodic sound does not comb. Long continuous reads keep the
+     * fine structure of the input; short grains cut at a foreign rate smear it. The path is read
+     * twice: the voice read at the rate Follow would have (the pitch ratio and Size), so rough,
+     * weakly pitched voice moves with the pitch in Keep too, and the air read at phi, which an
+     * 8 ms crossfade switches to where the input is air (its power sits above 2.5 kHz:
+     * sibilants, fricatives), so esses keep their place in Keep. In Follow the two rates are
+     * equal and only one read runs. In Follow (phi = ratio) this path is itself a correct pitch
+     * and formant shift, so marks must correlate >= 0.85 there; where phi and the ratio differ
+     * (Keep, Size) the grains are what keeps the formants, and 0.5 is enough.
      *
      * Pitch ratio p = 2^(P/12). Formant semitones F = (Follow ? applied shift : 0) - 6 Size; the
      * grain read rate is phi = 2^(F/12), clamped to [0.25, 1.414]. Follow with Size 0 reads every
@@ -138,6 +143,8 @@ namespace roar
         /** Onsets found since the last reset, and the last c_maxOnsets of them (oldest first; input
             sample positions counted from the reset, end -1 while not known). */
         std::uint64_t getOnsetCount() const { return m_core.onsetCount; }
+        /** Test hook: -1 the air decision as measured, 0 never air, 1 always air. */
+        void setAirForTests (int mode) { m_airForTests = mode; }
         int getNumOnsetsKept() const { return static_cast<int> (std::min<std::uint64_t> (m_core.onsetCount, c_maxOnsets)); }
         std::pair<std::int64_t, std::int64_t> getOnset (int i) const
         {
@@ -161,6 +168,16 @@ namespace roar
             bool voiced = true;
         };
 
+        /** One resampling path (two read heads sweeping around the output time, see readTape). */
+        struct Tape
+        {
+            double phase = 0.0;                              // read-head phase (0..1)
+            std::array<double, 2> lastPhase { 0.0, 0.5 };    // per head, to see it wrap
+            std::array<double, 2> offset {};                 // per head: samples from its nominal place, set at its wrap
+            std::array<double, 2> offsetShare {};            // the sweep share that offset was chosen at
+            double xy = 0.0, xx = 0.0, yy = 0.0;             // running head correlation
+        };
+
         /** An onset found at input time: [pos - 2 ms, end] is protected (end < 0: not known yet). */
         struct Onset
         {
@@ -178,6 +195,7 @@ namespace roar
         static constexpr int c_maxMarks = 256;
         static constexpr int c_frameRing = 256;   // frames of rewrite history (62 needed at 192 kHz)
         static constexpr int c_maxRewriteLag = 200;
+        static constexpr int c_airRing = 256;     // frames of air decisions (180 needed at 192 kHz)
         static constexpr int c_maxGrains = 48;
         static constexpr int c_windowSize = 1024;
         static constexpr int c_makeupPoints = 11;
@@ -215,11 +233,18 @@ namespace roar
             int grainCount = 0;
             double nextSyn = 0.0, prevSyn = 0.0, prevHalfWidth = 0.0;
             bool prevVoiced = false;
-            double tapePhase = 0.0;        // read-head phase of the resampling path (0..1)
-            std::array<double, 2> tapeLastPhase { 0.0, 0.5 };   // per head, to see it wrap
-            std::array<double, 2> tapeOffset {};                // per head: samples from its nominal place, set at its wrap
-            std::array<double, 2> tapeOffsetShare {};           // the sweep share that offset was chosen at
-            double tapeXY = 0.0, tapeXX = 0.0, tapeYY = 0.0;   // running head correlation
+            // The resampling path, read twice: [0] the voice read at the Follow rate (the pitch
+            // ratio and Size), [1] the air read at phi. airMix (0..1) crossfades from the first to
+            // the second; it is 1 where the two rates are equal (one path) or the input is air.
+            std::array<Tape, 2> tapes {};
+            float airMix = 1.0f;
+
+            // Air: sound whose power sits above 2.5 kHz (sibilants, fricatives), decided at input
+            // time on the mid and stored per 32-sample frame so the decision lines up with its audio.
+            Biquad airLp;
+            double airLo = 0.0, airAll = 0.0;
+            bool airNow = false;
+            std::array<std::uint8_t, c_airRing> airRing {};
             double voicedShare = 0.0;      // smoothed share of the output from voiced grains
 
             // What the stream downstream should say, recorded at the first sample of every global
@@ -310,7 +335,9 @@ namespace roar
         float readRings (double pos, double rate, float& right, bool stereo) const;
         float window (double u) const;
         double markThreshold() const;
-        void readTape (double now, bool needed, float& left, float& right, bool stereo);
+        void readTape (Tape& t, double rate, double now, bool needed, float& left, float& right, bool stereo);
+        double followRate() const;
+        float airTarget (std::int64_t outPos) const;
         double alignTapeHead (double other, double nominal, double share, bool stereo) const;
 
         void updateBodyCoeffs();
@@ -341,6 +368,9 @@ namespace roar
         float m_onsetTilt = 0.9f;          // 0.9 ^ (48000 / fs)
         int m_onsetHop = 96;               // 2 ms
         double m_onsetRefFall = 0.998;
+        double m_airCoeff = 0.004;         // 5 ms power smoothing
+        float m_airStep = 1.0f / 384.0f;   // 8 ms crossfade between the two reads
+        int m_airForTests = -1;
         float m_letGoStep = 1.0f / 144.0f; // a let-go grain fades over 3 ms
         int m_throatSize = 220;
         std::array<float, c_windowSize + 2> m_cosTable {};

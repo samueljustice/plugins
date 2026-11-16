@@ -822,5 +822,205 @@ namespace pitchbatch
                                                             + juce::String(count48d) + " at 48 kHz (within 5)");
         }
     }
+    // ------------------------------------------------------------------------------------ measures
+    /** Clicks per second (spec 8.3): samples whose squared second difference is 20 dB above the
+        median of it over the 10 ms around them and above -66 dBFS, clustered within 2 ms. */
+    inline double clickRate(const Signal& x, double fs, int from = 0, int to = -1)
+    {
+        to = to < 0 ? static_cast<int>(x.size()) : std::min(to, static_cast<int>(x.size()));
+        const int n = to - from - 2;
+        if (n <= 8)
+            return 0.0;
+        std::vector<double> p(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i)
+        {
+            const double d = static_cast<double>(x[static_cast<size_t>(from + i + 2)]) - 2.0 * x[static_cast<size_t>(from + i + 1)] + x[static_cast<size_t>(from + i)];
+            p[static_cast<size_t>(i)] = d * d;
+        }
+        // Median over 10 ms on a 4x decimated copy (the max of each 4).
+        const int m = n / 4;
+        std::vector<double> q(static_cast<size_t>(m));
+        for (int k = 0; k < m; ++k)
+            q[static_cast<size_t>(k)] = std::max({ p[static_cast<size_t>(4 * k)], p[static_cast<size_t>(4 * k + 1)], p[static_cast<size_t>(4 * k + 2)], p[static_cast<size_t>(4 * k + 3)] });
+        const int half = (static_cast<int>(0.010 * fs) / 4) / 2;
+        std::vector<double> win;
+        int clicks = 0, last = -1000000;
+        const double ratio = std::pow(10.0, 2.0), floor = std::pow(10.0, -6.6);
+        for (int k = 0; k < m; ++k)
+        {
+            win.assign(q.begin() + std::max(0, k - half), q.begin() + std::min(m, k + half + 1));
+            std::nth_element(win.begin(), win.begin() + static_cast<long>(win.size() / 2), win.end());
+            const double med = win[win.size() / 2];
+            for (int j = 4 * k; j < 4 * k + 4; ++j)
+            {
+                const double v = p[static_cast<size_t>(j)];
+                if (v > med * ratio && v > floor)
+                {
+                    if (j - last > static_cast<int>(0.002 * fs))
+                        ++clicks;
+                    last = j;
+                }
+            }
+        }
+        return clicks / (n / fs);
+    }
+
+    /** Log-frequency centroid (semitones re 1 Hz) of the averaged spectrum of x[from, to), 80 Hz..6 kHz. */
+    inline double logCentroidSt(const Signal& x, double fs, int from, int to)
+    {
+        constexpr int order = 13;
+        constexpr int size = 1 << order;
+        std::vector<double> sum(size / 2 + 1, 0.0);
+        for (int start = from; start + size <= to; start += size / 2)
+        {
+            const auto pw = spectrum(x, start, order);
+            for (size_t k = 0; k < sum.size(); ++k)
+                sum[k] += pw[k];
+        }
+        double w = 0.0, acc = 0.0;
+        for (size_t k = 1; k < sum.size(); ++k)
+        {
+            const double f = static_cast<double>(k) * fs / size;
+            if (f < 80.0 || f > 6000.0)
+                continue;
+            w += sum[k];
+            acc += sum[k] * 12.0 * std::log2(f);
+        }
+        return w > 0.0 ? acc / w : 0.0;
+    }
+
+    inline Signal filtered(const Signal& x, double fs, double hpHz, double lpHz)
+    {
+        roar::Biquad h1, h2, l1, l2;
+        if (hpHz > 0.0)
+        {
+            h1.setCoeffs(roar::Biquad::highpass(fs, hpHz, roar::Biquad::c_bw4Q1));
+            h2.setCoeffs(roar::Biquad::highpass(fs, hpHz, roar::Biquad::c_bw4Q2));
+        }
+        if (lpHz > 0.0)
+        {
+            l1.setCoeffs(roar::Biquad::lowpass(fs, lpHz, roar::Biquad::c_bw4Q1));
+            l2.setCoeffs(roar::Biquad::lowpass(fs, lpHz, roar::Biquad::c_bw4Q2));
+        }
+        Signal y(x.size());
+        for (size_t i = 0; i < x.size(); ++i)
+        {
+            double v = static_cast<double>(x[i]);
+            if (hpHz > 0.0)
+                v = h2.process(h1.process(v));
+            if (lpHz > 0.0)
+                v = l2.process(l1.process(v));
+            y[i] = static_cast<float>(v);
+        }
+        return y;
+    }
+
+    inline void scaleToRmsDb(Signal& x, double db)
+    {
+        const double rms = std::sqrt(meanSquare(x, 0, static_cast<int>(x.size())));
+        const auto g = static_cast<float>(std::pow(10.0, db / 20.0) / std::max(rms, 1e-30));
+        for (auto& v : x)
+            v *= g;
+    }
+
+    /** PITCH alone with the air decision forced (-1 as measured), 512-sample blocks, latency removed. */
+    inline Signal runPitchAir(double fs, const Signal& in, roar::PitchSettings ps, int airMode)
+    {
+        roar::PitchModule m;
+        m.setParams(ps);
+        m.prepare(fs, 512);
+        m.setParams(ps);
+        m.reset();
+        m.setAirForTests(airMode);
+        const int latency = m.getLatencySamples();
+        Signal x = in;
+        x.resize(in.size() + static_cast<size_t>(latency), 0.0f);
+        Signal r(512, 0.0f);
+        for (int start = 0; start < static_cast<int>(x.size()); start += 512)
+            m.process(x.data() + start, r.data(), std::min(512, static_cast<int>(x.size()) - start), false, roar::VoiceFrameView {});
+        return Signal(x.begin() + latency, x.end());
+    }
+
+    // ------------------------------------------------------------------------------------ T5
+    inline void testKeepHandOver()
+    {
+        std::printf("[pitch] Keep: unmarked sound moves with the pitch, air stays, the hand-over is clean, Follow has one path\n");
+        const double fs = 48000.0;
+        constexpr auto keep = Params::PitchFormant::keep;
+        constexpr auto follow = Params::PitchFormant::follow;
+        const int from = static_cast<int>(1.0 * fs), to = static_cast<int>(5.0 * fs);
+
+        // (a) band-passed pink noise (400..1500 Hz) at -20 dBFS: moved by the shift, level kept.
+        auto mid = filtered(makePink(fs, 6.0, 0.5f, 5), fs, 400.0, 1500.0);
+        scaleToRmsDb(mid, -20.0);
+        const double inCentroid = logCentroidSt(mid, fs, from, to);
+        for (const float st : { -5.0f, -12.0f, 4.0f })
+        {
+            const auto out = runPitchAir(fs, mid, pitchSettings(st, keep), -1);
+            const double moved = logCentroidSt(out, fs, from, to) - inCentroid;
+            const double level = 10.0 * std::log10(meanSquare(out, from, to) / meanSquare(mid, from, to));
+            std::printf("  band-passed noise, Keep %+.0f st: centroid moved %+.2f st, level %+.2f dB\n", static_cast<double>(st), moved, level);
+            check(std::abs(moved - st) <= 0.5, "Keep " + juce::String(st, 0) + " moves unmarked noise by " + juce::String(moved, 2) + " st");
+            check(std::abs(level) <= 0.5, "Keep " + juce::String(st, 0) + " changes the level of unmarked noise by " + juce::String(level, 2) + " dB");
+        }
+
+        // (b) pink noise above 5 kHz is air: Keep -5 leaves it as the delayed input.
+        auto air = filtered(makePink(fs, 6.0, 0.5f, 6), fs, 5000.0, 0.0);
+        scaleToRmsDb(air, -20.0);
+        {
+            const auto out = runPitchAir(fs, air, pitchSettings(-5.0f, keep), -1);
+            double err = 0.0;
+            for (int i = static_cast<int>(0.02 * fs); i < static_cast<int>(air.size()); ++i)
+                err += std::pow(static_cast<double>(out[static_cast<size_t>(i)]) - air[static_cast<size_t>(i)], 2.0);
+            const double db = 10.0 * std::log10(err / (static_cast<double>(air.size()) - 0.02 * fs) / meanSquare(air, 0, static_cast<int>(air.size())) + 1e-30);
+            std::printf("  noise above 5 kHz, Keep -5: output against the input %.1f dB\n", db);
+            check(db <= -60.0, "Keep -5 changes air (noise above 5 kHz): " + juce::String(db, 1) + " dB against the input (<= -60)");
+        }
+
+        // (c) the hand-over itself: on the band-passed noise, the air decision forced to alternate
+        // every 200 ms, so the output switches between the voice read and the air read on sound
+        // whose own clicks would not hide a step (noise above 5 kHz, as the plan's signal has,
+        // hides any step from this measure).
+        {
+            roar::PitchModule m;
+            const auto ps = pitchSettings(-5.0f, keep);
+            m.setParams(ps);
+            m.prepare(fs, 32);
+            m.setParams(ps);
+            m.reset();
+            const int latency = m.getLatencySamples();
+            Signal x = mid;
+            x.resize(mid.size() + static_cast<size_t>(latency), 0.0f);
+            Signal r(32, 0.0f);
+            const int period = static_cast<int>(0.2 * fs);
+            for (int start = 0; start < static_cast<int>(x.size()); start += 32)
+            {
+                m.setAirForTests(((start + latency) / period) % 2);
+                m.process(x.data() + start, r.data(), std::min(32, static_cast<int>(x.size()) - start), false, roar::VoiceFrameView {});
+            }
+            const Signal out(x.begin() + latency, x.end());
+            const double inRate = clickRate(mid, fs, from, to), outRate = clickRate(out, fs, from, to);
+            std::printf("  band-passed noise, Keep -5, voice read and air read swapped every 200 ms: %.2f clicks per second (input %.2f)\n", outRate, inRate);
+            check(outRate <= inRate + 0.1, "the hand-over between the voice read and the air read clicks: " + juce::String(outRate, 2) + " per second (input " + juce::String(inRate, 2) + ")");
+        }
+
+        // (d) Follow has one path: the air decision changes nothing.
+        {
+            const auto voice = makeVoice(fs, 2.0);
+            struct S { float st, size; };
+            int differ = 0;
+            for (const auto& c : { S { 12, 0 }, S { 7, 0 }, S { 3, 0 }, S { -2, 0 }, S { -5, 0 }, S { -12, 0 }, S { -24, 0 }, S { 0, 0.25f }, S { 0, 0.5f }, S { 0, 1.0f } })
+            {
+                const auto a = runPitchAir(fs, voice, pitchSettings(c.st, follow, c.size), 0);
+                const auto b = runPitchAir(fs, voice, pitchSettings(c.st, follow, c.size), 1);
+                double err = 0.0;
+                for (size_t i = 0; i < a.size(); ++i)
+                    err = std::max(err, std::abs(static_cast<double>(a[i]) - b[i]));
+                differ += err > 0.0 ? 1 : 0;
+                check(err == 0.0, "Follow " + juce::String(c.st, 0) + " st, Size " + juce::String(100 * c.size, 0) + " %: the air decision changes the output by " + juce::String(toDb(err), 1) + " dBFS");
+            }
+            std::printf("  Follow, ten settings: %d change with the air decision\n", differ);
+        }
+    }
 }
 

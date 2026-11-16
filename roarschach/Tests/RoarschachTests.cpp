@@ -1266,6 +1266,10 @@ namespace
             { "sine, time-invariant chain", true, true, steady },
             { "sine, Init", true, false, {} },
             { "voice, Init", false, false, {} },
+            // The reorder fade with the pitch batch's added state (rewrite rings, the voice and air
+            // reads, the onsets): PITCH in Keep with VOCODER behind it.
+            { "voice, PITCH Keep -5 and VOCODER", false, false, { { Params::pitch, -5.0f }, { Params::pitchFormant, 1.0f },
+                                                                   { Params::vocoderOn, 1.0f }, { Params::gravel, 60.0f } } },
         };
 
         for (size_t run = 0; run < runs.size(); ++run)
@@ -9669,6 +9673,7 @@ int main(int argc, char* argv[])
         { "in", pitchbatch::testInClamp },
         { "pitchstream", pitchbatch::testPitchStream },
         { "pitch", pitchbatch::testPitchTail },
+        { "pitch", pitchbatch::testKeepHandOver },
         { "pitchsplice", pitchbatch::testOnsetDetector },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },

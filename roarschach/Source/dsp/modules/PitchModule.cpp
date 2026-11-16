@@ -101,6 +101,15 @@ namespace roar
         constexpr double c_liveShare = 0.1;
         constexpr double c_letGoSeconds = 0.003;              // a grain past a run's end fades over this
 
+        // Air (sibilants and fricatives) is left at phi in Keep; everything else that is not
+        // marked moves with the pitch. Share of the mid's power below 2.5 kHz (5 ms smoothing):
+        // air under c_airOn, not air over c_airOff, held between and below c_airLevelFloor.
+        constexpr double c_airLowpassHz = 2500.0;
+        constexpr double c_airSmoothSeconds = 0.005;
+        constexpr double c_airOn = 0.20, c_airOff = 0.35;
+        constexpr double c_airLevelFloor = 1.0e-10;
+        constexpr double c_airFadeSeconds = 0.008;
+
         // Onset detector (input time, on the mid tilted towards the band where bursts live).
         constexpr double c_onsetHopSeconds = 0.002;
         constexpr double c_onsetRise = 7.9432823472428150;    // 9 dB over the loudest of the 8 hops before (16 ms)
@@ -319,6 +328,8 @@ namespace roar
         m_onsetTilt = static_cast<float> (std::pow (0.9, 48000.0 / m_fs));
         m_onsetHop = std::max (8, static_cast<int> (std::lround (c_onsetHopSeconds * m_fs)));
         m_letGoStep = static_cast<float> (1.0 / (c_letGoSeconds * m_fs));
+        m_airCoeff = dsp::onePoleCoeff (c_airSmoothSeconds, m_fs);
+        m_airStep = static_cast<float> (1.0 / (c_airFadeSeconds * m_fs));
         m_onsetRefFall = std::exp (-static_cast<double> (m_onsetHop) / m_fs);   // 4.3 dB per second
 
         m_knobCoeff = dsp::onePoleCoeff (c_knobSmoothSeconds, m_fs);
@@ -365,6 +376,7 @@ namespace roar
         c.mode = mode;
         c.formant = formant;
         c.bandLp.setCoeffs (Biquad::lowpass (m_fs, 900.0, Biquad::c_butterworthQ));
+        c.airLp.setCoeffs (Biquad::lowpass (m_fs, c_airLowpassHz, Biquad::c_butterworthQ));
 
         c.prevSyn = -static_cast<double> (m_psolaLatency);
         c.nextSyn = c.prevSyn + m_unvoicedHalfWidth;
@@ -582,6 +594,7 @@ namespace roar
         c.prevHalfWidth = m_unvoicedHalfWidth;
         c.prevVoiced = false;
         c.voicedShare = 0.0;
+        c.airMix = airTarget (c.writePos - 1 - m_psolaLatency);   // no fade from a stale value
 
         for (auto& ch : m_body)
             for (auto& b : ch)
@@ -623,6 +636,23 @@ namespace roar
         c.bandHpX1 = mid;
         c.bandHpY1 = dsp::flushTiny (hp);
         m_band[at] = c.bandLp.process (hp);
+
+        // Air: how much of the mid's power sits below 2.5 kHz, stored once per frame.
+        {
+            const double lo = static_cast<double> (c.airLp.process (mid));
+            c.airLo = dsp::flushTiny (c.airLo + m_airCoeff * (lo * lo - c.airLo));
+            c.airAll = dsp::flushTiny (c.airAll + m_airCoeff * (static_cast<double> (mid) * static_cast<double> (mid) - c.airAll));
+            if (c.airAll > c_airLevelFloor)
+            {
+                const double share = c.airLo / c.airAll;
+                if (share < c_airOn)
+                    c.airNow = true;
+                else if (share > c_airOff)
+                    c.airNow = false;
+            }
+            if ((n & (c_voiceFrameSize - 1)) == 0)
+                c.airRing[static_cast<size_t> ((n >> c_voiceFrameShift) & (c_airRing - 1))] = c.airNow ? 1 : 0;
+        }
 
         detectOnsets (mid);
         m_detector.pushSample (mid);
@@ -1635,10 +1665,18 @@ namespace roar
             ++i;
         }
 
-        // Where no voiced grain covers the output, the resampling path does.
+        // Where no voiced grain covers the output, the resampling path does: the voice read at the
+        // Follow rate, crossfaded (8 ms) to the air read at phi where the input is air. Where
+        // the two rates are equal (Follow) it is one path and only the air read runs.
         const float tapeWeight = totalWeight - voicedWeight;
-        float tl = 0.0f, tr = 0.0f;
-        readTape (now, tapeWeight > 0.0f, tl, tr, stereo);
+        const float target = airTarget (outPos);
+        c.airMix = target > c.airMix ? std::min (target, c.airMix + m_airStep) : std::max (target, c.airMix - m_airStep);
+        const bool needed = tapeWeight > 0.0f;
+        float vl = 0.0f, vr = 0.0f, al = 0.0f, ar = 0.0f;
+        readTape (c.tapes[0], followRate(), now, needed && c.airMix < 1.0f, vl, vr, stereo);
+        readTape (c.tapes[1], c.rate, now, needed && c.airMix > 0.0f, al, ar, stereo);
+        const float tl = vl + c.airMix * (al - vl);
+        const float tr = vr + c.airMix * (ar - vr);
         yl += tapeWeight * tl;
         yr += tapeWeight * tr;
 
@@ -1803,7 +1841,25 @@ namespace roar
         return offset;
     }
 
-    void PitchModule::readTape (double now, bool needed, float& left, float& right, bool stereo)
+    double PitchModule::followRate() const
+    {
+        // The rate phi would have in Follow: the applied shift (the knob in Mono) and Size.
+        const Core& c = m_core;
+        const double shiftSt = c.mode == Params::PitchMode::mono ? c.knobSt : 12.0 * c.logRatio / c_ln2;
+        return std::clamp (std::exp (c_ln2 * (shiftSt - c_sizeFormantSt * c.size) / 12.0), c_minRate, c_maxRate);
+    }
+
+    float PitchModule::airTarget (std::int64_t outPos) const
+    {
+        const Core& c = m_core;
+        if (std::abs (followRate() - c.rate) < 1.0e-9)
+            return 1.0f;
+        const bool air = m_airForTests >= 0 ? m_airForTests > 0
+                                            : c.airRing[static_cast<size_t> ((outPos >> c_voiceFrameShift) & (c_airRing - 1))] != 0;
+        return air ? 1.0f : 0.0f;
+    }
+
+    void PitchModule::readTape (Tape& t, double rate, double now, bool needed, float& left, float& right, bool stereo)
     {
         // The resampling path for everything the voiced grains do not cover (consonants, breaths,
         // irregular voice): two read heads half a cycle apart sweep +-c_tapeSeconds / 2 around
@@ -1820,33 +1876,32 @@ namespace roar
         // crossfade joins like to like instead of combing, and a head that can start on the very
         // samples the other is reading does so. The offset shrinks with the sweep, so the path
         // is still the aligned input at phi = 1.
-        Core& c = m_core;
-        const double deviation = 1.0 - c.rate;
+        const double deviation = 1.0 - rate;
         const double share = std::min (1.0, std::abs (deviation) / c_tapeFullDeviation);
         const double sweep = c_tapeSeconds * m_fs;
         if (share > 0.0)
-            c.tapePhase += deviation / (sweep * share);
-        c.tapePhase -= std::floor (c.tapePhase);
+            t.phase += deviation / (sweep * share);
+        t.phase -= std::floor (t.phase);
 
         const double width = sweep * share;
         const auto offsetOf = [&] (int head)
         {
-            const double chosenAt = c.tapeOffsetShare[static_cast<size_t> (head)];
-            return chosenAt > 0.0 ? c.tapeOffset[static_cast<size_t> (head)] * std::min (1.0, share / chosenAt) : 0.0;
+            const double chosenAt = t.offsetShare[static_cast<size_t> (head)];
+            return chosenAt > 0.0 ? t.offset[static_cast<size_t> (head)] * std::min (1.0, share / chosenAt) : 0.0;
         };
 
         for (int head = 0; head < 2; ++head)
         {
-            double phase = c.tapePhase + 0.5 * head;
+            double phase = t.phase + 0.5 * head;
             phase -= std::floor (phase);
-            if (std::abs (phase - c.tapeLastPhase[static_cast<size_t> (head)]) > 0.5 && share > 0.0)
+            if (std::abs (phase - t.lastPhase[static_cast<size_t> (head)]) > 0.5 && share > 0.0)
             {
                 // Wrapped: the other head is half a cycle away, at the output time plus its offset.
                 const double other = now + offsetOf (1 - head);
-                c.tapeOffset[static_cast<size_t> (head)] = alignTapeHead (other, now + (0.5 - phase) * width, share, stereo);
-                c.tapeOffsetShare[static_cast<size_t> (head)] = share;
+                t.offset[static_cast<size_t> (head)] = alignTapeHead (other, now + (0.5 - phase) * width, share, stereo);
+                t.offsetShare[static_cast<size_t> (head)] = share;
             }
-            c.tapeLastPhase[static_cast<size_t> (head)] = phase;
+            t.lastPhase[static_cast<size_t> (head)] = phase;
         }
 
         if (! needed)
@@ -1855,11 +1910,11 @@ namespace roar
         std::array<float, 2> hl {}, hr {}, w {};
         for (int head = 0; head < 2; ++head)
         {
-            double phase = c.tapePhase + 0.5 * head;
+            double phase = t.phase + 0.5 * head;
             phase -= std::floor (phase);
             const double pos = now + (0.5 - phase) * width + offsetOf (head);
             w[static_cast<size_t> (head)] = window (2.0 * phase - 1.0);
-            hl[static_cast<size_t> (head)] = readRings (pos, c.rate, hr[static_cast<size_t> (head)], stereo);
+            hl[static_cast<size_t> (head)] = readRings (pos, rate, hr[static_cast<size_t> (head)], stereo);
         }
 
         // How alike the two heads are (10 ms running correlation): the crossfade keeps the power
@@ -1868,11 +1923,11 @@ namespace roar
         // Correlation of the mid ((L + R) / 2 is exactly L when R == L, so mono == stereo L == R).
         const double a = static_cast<double> (stereo ? 0.5f * (hl[0] + hr[0]) : hl[0]);
         const double b = static_cast<double> (stereo ? 0.5f * (hl[1] + hr[1]) : hl[1]);
-        c.tapeXY = dsp::flushTiny (c.tapeXY + m_tapeCorrCoeff * (a * b - c.tapeXY));
-        c.tapeXX = dsp::flushTiny (c.tapeXX + m_tapeCorrCoeff * (a * a - c.tapeXX));
-        c.tapeYY = dsp::flushTiny (c.tapeYY + m_tapeCorrCoeff * (b * b - c.tapeYY));
-        const double den = std::sqrt (c.tapeXX * c.tapeYY);
-        const float rho = den > 1.0e-20 ? static_cast<float> (std::clamp (c.tapeXY / den, c_tapeMinCorrelation, 1.0)) : 0.0f;
+        t.xy = dsp::flushTiny (t.xy + m_tapeCorrCoeff * (a * b - t.xy));
+        t.xx = dsp::flushTiny (t.xx + m_tapeCorrCoeff * (a * a - t.xx));
+        t.yy = dsp::flushTiny (t.yy + m_tapeCorrCoeff * (b * b - t.yy));
+        const double den = std::sqrt (t.xx * t.yy);
+        const float rho = den > 1.0e-20 ? static_cast<float> (std::clamp (t.xy / den, c_tapeMinCorrelation, 1.0)) : 0.0f;
 
         const float power = w[0] * w[0] + w[1] * w[1] + 2.0f * rho * w[0] * w[1];
         const float norm = 1.0f + static_cast<float> (share) * (1.0f / std::sqrt (std::max (power, 0.25f)) - 1.0f);
