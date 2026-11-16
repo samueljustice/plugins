@@ -195,15 +195,54 @@ def _version_key(path: Path):
 
 
 def latest_shell(paths: list):
-    """Only the newest shell is ever loaded. Older WaveShells stay installed and are never
-    touched: loading two versions into one process clashes their Objective-C classes."""
     return max(paths, key=_version_key) if paths else None
+
+
+def rbass_bundle_info(args) -> dict:
+    """Find the installed RBass bundle and the WaveShell version it was built for, by reading
+    its Info.xml (no plug-in is loaded). Picks the newest RBass if several Waves versions have it."""
+    roots = [Path(args.waves_dir)] if args.waves_dir else [
+        Path("/Applications/Waves"), Path("C:/Program Files (x86)/Waves"), Path("C:/Program Files/Waves")]
+    found = []
+    for root in roots:
+        for b in glob.glob(str(root / "Plug-Ins V*" / "RBass.bundle")):
+            info = {"bundle": b}
+            try:
+                xml = (Path(b) / "Contents" / "Info.xml").read_text(errors="replace")
+                for tag in ("PluginExternalVersion", "WavesLibExternalVersion", "WaveShellsBaseName"):
+                    m = re.search(rf"<{tag}>([^<]+)</{tag}>", xml)
+                    if m:
+                        info[tag] = m.group(1).strip()
+            except OSError as e:
+                info["error"] = str(e)
+            v = info.get("WavesLibExternalVersion") or info.get("PluginExternalVersion")
+            if v:
+                info["shell_version"] = tuple(int(n) for n in v.split(".")[:2])
+                found.append(info)
+    return max(found, key=lambda i: i["shell_version"]) if found else {}
+
+
+def pick_shell(paths: list, rb: dict):
+    """Exactly one shell per format is loaded: the one whose version matches the installed RBass
+    (e.g. RBass 17.1.42 lives in 'WaveShell1-VST3 17.1'). Other WaveShells stay installed and are
+    never touched; loading two versions into one process clashes their Objective-C classes.
+    If the RBass bundle cannot be found, the newest shell is used."""
+    if not paths:
+        return None
+    if rb.get("shell_version"):
+        base = rb.get("WaveShellsBaseName", "WaveShell1")
+        match = [p for p in paths if _version_key(p)[:2] == rb["shell_version"] and p.name.startswith(base)
+                 and "ARA" not in p.name]
+        if match:
+            return max(match, key=_version_key)
+    return latest_shell(paths)
 
 
 def classify_rbass_names(names, args):
     rb = [n for n in names if "rbass" in n.lower()]
-    mono = args.mono_name or next((n for n in rb if "mono" in n.lower()), None)
-    stereo = args.stereo_name or next((n for n in rb if "stereo" in n.lower()), None)
+    # VST3 shells say "RBass Mono" / "RBass Stereo", AU shells "RBass (m)" / "RBass (s)"
+    mono = args.mono_name or next((n for n in rb if re.search(r"\bmono\b|\(m\)", n, re.I)), None)
+    stereo = args.stereo_name or next((n for n in rb if re.search(r"\bstereo\b|\(s\)", n, re.I)), None)
     return rb, mono, stereo
 
 
@@ -257,6 +296,11 @@ def step1(args, paths: Paths, quiet_ok=False):
     report = {"run": run_info(), "attempts": [], "result": None}
     shells = find_shells(args)
     report["shells_found"] = {k: [str(p) for p in v] for k, v in shells.items()}
+    rb_info = {} if args.shell else rbass_bundle_info(args)
+    report["rbass_bundle"] = rb_info
+    if rb_info:
+        log(f"RBass {rb_info.get('PluginExternalVersion')} found at {rb_info['bundle']}; "
+            f"it lives in the {'.'.join(map(str, rb_info['shell_version']))} shell")
     formats = ["vst3", "au"] if args.format == "auto" else [args.format]
     loaded = None
 
@@ -268,9 +312,9 @@ def step1(args, paths: Paths, quiet_ok=False):
         if not shells[fmt]:
             report["attempts"].append({"format": fmt, "error": "no WaveShell bundle found"})
             continue
-        report.setdefault("shells_ignored", {})[fmt] = [
-            str(p) for p in shells[fmt] if p != latest_shell(shells[fmt])]
-        for shell in [latest_shell(shells[fmt])]:
+        chosen = shells[fmt][0] if args.shell else pick_shell(shells[fmt], rb_info)
+        report.setdefault("shells_ignored", {})[fmt] = [str(p) for p in shells[fmt] if p != chosen]
+        for shell in [chosen]:
             att = {"format": fmt, "shell": str(shell), "shell_version": bundle_version(shell)}
             report["attempts"].append(att)
             try:
@@ -1113,6 +1157,7 @@ def main(argv=None):
     ap.add_argument("step", choices=["step1", "step2", "render", "analyse", "all"])
     ap.add_argument("--shell", action="append", help="path to a WaveShell .vst3 or .component (repeatable)")
     ap.add_argument("--format", choices=["auto", "vst3", "au"], default="auto")
+    ap.add_argument("--waves-dir", help="Waves install folder holding 'Plug-Ins V*' (default /Applications/Waves)")
     ap.add_argument("--mono-name", help="name of the mono component in the shell, if not found automatically")
     ap.add_argument("--stereo-name", help="name of the stereo component in the shell")
     ap.add_argument("--param-frequency")
