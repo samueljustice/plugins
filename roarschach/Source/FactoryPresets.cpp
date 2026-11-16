@@ -1333,7 +1333,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 19.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
             .out(10.0f, -1.0f, 4.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
             .match(6.5f)),
 
@@ -1356,7 +1356,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
             .out(8.5f, -1.0f, 1.0f, 32.0f, 0.5f, 3.0f, off, 90.0f)
             .match(5.0f)),
 
@@ -1377,7 +1377,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
             .out(12.0f, -1.0f, 9.0f, 100.0f, 0.2f, 1.0f, off, 100.0f)
             .match(5.0f)),
 
