@@ -68,6 +68,8 @@ namespace
     // fixed order, so their index is stable), user presets count up from c_firstUserItemId.
     constexpr int c_saveAsItemId = 1001, c_deleteItemId = 1002, c_revealItemId = 1003, c_undoItemId = 1004, c_redoItemId = 1005;
     constexpr int c_firstUserItemId = 100000;
+    // A die's right-click menu.
+    constexpr int c_diceUndo = 1, c_diceRedo = 2, c_diceHold = 3;
 }
 
 //==============================================================================
@@ -409,6 +411,9 @@ void RoarschachAudioProcessorEditor::paintContent(juce::Graphics& g)
 void RoarschachAudioProcessorEditor::timerCallback()
 {
     updatePresetDisplay();
+    // (a session or another window may have changed the holds)
+    if (const auto holds = m_audioProcessor.getRollHolds(); holds != m_strip.getHeldModules())
+        m_strip.setHeldModules(holds);
     updateMonsterParams();
     if (++m_moodTick >= c_moodEveryTicks)
     {
@@ -650,11 +655,12 @@ void RoarschachAudioProcessorEditor::setupDice()
     m_presetDice.onUndoKey = [this](bool redo) { return diceUndoKey(redo); };
     m_content.addAndMakeVisible(m_presetDice);
 
-    m_strip.onRollAll = [this] { m_audioProcessor.getDice().rollAll(); afterRoll(); };
+    m_strip.onRollAll = [this](bool onlyOn) { m_audioProcessor.getDice().rollAll(m_audioProcessor.getRollHolds(), onlyOn); afterRoll(); };
     m_strip.onRollModule = [this](int module) { m_audioProcessor.getDice().rollModule(module); afterRoll(); };
     m_strip.onDiceMenu = [this](juce::Component& die) { showDiceMenu(die); };
     m_strip.onDiceUndoKey = [this](bool redo) { return diceUndoKey(redo); };
     addMouseListener(&m_diceFocusRelease, true);
+    m_strip.setHeldModules(m_audioProcessor.getRollHolds());
     afterRoll();
 }
 
@@ -666,26 +672,57 @@ void RoarschachAudioProcessorEditor::afterRoll()
     updatePresetDisplay();
 }
 
-void RoarschachAudioProcessorEditor::showDiceMenu(juce::Component& die)
+int RoarschachAudioProcessorEditor::moduleOfDie(const juce::Component& die) const
+{
+    for (int m = 0; m < Params::numModules; ++m)
+        if (m_strip.getModuleDice(m) == &die)
+            return m;
+    return -1;
+}
+
+juce::PopupMenu RoarschachAudioProcessorEditor::buildDiceMenu(juce::Component& die)
 {
     auto& dice = m_audioProcessor.getDice();
     auto& undo = dice.getUndoManager();
     juce::PopupMenu menu;
     menu.setLookAndFeel(&m_lookAndFeel);
-    menu.addItem(1, dice.canUndo() ? "Undo " + undo.getUndoDescription() : juce::String("Undo Roll"), dice.canUndo());
-    menu.addItem(2, dice.canRedo() ? "Redo " + undo.getRedoDescription() : juce::String("Redo Roll"), dice.canRedo());
-    menu.showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(die),
-                       [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this)](int result)
-                       {
-                           if (safe == nullptr || result == 0)
-                               return;
-                           auto& d = safe->m_audioProcessor.getDice();
-                           if (result == 1)
-                               d.undo();
-                           else if (result == 2)
-                               d.redo();
-                           safe->afterRoll();
-                       });
+    menu.addItem(c_diceUndo, dice.canUndo() ? "Undo " + undo.getUndoDescription() : juce::String("Undo Roll"), dice.canUndo());
+    menu.addItem(c_diceRedo, dice.canRedo() ? "Redo " + undo.getRedoDescription() : juce::String("Redo Roll"), dice.canRedo());
+    // A module's die: whether Randomise All leaves its module as it is.
+    if (const int module = moduleOfDie(die); module >= 0)
+    {
+        menu.addSeparator();
+        menu.addItem(c_diceHold, "Hold in Randomise All", true, m_audioProcessor.getRollHolds()[static_cast<size_t>(module)]);
+    }
+    return menu;
+}
+
+void RoarschachAudioProcessorEditor::applyDiceMenu(juce::Component& die, int result)
+{
+    auto& d = m_audioProcessor.getDice();
+    if (result == c_diceUndo)
+        d.undo();
+    else if (result == c_diceRedo)
+        d.redo();
+    else if (const int module = moduleOfDie(die); result == c_diceHold && module >= 0)
+    {
+        auto holds = m_audioProcessor.getRollHolds();
+        holds[static_cast<size_t>(module)] = !holds[static_cast<size_t>(module)];
+        m_audioProcessor.setRollHolds(holds);
+        m_strip.setHeldModules(holds);
+    }
+    afterRoll();
+}
+
+void RoarschachAudioProcessorEditor::showDiceMenu(juce::Component& die)
+{
+    buildDiceMenu(die).showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(die),
+                                     [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this),
+                                      target = juce::Component::SafePointer<juce::Component>(&die)](int result)
+                                     {
+                                         if (safe != nullptr && target != nullptr && result != 0)
+                                             safe->applyDiceMenu(*target, result);
+                                     });
 }
 
 bool RoarschachAudioProcessorEditor::diceUndoKey(bool redo)

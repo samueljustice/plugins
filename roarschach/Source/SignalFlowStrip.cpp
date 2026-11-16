@@ -691,8 +691,7 @@ public:
         m_moveChip.onClick = [this] { m_owner.showMoveMenu(m_module); };
         addAndMakeVisible(m_moveChip);
 
-        m_dice.setTooltip("Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
-                          "Its On switch and its place in the chain stay as they are. " + diceUndoHint());
+        setHeld(false);
         m_dice.setTitle("Randomise " + name);
         m_dice.setPillSize(c_diceSize);
         m_dice.onClick = [this] { if (m_owner.onRollModule) m_owner.onRollModule(m_module); };
@@ -777,6 +776,18 @@ public:
         // and the chip's label take the faint ink.
         RoarschachLookAndFeel::setMenuChip(m_modeChip, !m_on);
         m_dice.setMuted(!m_on);
+    }
+
+    /** Held in Randomise All: the die shows the held mark and its tooltip says so. */
+    void setHeld(bool held)
+    {
+        const juce::String name(m_spec.uiName);
+        m_dice.setHeld(held);
+        m_dice.setTooltip((held ? "Held: Randomise All leaves " + name + " as it is, its On switch and its settings. " : juce::String())
+                          + "Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
+                          "Its On switch and its place in the chain stay as they are. "
+                          "Right-click it and choose Hold in Randomise All to keep " + name + " as it is when Randomise All rolls the rest. "
+                          + diceUndoHint());
     }
 
     void setSlot(int slot)
@@ -1540,9 +1551,10 @@ SignalFlowStrip::SignalFlowStrip(juce::AudioProcessorValueTreeState& parameters,
     m_rollAll = std::make_unique<DiceButton>("Randomise All");
     m_rollAll->setTitle("Randomise All");
     m_rollAll->setTooltip("Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs "
-                          "and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, "
-                          "so the level stays safe. " + diceUndoHint());
-    m_rollAll->onClick = [this] { if (onRollAll) onRollAll(); };
+                          "and modes new settings, each inside its useful range. Shift-click to roll only the modules that are on: "
+                          "every On switch stays as it is. A module held from its die's right-click menu is left as it is. "
+                          "The module order, IN and OUTPUT stay as they are, so the level stays safe. " + diceUndoHint());
+    m_rollAll->onClick = [this] { rollAllClicked(m_rollAll->getClickModifiers()); };
     m_rollAll->onSecondaryClick = [this] { if (onDiceMenu) onDiceMenu(*m_rollAll); };
     m_rollAll->onUndoKey = [this](bool redo) { return onDiceUndoKey != nullptr && onDiceUndoKey(redo); };
     // The caption is part of the button: it clicks, hovers and shows the tooltip with the die.
@@ -1943,6 +1955,14 @@ juce::String SignalFlowStrip::diceUndoHint()
 DiceButton* SignalFlowStrip::getModuleDice(int module) const
 {
     return juce::isPositiveAndBelow(module, Params::numModules) ? &m_tiles[static_cast<size_t>(module)]->m_dice : nullptr;
+}
+
+void SignalFlowStrip::setHeldModules(const std::array<bool, Params::numModules>& held)
+{
+    for (int m = 0; m < Params::numModules; ++m)
+        if (held[static_cast<size_t>(m)] != m_held[static_cast<size_t>(m)])
+            m_tiles[static_cast<size_t>(m)]->setHeld(held[static_cast<size_t>(m)]);
+    m_held = held;
 }
 
 void SignalFlowStrip::setDiceFace(int face)

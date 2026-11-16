@@ -189,4 +189,209 @@ namespace usability
                   && juce::roundToInt(getParam(*p, Params::ringTrack)) == 0,
               "mode chip: a one-choice chip steps its choice; RING's steps Carrier and leaves Track");
     }
+
+    //==========================================================================
+    // U6: Randomise All holds modules (a die's right-click menu: view state, not a parameter, never
+    // marking the session changed) and, Shift-clicked, rolls only the modules that are on.
+    struct HostChanges final : juce::AudioProcessorListener
+    {
+        int stateChanges = 0, parameterChanges = 0;
+        void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override { ++parameterChanges; }
+        void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& d) override { stateChanges += d.nonParameterStateChanged ? 1 : 0; }
+    };
+
+    std::vector<float> moduleValues(RoarschachAudioProcessor& p, int module, bool withOn)
+    {
+        const auto& spec = Params::modules[static_cast<size_t>(module)];
+        std::vector<float> v;
+        if (withOn)
+            v.push_back(getParam(p, spec.onId));
+        for (const char* id : spec.knobIds)
+            if (id != nullptr)
+                v.push_back(getParam(p, id));
+        for (const char* id : spec.chipIds)
+            if (id != nullptr)
+                v.push_back(getParam(p, id));
+        return v;
+    }
+
+    int modulesOn(RoarschachAudioProcessor& p)
+    {
+        int n = 0;
+        for (const auto& m : Params::modules)
+            n += getParam(p, m.onId) >= 0.5f ? 1 : 0;
+        return n;
+    }
+
+    void testRollHolds()
+    {
+        std::printf("[editor] Randomise All: holds from a die's menu, Shift rolls only the modules that are on\n");
+        const int swirl = static_cast<int>(Params::ModuleId::swirl), pitch = static_cast<int>(Params::ModuleId::pitch);
+
+        // The die's menu: Hold in Randomise All on a module's die only; it toggles the hold and the mark.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            OpenEditor open(*p);
+            auto& strip = open.strip();
+            HostChanges changes;
+            p->addListener(&changes);
+            runLoop(20);
+            changes.stateChanges = 0;
+
+            const auto holdItem = [](const juce::PopupMenu& menu) -> std::optional<bool>
+            {
+                for (juce::PopupMenu::MenuItemIterator it(menu); it.next();)
+                    if (it.getItem().text == "Hold in Randomise All")
+                        return it.getItem().isTicked;
+                return std::nullopt;
+            };
+            auto& die = *strip.getModuleDice(swirl);
+            const auto before = holdItem(RoarschachEditorInspector::diceMenu(*open.editor, die));
+            const auto onAll = holdItem(RoarschachEditorInspector::diceMenu(*open.editor, *strip.getRollAllDice()));
+            const auto onPreset = holdItem(RoarschachEditorInspector::diceMenu(*open.editor, RoarschachEditorInspector::presetDice(*open.editor)));
+            RoarschachEditorInspector::applyDiceMenu(*open.editor, die, 3);
+            runLoop(60);
+            const auto after = holdItem(RoarschachEditorInspector::diceMenu(*open.editor, die));
+            const bool held = p->getRollHolds()[static_cast<size_t>(swirl)] && die.isHeld() && !strip.getModuleDice(pitch)->isHeld();
+            check(before.has_value() && !*before && after.has_value() && *after && held,
+                  "dice: a module die's menu has Hold in Randomise All; choosing it holds the module and marks its die");
+            check(!onAll.has_value() && !onPreset.has_value(), "dice: Randomise All's and the preset die's menus have no hold item");
+            check(die.getTooltip().startsWith("Held:") && strip.getModuleDice(pitch)->getTooltip().contains("Hold in Randomise All"),
+                  "dice: a held die's tooltip says it is held; every module die's tooltip names the hold");
+            check(changes.stateChanges == 0 && changes.parameterChanges == 0,
+                  "dice: holding a module tells the host nothing (" + juce::String(changes.stateChanges) + " state changes, "
+                      + juce::String(changes.parameterChanges) + " parameter changes)");
+
+            // Saved with the session, read back by a new instance; a state without holds has none; a
+            // preset load keeps them (they are not part of a sound).
+            juce::MemoryBlock state;
+            p->getStateInformation(state);
+            auto q = makeProcessor(48000.0, 512);
+            q->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+            const auto restored = q->getRollHolds();
+            auto fresh = makeProcessor(48000.0, 512);
+            juce::MemoryBlock plain;
+            fresh->getStateInformation(plain);
+            q->setStateInformation(plain.getData(), static_cast<int>(plain.getSize()));
+            const auto cleared = q->getRollHolds();
+            p->setCurrentProgram(presetIndex("Kaiju"));
+            const bool keptOverPreset = p->getRollHolds()[static_cast<size_t>(swirl)];
+            int restoredCount = 0, clearedCount = 0;
+            for (int m = 0; m < Params::numModules; ++m)
+            {
+                restoredCount += restored[static_cast<size_t>(m)] ? 1 : 0;
+                clearedCount += cleared[static_cast<size_t>(m)] ? 1 : 0;
+            }
+            check(restored[static_cast<size_t>(swirl)] && restoredCount == 1 && clearedCount == 0 && keptOverPreset,
+                  "dice: holds are saved with the session, a session without them has none, and a preset load keeps them");
+
+            // A session's holds reach an open editor on its next tick; choosing the item again lets go.
+            RoarschachEditorInspector::tick(*open.editor);
+            RoarschachEditorInspector::applyDiceMenu(*open.editor, die, 3);
+            check(!p->getRollHolds()[static_cast<size_t>(swirl)] && !die.isHeld(), "dice: choosing Hold in Randomise All again lets the module go");
+            p->removeListener(&changes);
+        }
+
+        // The held mark: drawn inside the die's pill, clear of the mode chip, and it changes the picture.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            OpenEditor open(*p);
+            auto& strip = open.strip();
+            auto& die = *strip.getModuleDice(swirl);
+            const auto plain = die.createComponentSnapshot(die.getLocalBounds(), true, 2.0f);
+            die.setHeld(true);
+            const auto held = die.createComponentSnapshot(die.getLocalBounds(), true, 2.0f);
+            int changed = 0;
+            for (int y = 0; y < plain.getHeight(); ++y)
+                for (int x = 0; x < plain.getWidth(); ++x)
+                    changed += plain.getPixelAt(x, y) != held.getPixelAt(x, y) ? 1 : 0;
+            const auto mark = die.getHeldMarkBounds();
+            auto* tile = strip.getModuleTile(swirl);
+            const auto markInTile = tile->getLocalArea(&die, mark);
+            const auto chip = strip.getModeChip(swirl)->getBounds().toFloat();
+            const bool inside = die.getPillBounds().expanded(0.01f).contains(mark) && tile->getLocalBounds().toFloat().contains(markInTile);
+            std::printf("  held mark: %.1f x %.1f at (%.1f, %.1f) in the die; %d pixels changed at 2x; chip ends at %.1f, mark starts at %.1f\n",
+                        static_cast<double>(mark.getWidth()), static_cast<double>(mark.getHeight()), static_cast<double>(mark.getX()), static_cast<double>(mark.getY()),
+                        changed, static_cast<double>(chip.getRight()), static_cast<double>(markInTile.getX()));
+            check(changed > 20 && inside && markInTile.getX() > chip.getRight(), "dice: the held mark shows, inside the die's pill and its tile, clear of the mode chip");
+            die.setHeld(false);
+        }
+
+        // Rolls with a hold: the held module never changes (switch and settings); the others are rolled,
+        // and three to seven modules are on.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            Params::Random::ModuleSet held {};
+            held[static_cast<size_t>(swirl)] = true;
+            int heldMoved = 0, othersMoved = 0, countWrong = 0, rolls = 0;
+            for (int seed = 1; seed <= 30; ++seed)
+            {
+                dice.setSeed(static_cast<std::uint32_t>(seed));
+                setParam(*p, Params::swirlOn, seed % 2 == 0 ? 1.0f : 0.0f);
+                setParam(*p, Params::swirl, 33.0f);
+                const auto heldBefore = moduleValues(*p, swirl, true);
+                const auto otherBefore = moduleValues(*p, pitch, false);
+                rolls += dice.rollAll(held) ? 1 : 0;
+                heldMoved += moduleValues(*p, swirl, true) != heldBefore ? 1 : 0;
+                othersMoved += moduleValues(*p, pitch, false) != otherBefore ? 1 : 0;
+                const int on = modulesOn(*p);
+                countWrong += on < Params::Random::minModulesOn || on > Params::Random::maxModulesOn ? 1 : 0;
+            }
+            std::printf("  30 rolls holding SWIRL: SWIRL moved in %d, PITCH rolled in %d, %d with a count of modules on outside 3-7\n", heldMoved, othersMoved, countWrong);
+            check(rolls == 30 && heldMoved == 0 && othersMoved == 30 && countWrong == 0,
+                  "dice: Randomise All leaves a held module exactly as it is, rolls the rest, and keeps three to seven modules on");
+
+            // Nothing held: the same roll as ever for a seed.
+            auto a = makeProcessor(48000.0, 512), b = makeProcessor(48000.0, 512);
+            a->getDice().setSeed(7);
+            b->getDice().setSeed(7);
+            a->getDice().rollAll();
+            b->getDice().rollAll(Params::Random::ModuleSet {}, false);
+            check(normalisedState(*a) == normalisedState(*b), "dice: with nothing held Randomise All rolls what it always rolled for a seed");
+        }
+
+        // Shift-click: only the modules that are on are rolled; every switch and every module that is off stays.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            OpenEditor open(*p);
+            auto& strip = open.strip();
+            p->getDice().setSeed(11);
+            for (int m = 0; m < Params::numModules; ++m)
+                setParam(*p, Params::modules[static_cast<size_t>(m)].onId, m % 3 == 0 ? 1.0f : 0.0f);
+            std::vector<std::vector<float>> before;
+            for (int m = 0; m < Params::numModules; ++m)
+                before.push_back(moduleValues(*p, m, true));
+            strip.rollAllClicked(juce::ModifierKeys(juce::ModifierKeys::shiftModifier));
+            int offMoved = 0, switchesMoved = 0, onRolled = 0, onCount = 0;
+            for (int m = 0; m < Params::numModules; ++m)
+            {
+                const auto now = moduleValues(*p, m, true);
+                const bool on = m % 3 == 0;
+                switchesMoved += !juce::approximatelyEqual(now[0], before[static_cast<size_t>(m)][0]) ? 1 : 0;
+                if (on)
+                {
+                    ++onCount;
+                    onRolled += now != before[static_cast<size_t>(m)] ? 1 : 0;
+                }
+                else
+                    offMoved += now != before[static_cast<size_t>(m)] ? 1 : 0;
+            }
+            const auto undoName = p->getDice().getUndoManager().getUndoDescription();
+            std::printf("  Shift-click: %d of %d modules on rolled, %d off modules moved, %d switches moved (undo: \"%s\")\n", onRolled, onCount, offMoved,
+                        switchesMoved, undoName.toRawUTF8());
+            check(onRolled == onCount && offMoved == 0 && switchesMoved == 0, "dice: Shift-click on Randomise All rolls the modules that are on and nothing else");
+            const bool undone = p->getDice().undo();
+            const auto back = moduleValues(*p, 0, true);
+            bool same = back.size() == before[0].size();
+            for (size_t k = 0; same && k < back.size(); ++k)
+                same = std::abs(back[k] - before[0][k]) < 1.0e-3f * (1.0f + std::abs(before[0][k]));
+            check(undone && same, "dice: a Shift roll is one step in the dice's undo history");
+
+            // With every module off (or held) there is nothing to roll: no step in the history.
+            for (int m = 0; m < Params::numModules; ++m)
+                setParam(*p, Params::modules[static_cast<size_t>(m)].onId, 0.0f);
+            check(!p->getDice().rollAll({}, true), "dice: a Shift roll with no module on does nothing");
+        }
+    }
 }

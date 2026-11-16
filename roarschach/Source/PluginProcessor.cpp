@@ -146,6 +146,7 @@ namespace
     const juce::Identifier c_creatureEnergy     { "viewCreatureEnergy" };
     const juce::Identifier c_creatureExperience { "viewCreatureExperience" };
     const juce::Identifier c_creatureStage      { "viewCreatureStage" };
+    const juce::Identifier c_rollHolds          { "viewRollHolds" };   // the modules held in Randomise All: their codes, space separated
     const std::array<juce::Identifier, 4> c_creatureFamily { juce::Identifier { "viewCreatureFluid" }, juce::Identifier { "viewCreatureBeast" },
                                                              juce::Identifier { "viewCreatureEldritch" }, juce::Identifier { "viewCreatureDeep" } };
 
@@ -1121,6 +1122,35 @@ void RoarschachAudioProcessor::setViewValue(const juce::Identifier& option, cons
 
     // Saved with the session, so the host should see the session as changed.
     m_hostDisplay.post(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true));
+}
+
+std::array<bool, Params::numModules> RoarschachAudioProcessor::getRollHolds() const
+{
+    std::array<bool, Params::numModules> holds {};
+    const auto text = getViewValue(c_rollHolds, {}).toString();
+    for (const auto& code : juce::StringArray::fromTokens(text, " ", ""))
+    {
+        const int m = Params::moduleIndexForCode(code.toStdString());
+        if (m >= 0)
+            holds[static_cast<size_t>(m)] = true;
+    }
+    return holds;
+}
+
+void RoarschachAudioProcessor::setRollHolds(const std::array<bool, Params::numModules>& holds)
+{
+    juce::StringArray codes;
+    for (int m = 0; m < Params::numModules; ++m)
+        if (holds[static_cast<size_t>(m)])
+            codes.add(Params::modules[static_cast<size_t>(m)].code);
+
+    // Like the creature's growth: kept with the session whenever the host saves, never reported as a
+    // change (holding a module changes no sound).
+    const juce::ScopedLock sl(m_viewLock);
+    if (codes.isEmpty())
+        m_viewOptions.remove(c_rollHolds);
+    else
+        m_viewOptions.set(c_rollHolds, codes.joinIntoString(" "));
 }
 
 bool RoarschachAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const

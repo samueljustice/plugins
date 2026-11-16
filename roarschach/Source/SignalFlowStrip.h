@@ -77,8 +77,14 @@ public:
     //==============================================================================
     // The dice: ROLL ALL (in the empty slot after the last module) and one per module tile. The
     // editor connects them to the processor's DiceRoller.
-    std::function<void()> onRollAll;
+    /** Randomise All: onlyOn is true for a Shift-click (roll only the modules that are on). */
+    std::function<void(bool onlyOn)> onRollAll;
     std::function<void(int module)> onRollModule;
+    /** What a click on Randomise All does with these modifier keys (the die calls it). */
+    void rollAllClicked(juce::ModifierKeys modifiers) { if (onRollAll) onRollAll(modifiers.isShiftDown()); }
+    /** The modules held in Randomise All: their dice show the held mark. */
+    void setHeldModules(const std::array<bool, Params::numModules>& held);
+    std::array<bool, Params::numModules> getHeldModules() const { return m_held; }
     /** A right-click on any die (the undo menu), with the die it came from. */
     std::function<void(juce::Component& die)> onDiceMenu;
     /** Cmd+Z (redo false) or Shift+Cmd+Z (redo true) on a die that has the keyboard focus. True if
@@ -197,6 +203,7 @@ private:
     AnimationTimer m_animationTimer { *this };
 
     juce::Component* m_menuParent = nullptr;
+    std::array<bool, Params::numModules> m_held {};
     float m_titlePoint = Theme::Type::tileTitle;   // the module names' size: the largest at which every name fits its tile
     double m_lastTickMs = 0.0;
 };

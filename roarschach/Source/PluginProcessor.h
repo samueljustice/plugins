@@ -67,6 +67,12 @@ public:
     juce::var getViewValue(const juce::Identifier& option, const juce::var& defaultValue) const;
     void setViewValue(const juce::Identifier& option, const juce::var& value);
 
+    /** The modules held in Randomise All (a module die's right-click menu): view state, not
+        parameters. Saved with the session as it is carried along, without telling the host that the
+        session changed. Message thread. */
+    std::array<bool, Params::numModules> getRollHolds() const;
+    void setRollHolds(const std::array<bool, Params::numModules>& holds);
+
     PresetManager& getPresetManager() { return m_presetManager; }
     /** The preset, ROLL ALL and module dice, with their undo history (message thread). */
     DiceRoller& getDice() { return m_dice; }

@@ -105,6 +105,8 @@ struct RoarschachEditorInspector
     static juce::Button& presetName(RoarschachAudioProcessorEditor& e) { return e.m_presetNameButton; }
     static void tick(RoarschachAudioProcessorEditor& e) { e.timerCallback(); }
     static int paletteSeen(RoarschachAudioProcessorEditor& e) { return e.m_paletteSerialSeen; }
+    static juce::PopupMenu diceMenu(RoarschachAudioProcessorEditor& e, juce::Component& die) { return e.buildDiceMenu(die); }
+    static void applyDiceMenu(RoarschachAudioProcessorEditor& e, juce::Component& die, int result) { e.applyDiceMenu(die, result); }
 };
 
 namespace
@@ -9731,6 +9733,7 @@ int main(int argc, char* argv[])
         { "chamberclip", testChamberClip },
         { "editor", testEditor },
         { "editor", usability::testModeMenus },
+        { "editor", usability::testRollHolds },
         { "ui", testUi },
         { "dice", testDice },
         { "creature", testCreature },
