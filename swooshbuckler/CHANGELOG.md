@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 2.2.0
 
 ### Surround, up to 7.1.4
 
