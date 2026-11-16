@@ -9660,6 +9660,7 @@ int main(int argc, char* argv[])
         { "blocks", pitchbatch::testBlockChains },
         { "silence", pitchbatch::testSilence },
         { "reset", pitchbatch::testResetEqualsFresh },
+        { "in", pitchbatch::testInClamp },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },

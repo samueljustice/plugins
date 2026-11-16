@@ -236,4 +236,69 @@ namespace pitchbatch
             check(db < -100.0, juce::String(c.name) + ": a reset differs from a new instance by " + juce::String(db, 1) + " dB");
         }
     }
+    // ------------------------------------------------------------------------------------ T11
+    /** One absurd sample (1e30) cannot reach the modules: IN clamps to +-32. */
+    inline void testInClamp()
+    {
+        std::printf("[in] one sample of 1e30: finite, under the ceiling, TAME back at rest within 2.5 s\n");
+        const double sr = 48000.0;
+        auto voice = makeVoice(sr, 2.0);
+        const int at = static_cast<int>(1.0 * sr);
+        {
+            auto spiked = voice;
+            spiked[static_cast<size_t>(at)] = 1.0e30f;
+            auto p = makeProcessor(sr, 512);
+            setAllModules(*p, false);
+            setValues(*p, { { Params::tameOn, 1.0f }, { Params::tame, 60.0f } });
+            restart(*p, sr, 512);
+            const auto out = render(*p, dual(spiked), 512);
+            const auto st = stats(out);
+            std::printf("  whole plug-in, TAME alone: peak %.2f dBFS, finite %d\n", toDb(st.peak), st.finite ? 1 : 0);
+            check(st.finite && st.peak <= ceilingGain(-1.0f) * 1.0001f, "a 1e30 sample gives a non-finite or over-ceiling output");
+        }
+        // IN then TAME, as in the chain: how long TAME's reduction stays more than 1 dB away from a
+        // run without the sample.
+        auto longVoice = makeVoice(sr, 8.0);
+        const auto grTrace = [&](bool spike)
+        {
+            roar::InModule inModule;
+            roar::TameModule tame;
+            inModule.prepare(sr, 64);
+            tame.prepare(sr, 64);
+            roar::InSettings is;
+            is.autoLevel = false;
+            inModule.setParams(is);
+            roar::TameSettings ts;
+            ts.amount = 0.6f;
+            tame.setParams(ts);
+            inModule.reset();
+            tame.reset();
+            auto x = longVoice;
+            if (spike)
+                x[static_cast<size_t>(at)] = 1.0e30f;
+            Signal r = x;
+            std::vector<float> gr;
+            for (int start = 0; start < static_cast<int>(x.size()); start += 64)
+            {
+                const int n = std::min(64, static_cast<int>(x.size()) - start);
+                inModule.process(x.data() + start, r.data() + start, n, false, roar::VoiceFrameView {});
+                tame.process(x.data() + start, r.data() + start, n, false, inModule.getVoiceView());
+                gr.push_back(tame.getGrDb());
+            }
+            return gr;
+        };
+        const auto rest = grTrace(false), spiked = grTrace(true);
+        int lastOff = -1;
+        for (size_t k = 0; k < rest.size(); ++k)
+            if (std::abs(spiked[k] - rest[k]) > 1.0f)
+                lastOff = static_cast<int>(k);
+        const double recoverMs = lastOff < 0 ? 0.0 : 1000.0 * ((lastOff + 1) * 64 - at) / sr;
+        const size_t at100 = static_cast<size_t>((at + static_cast<int>(0.1 * sr)) / 64);
+        std::printf("  IN then TAME: reduction 100 ms after the sample %.2f dB (without it %.2f dB); within 1 dB of rest for good %.0f ms after it\n",
+                    static_cast<double>(spiked[at100]), static_cast<double>(rest[at100]), recoverMs);
+        // A +30 dBFS sample is still a large event for TAME: with the clamp it lets go in about 2 s
+        // (5.6 s without it). The clamp's job is to keep 1e30 out, not to make +30 dBFS harmless.
+        check(recoverMs <= 2500.0, "TAME stays more than 1 dB from rest for " + juce::String(recoverMs, 0) + " ms after a 1e30 sample (<= 2500)");
+    }
 }
+

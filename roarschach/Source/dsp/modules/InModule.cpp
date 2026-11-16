@@ -11,6 +11,7 @@ namespace roar
     {
         constexpr double c_trimSeconds = 0.020 / 4.6;          // settles within 20 ms
         constexpr double c_blendSeconds = 0.020;
+        constexpr double c_inputClamp = 32.0;                    // +30 dBFS: no legitimate sample reaches it
 
         // Loudness weighting (K-style): the level every decision below is made on.
         constexpr double c_weightHpHz = 80.0;
@@ -470,6 +471,8 @@ namespace roar
             double x = static_cast<double> (dsp::finiteOrZero (l[i]));
             if (stereo)
                 x = 0.5 * (x + static_cast<double> (dsp::finiteOrZero (r[i])));
+            // One absurd sample cannot reach the modules (several have no clamp of their own).
+            x = std::clamp (x, -c_inputClamp, c_inputClamp);
 
             if (trimMoving)
             {
