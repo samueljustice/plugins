@@ -1885,6 +1885,41 @@ void testLevelsRep()
         }
     }
 
+    // A10c: a young match still weighed against its preset's hint: the state carries the hint's
+    // prior, so the restored instance goes on as the one that saved it would.
+    {
+        const auto x = voice(10.0, -26.0, 511);
+        const Signal start(x.begin(), x.begin() + static_cast<int>(2.0 * sr));
+        auto p = chain(Chain::initSteady);
+        p->postLevelHint(4.0);
+        (void) pass(*p, start);
+        const auto levelsBefore = p->getChain().getLevels();
+        const auto state = saveState(*p);
+        const auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize()));
+        const juce::String priorText = xml != nullptr ? xml->getStringAttribute("levelOutPrior") : juce::String();
+        p->reset();
+        const auto first = pass(*p, x);
+        auto q = chain(Chain::initSteady);
+        q->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        restart(*q, sr, 512);
+        (void) pass(*q, Signal(512, 0.0f));
+        const auto restored = q->getChain().getLevels();
+        q->reset();
+        const auto second = pass(*q, x);
+        double worst = 0.0;
+        const auto a = windowLevels(first, x, sr, 40.0), b = windowLevels(second, x, sr, 40.0);
+        for (size_t w = 0; w < a.size() && w < b.size(); ++w)
+            worst = std::max(worst, std::abs(a[w].second - b[w].second));
+        std::printf("  A10c hint +4 dB, saved after %.2f matched s (M %+.2f, prior \"%s\"): restored instance against the original, next pass: within %.3f dB; M at the end %+.2f / %+.2f\n",
+                    levelsBefore.out.seconds, levelsBefore.out.matchDb, priorText.toRawUTF8(), worst,
+                    static_cast<double>(p->getChain().getOutput().getMatchDb()), static_cast<double>(q->getChain().getOutput().getMatchDb()));
+        check(levelsBefore.out.seconds > 0.5 && levelsBefore.out.seconds < 2.0 && levelsBefore.out.priorWeight > 0.0,
+              "A10c: the match is not young with the hint's prior in force when saved");
+        check(std::abs(restored.out.priorWeight - levelsBefore.out.priorWeight) < 0.01 && std::abs(restored.out.priorDb - levelsBefore.out.priorDb) < 0.01,
+              "A10c: the hint's prior did not survive the state");
+        check(worst <= 0.1, "A10c: a restored young match renders differently from the instance that saved it (" + juce::String(worst, 3) + " dB)");
+    }
+
     // A11: states without level attributes, or with non-finite ones, load as a new instance.
     {
         auto p = chain(Chain::init);

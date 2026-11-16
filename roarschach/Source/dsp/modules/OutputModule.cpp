@@ -24,7 +24,7 @@ namespace roar
         constexpr double c_stopSeconds = 10.0;
         constexpr double c_minMatchDb = -12.0, c_maxMatchDb = 15.0;
         constexpr double c_inMovedDb = 2.0, c_inMovedDataSeconds = 4.0;
-        constexpr double c_hintWeightSeconds = 2.0;          // a hint's weight in matched seconds, fading to 0 at the stop
+        constexpr double c_hintWeightSeconds = OutputModule::hintWeightSeconds;
         constexpr double c_matchBlendSeconds = 0.020;
         constexpr double c_minTraceGain = 1.0e-3;
 
@@ -576,7 +576,10 @@ namespace roar
 
     OutputModule::MatchState OutputModule::getMatchState() const
     {
-        return m_m;
+        auto m = m_m;
+        m.priorDb = m_s.priorDb;
+        m.priorWeight = m_s.priorWeight;
+        return m;
     }
 
     void OutputModule::restoreLearning (const MatchState& in)
@@ -595,8 +598,11 @@ namespace roar
         m_m = m;
         m_s.probing = false;
         m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
-        m_s.priorDb = 0.0;
-        m_s.priorWeight = 0.0;
+        // The hint's prior goes on as it would have in the saved instance (a young match is still
+        // weighed against it); missing or damaged: none.
+        const double weight = finiteOr (in.priorWeight, 0.0);
+        m_s.priorWeight = weight > 0.0 ? std::min (weight, c_hintWeightSeconds) : 0.0;
+        m_s.priorDb = m_s.priorWeight > 0.0 ? clampMatch (finiteOr (in.priorDb, 0.0)) : 0.0;
         m_s.matchApplied = m_m.matchDb;
     }
 

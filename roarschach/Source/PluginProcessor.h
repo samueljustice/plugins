@@ -240,6 +240,7 @@ private:
         std::atomic<double> outGainRefDb { 0.0 };
         std::atomic<int> outHaveKey { 0 };
         std::atomic<std::uint64_t> outKey { 0 };
+        std::atomic<double> outPriorDb { 0.0 }, outPriorWeight { 0.0 };
         std::atomic<int> outKind { 0 };          // roar::LevelState::OutKind
         std::atomic<int> roarHave { 0 };         // ROAR's learnt makeup (RoarModule::LevelLearning::toValues)
         std::array<std::atomic<double>, roar::RoarModule::LevelLearning::numValues> roar {};

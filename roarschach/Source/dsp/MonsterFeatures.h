@@ -80,6 +80,8 @@ namespace roar
         std::atomic<double> levelOutGainRefDb { 0.0 };  // IN's gain when the data began
         std::atomic<int> levelOutHaveKey { 0 };
         std::atomic<std::uint64_t> levelOutKey { 0 };   // the settings key the data belongs to
+        std::atomic<double> levelOutPriorDb { 0.0 };    // the hint's prior still in force
+        std::atomic<double> levelOutPriorWeight { 0.0 };
         // ROAR's learnt makeup (RoarModule::LevelLearning::toValues), published as one consistent
         // set: levelRoarSeq is odd while the audio thread writes it (readLevelRoar retries).
         static constexpr int numLevelRoar = 10;

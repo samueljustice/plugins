@@ -729,6 +729,8 @@ namespace roar
             f.levelOutGainRefDb.store (m.gainRefDb, std::memory_order_relaxed);
             f.levelOutHaveKey.store (m.haveKey ? 1 : 0, std::memory_order_relaxed);
             f.levelOutKey.store (m.key, std::memory_order_relaxed);
+            f.levelOutPriorDb.store (m.priorDb, std::memory_order_relaxed);
+            f.levelOutPriorWeight.store (m.priorWeight, std::memory_order_relaxed);
             static_assert (RoarModule::LevelLearning::numValues == MonsterFeatures::numLevelRoar);
             f.publishLevelRoar (m_sets[static_cast<size_t> (front)].roar().getLearning().toValues());
         }

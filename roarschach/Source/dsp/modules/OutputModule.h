@@ -162,9 +162,13 @@ namespace roar
             double gainRefDb = 0.0;        // IN's gain (dB) when the data began
             bool haveKey = false;
             std::uint64_t key = 0;         // the settings key the data belongs to
+            double priorDb = 0.0;          // a hint's prior still in force (getMatchState fills these
+            double priorWeight = 0.0;      // from the learn; 0 weight: none), saved with the session
         };
+        /** A hint's weight in matched seconds at first (it fades to 0 at the stop). */
+        static constexpr double hintWeightSeconds = 2.0;
         MatchState getMatchState() const;
-        /** A session restore: the kept state; probe and prior are cleared, M applies at once. */
+        /** A session restore: the kept state with its hint prior; the probe is cleared, M applies at once. */
         void restoreLearning (const MatchState& m);
         /** Forget the match (M = 0): a fresh learn. */
         void clearLearning();

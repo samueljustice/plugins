@@ -164,6 +164,7 @@ namespace
     const juce::Identifier c_levelOutData    { "levelOutData" };
     const juce::Identifier c_levelOutGainDb  { "levelOutGainDb" };
     const juce::Identifier c_levelOutKey     { "levelOutKey" };
+    const juce::Identifier c_levelOutPrior   { "levelOutPrior" };   // the hint's prior: "dB weight" (missing: none)
     const juce::Identifier c_levelRoar       { "levelRoar" };   // ROAR's learnt makeup: its numbers' bits, 16 hex digits each, space separated
 
     // Exact and locale-free: the same state saves to the same text, and a restored instance
@@ -265,6 +266,18 @@ namespace
                 l.out.haveKey = true;
                 l.out.key = static_cast<std::uint64_t>(key.getHexValue64());
             }
+            juce::StringArray prior;
+            prior.addTokens(xml.getStringAttribute(c_levelOutPrior.toString()).trim(), " ", "");
+            prior.removeEmptyStrings();
+            if (prior.size() == 2 && prior[0].containsOnly("+-.0123456789eE") && prior[1].containsOnly("+-.0123456789eE"))
+            {
+                const double db = prior[0].getDoubleValue(), weight = prior[1].getDoubleValue();
+                if (std::isfinite(db) && std::isfinite(weight) && weight > 0.0)
+                {
+                    l.out.priorDb = juce::jlimit(-12.0, 15.0, db);
+                    l.out.priorWeight = juce::jmin(weight, roar::OutputModule::hintWeightSeconds);
+                }
+            }
         }
         if (const auto learning = roarLearningFromText(xml.getStringAttribute(c_levelRoar.toString())))
         {
@@ -356,6 +369,8 @@ void RoarschachAudioProcessor::postLevelRestore(const roar::LevelState& l)
     r.outGainRefDb.store(l.out.gainRefDb, std::memory_order_relaxed);
     r.outHaveKey.store(l.out.haveKey ? 1 : 0, std::memory_order_relaxed);
     r.outKey.store(l.out.key, std::memory_order_relaxed);
+    r.outPriorDb.store(l.out.priorDb, std::memory_order_relaxed);
+    r.outPriorWeight.store(l.out.priorWeight, std::memory_order_relaxed);
     r.outKind.store(static_cast<int>(l.outKind), std::memory_order_relaxed);
     r.roarHave.store(l.haveRoar ? 1 : 0, std::memory_order_relaxed);
     {
@@ -392,6 +407,8 @@ void RoarschachAudioProcessor::applyLevelRequests(const roar::ChainSettings& set
             l.out.gainRefDb = r.outGainRefDb.load(std::memory_order_relaxed);
             l.out.haveKey = r.outHaveKey.load(std::memory_order_relaxed) != 0;
             l.out.key = r.outKey.load(std::memory_order_relaxed);
+            l.out.priorDb = r.outPriorDb.load(std::memory_order_relaxed);
+            l.out.priorWeight = r.outPriorWeight.load(std::memory_order_relaxed);
             l.outKind = static_cast<roar::LevelState::OutKind>(r.outKind.load(std::memory_order_relaxed));
             l.haveRoar = r.roarHave.load(std::memory_order_relaxed) != 0;
             {
@@ -487,6 +504,8 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
         l.out.gainRefDb = f.levelOutGainRefDb.load();
         l.out.haveKey = f.levelOutHaveKey.load() != 0;
         l.out.key = f.levelOutKey.load();
+        l.out.priorDb = f.levelOutPriorDb.load();
+        l.out.priorWeight = f.levelOutPriorWeight.load();
         std::array<double, roar::RoarModule::LevelLearning::numValues> v {};
         l.haveRoar = f.readLevelRoar(v);
         if (l.haveRoar)
@@ -524,6 +543,13 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
             m.gainRefDb = r.outGainRefDb.load();
             m.haveKey = r.outHaveKey.load() != 0;
             m.key = r.outKey.load();
+            m.priorDb = r.outPriorDb.load();
+            m.priorWeight = r.outPriorWeight.load();
+        }
+        else
+        {
+            m.priorDb = m.matchDb;   // a hint restore: the hint's prior, as applyHint sets it
+            m.priorWeight = roar::OutputModule::hintWeightSeconds;
         }
         l.out = m;
     };
@@ -535,6 +561,8 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
             return;
         roar::OutputModule::MatchState m;
         m.matchDb = m_levelHint.matchDb.load();
+        m.priorDb = m.matchDb;
+        m.priorWeight = roar::OutputModule::hintWeightSeconds;
         l.out = m;
     };
     const bool restorePending = restoreSeq != 0 && restoreSeq > applied;
@@ -951,6 +979,8 @@ void RoarschachAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
             state.setProperty(c_levelOutGainDb, round2(l.out.gainRefDb), nullptr);
         if (l.out.haveKey)
             state.setProperty(c_levelOutKey, juce::String::toHexString(static_cast<juce::int64>(l.out.key)).paddedLeft('0', 16), nullptr);
+        if (l.out.priorWeight > 0.0)
+            state.setProperty(c_levelOutPrior, juce::String(round2(l.out.priorDb)) + " " + juce::String(round2(l.out.priorWeight)), nullptr);
         if (l.haveRoar)
             state.setProperty(c_levelRoar, roarLearningToText(l.roar), nullptr);
     }
