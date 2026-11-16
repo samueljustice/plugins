@@ -1070,6 +1070,17 @@ def _style(ax):
     ax.axhline(0, color=AXIS, linewidth=1.0, zorder=1)
 
 
+def plot_values(r: dict, cols: list) -> list:
+    """Wet minus dry per band for real material. A test signal has almost no energy away from its
+    own frequency, so wet minus dry there only measures the dry file's noise floor; for test signals
+    the plotted value is the wet band level relative to the signal's input level instead."""
+    if r["category"] == "test_signals":
+        m = re.search(r"_(-?\d+)dBFS", r["item"])
+        ref = float(m.group(1)) if m else 0.0
+        return [float(r[f"wet_{c}"]) - ref for c in cols]
+    return [float(r[f"diff_{c}"]) for c in cols]
+
+
 def plots(paths: Paths, lt_rows: list):
     import matplotlib
 
@@ -1090,8 +1101,10 @@ def plots(paths: Paths, lt_rows: list):
     for r in grid:
         by_item.setdefault((r["category"], r["item"]), []).append(r)
     for (cat, item), rs in by_item.items():
-        diffs = np.array([[float(r[f"diff_{c}"]) for c in cols] for r in rs])
+        test = cat == "test_signals"
+        diffs = np.array([plot_values(r, cols) for r in rs])
         lim = max(3.0, float(np.nanmax(np.abs(diffs))) * 1.05)
+        ylo, yhi = ((-100.0, 6.0) if test else (-lim, lim))
         for orig in ("in", "out"):
             sub = [r for r in rs if r["original_bass"] == orig]
             if not sub:
@@ -1103,22 +1116,23 @@ def plots(paths: Paths, lt_rows: list):
                 pan = sorted((r for r in sub if int(r["frequency_index"]) == fi), key=lambda r: int(r["intensity_index"]))
                 for r in pan:
                     ii = int(r["intensity_index"])
-                    ax.semilogx(BAND_CENTRES, [float(r[f"diff_{c}"]) for c in cols],
+                    ax.semilogx(BAND_CENTRES, plot_values(r, cols),
                                 color=INTENSITY_RAMP[ii % len(INTENSITY_RAMP)], linewidth=2,
                                 label=f"Intensity {short(r['intensity'])}")
                 ax.set_title(f"Frequency {short(pan[0]['frequency'])}", color=INK, fontsize=9, loc="left")
                 ax.xaxis.set_major_locator(FixedLocator(xticks))
                 ax.xaxis.set_major_formatter(fmt)
                 ax.set_xlim(BAND_CENTRES[0], BAND_CENTRES[-1])
-                ax.set_ylim(-lim, lim)
+                ax.set_ylim(ylo, yhi)
             for ax in axes.flat[len(fis):]:
                 ax.set_visible(False)
             for ax in axes[-1]:
                 ax.set_xlabel("Band centre (Hz)")
             for ax in axes[:, 0]:
-                ax.set_ylabel("Wet − dry (dB)")
+                ax.set_ylabel("Wet re input level (dB)" if test else "Wet − dry (dB)")
             h, lab = axes.flat[0].get_legend_handles_labels()
-            fig.suptitle(f"{cat}/{item}: RBass wet minus dry per 1/12-octave band, Original bass {orig}",
+            what = "wet level relative to the input level" if test else "wet minus dry"
+            fig.suptitle(f"{cat}/{item}: RBass {what} per 1/12-octave band, Original bass {orig}",
                          x=0.01, ha="left", color=INK, fontsize=10)
             fig.tight_layout(rect=(0, 0.05, 1, 0.95))
             fig.legend(h, lab, loc="lower center", frameon=False, ncol=len(lab), fontsize=8, labelcolor=INK2)
@@ -1135,7 +1149,7 @@ def plots(paths: Paths, lt_rows: list):
             continue
         settings = {}
         for r in rs:
-            settings.setdefault(r["setting_id"], []).append([float(r[f"diff_{c}"]) for c in cols])
+            settings.setdefault(r["setting_id"], []).append(plot_values(r, cols))
         def sort_key(sid):
             m = re.match(r"f(\d+)_i(\d+)_orig-(in|out)", sid)
             return (1, 0, 0, 0, sid) if not m else (0, m.group(3) == "out", int(m.group(1)), int(m.group(2)), sid)
@@ -1149,10 +1163,14 @@ def plots(paths: Paths, lt_rows: list):
                                           f"I {short(r['intensity'])}")
         mat = np.array([np.mean(settings[s], axis=0) for s in order])
         n_src = {s: len(settings[s]) for s in order}
-        vmax = max(1.0, float(np.nanpercentile(np.abs(mat), 99)))
+        if gname == "corpus":
+            vmax = max(1.0, float(np.nanpercentile(np.abs(mat), 99)))
+            norm = dict(cmap=cmap, vmin=-vmax, vmax=vmax)
+        else:
+            seq = LinearSegmentedColormap.from_list("seq", ["#f0efec", "#86b6ef", "#2a78d6", "#104281"])
+            norm = dict(cmap=seq, vmin=-90.0, vmax=0.0)
         fig, ax = plt.subplots(figsize=(12, 1.6 + 0.16 * len(order)))
-        im = ax.pcolormesh(np.arange(len(cols) + 1), np.arange(len(order) + 1), mat, cmap=cmap,
-                           vmin=-vmax, vmax=vmax, shading="flat")
+        im = ax.pcolormesh(np.arange(len(cols) + 1), np.arange(len(order) + 1), mat, shading="flat", **norm)
         ax.set_yticks(np.arange(len(order)) + 0.5)
         ax.set_yticklabels([label[s] for s in order], fontsize=6, color=INK2)
         ax.invert_yaxis()
@@ -1163,12 +1181,13 @@ def plots(paths: Paths, lt_rows: list):
         for s in ax.spines.values():
             s.set_visible(False)
         cb = fig.colorbar(im, ax=ax, fraction=0.025, pad=0.01)
-        cb.set_label("Added level, wet − dry (dB)", color=INK2)
+        cb.set_label("Added level, wet − dry (dB)" if gname == "corpus" else "Wet level re input (dB)", color=INK2)
         cb.ax.tick_params(colors=INK2, labelsize=7)
         cb.outline.set_visible(False)
         n = sorted(set(n_src.values()))
-        ax.set_title(f"Added level per band by RBass setting, mean over {'/'.join(map(str, n))} "
-                     f"{'corpus files' if gname == 'corpus' else 'test signals'}",
+        ax.set_title((f"Added level per band by RBass setting, mean over {'/'.join(map(str, n))} corpus files"
+                      if gname == "corpus" else
+                      f"Wet level per band relative to input level, by RBass setting, mean over {'/'.join(map(str, n))} test signals"),
                      loc="left", color=INK, fontsize=10)
         fig.tight_layout()
         fig.savefig(paths.plots.parent / f"heatmap_added_level{'' if gname == 'corpus' else '_test_signals'}.png",
