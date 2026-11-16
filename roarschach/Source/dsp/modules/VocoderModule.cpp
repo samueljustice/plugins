@@ -348,6 +348,7 @@ namespace roar
         // Start the whitening at the expected unit level so the first frames are not boosted.
         m_whiten.fill (1.0f);
         m_noiseMix = m_breathNoise;
+        m_levelTrim.fill (1.0f);
         m_envPad.fill (0.0f);
         m_bandLevels.fill (0.0f);
         m_unvoiced = false;
@@ -453,6 +454,11 @@ namespace roar
         // 1-9 kHz): ~0.2 at 50 % (gritty, words intact), ~0.9 at 100 % (rough, not chopped).
         m_rippleBoost = 2.0f * std::pow (g, 1.3f);
         m_satAmount = 1.0f + 3.0f * g * g * g;   // a single band saturates at 1 / sat
+        // A noise band's follower reads further above its RMS than a harmonic's (more so with the
+        // faster followers and the ripple boost at high Gravel), and the whitened synthesis takes
+        // its level from the follower alone: the noise-carried share of a band is trimmed by this.
+        const float trimDb = m_noiseTrimOn ? 1.7f + 1.4f * g * g : 0.0f;
+        m_noiseTrim = 1.0f - std::pow (10.0f, -trimDb / 20.0f);
     }
 
     void VocoderModule::Engine::updateSubBlock()
@@ -521,6 +527,7 @@ namespace roar
             const float target = std::max (m_breathNoise[(size_t) b], m_uv * m_uvRamp[(size_t) b]);
             float& n = m_noiseMix[(size_t) b];
             n += (target - n) * uvCoeff;
+            m_levelTrim[(size_t) b] = 1.0f - m_noiseTrim * n;
             m_pulseGain[(size_t) b] = m_pulseGainBase[(size_t) b] * pulseScale * std::sqrt (std::max (0.0f, 1.0f - n));
             m_noiseGain[(size_t) b] = m_noiseGainBase[(size_t) b] * std::sqrt (std::max (0.0f, n));
         }
@@ -559,11 +566,13 @@ namespace roar
         const float wc = m_whitenCoeff;
         const float sat = m_satAmount;
         float* ms = m_whiten.data();
+        const float* trim = m_levelTrim.data();
         for (int b = 0; b < c_numBands; ++b)
         {
             const float c = lanes[b];
             ms[b] += wc * (c * c - ms[b]);
-            const float env = pad[b] + frac * (pad[b + 1] - pad[b]);
+            // The trim is on the envelope: a carrier gain would be divided out again by the whitening.
+            const float env = (pad[b] + frac * (pad[b + 1] - pad[b])) * trim[b];
             const float y = c * env / std::sqrt (ms[b] + c_whitenFloor);
             // Soft VCA saturation: transparent at low band levels, rounds loud bands at high gravel.
             lanes[b] = y / std::sqrt (1.0f + sat * sat * y * y);

@@ -92,6 +92,9 @@ namespace roar
         /** 0..1: the wet is running (Gravel above 0 and the module On), scaled by the On fade. */
         float getActivity() const;
 
+        /** Test hook: false leaves noise-carried bands at the follower's level (default true). */
+        void setNoiseTrimForTests (bool on) { m_engine.setNoiseTrim (on); }
+
     private:
         /** The vocoder DSP (v1 engine, unchanged apart from the stream input and the stereo pan). */
         class Engine
@@ -105,6 +108,7 @@ namespace roar
             /** Forgets the level history of the carrier-pitch gate (a transport restart). */
             void resetPitchGate() { m_pitchGate.reset(); m_gatePeak = 0.0f; }
             void setParams (float gravel01, int octaveIndex, float formantShiftBands);   // gravel01: g (after the law)
+            void setNoiseTrim (bool on) { m_noiseTrimOn = on; updateCharacter(); }
 
             /** Restart from cleared state with the wet already at its target (the OnFade fades it). */
             void restart (const VoiceFrame& voice);
@@ -183,6 +187,7 @@ namespace roar
             alignas (16) Lanes m_noiseMix {};
             alignas (16) Lanes m_pulseGain {};
             alignas (16) Lanes m_noiseGain {};
+            alignas (16) Lanes m_levelTrim {};   // per band: the level trim of its noise-carried share
             alignas (16) Lanes m_lanes {};
             alignas (16) Lanes m_lanesSynth {};
             alignas (16) std::array<float, c_numBands + 8> m_envPad {};
@@ -194,6 +199,8 @@ namespace roar
             float m_envLowCoeff = 0.0f;
             float m_rippleBoost = 0.0f;
             float m_satAmount = 1.0f;
+            float m_noiseTrim = 0.0f;         // 1 - the level trim of a fully noise-carried band
+            bool m_noiseTrimOn = true;
             float m_whitenCoeff = 0.0f;
             float m_makeup = 1.0f;
 

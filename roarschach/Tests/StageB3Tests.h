@@ -785,6 +785,65 @@ namespace stageb3
         }
     }
 
+    // ============================================================================== VOCODER (D21)
+
+    void testVocoder()
+    {
+        const double sr = c_fs;
+        const auto speech = speechLike(sr);
+        // The stream as IN's detector gives it: voiced at 150 Hz on the vowels, unvoiced on the esses.
+        std::vector<char> voiced(speech.x.size(), 0);
+        for (const auto& [a, b] : speech.vowels)
+            std::fill(voiced.begin() + a, voiced.begin() + b, 1);
+        const auto frameAt = [&voiced](int i)
+        {
+            return voiced[static_cast<size_t>(i)] != 0 ? roar::VoiceFrame { 150.0f, 0.95f, true } : roar::VoiceFrame { 150.0f, 0.1f, false };
+        };
+        const auto wetOf = [&](double gravel, bool trim)
+        {
+            roar::VocoderModule m;
+            m.prepare(sr, 512);
+            roar::VocoderSettings s;
+            s.on = true;
+            s.gravel = static_cast<float>(gravel);
+            m.setParams(s);
+            m.setNoiseTrimForTests(trim);
+            m.reset();
+            const auto y = runModuleMono(m, speech.x, 512, frameAt, [](int) {});
+            const double g = 0.15 + 0.85 * gravel, mix = 0.85 * g;
+            const double norm = std::sqrt((1.0 - mix) * (1.0 - mix) + mix * mix);
+            const double dryGain = (1.0 - mix) / norm, wetGain = mix / norm;
+            Signal wet(y.size());
+            for (size_t i = 0; i < y.size(); ++i)
+                wet[i] = static_cast<float>((static_cast<double>(y[i]) - dryGain * speech.x[i]) / wetGain);
+            return wet;
+        };
+        std::vector<std::pair<int, int>> esses, vowelsBefore;
+        for (int k = 3; k <= 8; ++k)
+        {
+            const auto& e = speech.esses[static_cast<size_t>(k - 1)];
+            esses.emplace_back(e.first + static_cast<int>(0.030 * sr), e.second - static_cast<int>(0.010 * sr));
+            vowelsBefore.emplace_back(e.first - static_cast<int>(0.220 * sr), e.first);
+        }
+        for (const int pct : { 50, 100 })
+        {
+            double d[2] {}, vowelLevel[2] {};
+            for (const bool trim : { false, true })
+            {
+                const auto wet = wetOf(pct / 100.0, trim);
+                const double ess = bandChangeDb(speech.x, wet, sr, esses, 100.0, 16000.0);
+                const double vow = bandChangeDb(speech.x, wet, sr, vowelsBefore, 100.0, 16000.0);
+                d[trim ? 1 : 0] = ess - vow;
+                vowelLevel[trim ? 1 : 0] = vow;
+            }
+            std::printf("  S13 VOCODER Gravel %d %%: esses against vowels in the wet %+.2f dB with the trim (%+.2f without); vowels %+.2f / %+.2f dB\n",
+                        pct, d[1], d[0], vowelLevel[1], vowelLevel[0]);
+            check(std::abs(d[1]) <= 1.5, "S13: esses through the vocoder stand " + db1(d[1]) + " against the vowels at Gravel " + juce::String(pct) + " %");
+            check(d[0] - d[1] >= (pct == 50 ? 1.5 : 2.0), "S13: the trim takes only " + db1(d[0] - d[1]) + " off the esses at Gravel " + juce::String(pct) + " %");
+            check(std::abs(vowelLevel[1] - vowelLevel[0]) <= 0.1, "S13: the trim moves the vowels by " + db1(vowelLevel[1] - vowelLevel[0]));
+        }
+    }
+
     // ============================================================================== CLEAN (D20)
 
     void testCleanGate()
@@ -853,5 +912,6 @@ void testStageB3()
     std::printf("[stageb3] DE-ESS, TAME, VOCODER, ROAR level, DETAIL hold, CLEAN gate\n");
     stageb3::testDeess();
     stageb3::testTame();
+    stageb3::testVocoder();
     stageb3::testCleanGate();
 }
