@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "LogoConstellation.h"
 #include "LogoOutline.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
@@ -19,6 +20,16 @@
  * Stowaway shows in its own colour, by its Mode, and not at all while it is switched off: a Sub lifts the whole
  * swell with its level, a Wake is a trail on the water behind bus A's comet, Fly is a third comet, and Dry (which
  * does not move) is a lantern floating in the middle that glows with its level.
+ *
+ * In a room (Quad and wider) every comet flies where its object is in the room, seen from the ship: the front of the
+ * room is out towards the horizon and the back is near the ship, so a pass going Through comes in towards the
+ * camera, one going Overhead climbs high over the water, and one going Around circles. Nothing comes closer than
+ * the nearest a comet ever came before, so nothing rushes at the camera. A small plan of the room sits in the
+ * water's lower left corner: a lamp at each speaker that glows with its level (the tops on an inner square, the
+ * LFE a square lamp under the room), the listener in the middle, and every object as a dot in its colour with a
+ * short trail. At Mono and Stereo it is not drawn and the comets fly as they always have.
+ *
+ * The sea's foot is a plate of its frame (setFootHeight): the window puts the room strip's controls on it.
  *
  * Drawn with juce::Graphics. One frame clock: a VBlankAttachment when the window is on a screen, a 60 Hz timer
  * when it is not (the offline rigs in tools/ and Tests/ step timerCallback() by hand). After five seconds of
@@ -44,6 +55,42 @@ public:
     void setDimmedUnder(juce::Rectangle<int> dock);
     /** Where a control of the window's own sits over the sea (the Morph button), so labels keep off it. */
     void setReservedArea(juce::Rectangle<int> area) { m_reserved = area.toFloat(); }
+    /** The bottom this many pixels are the frame's plate (the room strip), and the sea shows above it. */
+    void setFootHeight(int height);
+    int getFootHeight() const { return m_foot; }
+    /** Where the plan of the room goes (the lower left of the water), in this component's coordinates. */
+    juce::Rectangle<float> roomPlanArea() const;
+    /** At Mono and Stereo, a note in the plan's place saying why the room strip under it rests: its first line,
+        then the rest. Empty: none (a room). */
+    void setRestNote(const juce::String& note);
+    const juce::String& getRestNote() const { return m_restNote; }
+    /** Where that note sits (the lower left of the water), in this component's coordinates. */
+    juce::Rectangle<float> restNoteArea() const;
+    /** Over the plan of the room, its own tooltip; elsewhere the sea's. */
+    juce::String getTooltip() override;
+    /** How far the plan of the room shows: 0 at Mono and Stereo, 1 in a room (it fades in and out). For the tests. */
+    float roomShown() const { return m_roomShown; }
+    /** The plan's lamp for a speaker (a processing channel of the room shown), 0 dark .. 1 at full level. For the tests. */
+    float lampLevel(int channel) const { return m_lamps[static_cast<size_t>(juce::jlimit(0, room::c_maxChannels - 1, channel))]; }
+    /** Where an object's dot is on the plan (RigEngine::Object), in this component's coordinates, and how bright it
+        is (0: not shown). For the tests. */
+    juce::Point<float> planDot(int object, float* brightness = nullptr) const;
+    /** Where a room position lands on the plan: x across, y up the plan to the front, a higher sound nearer the
+        middle (the tops are on the inner square). Static, so the rule can be tested on its own. */
+    static juce::Point<float> planPoint(juce::Rectangle<float> roomBox, float x, float y, float z);
+    /** How far in the tops sit on the plan, as a share of the way to the middle. */
+    static constexpr float c_planHeightIn = 0.45f;
+    /** The hit's flash on the plan: where its glow is centred (this component's coordinates), its radius across and
+        up the plan, and how bright it is now (0: none). Its size follows Hit Spread: a small glow at 0%, the whole
+        room at 100% (a hit's two sides, a little apart, draw it wider across). For the tests. */
+    struct PlanFlash { juce::Point<float> at; float radiusX = 0.0f, radiusY = 0.0f, level = 0.0f; };
+    PlanFlash planFlash() const;
+    /** A pass's or a throw's arrowhead on the plan: the way it points (a unit step on the screen) and how strongly it
+        shows (0: none, still or too short a trail). For the tests. */
+    float planHeading(int object, juce::Point<float>& direction) const;
+    /** The smallest flash (Hit Spread 0%) and how far past the room's half-width it reaches at 100%. */
+    static constexpr float c_flashPoint = 6.0f, c_flashRoom = 1.15f;
+
     /** Shows the constellation now, and (held) keeps it showing: for the offline pictures. */
     void showConstellation(bool holdOn);
 
@@ -75,17 +122,19 @@ private:
     static constexpr int c_bands = 80;
     static constexpr int c_rows = 34;
     static constexpr int c_trail = 34;
-    static constexpr float c_rowsPerSecond = 20.0f; // how fast the swell rolls away (rows are drawn between steps)
+    static constexpr float c_rowsPerSecond = 12.0f; // how fast the waves roll away along the sea's lines (which stay put)
     static constexpr float c_stepSeconds = 1.0f / 75.0f;  // never step more often than this, however fast the screen is
     static constexpr float c_idleStepSeconds = 1.0f / 20.0f; // and after five seconds of quiet, only this often
 
     struct P3 { float x, y, z; };
 
     void step(float dt);
+    float rowHeight(int k, int band) const;
     void analyse();
     juce::Point<float> project(P3 p) const;
     void buildSky(float pixelScale);
     void buildConstellation();
+    void buildConstellationHaze(float pixelScale);
     void paintWater(juce::Graphics&, float h);
     void paintComets(juce::Graphics&, float w);
     void paintStowaway(juce::Graphics&, float h);
@@ -121,7 +170,35 @@ private:
     std::deque<WakePoint> m_wakeTrail;                         // where bus A's comet has been over the water (Wake)
     juce::Point<float> m_stowLabelAt;                          // where Stowaway's name goes (set as it is painted)
     float m_stowLabelAlpha = 0.0f;
-    bool stepFlight(const RigEngine::FlightView&, std::deque<P3>& trail, float& env, float& flash, float& lastX, float dt);
+    /** One comet's step. In a room `object` says where it is (the comet flies there); otherwise it is null. */
+    bool stepFlight(const RigEngine::FlightView&, const RigEngine::ObjectView* object, std::deque<P3>& trail, float& env, float& flash,
+                    float& lastX, float dt);
+    /** Where an object of the room is over the sea (its comet's head). */
+    static P3 roomToSea(const RigEngine::ObjectView& object, float env);
+
+    // The room: the width shown (the last room while the plan fades out), how far it shows, each speaker's lamp,
+    // and each object's dot on the plan with a short trail.
+    void stepRoom(float dt);
+    void paintRoom(juce::Graphics&);
+    int m_foot = 0;
+    room::Width m_planWidth = room::Width::Stereo;
+    juce::String m_restNote;
+    void paintRestNote(juce::Graphics&);
+    float m_roomShown = 0.0f;
+    bool m_inRoom = false;
+    std::array<float, room::c_maxChannels> m_lamps {};
+    static constexpr int c_dotTrail = 14, c_headingSpan = 4; // the trail, and how much of it a heading needs
+    struct Dot
+    {
+        std::array<P3, c_dotTrail> trail {}; // room positions, the newest at head
+        int head = 0, count = 0;
+        float level = 0.0f;
+    };
+    std::array<Dot, RigEngine::c_objects> m_dots;
+    // The hit on the plan: one soft flash as a hit comes in (it rises over about 50 ms and fades over about half a
+    // second, so a run of hits glows steadily rather than flickering), where the hit is, as big as Hit Spread makes it.
+    struct HitGlow { P3 at {}; float spread = 0.0f, apart = 0.0f, level = 0.0f; };
+    HitGlow m_hitGlow;
 
     // Hits: a flash on the horizon and a ring on the water.
     float m_hitFlash = 0.0f, m_hitRing = 0.0f, m_lastGate = 0.0f;
@@ -131,10 +208,13 @@ private:
     struct Star { float x, y, size, phase; };
     std::vector<Star> m_stars;    // the twinkling few; the rest are in the sky image
 
-    // The mark in the stars: brighter stars on the logo's outline, joined by faint lines.
-    struct ConstellationStar { juce::Point<float> at; float size, phase; };
+    // The mark in the stars: brighter stars on the logo's corners, joined by faint lines, over the faintest glow of
+    // the grenade and the cherry themselves (like the haze a nebula leaves between the stars).
+    struct ConstellationStar { juce::Point<float> at; float size, phase, weight; bool cherry; };
+    juce::Image m_constellationHaze;                         // made with the sky, at the sky's scale
     std::vector<ConstellationStar> m_constellation;          // normalised, centred, y-up
-    std::vector<std::pair<int, int>> m_constellationLines;
+    std::vector<LogoConstellation::Line> m_constellationLines;
+    juce::Rectangle<float> m_constellationBounds;            // of the stars, in the same coordinates
     float m_constellationOpacity = 0.0f, m_constellationTime = 0.0f, m_constellationLeft = 0.0f, m_constellationNext = 20.0f;
     bool m_constellationHeld = false;
     int m_takesSeen = -1;

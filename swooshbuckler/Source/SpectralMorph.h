@@ -12,7 +12,14 @@
  * behaviour from published techniques).
  *
  * STFT: Hann / Hann, hop = N / 4, N = 2048 at 44.1/48 kHz, scaled with the rate
- * (4096 at 96, 8192 at 192 kHz) so the frame is always ~43 ms. Latency = N.
+ * (4096 at 96, 8192 at 192 kHz) so the frame is always ~43 ms. Latency = N, and
+ * at 176.4 / 192 kHz half a hop more (N + 1024): there a frame's work (some
+ * forty transforms of 8192 points in Glide) is far more than a small host
+ * buffer's share of the time, so it is done in stages over the half hop after
+ * the frame, at most two transforms at a time and never more than two stages
+ * in a buffer of 64 samples, and the frame is heard when the last stage is done.
+ * Up to 96 kHz the frame's work is done in one go as soon as the frame is
+ * complete (with Morph on, a buffer of 64 samples or more at 88.2 / 96 kHz).
  *
  * Modes (x = 0 is A, x = 1 is B in every mode; y is a second dimension per mode):
  *   Blend : spectral-envelope morph. Each frame is split into a true envelope
@@ -78,8 +85,15 @@ public:
     /** a, b may be null (treated as silence). out may alias a or b (each sample is read before it is written). */
     void process(const float* a, const float* b, float* out, int n);
 
-    int getLatencySamples() const { return m_fftSize; }
+    /** One frame, plus the half hop its work is spread over where it is (see getSpreadSamples). */
+    int getLatencySamples() const { return m_fftSize + m_spread; }
     int getFftSize() const { return m_fftSize; }
+    /** How many samples after a frame is complete its work is spread over: 0 up to 96 kHz (the frame's work is
+        done in one go, in the block that completes it), half a hop (1024 samples) from 176.4 kHz up. */
+    int getSpreadSamples() const { return m_spread; }
+    /** How much of a frame's work one process() call has held at the most since reset(), in units of about one
+        transform (a whole frame is 22 to 30 of them): what a host's buffer has to fit. For the tests. */
+    int getMostWorkInOneCall() const { return m_mostUnits; }
 
     static const char* modeName(int mode);
 
@@ -93,16 +107,61 @@ private:
         float weight = 0.0f; // normalised (sums to 1 over a spectrum)
     };
 
-    void processFrame();
-    void analyse(const std::vector<float>& in, std::vector<Cpx>& spec, std::vector<float>& mag,
+    // A frame's work, in the order it is done (see runStage).
+    enum Stage
+    {
+        StageTake = 0, StageAnalyseA, StageAnalyseB, StageControl,
+        StageEnvA0, StageEnvA1, StageEnvA2, StageEnvB0, StageEnvB1, StageEnvB2,
+        StageRender0, StageRender1, StageRender2, StageRender3, StageRender4, StageRender5, StageShape0, StageShape1,
+        StageRenderOld0, StageRenderOld1, StageRenderOld2, StageRenderOld3, StageRenderOld4, StageRenderOld5,
+        StageShapeOld0, StageShapeOld1, StageOut,
+        c_stages
+    };
+    static constexpr int c_spreadFromSize = 8192; // frames this long and longer are worked in stages over half a hop
+
+    // What one frame's stages hand on to the later ones.
+    struct Frame
+    {
+        float sumSqA = 0.0f, sumSqB = 0.0f;
+        float eA = 0.0f, eB = 0.0f, rmsA = 0.0f, rmsB = 0.0f, totA = 0.0f, totB = 0.0f, fluxA = 0.0f, fluxB = 0.0f;
+        float xe = 0.0f, y = 0.0f, both = 0.0f;
+        bool silent = true, fading = false, envelopes = false, shape = false, shapeOld = false;
+    };
+
+    void runStage(int stage);
+    void takeFrame(const std::vector<float>& in, std::vector<float>& frame, float& sumSq);
+    void analyse(std::vector<float>& frame, float sumSq, std::vector<Cpx>& spec, std::vector<float>& mag,
                  std::vector<float>& phase, std::vector<float>& logMag, float& energy, float& rms,
                  float& total, float& flux);
-    void trueEnvelope(const float* logMag, float* env, int iterations);
+    void envelopeStep(const float* logMag, float* env, int iteration);
     void cepstralSmooth(const float* in, float* out);
+    void shapeGlide(float xe, float y, std::vector<Cpx>& dest, int step);
 
+    void renderStep(int mode, float xe, float y, std::vector<Cpx>& dest, int step);
     void renderMode(int mode, float xe, float y, std::vector<Cpx>& dest);
     void renderBlend(float xe, float p, float envW, float fineW, std::vector<Cpx>& dest);
-    void renderGlide(float xe, float y, std::vector<Cpx>& dest);
+    void glideStep(float xe, std::vector<Cpx>& dest, int step);
+
+    // Glide's walk up the two spectra (see glideStep), kept between its steps.
+    struct GlideSide
+    {
+        const std::vector<Mass>* masses = nullptr;
+        const std::vector<float>* mag = nullptr;
+        const std::vector<float>* phase = nullptr;
+        float inv = 0.0f;
+        int index = 0, bin = 0;
+        float massLeft = 0.0f, binLeft = 0.0f;
+
+        void start(int i);
+        void consume(float amount, float gain, int shift, float centrePhase, std::vector<Cpx>& out, int nBins);
+    };
+    struct GlideRun
+    {
+        int nA = 0, nB = 0;
+        float totA = 0.0f, totB = 0.0f;
+        GlideSide a, b;
+    };
+    GlideRun m_glide;
     int findMasses(const std::vector<float>& mag, const std::vector<float>& phase,
                    const std::vector<float>& prevPhase, std::vector<Mass>& masses);
 
@@ -110,8 +169,13 @@ private:
     int m_fftOrder = 11, m_fftSize = 2048, m_hop = 512, m_bins = 1025, m_lifter = 58;
     std::unique_ptr<juce::dsp::FFT> m_fft;
 
-    std::vector<float> m_window, m_inA, m_inB, m_outAcc, m_outFifo, m_work;
+    std::vector<float> m_window, m_inA, m_inB, m_outAcc, m_outFifo, m_work, m_frameA, m_frameB;
     int m_pos = 0;
+    int m_spread = 0;            // see getSpreadSamples
+    int m_stage = c_stages;      // the next stage of the frame in work (c_stages: none)
+    int m_due[c_stages] {};      // the sample of the hop each stage is due at
+    Frame m_frame;
+    int m_unitsThisCall = 0, m_mostUnits = 0;
 
     std::vector<Cpx> m_specA, m_specB, m_out, m_tmp;
     std::vector<float> m_magA, m_magB, m_phA, m_phB, m_prevPhA, m_prevPhB, m_logA, m_logB, m_envA, m_envB;

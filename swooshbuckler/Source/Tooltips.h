@@ -54,12 +54,27 @@ private:
         return action == Shortcuts::Action::Count ? juce::String() : m_keys.keyText(action);
     }
 
-    /** Tier one: the name, then what it is set to now (or its key). */
+    /** Tier one: the name, then what it is set to now (or its key). A control that rests says why at once: the
+        line of its tip that starts "It rests" comes with the first tier, not only with the whole tip. */
     juce::String summary(juce::Component& c, const juce::String& full) const
+    {
+        const auto first = summaryLine(c, full);
+        if (Theme::getLook(c) != Theme::Look::Resting)
+            return first;
+        for (const auto& line : juce::StringArray::fromLines(full))
+            if (line.startsWith("It rests") && ! first.contains(line))
+                return first + "\n" + line;
+        return first;
+    }
+
+    juce::String summaryLine(juce::Component& c, const juce::String& full) const
     {
         const auto heading = full.upToFirstOccurrenceOf("\n", false, false).trim();
         juce::String line;
-        if (auto* slider = dynamic_cast<juce::Slider*>(&c))
+        // A control that names its own state in words (Direction: "Left to Right").
+        if (const auto own = c.getProperties()["tipLine"].toString(); own.isNotEmpty())
+            line = own;
+        else if (auto* slider = dynamic_cast<juce::Slider*>(&c))
         {
             const auto value = slider->getTextFromValue(slider->getValue());
             const auto low = slider->getTextFromValue(slider->getMinimum());
@@ -79,7 +94,9 @@ private:
     juce::String whole(juce::Component& c, const juce::String& full) const
     {
         juce::String last;
-        if (dynamic_cast<ModTarget*>(&c) != nullptr)
+        if (const auto howTo = c.getProperties()["howTo"].toString(); howTo.isNotEmpty())
+            last = howTo;
+        else if (dynamic_cast<ModTarget*>(&c) != nullptr)
             last = "Double-click to reset it. Right-click (or Alt-double-click) to type a value. Drag a Mod jack onto it to modulate it.";
         else if (auto* typed = dynamic_cast<ValueSlider*>(&c); typed != nullptr && typed->getTypedParameter() != nullptr)
             last = "Double-click to reset it. Right-click (or Alt-double-click) to type a value.";

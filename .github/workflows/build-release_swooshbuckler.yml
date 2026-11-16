@@ -61,7 +61,7 @@ jobs:
   build-windows:
     needs: version
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 150 # the build, plus the engine tests built and run with MSVC
     env:
       VERSION: ${{ needs.version.outputs.version }}
 
@@ -87,14 +87,16 @@ jobs:
         cmake -B build -S . -DCMAKE_BUILD_TYPE=Release `
           -DSWOOSHBUCKLER_VERSION="$env:VERSION" `
           -DSWOOSHBUCKLER_FORMATS="Standalone;VST3" `
-          -DSWOOSHBUCKLER_TESTS=OFF `
+          -DSWOOSHBUCKLER_TESTS=ON `
           -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" `
           -DBUILD_TIMESTAMP="$timestamp" -DBUILD_COMMIT="$commit"
 
-    - name: Build app and VST3
+    # Swooshbuckler_All is the plug-in in every format configured (app, VST3, AAX), and nothing else: the tests are
+    # built on their own below.
+    - name: Build app, VST3 and AAX
       run: |
         cd swooshbuckler
-        cmake --build build --config Release --parallel
+        cmake --build build --config Release --parallel --target Swooshbuckler_All
 
     # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
     # It is not part of the release, the installer or the release zips.
@@ -109,6 +111,46 @@ jobs:
         name: Swooshbuckler-Windows-AAX-unsigned
         path: swooshbuckler/Swooshbuckler-Windows-AAX-unsigned.zip
         if-no-files-found: error
+
+    # The engine tests, compiled by MSVC and run on Windows: the room, the panner, the output stage, files and
+    # Render Variations at every width, sessions and settings. Only the ones that need no window and no audio device (App,
+    # FirstRun and Ui draw the editor or open a device; Cargo, Pitch and Morph are mostly speed checks of the
+    # stereo-era DSP). A test that fails fails the job, as on macOS.
+    - name: Build the engine tests
+      run: |
+        cd swooshbuckler
+        cmake --build build --config Release --parallel --target SwooshbucklerRig SwooshbucklerClassify SwooshbucklerMaster SwooshbucklerSession SwooshbucklerStowaway SwooshbucklerRoom SwooshbucklerSurround SwooshbucklerWide SwooshbucklerSpaceLfe SwooshbucklerOutput SwooshbucklerHits SwooshbucklerFiles SwooshbucklerExport
+
+    - name: Run the engine tests
+      run: |
+        cd swooshbuckler
+        $PSNativeCommandUseErrorActionPreference = $false # a failing test is counted below, not thrown
+        $build = (Resolve-Path build).Path
+        $scratch = Join-Path $env:RUNNER_TEMP "swooshbuckler-tests"
+        $failed = @()
+        foreach ($t in @("SwooshbucklerRig", "SwooshbucklerClassify", "SwooshbucklerMaster", "SwooshbucklerSession", "SwooshbucklerStowaway", "SwooshbucklerRoom", "SwooshbucklerSurround", "SwooshbucklerWide", "SwooshbucklerSpaceLfe", "SwooshbucklerOutput", "SwooshbucklerHits", "SwooshbucklerFiles", "SwooshbucklerExport")) {
+          # JUCE and the Master test put each one at build\<name>_artefacts\Release\<name>.exe.
+          $exe = Join-Path $build "${t}_artefacts\Release\$t.exe"
+          if (-not (Test-Path $exe)) {
+            $found = Get-ChildItem $build -Recurse -Filter "$t.exe" -File | Select-Object -First 1
+            if ($null -eq $found) { Write-Host "== $t`: no $t.exe was built"; $failed += $t; continue }
+            $exe = $found.FullName
+          }
+          # Each one in an empty folder of its own: they write their files into the folder they run in.
+          $dir = Join-Path $scratch $t
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Write-Host "== $t"
+          Push-Location $dir
+          & $exe
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { Write-Host "== $t failed (exit code $code)"; $failed += $t }
+        }
+        if ($failed.Count -gt 0) {
+          Write-Host "Failed on Windows: $($failed -join ', ')"
+          exit 1
+        }
+        Write-Host "Every engine test passed on Windows"
 
     - name: Gather files
       run: |
@@ -244,7 +286,7 @@ jobs:
     - name: Run tests
       run: |
         cd swooshbuckler
-        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerStowaway SwooshbucklerFirstRun SwooshbucklerUi; do
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerStowaway SwooshbucklerRoom SwooshbucklerSurround SwooshbucklerWide SwooshbucklerSpaceLfe SwooshbucklerOutput SwooshbucklerHits SwooshbucklerFiles SwooshbucklerExport SwooshbucklerApp SwooshbucklerFirstRun SwooshbucklerUi; do
           exe=$(find build -name "$t" -type f -perm +111 | head -1)
           echo "== $t"
           "$exe"
@@ -523,7 +565,9 @@ jobs:
         body: |
           ## Swooshbuckler ${{ env.VERSION }}
 
-          A whoosh-making rig: drop in up to ten sounds, let the faders ride, and record the whooshes it makes. Standalone app, plus VST3 and AU plug-ins.
+          A whoosh-making rig: drop in up to ten sounds, let the faders ride, and record the whooshes it makes, in stereo or in surround up to 7.1.4. Standalone app, plus VST3 and AU plug-ins.
+
+          **Pro Tools (AAX):** the AAX is signed by hand after this release is made and comes in the Sammy J installer (the "Everything" download) once it is signed. If it isn't there yet, it will be shortly.
 
           ### Downloads
           - **macOS installer** (`.pkg`): the app, VST3 and AU. Choose which with Customize.

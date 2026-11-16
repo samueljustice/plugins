@@ -41,6 +41,8 @@ public:
     void drawButtonText(juce::Graphics&, juce::TextButton&, bool isMouseOverButton, bool isButtonDown) override;
     juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override;
     void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool isMouseOverButton, bool isButtonDown) override;
+    void drawTickBox(juce::Graphics&, juce::Component&, float x, float y, float w, float h, bool ticked, bool isEnabled,
+                     bool isMouseOverButton, bool isButtonDown) override;
 
     void drawComboBox(juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
                       int buttonW, int buttonH, juce::ComboBox&) override;
@@ -227,9 +229,10 @@ protected:
  * The knob: a chunky flat ship's wheel with six spokes, one of them the sand pointer, inside a ring that fills
  * with its value in the section's colour. Under it, always, its caption and its value in its own units.
  *
- * There are two sizes on the whole screen (Size): the ring's radius is fixed by the size, never by the box the
+ * There are three sizes on the whole screen (Size): the ring's radius is fixed by the size, never by the box the
  * knob is given, so every knob of a size is the same wheel. A knob's box is the dial (the ring, and room outside
- * it for the modulation rings) over two lines of text; cellWidth / cellHeight say how big that is.
+ * it for the modulation rings) over two lines of text; cellWidth / cellHeight say how big that is. The Small one
+ * (the room strip under the sea, a low row) has its two lines beside the dial instead, at its right.
  *
  * Modulation: one thin ring for each wire outside the value ring, in the modulator's colour, stacked outwards
  * (dashed when the depth is negative), and a dot where the modulation has the value now. Plugs sit on the rim at
@@ -244,14 +247,18 @@ protected:
 class WheelKnob : public ModTarget, private juce::Timer
 {
 public:
-    enum class Size { Primary = 0, Secondary };
+    enum class Size { Primary = 0, Secondary, Small };
     /** The value ring's radius for each size, the room outside it for the modulation rings, and the two text lines. */
-    static constexpr float c_ringPrimary = 24.0f, c_ringSecondary = 15.0f, c_modRoom = 7.0f;
+    static constexpr float c_ringPrimary = 24.0f, c_ringSecondary = 15.0f, c_ringSmall = 10.0f, c_modRoom = 7.0f;
     static constexpr int c_lineHeight = 13, c_textHeight = 2 * c_lineHeight;
-    static constexpr float ringFor(Size size) { return size == Size::Primary ? c_ringPrimary : c_ringSecondary; }
-    /** The smallest box a knob of this size is whole in. */
-    static constexpr int cellWidth(Size size) { return static_cast<int>(2.0f * (ringFor(size) + c_modRoom)); }
-    static constexpr int cellHeight(Size size) { return cellWidth(size) + c_textHeight; }
+    static constexpr float ringFor(Size size) { return size == Size::Primary ? c_ringPrimary : (size == Size::Secondary ? c_ringSecondary : c_ringSmall); }
+    /** The dial's box: the ring and the room for the modulation rings round it. */
+    static constexpr int dialWidth(Size size) { return static_cast<int>(2.0f * (ringFor(size) + c_modRoom)); }
+    /** The smallest box a knob of this size is whole in (a Small one: the dial alone, its text needs more width). */
+    static constexpr int cellWidth(Size size) { return dialWidth(size); }
+    static constexpr int cellHeight(Size size) { return size == Size::Small ? dialWidth(size) : dialWidth(size) + c_textHeight; }
+    /** Its caption and value sit beside the dial, not under it (the Small size). */
+    bool textBeside() const { return m_size == Size::Small; }
 
     WheelKnob(const Theme::Fonts& fonts, juce::Colour accent, Size size = Size::Primary);
 
@@ -260,8 +267,12 @@ public:
     void setAccent(juce::Colour c) { m_accent = c; repaint(); }
     /** The colour of what this knob follows while it is Linked (Theme::Look). */
     void setLinkColour(juce::Colour c) { m_linkColour = c; repaint(); }
-    /** What a Linked knob says in place of its value ("Linked To A"). */
+    /** What a Linked knob says in place of its value ("Linked to A"). */
     void setLinkText(const juce::String& text) { m_linkText = text; repaint(); }
+    /** A reference point on its travel (LFE Level's Mains): a short tick outside the ring at that value. */
+    void setMark(double value) { m_mark = value; m_hasMark = true; repaint(); }
+    bool hasMark() const { return m_hasMark; }
+    double getMark() const { return m_mark; }
     /** The value's text function was changed: read the value again. */
     void valueTextChanged() { m_valueTextStale = true; repaint(); }
     void paint(juce::Graphics&) override;
@@ -298,6 +309,8 @@ private:
     Size m_size = Size::Primary;
     float m_shown = 0.0f, m_velocity = 0.0f;
     bool m_hover = false;
+    bool m_hasMark = false;
+    double m_mark = 0.0;
     // Under the hand: the wheel follows the value; how fast it was turning is kept for the coast.
     bool m_held = false;
     float m_dragVelocity = 0.0f, m_dragLast = 0.0f;

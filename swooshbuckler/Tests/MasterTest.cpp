@@ -49,11 +49,12 @@ namespace
         return sum;
     }
 
-    // Reference true peak: the samples and `oversample - 1` points between each pair, each read from 64 samples
-    // with a Kaiser-windowed sinc (a longer, steeper reader than the limiter's own detector).
+    // Reference true peak: the samples and `oversample - 1` points between each pair, each read from 256 samples
+    // with a Kaiser-windowed sinc, flat to 0.49 of the sample rate (a much longer, steeper reader than the
+    // limiter's own detector, and than a standard true-peak meter's four points from twelve samples).
     double truePeak(const std::vector<float>& x, int oversample)
     {
-        constexpr int zeros = 32;
+        constexpr int zeros = 128;
         double peak = 0.0;
         for (const float v : x)
             peak = std::max(peak, static_cast<double>(std::abs(v)));
@@ -65,7 +66,7 @@ namespace
             {
                 const double d = (j - zeros + 1) - static_cast<double>(p) / oversample;
                 const double r = d / zeros;
-                h[j] = std::sin(c_pi * d) / (c_pi * d) * besselI0(9.0 * std::sqrt(std::max(0.0, 1.0 - r * r))) / besselI0(9.0);
+                h[j] = std::sin(c_pi * d) / (c_pi * d) * besselI0(8.0 * std::sqrt(std::max(0.0, 1.0 - r * r))) / besselI0(8.0);
                 total += h[j];
             }
             for (size_t i = zeros; i + zeros + 1 < x.size(); ++i)
@@ -188,26 +189,63 @@ int main()
 
     //==============================================================================
     std::cout << "true-peak limiting" << std::endl;
-    for (const double fs : { 44100.0, 48000.0, 96000.0 })
+    for (const double fs : { 44100.0, 48000.0, 96000.0, 192000.0 })
     {
         const auto out = runFresh(fs, pluginRelease(6.0f), hitsAndSweep(fs));
-        const double sample = toDb(samplePeak(out)), tp4 = toDb(truePeak(out, 4)), tp8 = toDb(truePeak(out, 8));
-        std::cout << "  " << fs << " Hz, hits and a sweep pushed 6 dB into a -0.3 dB ceiling: sample peak " << sample
-                  << " dBFS, true peak " << tp4 << " dBTP (4x), " << tp8 << " dBTP (8x)" << std::endl;
+        const double sample = toDb(samplePeak(out)), tp16 = toDb(truePeak(out, 16));
+        std::cout << "  " << fs << " Hz, hits and a sweep to 0.49 of the sample rate pushed 6 dB into a -0.3 dB ceiling: sample peak " << sample
+                  << " dBFS, true peak " << tp16 << " dBTP (sixteen points a sample)" << std::endl;
         check(samplePeak(out) <= ceiling, "no sample over the ceiling");
-        check(tp4 <= -0.3 + 0.1, "the peaks between the samples (4x) stay within 0.1 dB of the ceiling");
-        check(tp8 <= -0.3 + 0.35, "and within 0.35 dB read at 8x");
+        // (At 176.4 and 192 kHz the detector is shorter: this sweep and these hits have full power right up to
+        // 0.49 of the sample rate, 94 kHz, which nothing plays and no conversion to a lower rate keeps.)
+        check(tp16 <= -0.3 + (fs < 120000.0 ? 0.15 : 0.5), fs < 120000.0 ? "the true peak stays within 0.15 dB of the ceiling"
+                                                                       : "the true peak stays within 0.5 dB of the ceiling, with full power up to 94 kHz");
+
+        // The hardest signal there is for it: white noise, with as much power just under half the sample rate as
+        // anywhere, pushed 12 dB. (Four points a sample from 48 samples of a windowed sinc read it 1.1 dB over.)
+        Noise noise(5);
+        std::vector<float> white(static_cast<size_t>(fs * 3.0));
+        for (auto& v : white)
+            v = noise.next();
+        const auto loud = runFresh(fs, pluginRelease(12.0f), white);
+        const double whitePeak = toDb(truePeak(loud, 16));
+        std::cout << "  " << fs << " Hz, white noise pushed 12 dB: true peak " << whitePeak << " dBTP" << std::endl;
+        check(samplePeak(loud) <= ceiling && whitePeak <= -0.3 + (fs < 120000.0 ? 0.25 : 0.75),
+              fs < 120000.0 ? "white noise right up to half the sample rate, pushed 12 dB: within 0.25 dB"
+                           : "white noise right up to 96 kHz, pushed 12 dB: within 0.75 dB (nothing a conversion to a lower rate keeps)");
     }
     {
         // The detector on its own: a sine at a quarter of the sample rate whose samples all miss the crest by 3 dB
         // (the crest sits half way between the sample the reading belongs to and the next one).
-        float window[MasterProcessor::c_detectorTaps];
-        const double crest = MasterProcessor::c_detectorTaps / 2 - 0.5;
-        for (int j = 0; j < MasterProcessor::c_detectorTaps; ++j)
+        float window[MasterProcessor::c_detectorTaps + 1];
+        const double crest = MasterProcessor::c_detectorTaps / 2 + 0.5;
+        for (int j = 0; j <= MasterProcessor::c_detectorTaps; ++j)
             window[j] = static_cast<float>(std::cos(0.5 * c_pi * (j - crest)));
         const float peak = MasterProcessor::detectPeak(window);
         std::cout << "  a sine sampled 3 dB under its crest reads " << toDb(peak) << " dB" << std::endl;
         check(std::abs(toDb(peak)) < 0.05, "the detector finds a crest that falls between the samples");
+
+        // ...and one that falls anywhere between two samples, between the detector's own four points too: tones
+        // from a fiftieth to 0.47 of the sample rate, the crest at 32 places from one sample to the next. (A top
+        // close under the next sample is found as that sample is read, so the reading is the larger of the two.)
+        for (const int taps : { 128, 64 })
+        {
+            double worst = 0.0;
+            float wide[MasterProcessor::c_detectorTaps + 2];
+            for (double f = 0.02; f < 0.471; f += 0.03)
+                for (int place = 0; place < 32; ++place)
+                {
+                    for (int j = 0; j <= taps + 1; ++j)
+                        wide[j] = static_cast<float>(std::cos(2.0 * c_pi * f * (j - (taps / 2 + place / 32.0))));
+                    const double read = toDb(std::max(MasterProcessor::detectPeak(wide, taps), MasterProcessor::detectPeak(wide + 1, taps)));
+                    if (std::abs(read) > std::abs(worst))
+                        worst = read;
+                }
+            std::cout << "  " << taps << " samples a point: tones up to 0.47 of the sample rate, the crest anywhere between two samples: read within "
+                      << worst << " dB" << std::endl;
+            check(std::abs(worst) < (taps == 128 ? 0.06 : 0.25), "the crest of the curve through the points finds a top wherever it falls (within "
+                                                                  + std::string(taps == 128 ? "0.06" : "0.25") + " dB)");
+        }
     }
 
     //==============================================================================
@@ -217,7 +255,7 @@ int main()
         MasterProcessor m;
         m.prepare(fs, 1);
         const int latency = m.getLatencySamples();
-        const int expected = static_cast<int>(std::lround(0.0015 * fs)) + MasterProcessor::c_detectorTaps / 2;
+        const int expected = static_cast<int>(std::lround(0.0015 * fs)) + MasterProcessor::detectorTapsFor(fs) / 2;
 
         // With the limiter resting, the output is the input, bit for bit, exactly `latency` samples later, for
         // quiet and for limited material alike (the timing never moves with the gain).
@@ -450,6 +488,45 @@ int main()
         if (std::abs(ratio - std::round(ratio)) < 1.0e-9)
             check(std::abs(d.getLatencySamples() - std::round(d.getLatencySamples())) < 1.0e-9 && std::abs(ahead - d.getLatencySamples()) < 1.0e-9,
                   "a whole-number ratio has a whole-number latency, exactly");
+    }
+    for (const double ratio : { 2.0, 4.0 })
+    {
+        // Primed (as the processor primes it after every prepare), an impulse the engine renders first after the
+        // prepare comes out exactly as late as one rendered long after: the reported latency, every time.
+        // Without priming the first one came out getLatencySamples() early (26 samples at 2:1 and 4:1).
+        Downsampler d;
+        d.prepare(ratio, 1);
+        d.prime();
+        constexpr int c_block = 64;
+        constexpr int c_laterBlock = 100;
+        std::vector<float> in, out;
+        for (int b = 0; b <= c_laterBlock + 10; ++b)
+        {
+            const int needed = d.inputsNeeded(c_block);
+            const size_t start = in.size();
+            in.resize(start + static_cast<size_t>(needed), 0.0f);
+            if (b == 0 || b == c_laterBlock)
+                in[start] = 1.0f; // what the engine renders first in this block
+            std::vector<float> block(static_cast<size_t>(c_block));
+            const float* inCh[1] = { in.data() + start };
+            float* outCh[1] = { block.data() };
+            d.process(inCh, outCh, c_block);
+            out.insert(out.end(), block.begin(), block.end());
+        }
+        auto peakAfter = [&out](int from, int to)
+        {
+            int at = from;
+            for (int k = from; k < to; ++k)
+                if (std::abs(out[static_cast<size_t>(k)]) > std::abs(out[static_cast<size_t>(at)]))
+                    at = k;
+            return at;
+        };
+        const int first = peakAfter(0, c_laterBlock * c_block / 2);
+        const int later = peakAfter(c_laterBlock * c_block, static_cast<int>(out.size())) - c_laterBlock * c_block;
+        std::cout << "  primed at " << ratio << ":1: the first sound after a prepare comes out " << first << " samples late, one started later "
+                  << later << "; reported " << d.getLatencySamples() << std::endl;
+        check(first == later && std::abs(first - d.getLatencySamples()) < 1.0e-9,
+              "primed, the first sound after a prepare is as late as every later one: the reported latency");
     }
     {
         // The whole high-rate path: limit at 96 kHz, downsample to 48 kHz, hold the ceiling again.

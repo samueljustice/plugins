@@ -59,7 +59,7 @@ private:
     void timerCallback() override
     {
         const int pos = m_ring.position();
-        if (pos != m_last && isShowing())
+        if (pos != m_last && isShowing() && ! Theme::isCovered(*this)) // under a panel it holds still
         {
             m_last = pos;
             repaint();

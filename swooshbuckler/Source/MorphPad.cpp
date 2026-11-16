@@ -759,6 +759,8 @@ void MorphPad::timerCallback()
     const double now = juce::Time::getMillisecondCounterHiRes();
     const float dt = juce::jlimit(0.001f, 0.05f, static_cast<float>((now - m_lastTick) * 0.001));
     m_lastTick = now;
+    if (Theme::isCovered(*this))
+        return; // under a panel that covers the window: holds still
 
     if (m_wander && wanderPosition)
     {

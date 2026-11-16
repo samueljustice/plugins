@@ -1175,6 +1175,8 @@ void CargoHoldView::changeListenerCallback(juce::ChangeBroadcaster*)
 
 void CargoHoldView::timerCallback()
 {
+    if (Theme::isCovered(*this))
+        return; // under a panel that covers the window: holds still, and catches up when it closes
     const auto& engine = m_processor.getEngine();
 
     // Stowaway's Mode moved the rumbles on Auto to or from it (the hold is only told a flag): the lanes show it.

@@ -57,7 +57,8 @@ juce_add_plugin(Swooshbuckler
     PLUGIN_CODE Swsh
     FORMATS ${SWOOSHBUCKLER_FORMATS}
     PRODUCT_NAME "Swooshbuckler"
-    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png"   # app icon (.icns / .ico are made from it)
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png"         # app icon (.icns / .ico are made from these):
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon-small.png" # 32 px, drawn simpler, for the 16 and 32 px sizes
 )
 
 if(APPLE)
@@ -73,12 +74,15 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/Cargo.cpp
     Source/MasterProcessor.cpp
     Source/TapeRecorder.cpp
+    Source/TakeFile.cpp
     Source/SampleClassifier.cpp
     Source/RigEngine.cpp
     Source/SpectralMorph.cpp
     Source/Modulators.cpp
     Source/PitchShifter.cpp
     Source/SpaceReverb.cpp
+    Source/Room.cpp
+    Source/RoomMaster.cpp
 )
 
 target_sources(Swooshbuckler
@@ -89,10 +93,12 @@ target_sources(Swooshbuckler
     Source/Shortcuts.cpp
     Source/LookAndFeel.cpp
     Source/SeaVisualiser.cpp
+    Source/SpeakerMeters.cpp
     Source/CargoHoldView.cpp
     Source/MorphPad.cpp
     Source/MorphWander.cpp
     Source/LogoOutline.cpp
+    Source/LogoConstellation.cpp
     Source/ModPanel.cpp
     Source/UpdatePopup.cpp
     Source/TakeAudition.cpp
@@ -100,6 +106,7 @@ target_sources(Swooshbuckler
     Source/VariationRenderer.cpp
     Source/VariationsView.cpp
     Source/UserPresets.cpp
+    Source/AppOutput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -107,7 +114,10 @@ target_sources(Swooshbuckler
 target_include_directories(Swooshbuckler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 # Our own standalone app (Source/StandaloneApp.cpp): a normal native window without JUCE's Options bar.
-target_sources(Swooshbuckler_Standalone PRIVATE Source/StandaloneApp.cpp)
+# (Only when the app is one of the formats: -DSWOOSHBUCKLER_FORMATS="VST3;AU" builds without it.)
+if(TARGET Swooshbuckler_Standalone)
+    target_sources(Swooshbuckler_Standalone PRIVATE Source/StandaloneApp.cpp)
+endif()
 
 target_compile_definitions(Swooshbuckler
     PUBLIC
@@ -219,10 +229,11 @@ if(SWOOSHBUCKLER_TESTS)
     target_link_libraries(SwooshbucklerKeep PRIVATE Swooshbuckler)
 
     # Render test: Render Variations through the whole plug-in. A batch's files (names, lengths, peaks, each one
-    # different), cancelling, the same batch seed giving the same files, and how fast a batch renders.
+    # different), cancelling, the same batch seed giving the same files, how far the whooshes of one batch differ
+    # (--variety: a batch of ten with the demo sounds, measured file by file), and how fast a batch renders.
     juce_add_console_app(SwooshbucklerRender PRODUCT_NAME "SwooshbucklerRender")
-    target_sources(SwooshbucklerRender PRIVATE Tests/RenderTest.cpp)
-    target_include_directories(SwooshbucklerRender PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_sources(SwooshbucklerRender PRIVATE Tests/RenderTest.cpp tools/DemoSounds.cpp) # the demo sounds are only in the tools and tests
+    target_include_directories(SwooshbucklerRender PRIVATE Source tools ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerRender PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRender PRIVATE Swooshbuckler)
 
@@ -243,6 +254,102 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerStowaway PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerStowaway PRIVATE Swooshbuckler)
 
+    # Room test: the maths of surround output with no engine. The seven widths against JUCE's channel sets, the
+    # panner (constant power, a sound at a speaker plays from it alone, no gain jumps along any flight path), the
+    # four flight paths, the fold-down matrices and what they do to the level, and every file channel order,
+    # speaker mask and Multi-Mono suffix.
+    juce_add_console_app(SwooshbucklerRoom PRODUCT_NAME "SwooshbucklerRoom")
+    target_sources(SwooshbucklerRoom PRIVATE Tests/RoomTest.cpp)
+    target_include_directories(SwooshbucklerRoom PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerRoom PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerRoom PRIVATE Swooshbuckler)
+
+    # Surround test: the rig in a room (Quad to 7.1.4). Every pass, throw and hit as an object: at 5.1, 7.1 and
+    # 7.1.4 a pass's energy goes through the speakers in its Flight Path's order, an object is as loud wherever it
+    # is, nothing clicks when a pass starts again or the path, the width or the room's settings change mid-pass, the
+    # LFE stays silent, LINK, Take Turns, the morph, AIM, the tremolo, throws and Swell work, Stowaway and stereo
+    # beds are placed, Stereo is the stereo engine, and what 7.1.4 costs against Stereo at 48, 96 and 192 kHz.
+    juce_add_console_app(SwooshbucklerSurround PRODUCT_NAME "SwooshbucklerSurround")
+    juce_generate_juce_header(SwooshbucklerSurround)
+    target_sources(SwooshbucklerSurround PRIVATE Tests/SurroundTest.cpp ${SWOOSHBUCKLER_DSP_SOURCES})
+    target_include_directories(SwooshbucklerSurround PRIVATE Source)
+    target_compile_definitions(SwooshbucklerSurround PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1)
+    target_link_libraries(SwooshbucklerSurround
+        PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Hits test: where a hit lands. With The Pass (a hit's energy is where its pass's is, on every Flight Path both
+    # ways, and as high; which pass when several fly; the front when none does), Front, Random (thirty hits round
+    # the room, the same from the same seed), Hit Spread (the share outside the nearest speakers at one power), the
+    # same hit as loud from a point to everywhere for mono files and stereo files of every kind, no clicks when
+    # either changes mid-hit, Stereo and Mono, stereo beds brought to a point, and the limiter through the plug-in.
+    juce_add_console_app(SwooshbucklerHits PRODUCT_NAME "SwooshbucklerHits")
+    target_sources(SwooshbucklerHits PRIVATE Tests/HitsTest.cpp)
+    target_include_directories(SwooshbucklerHits PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerHits PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerHits PRIVATE Swooshbuckler)
+
+    # Wide test: the plug-in at every room width. The seven layouts accepted (and only those; the app stays
+    # Stereo), the AAX plug-in ID of each, the output stage's two limiters (the main channels linked, the LFE on
+    # its own) and its latency on every channel, and the whole plug-in at each width carrying the Stereo render
+    # in L and R with every other channel silent.
+    juce_add_console_app(SwooshbucklerWide PRODUCT_NAME "SwooshbucklerWide")
+    target_sources(SwooshbucklerWide PRIVATE Tests/WideTest.cpp)
+    target_include_directories(SwooshbucklerWide PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerWide PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerWide PRIVATE Swooshbuckler)
+
+    # Space and LFE test: the reverb in a room (as loud as in Stereo, uncorrelated returns on every main speaker,
+    # Height, the lean, folds without combs), what feeds the LFE (Off, Discrete, Mixdown; the low-pass; the mains
+    # untouched; bass management in step), the LFE's own limiter and no Inflate on it, and the CPU.
+    juce_add_console_app(SwooshbucklerSpaceLfe PRODUCT_NAME "SwooshbucklerSpaceLfe")
+    target_sources(SwooshbucklerSpaceLfe PRIVATE Tests/SpaceLfeTest.cpp)
+    target_include_directories(SwooshbucklerSpaceLfe PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerSpaceLfe PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerSpaceLfe PRIVATE Swooshbuckler)
+
+    # Output stage test: Inflate, Push and the limiter do the same to a pass at every room width (a room's speakers
+    # worked by side, against the Stereo render), the Ceiling on every channel with every speaker sounding, the
+    # LFE's own limiter, loudness at every width, Master Trim and the Everything tremolo on every channel alike,
+    # the limiter on an auditioned fold-down, LFE Level as typed, and the CPU.
+    juce_add_console_app(SwooshbucklerOutput PRODUCT_NAME "SwooshbucklerOutput")
+    target_sources(SwooshbucklerOutput PRIVATE Tests/OutputTest.cpp)
+    target_include_directories(SwooshbucklerOutput PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerOutput PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerOutput PRIVATE Swooshbuckler)
+
+    # Files test: takes of every room width on disk. Every width, Channel Order (Like Pro Tools, WAV Standard),
+    # File Layout (Interleaved, Multi-Mono) and file type written and read back with the test's own parser (the WAV
+    # speaker mask, the channel names, each channel's sound in its slot, the markers, Multi-Mono sets complete and
+    # named, all or nothing), the tape and the saved last minutes at 12 channels, their memory cap and taking it only when needed, the Mono fold,
+    # RF64, audition at any width, and a Multi-Mono set as one take.
+    juce_add_console_app(SwooshbucklerFiles PRODUCT_NAME "SwooshbucklerFiles")
+    target_sources(SwooshbucklerFiles PRIVATE Tests/FilesTest.cpp)
+    target_include_directories(SwooshbucklerFiles PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerFiles PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerFiles PRIVATE Swooshbuckler)
+
+    # Export test: Render Variations at every room width through the real renderer (channel count, Like Pro Tools
+    # and WAV Standard orders against the Multi-Mono files, speaker masks, file names, markers, the same batch twice,
+    # Mono as the Stereo fold, a 7.1.4 render's sound in the room), the Width choice, the estimate, FLAC and AIFF
+    # limits said before rendering, wide takes in the Takes, and the tape in a 7.1.4 room (the labelled Stereo
+    # fold under the Ceiling, the saved last minutes' real length).
+    juce_add_console_app(SwooshbucklerExport PRODUCT_NAME "SwooshbucklerExport")
+    target_sources(SwooshbucklerExport PRIVATE Tests/ExportTest.cpp)
+    target_include_directories(SwooshbucklerExport PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerExport PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerExport PRIVATE Swooshbuckler)
+
+    # App test: the standalone app's Listening setting (Stereo when new, remembered, the rig's only width), the rig
+    # prepared again at each width, every speaker on its own output, the fold-down under the Ceiling when the device
+    # has fewer outputs, a change of width without a click, the status texts, and the whole chain through JUCE's
+    # device manager and player with a pretend audio device (tools/FakeAudioDevice.h).
+    juce_add_console_app(SwooshbucklerApp PRODUCT_NAME "SwooshbucklerApp")
+    target_sources(SwooshbucklerApp PRIVATE Tests/AppTest.cpp)
+    target_include_directories(SwooshbucklerApp PRIVATE Source tools ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerApp PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerApp PRIVATE Swooshbuckler)
+
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
     juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")
@@ -261,6 +368,18 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>
         SWOOSH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Source") # the hard-edge check reads the sources
     target_link_libraries(SwooshbucklerUi PRIVATE Swooshbuckler)
+
+    # The tests keep whole engines (RigEngine and its fixed buffers) as locals. A Windows program's main thread
+    # gets 1 MB of stack against macOS's 8 MB, and MSVC gives every local its own place, so there they ask for plenty (it is only reserved, not used). (The plug-in and the
+    # app keep the engine inside the processor, which is never on a stack.)
+    if(MSVC)
+        foreach(test Cargo Rig Classify Pitch Morph Master Session Keep Render Routing Stowaway Room Surround Hits
+                     Wide SpaceLfe Output Files Export App FirstRun Ui)
+            if(TARGET Swooshbuckler${test})
+                target_link_options(Swooshbuckler${test} PRIVATE "/STACK:67108864")
+            endif()
+        endforeach()
+    endif()
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.
@@ -280,6 +399,15 @@ if(SWOOSHBUCKLER_TOOLS)
     target_include_directories(SwooshbucklerAudit PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerAudit PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerAudit PRIVATE Swooshbuckler)
+
+    # Ident files: one set per width, Channel Order and File Layout, each channel beeping its number at a pitch of
+    # its own, for importing into Pro Tools and Soundminer to see which speaker each channel lands on
+    # (tools/IdentFiles.cpp). Usage: SwooshbucklerIdent <folder> [--types wav,aif,flac] [--rate 48000] [--bits 24].
+    juce_add_console_app(SwooshbucklerIdent PRODUCT_NAME "SwooshbucklerIdent")
+    target_sources(SwooshbucklerIdent PRIVATE tools/IdentFiles.cpp)
+    target_include_directories(SwooshbucklerIdent PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerIdent PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerIdent PRIVATE Swooshbuckler)
 
     # UI shots: renders the real editor offline to PNG files at any window scale, one picture per panel and per
     # state, and checks that every text fits its box and is capitalised by the one rule (tools/UiShot.cpp,

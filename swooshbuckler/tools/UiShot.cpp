@@ -24,8 +24,41 @@
 //                             the panels that open over the window
 //   variations-cancelled.png variations-choices.png variations-repeat.png variations-finished.png
 //                             Render Variations cancelled part-way, with its other choices, repeating a batch, and done
-//   menu.png                  the preset menu open
+//   variations-51.png variations-714-multimono.png variations-714-finished.png variations-714-multimono-finished.png
+//   variations-714-flac.png
+//                             Render Variations wider than the rig: the order line at 5.1, Multi-Mono at 7.1.4, a 7.1.4
+//                             batch done (interleaved, and as Multi-Mono sets: takes and files counted), and FLAC refusing
+//                             7.1.4 in one file before anything is rendered (Render rests)
+//   settings-714.png settings-714-stereo-fold.png settings-714-flac.png takes-714.png
+//                             the rig in a 7.1.4 room: the tape's settings (as played, folded to Stereo, FLAC refused)
+//                             and the Takes list with a 7.1.4 take, a Stereo fold, a Multi-Mono set and 7.1.4 variations
+//   settings-app.png settings-app-51.png settings-app-714.png settings-app-714-folded.png audio-device-51.png
+//   audio-device-714.png audio-device-714-folded.png window-app-folded.png footer-app-folded.png
+//                             the app, played from a pretend audio device: Speakers in Settings (Stereo, 5.1, 7.1.4,
+//                             and 7.1.4 on a two-output device), the audio device dialog, and the footer saying it is folded
+//   window-app.png room-strip-app.png room-strip-app-714.png
+//                             the app's room strip, its Speakers a menu (at Stereo, and at 7.1.4)
+//   window-room-stereo.png room-strip-stereo.png bus-a-stereo.png
+//                             the room strip, the Flight Paths and the rest of the window at Stereo, where they rest
+//                             (the sea's note in the plan's place says why)
+//   window-51.png sea-51.png room-strip-51.png output-51.png sea-plan-51.png
+//                             a 5.1 track: the strip lit, the speaker meters, the plan of the room (Centre Speaker on)
+//   window-714-<path>.png sea-714-<path>.png sea-plan-714-<path>.png   (across, through, overhead, around)
+//   output-714.png room-strip-714.png bus-a-714.png bus-b-714.png
+//                             a 7.1.4 track with both buses on each Flight Path: the comets, the plan, the meters
+//   window-714-stowaway-fly.png stowaway-fly-714.png sea-714-stowaway-fly.png
+//                             Stowaway's Fly going Around in a 7.1.4 room, its plate open with its Flight Path
+//   window-714-stowaway-fly-folded.png stowaway-fly-714-folded.png
+//                             the same plate folded: its note names Fly's Flight Path and way
+//   window-51-lfe-unfed.png room-strip-51-lfe-unfed.png variations-51-lfe-unfed.png
+//                             LFE Mode Discrete with Stowaway off: the strip's cue and fix, and Render Variations' note
+//   window-714-held.png bus-a-714-held.png bus-b-714-linked.png
+//                             bus A held to Through, Front to Back, on the Right; bus B linked, showing bus A's
+//   window-714-direction-wired.png bus-a-714-direction-wired.png
+//                             a modulator wired to bus A's Direction: the key it picks now marked in its colour
+//   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
+//   speakers-dialog.png       the app asking before a change of Speakers empties the Last 60 s memory
 //
 // --sea adds one crop of the sea at each of its moments (a hit, a throw, a ripple with the swell up, recording,
 // the constellation showing) and prints what a frame of it costs to paint at 1x and 2x. --constellation holds
@@ -34,7 +67,8 @@
 // --docs writes, instead of all of the above, exactly the pictures the manual uses, under the names it uses
 // (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
 // bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
-// cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png). Run it as
+// cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png, and for surround room-strip.png,
+// output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
@@ -46,6 +80,8 @@
 
 #include "UiRig.h"
 #include "UiProbe.h"
+#include "AppOutput.h"
+#include "FakeAudioDevice.h"
 #include "DemoSounds.h"
 
 #include <iostream>
@@ -252,6 +288,67 @@ namespace
                 ed.syncMorphPad();
                 ed.m_morphPad.ropesMoved();
                 rig.run(0.2);
+            }
+
+            // Surround: the track made 7.1.4 (as a host would), Centre Speaker on, the LFE on Mixdown and a little
+            // Spread, so every lamp and meter has something to show. The room strip, Output with the speaker
+            // meters, and the sea with its plan of the room while the passes fly Overhead; then back to Stereo.
+            {
+                auto widen = [&](room::Width width)
+                {
+                    auto layout = proc.getBusesLayout();
+                    layout.outputBuses.getReference(0) = room::channelSet(width);
+                    proc.setBusesLayout(layout);
+                    proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+                    rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+                };
+                auto set = [&](const char* id, float plain)
+                {
+                    auto* param = proc.getState().getParameter(id);
+                    param->setValueNotifyingHost(param->convertTo0to1(plain));
+                };
+                auto paths = [&](int path)
+                {
+                    for (auto* id : ParamIDs::flightPath)
+                        set(id, static_cast<float>(path));
+                };
+                widen(room::Width::Surround714);
+                set(ParamIDs::roomCentre, 1.0f);
+                set(ParamIDs::roomLfeMode, static_cast<float>(ParamIDs::numLfeModes - 1)); // Mixdown: the LFE meter moves
+                set(ParamIDs::roomSpread, 0.25f);
+                paths(0);
+                rig.run(3.0);
+                {
+                    const auto window = shots.shoot("window-room");
+                    shots.crop(window, "room-strip", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    shots.crop(window, "output-room", ed.m_sections[3].bounds, 2);
+                }
+                // The manual's main picture: the window at 7.1.4 with both buses flying, the hits landing with their
+                // pass, every speaker meter moving, the plan of the room lit and the mark in the stars. It replaces
+                // the Stereo window shot above (the crops already taken from that one stay Stereo).
+                {
+                    set(ParamIDs::hitAim, 0.0f);
+                    set(ParamIDs::gateMode, 3.0f); // Open: the hits sound, so they glow on the plan
+                    set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitWithPass));
+                    ed.m_sea.showConstellation(true);
+                    rig.run(2.0);
+                    shots.shoot("screenshot");
+                    ed.m_sea.showConstellation(false);
+                    for (auto* id : { ParamIDs::hitAim, ParamIDs::gateMode, ParamIDs::hitPosition })
+                        proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                }
+                paths(2); // Overhead: the tops light on the plan
+                rig.run(2.4);
+                {
+                    const auto window = shots.shoot("window-room-overhead");
+                    shots.crop(window, "sea-room", ed.m_sea.getBounds(), 2);
+                    shots.crop(window, "room-plan", ed.m_content.getLocalArea(&ed.m_sea, ed.m_sea.roomPlanArea().getSmallestIntegerContainer()), 6);
+                }
+                for (auto* id : { ParamIDs::roomCentre, ParamIDs::roomLfeMode, ParamIDs::roomSpread })
+                    proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                paths(0);
+                widen(room::Width::Stereo);
+                rig.run(0.5);
             }
 
             // Three wires with the cables showing: the Linked, Resting and Disabled looks, as the manual describes.
@@ -677,8 +774,271 @@ int main(int argc, char* argv[])
             rig.run(0.3);
             v.timerCallback();
             shots.shoot("variations-finished", &v);
+
+            // Wider than the rig plays: the order line at 5.1, Multi-Mono at 7.1.4, a 7.1.4 batch rendered, and FLAC,
+            // which can't hold 7.1.4 in one file, said before anything is rendered.
+            pick(v.m_width, static_cast<int>(room::Width::Surround51) + 1);
+            rig.run(0.1);
+            shots.shoot("variations-51", &v);
+            pick(v.m_width, static_cast<int>(room::Width::Surround714) + 1);
+            pick(v.m_layout, 2);
+            rig.run(0.1);
+            shots.shoot("variations-714-multimono", &v);
+            pick(v.m_layout, 1);
+            v.m_count.setText("2", true);
+            v.startBatch();
+            proc.getVariations().waitUntilDone(120000);
+            rig.run(0.3);
+            v.timerCallback();
+            shots.shoot("variations-714-finished", &v);
+            pick(v.m_layout, 2);
+            v.startBatch();
+            proc.getVariations().waitUntilDone(120000);
+            rig.run(0.3);
+            v.timerCallback();
+            shots.shoot("variations-714-multimono-finished", &v);
+            pick(v.m_layout, 1);
+            proc.setFileType(2);
+            v.readSettings();
+            rig.run(0.1);
+            shots.shoot("variations-714-flac", &v);
+            proc.setFileType(0);
+            pick(v.m_width, static_cast<int>(proc.getRoomWidth()) + 1); // back to following the rig
             v.m_count.setText("100", true);
             ed.m_variations.setVisible(false);
+
+            // The rig in a 7.1.4 room (a host's track): the tape's settings, and takes of every kind in the list (the
+            // room as played, a Stereo fold, a Multi-Mono set and a 7.1.4 variation).
+            {
+                auto widen = [&](room::Width width)
+                {
+                    auto layout = proc.getBusesLayout();
+                    layout.outputBuses.getReference(0) = room::channelSet(width);
+                    proc.setBusesLayout(layout);
+                    proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+                    rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+                };
+                widen(room::Width::Surround714);
+                rig.run(2.0);
+                ed.saveRetro();                                   // 7.1.4, as played
+                proc.setTapeFold(Proc::TapeFold::Stereo);
+                ed.saveRetro();                                   // a Stereo fold
+                proc.setTapeFold(Proc::TapeFold::AsPlayed);
+                proc.setFileLayout(takefile::Layout::MultiMono);
+                ed.saveRetro();                                   // a Multi-Mono set
+                proc.setFileLayout(takefile::Layout::Interleaved);
+                proc.timerCallback();
+                rig.run(0.2);
+                ed.m_settings.refresh();
+                ed.m_settings.setVisible(true);
+                ed.m_settings.toFront(false);
+                shots.shoot("settings-714", &ed.m_settings);
+                proc.setTapeFold(Proc::TapeFold::Stereo);
+                ed.m_settings.refresh();
+                shots.shoot("settings-714-stereo-fold", &ed.m_settings);
+                proc.setTapeFold(Proc::TapeFold::AsPlayed);
+                proc.setFileType(2);
+                ed.m_settings.refresh();
+                shots.shoot("settings-714-flac", &ed.m_settings);
+                proc.setFileType(0);
+                ed.m_settings.setVisible(false);
+                ed.showTakes();
+                rig.run(0.2);
+                shots.shoot("takes-714", &ed.m_takes);
+                ed.m_takes.setVisible(false);
+                widen(room::Width::Stereo);
+                rig.run(0.2);
+            }
+
+            // The room on screen: the strip resting at Stereo, the window at 5.1 and at 7.1.4 with passes in flight on
+            // each Flight Path, the speaker meters, the plan of the room close up, and Stowaway's Fly in a room.
+            {
+                auto widen = [&](room::Width width)
+                {
+                    auto layout = proc.getBusesLayout();
+                    layout.outputBuses.getReference(0) = room::channelSet(width);
+                    proc.setBusesLayout(layout);
+                    proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+                    rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+                };
+                auto set = [&](const char* id, float plain)
+                {
+                    auto* param = proc.getState().getParameter(id);
+                    param->setValueNotifyingHost(param->convertTo0to1(plain));
+                };
+                auto paths = [&](int path)
+                {
+                    for (auto* id : ParamIDs::flightPath)
+                        set(id, static_cast<float>(path));
+                };
+                auto planCrop = [&](const juce::Image& window, const juce::String& name)
+                {
+                    shots.crop(window, name, ed.m_content.getLocalArea(&ed.m_sea, ed.m_sea.roomPlanArea().getSmallestIntegerContainer()), 6);
+                };
+                proc.setPlaying(true);
+                rig.run(0.5);
+                {
+                    const auto window = shots.shoot("window-room-stereo");
+                    shots.crop(window, "room-strip-stereo", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    shots.crop(window, "bus-a-stereo", ed.m_sections[0].bounds);
+                }
+
+                widen(room::Width::Surround51);
+                set(ParamIDs::roomCentre, 1.0f);
+                set(ParamIDs::roomLfeMode, static_cast<float>(ParamIDs::numLfeModes - 1)); // Mixdown: the LFE meter moves
+                paths(0);
+                rig.run(3.0);
+                {
+                    const auto window = shots.shoot("window-51");
+                    shots.crop(window, "sea-51", ed.m_sea.getBounds());
+                    shots.crop(window, "room-strip-51", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    shots.crop(window, "output-51", ed.m_sections[3].bounds);
+                    planCrop(window, "sea-plan-51");
+                }
+                // Discrete with Stowaway off: nothing feeds the LFE, and the strip says so where LFE Level was, with the
+                // fix; Render Variations says it too, under its Channels.
+                set(ParamIDs::roomLfeMode, 1.0f);
+                rig.run(0.3);
+                {
+                    const auto window = shots.shoot("window-51-lfe-unfed");
+                    shots.crop(window, "room-strip-51-lfe-unfed", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                    auto& v = ed.m_variations;
+                    v.setVisible(true);
+                    v.toFront(false);
+                    rig.run(0.2);
+                    shots.shoot("variations-51-lfe-unfed", &v);
+                    v.setVisible(false);
+                }
+                set(ParamIDs::roomLfeMode, static_cast<float>(ParamIDs::numLfeModes - 1));
+
+                widen(room::Width::Surround714);
+                set(ParamIDs::roomSpread, 0.25f);
+                const char* pathNames[] = { "across", "through", "overhead", "around" };
+                for (int path = 0; path < ParamIDs::numFlightPaths; ++path)
+                {
+                    paths(path);
+                    rig.run(path == 0 ? 3.0 : 2.4);
+                    const auto window = shots.shoot(juce::String("window-714-") + pathNames[path]);
+                    shots.crop(window, juce::String("sea-714-") + pathNames[path], ed.m_sea.getBounds());
+                    planCrop(window, juce::String("sea-plan-714-") + pathNames[path]);
+                    if (path == 0)
+                    {
+                        shots.crop(window, "output-714", ed.m_sections[3].bounds);
+                        shots.crop(window, "room-strip-714", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+                        shots.crop(window, "bus-a-714", ed.m_sections[0].bounds);
+                        shots.crop(window, "bus-b-714", ed.m_sections[1].bounds);
+                    }
+                }
+
+                // Output at 7.1 too (5.1 and 7.1.4 are above), and where a hit lands on the plan: the gate held open so the
+                // hits always play, a hit in front at Hit Spread 0% (a small glow) and 100% (the whole room), and one
+                // going with its pass at the default.
+                {
+                    widen(room::Width::Surround71);
+                    paths(0);
+                    rig.run(2.0);
+                    shots.crop(shots.shoot("window-71"), "output-71", ed.m_sections[3].bounds);
+                    widen(room::Width::Surround714);
+                    set(ParamIDs::hitAim, 0.0f);
+                    set(ParamIDs::gateMode, 3.0f);
+                    set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitFront));
+                    for (const float spread : { 0.0f, 1.0f })
+                    {
+                        set(ParamIDs::hitSpread, spread);
+                        rig.run(2.0);
+                        const juce::String which = spread > 0.5f ? "100" : "0";
+                        {
+                            const auto flash = ed.m_sea.planFlash();
+                            const auto hit = proc.getEngine().getHitView();
+                            std::cout << "hit flash at Hit Spread " << which << "%: level " << flash.level << ", radius " << flash.radiusX << " x " << flash.radiusY
+                                      << " (the hits' level " << hit.level << ", spread " << hit.spread << ")" << std::endl;
+                        }
+                        planCrop(shots.shoot("window-714-hit-" + which), "sea-plan-714-hit-" + which);
+                    }
+                    set(ParamIDs::hitPosition, static_cast<float>(ParamIDs::HitWithPass));
+                    set(ParamIDs::hitSpread, ParamIDs::hitSpreadDefault);
+                    rig.run(2.0);
+                    {
+                        const auto window = shots.shoot("window-714-hit-with-pass");
+                        planCrop(window, "sea-plan-714-hit-with-pass");
+                        shots.crop(window, "hits-714", ed.m_sections[2].bounds);
+                    }
+                    for (auto* id : { ParamIDs::hitAim, ParamIDs::gateMode, ParamIDs::hitPosition, ParamIDs::hitSpread })
+                        proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                    rig.run(0.3);
+                }
+
+                // Direction and Side held: bus A Through, front to back, on your right, with a modulator deciding bus A's
+                // Direction pass by pass; Link on, so bus B shows (and flies) bus A's. Then back as they were.
+                {
+                    set(ParamIDs::flightPath[0], 1.0f);
+                    set(ParamIDs::direction[0], 1.0f);
+                    set(ParamIDs::side[0], 2.0f);
+                    set(ParamIDs::linkBuses, 1.0f);
+                    rig.run(1.0);
+                    const auto held = shots.shoot("window-714-held");
+                    shots.crop(held, "bus-a-714-held", ed.m_sections[0].bounds);
+                    shots.crop(held, "bus-b-714-linked", ed.m_sections[1].bounds);
+                    const int wire = proc.getMods().connect(3, ParamIDs::direction[0], 1.0f);
+                    ed.m_wires.rebuild();
+                    rig.run(1.0);
+                    ed.m_wires.rebuild();
+                    shots.crop(shots.shoot("window-714-direction-wired"), "bus-a-714-direction-wired", ed.m_sections[0].bounds.withTrimmedTop(80));
+                    proc.getMods().disconnect(wire);
+                    ed.m_wires.rebuild();
+                    for (auto* id : { ParamIDs::direction[0], ParamIDs::side[0], ParamIDs::linkBuses })
+                        proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                    paths(0);
+                    rig.run(0.3);
+                }
+
+                // Stowaway's Fly in the room, its plate open with its own Flight Path.
+                proc.setTrackBus(1, CargoHold::c_stowBus);
+                proc.setStowawayOn(true);
+                set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly));
+                set(ParamIDs::stowFlightPath, 3.0f);
+                proc.setStowawayPanel(1);
+                rig.run(3.0);
+                {
+                    const auto window = shots.shoot("window-714-stowaway-fly");
+                    shots.crop(window, "stowaway-fly-714", ed.m_stowPanel);
+                    shots.crop(window, "sea-714-stowaway-fly", ed.m_sea.getBounds());
+                }
+                // Folded: its note names Fly's Flight Path and way.
+                set(ParamIDs::stowDirection, 2.0f);
+                proc.setStowawayPanel(0);
+                rig.run(1.0);
+                shots.crop(shots.shoot("window-714-stowaway-fly-folded"), "stowaway-fly-714-folded", ed.m_stowPanel);
+                set(ParamIDs::stowDirection, 0.0f);
+                proc.setStowawayOn(false);
+                proc.setTrackBus(1, -1);
+                set(ParamIDs::stowMode, 0.0f);
+                set(ParamIDs::stowFlightPath, 0.0f);
+                proc.setStowawayPanel(0);
+                for (auto* id : { ParamIDs::roomCentre, ParamIDs::roomLfeMode, ParamIDs::roomSpread })
+                    proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+                paths(0);
+                widen(room::Width::Stereo);
+                rig.run(0.5);
+
+                // The Hits panel with each Hit Position (at Stereo, where they work: the hit moves between left and
+                // right), then at Mono, where Hit Position and Hit Spread rest and the group says why.
+                {
+                    const char* names[ParamIDs::numHitPositions] = { "with-pass", "front", "random" };
+                    for (int position = 0; position < ParamIDs::numHitPositions; ++position)
+                    {
+                        set(ParamIDs::hitPosition, static_cast<float>(position));
+                        rig.run(0.2);
+                        shots.crop(shots.shoot(juce::String("window-hits-") + names[position]), juce::String("hits-") + names[position], ed.m_sections[2].bounds);
+                    }
+                    set(ParamIDs::hitPosition, 0.0f);
+                    widen(room::Width::Mono);
+                    rig.run(0.5);
+                    shots.crop(shots.shoot("window-mono"), "hits-mono", ed.m_sections[2].bounds);
+                    widen(room::Width::Stereo);
+                    rig.run(0.5);
+                }
+            }
 
             ed.m_about.setVisible(true);
             ed.m_about.toFront(false);
@@ -734,6 +1094,113 @@ int main(int argc, char* argv[])
         faults = shots.faults;
         texts = shots.texts;
         rig.editor.reset();
+    }
+
+    // The app: its own rig, played through AppOutput from a pretend audio device (tools/FakeAudioDevice.h), as
+    // the standalone app plays it. Listening in Settings, the audio device dialog, and the footer saying when the
+    // room is folded down because the device has too few outputs.
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        std::unique_ptr<juce::AudioProcessor> base(createPluginFilter());
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        proc.setListening(room::Width::Stereo);
+        proc.setRecordFolder(options.work.getChildFile("Recordings"));
+        DemoSounds::loadInto(proc);
+
+        juce::AudioDeviceManager devices;
+        devices.addAudioDeviceType(std::make_unique<FakeAudio::Type>());
+        devices.initialise(0, 2, nullptr, true);
+        FakeAudio::choose(devices, "Fake 16", 2);
+        juce::AudioProcessorPlayer player;
+        devices.addAudioCallback(&player);
+        auto audio = std::make_unique<AppAudio>(proc, devices, player);
+        audio->start();
+        Proc::showAudioSettings = [] {}; // the app has an Audio Device button
+
+        Rig rig(proc, options.scale);
+        Shots shots { rig, options };
+        rig.open();
+        auto& ed = *rig.editor;
+        // Plays from the pretend device, the window's timers stepped as it goes.
+        auto run = [&](double seconds)
+        {
+            juce::AudioBuffer<float> block;
+            const int blocks = static_cast<int>(seconds * FakeAudio::c_rate / FakeAudio::c_buffer);
+            for (int i = 0; i < blocks; ++i)
+            {
+                if (auto* device = FakeAudio::current(devices))
+                    device->pull(block);
+                if ((i & 3) == 0)
+                    tick(rig.editor.get());
+            }
+            tick(rig.editor.get());
+        };
+        auto listen = [&](room::Width width)
+        {
+            proc.setListening(width);
+            for (int i = 0; i < 8 && ! audio->output().isFadedOut(); ++i)
+                run(FakeAudio::c_buffer / FakeAudio::c_rate);
+            audio->finishChange();
+        };
+        auto settingsShot = [&](const juce::String& name)
+        {
+            run(0.5);
+            ed.m_settings.refresh();
+            ed.m_settings.setVisible(true);
+            ed.m_settings.toFront(false);
+            shots.shoot(name, &ed.m_settings);
+            ed.m_settings.setVisible(false);
+        };
+        auto deviceShot = [&](const juce::String& name)
+        {
+            AppAudio::DevicePanel panel(devices, proc);
+            UiProbe::Recorder recorder;
+            const auto image = recorder.paint(panel, rig.scale);
+            shots.report(name, recorder);
+            if (options.images)
+                save(image, options.out.getChildFile(name + ".png"));
+        };
+        proc.setPlaying(true);
+        run(1.0);
+        settingsShot("settings-app");                     // Stereo on the first two of sixteen outputs
+        {
+            const auto window = shots.shoot("window-app");   // the room strip in the app: Speakers is a menu
+            shots.crop(window, "room-strip-app", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+        }
+        {
+            // Changing Speakers while the Last 60 s memory holds something asks first (the change empties it).
+            std::unique_ptr<juce::AlertWindow> dialog(ed.makeSpeakersDialog(room::Width::Surround51));
+            UiProbe::Recorder recorder;
+            const auto image = recorder.paint(*dialog, rig.scale);
+            shots.report("speakers-dialog", recorder);
+            if (options.images)
+                save(image, options.out.getChildFile("speakers-dialog.png"));
+        }
+        listen(room::Width::Surround51);
+        settingsShot("settings-app-51");                  // 5.1: outputs 1 to 6 switched on for it
+        deviceShot("audio-device-51");
+        listen(room::Width::Surround714);
+        settingsShot("settings-app-714");                 // 7.1.4 on twelve of the sixteen outputs
+        deviceShot("audio-device-714");
+        FakeAudio::choose(devices, "Fake 2", 2);
+        audio->deviceChanged();
+        settingsShot("settings-app-714-folded");          // 7.1.4 on a two-output device: the fold, said in brass
+        deviceShot("audio-device-714-folded");
+        {
+            run(0.5);
+            const auto window = shots.shoot("window-app-folded");
+            shots.crop(window, "footer-app-folded", ed.m_footer, 4);
+            shots.crop(window, "room-strip-app-714", ed.m_sea.getBounds().withTop(ed.m_roomStrip.getY() - 16), 2);
+        }
+        proc.setPlaying(false);
+        faults += shots.faults;
+        texts += shots.texts;
+        rig.editor.reset();
+        Proc::showAudioSettings = nullptr;
+        audio.reset();
+        devices.removeAudioCallback(&player);
+        devices.closeAudioDevice();
     }
     std::cout << texts << " texts checked at scale " << juce::String(options.scale, 2) << ": "
               << (faults == 0 ? juce::String("every one fits its box and follows the capitals rule.") : juce::String(faults) + " faults.") << std::endl;

@@ -1,242 +1,592 @@
-// Renders Swooshbuckler's app icon (Resources/icon.png, 1024 x 1024, and Resources/icon.ico for the Windows installer) with the app's own
-// palette and cutlasses: crossed cutlasses over a doppler comet sweeping across a night sea.
-// Not part of the release build: run it after changing the artwork, and commit the PNG.
+// Renders Swooshbuckler's app icon in the window's own look: ship's ironwork with brass, stamped on plates.
+//
+// The tile is a brass plate with hard 45 degree cuts at its corners (the gussets of the sea's frame, a gunmetal bolt in
+// each) round a window onto the sea: a night sky over the line-drawn swell, a crescent moon, and a comet in Bus A's
+// coral sweeping behind the crossed cutlasses (the app's mark, top left of the window), which are the hero. Depth is
+// flat and hard: a dark pressed outline, a lit lip and a dark lip on every stamped part, hard facets on the frame. No
+// glows, no blurs, no round corners: the only round things are round on a ship (bolt heads, the moon, a comet's head).
+//
+// It writes three files:
+//   <out>.png        the 1024 x 1024 master (ICON_BIG): the .icns from 64 px up, the window's own icon
+//   <out>-small.png  32 x 32 (ICON_SMALL): the .icns at 16 and 32 px, drawn simpler (no bolts, stars, moon or fine
+//                    swell; thicker blades and outlines) so it stays crisp in a Finder list or a taskbar
+//   <out>.ico        the Windows installer's icon: 16, 24 and 32 px from the simple drawing, 48 to 256 from the master
+//
+// Not part of the release build: run it after changing the artwork, and commit the three files.
 //
 //   cmake -B build -DSWOOSHBUCKLER_TOOLS=ON && cmake --build build --target SwooshbucklerIcon
-//   ./build/SwooshbucklerIcon_artefacts/Debug/SwooshbucklerIcon Resources/icon.png
+//   ./build/SwooshbucklerIcon_artefacts/Release/SwooshbucklerIcon Resources/icon.png [--sheet]
+//
+// --sheet writes, instead of the icon, a sheet of it at 256 down to 16 px on a dark and a light ground (the sizes as
+// shipped, so 32 and 16 are the simple drawing), with 32 and 16 also blown up four times. --simple writes only the
+// simple drawing at 1024 px, to look at it closely.
 
 #include <JuceHeader.h>
 
 namespace
 {
-    const juce::Colour deep       { 0xff06131a };
-    const juce::Colour panel      { 0xff15323e };
-    const juce::Colour lagoon     { 0xff3ccbc2 };
-    const juce::Colour coral      { 0xffff8466 };
-    const juce::Colour gold       { 0xfff2b84b };
-    const juce::Colour sand       { 0xfff2e8d2 };
-    const juce::Colour driftwood  { 0xffd3c9b4 };
-    const juce::Colour brass      { 0xffdcae5c };
-    const juce::Colour brassDark  { 0xff7d5a26 };
-
-    /** One cutlass: a curved blade with a lit edge, a basket guard and a wrapped grip (same shape as the header's). */
-    void drawCutlass(juce::Graphics& g, juce::Rectangle<float> area, bool mirror)
+    // Theme::Colours (Source/Theme.h), by value: the tool builds without the plug-in's binary data that Theme.h includes.
+    namespace C
     {
-        const auto t = mirror ? juce::AffineTransform::scale(-1.0f, 1.0f, area.getCentreX(), 0.0f) : juce::AffineTransform();
-        const float x0 = area.getX(), y0 = area.getY(), w = area.getWidth(), h = area.getHeight();
-        auto P = [&](float fx, float fy) { return juce::Point<float>(x0 + fx * w, y0 + fy * h); };
-
-        juce::Path blade;
-        blade.startNewSubPath(P(0.18f, 0.84f));
-        blade.quadraticTo(P(0.55f, 0.55f), P(0.95f, 0.02f));
-        blade.quadraticTo(P(0.72f, 0.50f), P(0.25f, 0.90f));
-        blade.closeSubPath();
-
-        // Shadow, steel, then a bright cutting edge along the outer curve.
-        g.setColour(juce::Colours::black.withAlpha(0.45f));
-        g.fillPath(blade, t.translated(mirror ? -10.0f : 10.0f, 14.0f));
-        g.setGradientFill(juce::ColourGradient(sand, P(0.9f, 0.05f).transformedBy(t), driftwood.darker(0.35f), P(0.2f, 0.88f).transformedBy(t), false));
-        g.fillPath(blade, t);
-        juce::Path edge;
-        edge.startNewSubPath(P(0.20f, 0.84f));
-        edge.quadraticTo(P(0.56f, 0.56f), P(0.94f, 0.04f));
-        g.setColour(juce::Colours::white.withAlpha(0.85f));
-        g.strokePath(edge, juce::PathStrokeType(w * 0.012f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), t);
-
-        // Guard: a brass bow.
-        juce::Path guard;
-        guard.startNewSubPath(P(0.06f, 0.73f));
-        guard.quadraticTo(P(0.25f, 0.79f), P(0.33f, 0.98f));
-        const juce::PathStrokeType guardStroke(w * 0.075f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-        g.setColour(brassDark);
-        g.strokePath(guard, guardStroke, t.translated(0.0f, w * 0.012f));
-        g.setColour(brass);
-        g.strokePath(guard, guardStroke, t);
-
-        // Grip, with a pommel.
-        juce::Path grip;
-        grip.startNewSubPath(P(0.20f, 0.87f));
-        grip.lineTo(P(0.05f, 0.99f));
-        g.setColour(brassDark);
-        g.strokePath(grip, juce::PathStrokeType(w * 0.065f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), t);
-        const auto pommel = P(0.04f, 1.0f).transformedBy(t);
-        g.setColour(brass);
-        g.fillEllipse(juce::Rectangle<float>(w * 0.085f, w * 0.085f).withCentre(pommel));
+        const juce::Colour window    { 0xff081820 };
+        const juce::Colour panel     { 0xff102a35 };
+        const juce::Colour raised    { 0xff1a3b48 };
+        const juce::Colour sand      { 0xfff2e8d2 };
+        const juce::Colour brass     { 0xffe6b455 };
+        const juce::Colour brassDark { 0xff7d5a26 };
+        const juce::Colour busA      { 0xffff8466 }; // coral
+        const juce::Colour busB      { 0xff3ccbc2 }; // turquoise
+        const juce::Colour edgeDark  { 0xff040e13 };
+        const juce::Colour bolt      { 0xff7e99a1 }; // gunmetal
+        const juce::Colour boltSlot  { 0xff0b1c24 };
+        // The sea (Source/SeaVisualiser.cpp).
+        const juce::Colour deepWater { 0xff1f5f82 };
+        const juce::Colour nearWater { 0xff79b6c6 };
+        const juce::Colour hollow    { 0xff071820 };
+        const juce::Colour moonlight { 0xfff3e3c0 };
+        // Steel for the blades, wood for the grips.
+        const juce::Colour steel     { 0xffc9d2cf };
+        const juce::Colour steelLit  { 0xfff6f1e4 };
+        const juce::Colour steelDark { 0xff6c8189 };
+        const juce::Colour brassLit  { 0xfffbd98c };
+        const juce::Colour grip      { 0xff5b3a22 };
     }
 
-    /** The doppler pass: a comet sweeping up across the icon, thick and hot at the head, fading to a thin tail. */
-    void drawComet(juce::Graphics& g, juce::Rectangle<float> body)
+    constexpr int canvas = 1024;
+    using P2 = juce::Point<float>;
+
+    /** How the icon is drawn: in full (the master) or simple (for 32 px and below). */
+    struct Style
     {
-        const auto at = [&](float fx, float fy) { return juce::Point<float>(body.getX() + fx * body.getWidth(), body.getY() + fy * body.getHeight()); };
-        constexpr int n = 120;
-        // Head at the right, tail at the left, along a gentle arc.
-        auto pointOn = [&](float u)
+        bool simple = false;
+        float k(float full, float small) const { return simple ? small : full; }
+    };
+
+    /** Theme::Plate::shape: the rectangle with its corners cut straight by `cut`, as its eight corners. */
+    std::array<P2, 8> octagonPoints(juce::Rectangle<float> r, float cut)
+    {
+        const float x0 = r.getX(), y0 = r.getY(), x1 = r.getRight(), y1 = r.getBottom(), c = cut;
+        return { { { x0 + c, y0 }, { x1 - c, y0 }, { x1, y0 + c }, { x1, y1 - c }, { x1 - c, y1 }, { x0 + c, y1 }, { x0, y1 - c }, { x0, y0 + c } } };
+    }
+
+    juce::Path polygon(const std::vector<P2>& points)
+    {
+        juce::Path path;
+        path.startNewSubPath(points.front());
+        for (size_t i = 1; i < points.size(); ++i)
+            path.lineTo(points[i]);
+        path.closeSubPath();
+        return path;
+    }
+
+    juce::Path octagon(juce::Rectangle<float> r, float cut)
+    {
+        const auto p = octagonPoints(r, cut);
+        return polygon({ p.begin(), p.end() });
+    }
+
+    juce::Path disc(P2 c, float r)
+    {
+        juce::Path p;
+        p.addEllipse(c.x - r, c.y - r, 2.0f * r, 2.0f * r); // round object
+        return p;
+    }
+
+    juce::PathStrokeType hard(float width) { return { width, juce::PathStrokeType::mitered, juce::PathStrokeType::butt }; }
+
+    /** Stamps a part: a dark pressed outline round it, then the part flat in `base` with a lit lip along the edges
+        that face the light (up and left) and a dark lip along the others. Overlapping paths are one part. */
+    void stamp(juce::Graphics& g, const std::vector<juce::Path>& paths, juce::Colour base, juce::Colour lit, juce::Colour dark,
+               float outline, P2 lip)
+    {
+        if (outline > 0.0f)
         {
-            const auto a = at(0.00f, 0.78f), c = at(0.40f, 0.30f), b = at(0.84f, 0.27f);
-            const float v = 1.0f - u;
-            return a * (v * v) + c * (2.0f * u * v) + b * (u * u);
+            g.setColour(C::edgeDark);
+            for (const auto& p : paths)
+                g.strokePath(p, hard(outline * 2.0f));
+        }
+        juce::Image mask(juce::Image::ARGB, canvas, canvas, true);
+        {
+            juce::Graphics mg(mask);
+            mg.setColour(juce::Colours::white);
+            for (const auto& p : paths)
+                mg.fillPath(p);
+        }
+        juce::Graphics::ScopedSaveState state(g);
+        g.reduceClipRegion(mask, {});
+        g.setColour(dark);
+        g.fillAll();
+        g.reduceClipRegion(mask, juce::AffineTransform::translation(lip));
+        g.setColour(lit);
+        g.fillAll();
+        g.reduceClipRegion(mask, juce::AffineTransform::translation(-lip));
+        g.setColour(base);
+        g.fillAll();
+    }
+
+    /** Theme::Plate::drawBolt at icon size: a dark seat, a gunmetal head lit along its top, and the slot. */
+    void drawBolt(juce::Graphics& g, P2 centre, float diameter, float turn)
+    {
+        const float r = diameter * 0.5f;
+        g.setColour(C::edgeDark);
+        g.fillPath(disc(centre, r * 1.18f));
+        g.setColour(C::bolt.darker(0.5f));
+        g.fillPath(disc(centre, r));
+        g.setColour(C::bolt);
+        g.fillPath(disc(centre.translated(-r * 0.08f, -r * 0.12f), r * 0.84f));
+        const P2 dir { std::cos(turn), std::sin(turn) };
+        juce::Path slot;
+        slot.startNewSubPath(centre - dir * (r * 0.74f));
+        slot.lineTo(centre + dir * (r * 0.74f));
+        g.setColour(C::boltSlot);
+        g.strokePath(slot, hard(r * 0.34f));
+    }
+
+    //==============================================================================
+    /** The tile: an 824 px plate (the macOS icon grid) with its corners cut, a brass frame in eight flat facets whose
+        corners are the big gussets of the sea's frame, a gunmetal bezel round the window and a bolt in each gusset. */
+    struct Tile
+    {
+        explicit Tile(Style s) : style(s), edge(s.k(12.0f, 34.0f)), frame(s.k(22.0f, 30.0f)) {}
+
+        Style style;
+        juce::Rectangle<float> body { 100.0f, 100.0f, 824.0f, 824.0f };
+        float outerCut = 132.0f, innerCut = 220.0f, edge, frame;
+
+        juce::Rectangle<float> inner() const { return body.reduced(edge + frame); }
+        juce::Path innerPath() const { return octagon(inner(), innerCut); }
+
+        void drawBack(juce::Graphics& g) const
+        {
+            // The pressed edge (no drop shadow: the plate's own dark outline carries its edge on any ground).
+            g.setColour(C::edgeDark);
+            g.fillPath(octagon(body, outerCut));
+            // The frame in eight flat facets, each lit by which way it faces; the gussets a step darker than the rails
+            // (they are pressed in a little).
+            const auto outer = octagonPoints(body.reduced(edge), outerCut - edge * 0.414f);
+            const auto in = octagonPoints(inner(), innerCut);
+            const P2 light = P2(-0.45f, -1.0f) / std::hypot(0.45f, 1.0f);
+            const auto base = C::brass.darker(0.12f);
+            for (size_t i = 0; i < 8; ++i)
+            {
+                const size_t j = (i + 1) % 8;
+                const auto d = outer[j] - outer[i];
+                const P2 normal = P2(d.y, -d.x) / std::hypot(d.x, d.y);
+                const float lit = normal.x * light.x + normal.y * light.y;
+                auto colour = lit >= 0.0f ? base.brighter(0.3f * lit) : base.darker(0.9f * -lit);
+                if (i % 2 == 1)
+                    colour = colour.darker(0.12f);
+                g.setColour(colour);
+                g.fillPath(polygon({ outer[i], outer[j], in[j], in[i] }));
+            }
+            // The hard lip just inside the outer edge: lit along the top and left, dark along the bottom and right.
+            if (! style.simple)
+            {
+                const auto lip = octagonPoints(body.reduced(edge + 3.0f), outerCut - (edge + 3.0f) * 0.414f);
+                for (size_t i = 0; i < 8; ++i)
+                {
+                    juce::Path seg;
+                    seg.startNewSubPath(lip[i]);
+                    seg.lineTo(lip[(i + 1) % 8]);
+                    const bool up = (i == 7 || i == 0 || i == 6 || i == 1);
+                    g.setColour(up ? C::brassLit.withAlpha(0.9f) : C::brassDark.darker(0.4f));
+                    g.strokePath(seg, hard(6.0f));
+                }
+            }
+        }
+
+        void drawFront(juce::Graphics& g) const
+        {
+            // The window pressed in: a gunmetal bezel, then a dark line round the opening.
+            g.setColour(C::bolt.darker(0.25f));
+            g.strokePath(innerPath(), hard(style.k(20.0f, 24.0f)));
+            g.setColour(C::edgeDark);
+            g.strokePath(innerPath(), hard(style.k(8.0f, 14.0f)));
+            if (style.simple)
+                return;
+            // A bolt in each gusset, halfway between the outer cut and the window's.
+            const float outerDiag = outerCut / std::sqrt(2.0f);
+            const float innerDiag = (edge + frame) * std::sqrt(2.0f) + innerCut / std::sqrt(2.0f);
+            const float along = (outerDiag + innerDiag) * 0.5f / std::sqrt(2.0f);
+            const float diameter = (innerDiag - outerDiag) * 0.56f;
+            const P2 corners[4] = { body.getTopLeft(), body.getTopRight(), body.getBottomRight(), body.getBottomLeft() };
+            const P2 inward[4] = { { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 } };
+            const float turns[4] = { 0.6f, 2.1f, 1.2f, 2.6f };
+            for (int i = 0; i < 4; ++i)
+                drawBolt(g, corners[i] + inward[i] * along, diameter, turns[i]);
+        }
+    };
+
+    //==============================================================================
+    /** The sky: the panel's teal-navy, lighter toward the horizon as the sea's sky is. */
+    void fillSky(juce::Graphics& g, juce::Rectangle<float> r, float horizon)
+    {
+        g.setGradientFill(juce::ColourGradient(C::panel.darker(0.2f), 0.0f, r.getY(), C::raised.brighter(0.15f), 0.0f, horizon, false));
+        g.fillRect(r);
+    }
+
+    /** The line-drawn swell, as the sea draws it: rows receding to the horizon, each a line over the dark water between
+        rows; nearer rows lower, further apart, taller, brighter and thicker, with peaked crests. The nearest line is
+        Bus B's turquoise. */
+    void drawSwell(juce::Graphics& g, juce::Rectangle<float> area, Style style)
+    {
+        const int rows = style.simple ? 2 : 4;
+        g.setColour(C::hollow);
+        g.fillRect(area.withTrimmedTop(-2.0f));
+        // The horizon: a hard line where the water starts.
+        g.setColour(C::deepWater.withAlpha(0.8f));
+        g.fillRect(area.withHeight(style.k(4.0f, 10.0f)));
+        for (int row = 0; row < rows; ++row)
+        {
+            const float near = static_cast<float>(row + 1) / static_cast<float>(rows);
+            const float y = area.getY() + area.getHeight() * (style.simple ? 0.22f + 0.5f * near : 0.06f + 0.80f * std::pow(near, 1.6f));
+            const float amp = style.k(8.0f + 44.0f * std::pow(near, 1.3f), 34.0f);
+            const float wave = style.k(0.030f / (0.6f + near), 0.016f);
+            const float phase = 1.3f + 2.1f * static_cast<float>(row);
+            juce::Path line;
+            for (int i = 0; i <= 160; ++i)
+            {
+                const float x = area.getX() - 20.0f + (area.getWidth() + 40.0f) * static_cast<float>(i) / 160.0f;
+                // Peaked crests over broad troughs (a trochoid, near enough): the crest is where the cosine is highest.
+                const float c = 0.5f + 0.5f * std::cos(x * wave + phase);
+                const float yy = y - amp * (std::pow(c, 4.0f) - 0.25f);
+                if (i == 0)
+                    line.startNewSubPath(x, yy);
+                else
+                    line.lineTo(x, yy);
+            }
+            juce::Path water = line;
+            water.lineTo(area.getRight() + 20.0f, area.getBottom() + 40.0f);
+            water.lineTo(area.getX() - 20.0f, area.getBottom() + 40.0f);
+            water.closeSubPath();
+            g.setColour(C::hollow.interpolatedWith(C::window, near));
+            g.fillPath(water);
+            const bool front = row == rows - 1;
+            const auto colour = front ? C::busB.darker(0.15f) : C::deepWater.interpolatedWith(C::nearWater, near * 0.8f);
+            g.setColour(colour.withAlpha(front ? 1.0f : 0.55f + 0.4f * near));
+            g.strokePath(line, juce::PathStrokeType(style.k(5.0f + 9.0f * near, 22.0f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+        }
+    }
+
+    /** Stars: a few hard squares, big enough to be stars and not noise. */
+    void drawStars(juce::Graphics& g)
+    {
+        const P2 at[] = { { 238.0f, 326.0f }, { 468.0f, 196.0f }, { 836.0f, 548.0f }, { 196.0f, 572.0f }, { 736.0f, 196.0f } };
+        const float size[] = { 10.0f, 9.0f, 8.0f, 8.0f, 7.0f };
+        for (int i = 0; i < 5; ++i)
+        {
+            g.setColour(C::sand.withAlpha(0.75f));
+            g.fillRect(juce::Rectangle<float>(size[i], size[i]).withCentre(at[i]));
+        }
+    }
+
+    /** The crescent moon: a disc with a bite out of it, hard edged, cream as in The Sea. */
+    void drawMoon(juce::Graphics& g, P2 c, float r)
+    {
+        juce::Path moon = disc(c, r);
+        juce::Path crescent;
+        crescent.addPath(moon);
+        crescent.addPath(disc(c.translated(r * 0.52f, -r * 0.34f), r * 0.86f));
+        crescent.setUsingNonZeroWinding(false); // the bite drops out where it overlaps the disc
+        juce::Graphics::ScopedSaveState s(g);
+        g.reduceClipRegion(moon);
+        g.setColour(C::moonlight);
+        g.fillPath(crescent);
+    }
+
+    /** A comet as the sea draws one, made hard: a round sand head with a hard rim in the bus colour, and a tail that
+        tapers back along a curve to a point, in flat bands stepping out from a sand core to the bus colour. */
+    void drawComet(juce::Graphics& g, P2 tail, P2 control, P2 head, float width, juce::Colour colour, Style style)
+    {
+        auto band = [&](float scale)
+        {
+            constexpr int n = 90;
+            std::vector<P2> left, right;
+            for (int i = 0; i <= n; ++i)
+            {
+                const float u = static_cast<float>(i) / n;
+                const float v = 1.0f - u;
+                const P2 p = tail * (v * v) + control * (2.0f * u * v) + head * (u * u);
+                const P2 d = (control - tail) * (2.0f * v) + (head - control) * (2.0f * u);
+                const P2 normal = P2(-d.y, d.x) / std::hypot(d.x, d.y);
+                const float half = 0.5f * width * scale * std::pow(u, 1.1f);
+                left.push_back(p + normal * half);
+                right.push_back(p - normal * half);
+            }
+            std::vector<P2> all(left.begin(), left.end());
+            all.insert(all.end(), right.rbegin(), right.rend());
+            return std::vector<juce::Path> { polygon(all), disc(head, 0.5f * width * scale) };
         };
-        for (int pass = 0; pass < 3; ++pass)
+        auto fill = [&](const std::vector<juce::Path>& parts, juce::Colour c)
         {
-            // Wide soft glow, then the body, then a hot core.
-            const float widthScale[] = { 3.2f, 1.0f, 0.35f };
-            const float alphaScale[] = { 0.12f, 0.9f, 1.0f };
-            for (int i = 0; i < n; ++i)
-            {
-                const float u0 = static_cast<float>(i) / n, u1 = static_cast<float>(i + 1) / n;
-                const float taper = std::pow(u1, 1.6f);
-                juce::Path seg;
-                seg.startNewSubPath(pointOn(u0));
-                seg.lineTo(pointOn(u1));
-                const auto colour = pass == 2 ? sand : coral.interpolatedWith(gold, std::pow(u1, 0.7f));
-                g.setColour(colour.withAlpha(alphaScale[pass] * (0.08f + 0.92f * taper)));
-                g.strokePath(seg, juce::PathStrokeType(body.getWidth() * 0.075f * widthScale[pass] * (0.06f + taper),
-                                                       juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            }
-        }
-        // The head: a bright ball with a halo.
-        const auto head = pointOn(1.0f);
-        const float r = body.getWidth() * 0.05f;
-        g.setGradientFill(juce::ColourGradient(gold.withAlpha(0.55f), head, gold.withAlpha(0.0f), head.translated(r * 3.0f, 0.0f), true));
-        g.fillEllipse(juce::Rectangle<float>(r * 6.0f, r * 6.0f).withCentre(head));
-        g.setColour(sand);
-        g.fillEllipse(juce::Rectangle<float>(r * 1.3f, r * 1.3f).withCentre(head));
+            g.setColour(c);
+            for (const auto& p : parts)
+                g.fillPath(p);
+        };
+        g.setColour(C::edgeDark);
+        for (const auto& p : band(1.0f))
+            g.strokePath(p, hard(style.k(16.0f, 26.0f)));
+        fill(band(1.0f), colour);
+        if (! style.simple)
+            fill(band(0.68f), colour.interpolatedWith(C::sand, 0.4f));
+        fill(band(style.k(0.40f, 0.48f)), colour.interpolatedWith(C::sand, 0.75f));
+        // The head: a sand disc inside a hard coral rim.
+        g.setColour(C::sand);
+        g.fillPath(disc(head, width * style.k(0.36f, 0.32f)));
     }
 
-    void drawSea(juce::Graphics& g, juce::Rectangle<float> body)
+    //==============================================================================
+    /** One cutlass, the window's mark drawn for an icon: a curved blade narrow at the guard and widening toward a
+        clipped point (the edge on the outside of the curve, a bright bevel along it), a short heavy guard across the
+        blade's foot, a wooden grip and a brass cap. Laid from the guard `guard` to the point `tip`; `bow` bends the
+        blade toward the side its edge is on. */
+    struct Cutlass
     {
-        for (int layer = 0; layer < 3; ++layer)
+        juce::Path blade, bevel;
+        std::vector<juce::Path> brass;
+        juce::Path grip;
+    };
+
+    Cutlass makeCutlass(P2 guard, P2 tip, float bow, float wGuard, float wMax, float guardSize, float gripLength)
+    {
+        const P2 axis = (tip - guard) / guard.getDistanceFrom(tip);
+        const P2 side { -axis.y, axis.x }; // the edge's side (the blade bows out this way)
+        const float length = guard.getDistanceFrom(tip);
+        auto centre = [&](float u) { return guard + axis * (length * u) + side * (4.0f * bow * u * (1.0f - u)); };
+        auto normalAt = [&](float u)
         {
-            const float top = body.getY() + body.getHeight() * (0.72f + 0.08f * static_cast<float>(layer));
-            const float amp = body.getHeight() * (0.025f - 0.005f * static_cast<float>(layer));
-            const float waves = 2.5f + static_cast<float>(layer);
-            juce::Path p;
-            p.startNewSubPath(body.getX(), body.getBottom());
-            for (int i = 0; i <= 64; ++i)
-            {
-                const float x = body.getX() + body.getWidth() * static_cast<float>(i) / 64.0f;
-                const float y = top + amp * std::sin(juce::MathConstants<float>::twoPi * waves * static_cast<float>(i) / 64.0f + static_cast<float>(layer));
-                p.lineTo(x, y);
-            }
-            p.lineTo(body.getRight(), body.getBottom());
-            p.closeSubPath();
-            g.setColour(lagoon.withMultipliedSaturation(0.85f).withBrightness(0.36f - 0.07f * static_cast<float>(layer)));
-            g.fillPath(p);
-            // A lit crest on each wave
-            juce::Path crest;
-            for (int i = 0; i <= 64; ++i)
-            {
-                const float x = body.getX() + body.getWidth() * static_cast<float>(i) / 64.0f;
-                const float y = top + amp * std::sin(juce::MathConstants<float>::twoPi * waves * static_cast<float>(i) / 64.0f + static_cast<float>(layer));
-                if (i == 0) crest.startNewSubPath(x, y); else crest.lineTo(x, y);
-            }
-            g.setColour(lagoon.withAlpha(0.35f + 0.15f * static_cast<float>(layer)));
-            g.strokePath(crest, juce::PathStrokeType(body.getWidth() * 0.006f));
+            const P2 d = axis * length + side * (4.0f * bow * (1.0f - 2.0f * u));
+            const P2 t = d / std::hypot(d.x, d.y);
+            return P2(-t.y, t.x);
+        };
+        constexpr int n = 120;
+        std::vector<P2> back, edge, bevelIn;
+        for (int i = 0; i <= n; ++i)
+        {
+            const float u = static_cast<float>(i) / n;
+            const float grow = juce::jlimit(0.0f, 1.0f, u / 0.76f);
+            const float w = wGuard + (wMax - wGuard) * grow * grow * (3.0f - 2.0f * grow);
+            // The back runs straight on, then is clipped down to the point; the edge sweeps up to meet it.
+            const float backHalf = 0.5f * w * (u < 0.74f ? 1.0f : juce::jmax(0.0f, 1.0f - (u - 0.74f) / 0.26f));
+            const float e = juce::jmax(0.0f, u - 0.80f) / 0.20f;
+            const float edgeHalf = 0.5f * w * std::sqrt(juce::jmax(0.0f, 1.0f - e * e));
+            const P2 c = centre(u), nrm = normalAt(u);
+            back.push_back(c - nrm * backHalf);
+            edge.push_back(c + nrm * edgeHalf);
+            bevelIn.push_back(c + nrm * juce::jmax(-backHalf, edgeHalf - 0.36f * w));
         }
+        Cutlass c;
+        std::vector<P2> outline(back.begin(), back.end());
+        outline.insert(outline.end(), edge.rbegin(), edge.rend());
+        c.blade = polygon(outline);
+        std::vector<P2> bevel(bevelIn.begin(), bevelIn.end());
+        bevel.insert(bevel.end(), edge.rbegin(), edge.rend());
+        c.bevel = polygon(bevel);
+
+        // The guard: a short heavy bar square across the blade's foot, reaching a little further on the edge's side,
+        // its ends cut square; then the grip and the cap at its end (cut corners, like every plate).
+        const float gt = guardSize * 0.62f, gripHalf = guardSize * 0.34f;
+        const P2 g0 = guard - axis * (gt * 0.5f);
+        const P2 lo = g0 - side * (guardSize * 0.95f), hi = g0 + side * (guardSize * 1.25f);
+        c.brass.push_back(polygon({ lo + axis * (gt * 0.5f), hi + axis * (gt * 0.5f), hi - axis * (gt * 0.5f), lo - axis * (gt * 0.5f) }));
+        const P2 g1 = g0 - axis * (gt * 0.5f), g2 = g1 - axis * gripLength;
+        c.grip = polygon({ g1 - side * gripHalf, g1 + side * gripHalf, g2 + side * gripHalf, g2 - side * gripHalf });
+        const float capHalf = guardSize * 0.52f, capLong = guardSize * 0.62f, cut = capHalf * 0.4f;
+        const P2 q0 = g2 + axis * 2.0f, q1 = g2 - axis * capLong;
+        c.brass.push_back(polygon({ q0 - side * capHalf, q0 + side * capHalf, q1 + side * capHalf + axis * cut, q1 + side * (capHalf - cut),
+                                    q1 - side * (capHalf - cut), q1 - side * capHalf + axis * cut }));
+        return c;
     }
 
-    juce::Image render(int size)
+    void drawCutlass(juce::Graphics& g, Cutlass c, const juce::AffineTransform& t, Style style)
     {
-        juce::Image image(juce::Image::ARGB, size, size, true);
+        c.blade.applyTransform(t);
+        c.bevel.applyTransform(t);
+        c.grip.applyTransform(t);
+        for (auto& p : c.brass)
+            p.applyTransform(t);
+        const float outline = style.k(9.0f, 20.0f);
+        // A hard shadow on the sky under the whole weapon.
+        g.setColour(juce::Colours::black.withAlpha(0.42f));
+        const auto drop = juce::AffineTransform::translation(style.k(6.0f, 10.0f), style.k(12.0f, 18.0f));
+        g.fillPath(c.blade, drop);
+        g.fillPath(c.grip, drop);
+        for (const auto& p : c.brass)
+            g.fillPath(p, drop);
+
+        stamp(g, { c.grip }, C::grip, C::grip.brighter(0.5f), C::grip.darker(0.6f), outline, { -4.0f, -6.0f });
+        stamp(g, { c.blade }, C::steel, C::steelLit, C::steelDark, outline, { style.k(-5.0f, -10.0f), style.k(-8.0f, -14.0f) });
+        // The sharpened edge: a flat bright bevel, cut hard from the blade's face.
+        {
+            juce::Graphics::ScopedSaveState s(g);
+            g.reduceClipRegion(c.blade);
+            g.setColour(C::steelLit.withAlpha(style.k(0.85f, 0.6f)));
+            g.fillPath(c.bevel);
+        }
+        stamp(g, c.brass, C::brass, C::brassLit, C::brassDark, outline, { -5.0f, -8.0f });
+    }
+
+    //==============================================================================
+    juce::Image render(Style style)
+    {
+        juce::Image image(juce::Image::ARGB, canvas, canvas, true);
         juce::Graphics g(image);
-        const float s = static_cast<float>(size);
-        // macOS icon grid: an 824 / 1024 rounded square, centred, with room for the drop shadow.
-        const auto body = juce::Rectangle<float>(s, s).reduced(s * 100.0f / 1024.0f);
-        const float corner = body.getWidth() * 0.225f;
-        juce::Path shape;
-        shape.addRoundedRectangle(body, corner);
+        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
 
-        // Drop shadow
-        for (int i = 6; i > 0; --i)
+        const Tile tile(style);
+        tile.drawBack(g);
+        const auto win = tile.inner();
+        const float horizon = win.getY() + win.getHeight() * 0.62f;
         {
-            g.setColour(juce::Colours::black.withAlpha(0.05f));
-            g.fillRoundedRectangle(body.translated(0.0f, s * 0.012f).expanded(s * 0.004f * static_cast<float>(i)), corner);
+            juce::Graphics::ScopedSaveState s(g);
+            g.reduceClipRegion(tile.innerPath());
+            fillSky(g, win, horizon);
+            if (! style.simple)
+            {
+                drawStars(g);
+                drawMoon(g, { 806.0f, 420.0f }, 50.0f);
+            }
+            drawSwell(g, win.withTop(horizon), style);
+            // The comet sweeps up from the left, behind both blades above where they cross, its head in the open
+            // sky between the points.
+            drawComet(g, { 168.0f, 488.0f }, { 380.0f, 420.0f }, { 588.0f, 292.0f }, style.k(80.0f, 100.0f), C::busA, style);
         }
+        tile.drawFront(g);
 
-        g.saveState();
-        g.reduceClipRegion(shape);
-        g.setGradientFill(juce::ColourGradient(panel.brighter(0.15f), body.getTopLeft(), deep, body.getBottomLeft(), false));
-        g.fillRect(body);
-        // Sunset glow behind the head of the comet
-        g.setGradientFill(juce::ColourGradient(coral.withAlpha(0.18f), body.getX() + body.getWidth() * 0.84f, body.getY() + body.getHeight() * 0.27f,
-                                               coral.withAlpha(0.0f), body.getX() + body.getWidth() * 0.35f, body.getY() + body.getHeight() * 0.8f, true));
-        g.fillRect(body);
-        // Stars
-        juce::Random rng(7);
-        for (int i = 0; i < 40; ++i)
-        {
-            const float x = body.getX() + rng.nextFloat() * body.getWidth();
-            const float y = body.getY() + rng.nextFloat() * body.getHeight() * 0.55f;
-            const float r = s * (0.002f + 0.003f * rng.nextFloat());
-            g.setColour(sand.withAlpha(0.25f + 0.5f * rng.nextFloat()));
-            g.fillEllipse(x - r, y - r, 2.0f * r, 2.0f * r);
-        }
-        drawSea(g, body);
-        drawComet(g, body);
-
-        const auto swords = body.withSizeKeepingCentre(body.getWidth() * 0.62f, body.getHeight() * 0.62f).translated(0.0f, body.getHeight() * 0.02f);
-        drawCutlass(g, swords, false);
-        drawCutlass(g, swords, true);
-
-        // A thin inner rim, like the panels' outline
-        g.restoreState();
-        g.setColour(gold.withAlpha(0.35f));
-        g.drawRoundedRectangle(body.reduced(s * 0.004f), corner, s * 0.006f);
+        // The crossed cutlasses, crossing at the middle of the tile: each laid from its guard to its point, its hilt
+        // toward a lower corner; the second is the first in a mirror.
+        const P2 capEnd { 288.0f, 782.0f }, tip { 722.0f, 248.0f };
+        const P2 axis = (tip - capEnd) / capEnd.getDistanceFrom(tip);
+        const float wGuard = style.k(46.0f, 60.0f), wMax = style.k(70.0f, 84.0f), guardSize = style.k(48.0f, 52.0f);
+        const float gripLength = style.k(92.0f, 70.0f);
+        const float hilt = guardSize * 0.62f + gripLength + guardSize * 0.62f;
+        const auto blade = makeCutlass(capEnd + axis * hilt, tip, style.k(30.0f, 22.0f), wGuard, wMax, guardSize, gripLength);
+        drawCutlass(g, blade, juce::AffineTransform::scale(-1.0f, 1.0f, canvas * 0.5f, 0.0f), style);
+        drawCutlass(g, blade, {}, style);
         return image;
     }
-}
 
-/** A Windows .ico holding PNG images (allowed since Vista): header, directory, then each PNG. */
-bool writeIco(const juce::File& file, std::initializer_list<int> sizes)
-{
-    std::vector<juce::MemoryBlock> pngs;
-    for (int size : sizes)
+    /** Scales an image down by halves (each step averages its pixels), then to the exact size, so a 1024 px drawing
+        comes down to 16 px without aliasing. */
+    juce::Image scaledTo(juce::Image image, int size)
     {
-        juce::MemoryOutputStream png;
-        juce::PNGImageFormat().writeImageToStream(render(1024).rescaled(size, size, juce::Graphics::highResamplingQuality), png);
-        pngs.push_back(png.getMemoryBlock());
+        while (image.getWidth() / 2 >= size)
+            image = image.rescaled(image.getWidth() / 2, image.getHeight() / 2, juce::Graphics::highResamplingQuality);
+        return image.getWidth() == size ? image : image.rescaled(size, size, juce::Graphics::highResamplingQuality);
     }
-    juce::MemoryOutputStream out;
-    out.writeShort(0);
-    out.writeShort(1);
-    out.writeShort(static_cast<short>(pngs.size()));
-    int offset = 6 + 16 * static_cast<int>(pngs.size());
-    size_t i = 0;
-    for (int size : sizes)
+
+    /** The icon at a size as shipped: the simple drawing at 32 px and below, the master above. */
+    juce::Image atSize(const juce::Image& master, const juce::Image& simple, int size)
     {
-        out.writeByte(static_cast<char>(size >= 256 ? 0 : size));
-        out.writeByte(static_cast<char>(size >= 256 ? 0 : size));
-        out.writeByte(0);
-        out.writeByte(0);
+        return scaledTo(size <= 32 ? simple : master, size);
+    }
+
+    /** A Windows .ico holding PNG images (allowed since Vista): header, directory, then each PNG. */
+    bool writeIco(const juce::File& file, const juce::Image& master, const juce::Image& simple, std::initializer_list<int> sizes)
+    {
+        std::vector<juce::MemoryBlock> pngs;
+        for (int size : sizes)
+        {
+            juce::MemoryOutputStream png;
+            juce::PNGImageFormat().writeImageToStream(atSize(master, simple, size), png);
+            pngs.push_back(png.getMemoryBlock());
+        }
+        juce::MemoryOutputStream out;
+        out.writeShort(0);
         out.writeShort(1);
-        out.writeShort(32);
-        out.writeInt(static_cast<int>(pngs[i].getSize()));
-        out.writeInt(offset);
-        offset += static_cast<int>(pngs[i].getSize());
-        ++i;
+        out.writeShort(static_cast<short>(pngs.size()));
+        int offset = 6 + 16 * static_cast<int>(pngs.size());
+        size_t i = 0;
+        for (int size : sizes)
+        {
+            out.writeByte(static_cast<char>(size >= 256 ? 0 : size));
+            out.writeByte(static_cast<char>(size >= 256 ? 0 : size));
+            out.writeByte(0);
+            out.writeByte(0);
+            out.writeShort(1);
+            out.writeShort(32);
+            out.writeInt(static_cast<int>(pngs[i].getSize()));
+            out.writeInt(offset);
+            offset += static_cast<int>(pngs[i].getSize());
+            ++i;
+        }
+        for (const auto& png : pngs)
+            out.write(png.getData(), png.getSize());
+        return file.replaceWithData(out.getData(), out.getDataSize());
     }
-    for (const auto& png : pngs)
-        out.write(png.getData(), png.getSize());
-    return file.replaceWithData(out.getData(), out.getDataSize());
+
+    /** A sheet for judging the icon small: on a dark and a light ground, the icon at 256, 128, 64, 32 and 16 px as
+        shipped, then the 32 and 16 px ones blown up four times, pixel for pixel. */
+    juce::Image contactSheet(const juce::Image& master, const juce::Image& simple)
+    {
+        const int sizes[] = { 256, 128, 64, 32, 16 };
+        constexpr int gap = 24, rowHeight = 256 + 2 * gap;
+        juce::Image sheet(juce::Image::ARGB, 1000, 2 * rowHeight, true);
+        juce::Graphics g(sheet);
+        const juce::Colour grounds[] = { juce::Colour(0xff1e1e1e), juce::Colour(0xffececec) };
+        for (int row = 0; row < 2; ++row)
+        {
+            const int y0 = row * rowHeight;
+            g.setColour(grounds[row]);
+            g.fillRect(0, y0, sheet.getWidth(), rowHeight);
+            int x = gap;
+            for (int size : sizes)
+            {
+                g.drawImageAt(atSize(master, simple, size), x, y0 + gap);
+                x += size + gap;
+            }
+            g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+            for (int size : { 32, 16 })
+            {
+                g.drawImage(atSize(master, simple, size), x, y0 + gap, size * 4, size * 4, 0, 0, size, size);
+                x += size * 4 + gap;
+            }
+        }
+        return sheet;
+    }
+
+    bool writePng(const juce::File& file, const juce::Image& image)
+    {
+        file.deleteFile();
+        juce::FileOutputStream stream(file);
+        if (! stream.openedOk() || ! juce::PNGImageFormat().writeImageToStream(image, stream))
+        {
+            std::cerr << "Couldn't write " << file.getFullPathName() << "\n";
+            return false;
+        }
+        std::cout << "Wrote " << file.getFullPathName() << "\n";
+        return true;
+    }
 }
 
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI init;
-    const juce::File out = argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
-                                    : juce::File::getCurrentWorkingDirectory().getChildFile("icon.png");
-    const auto image = render(1024);
-    out.deleteFile();
-    juce::FileOutputStream stream(out);
-    juce::PNGImageFormat png;
-    if (! stream.openedOk() || ! png.writeImageToStream(image, stream))
+    juce::String outName = "icon.png";
+    bool sheet = false, simpleOnly = false;
+    for (int i = 1; i < argc; ++i)
     {
-        std::cerr << "Couldn't write " << out.getFullPathName() << "\n";
-        return 1;
+        const juce::String arg(argv[i]);
+        if (arg == "--sheet")
+            sheet = true;
+        else if (arg == "--simple")
+            simpleOnly = true;
+        else
+            outName = arg;
     }
-    std::cout << "Wrote " << out.getFullPathName() << "\n";
+    const juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(outName);
+    const auto master = render({ false });
+    const auto simple = render({ true });
+    if (sheet)
+        return writePng(out, contactSheet(master, simple)) ? 0 : 1;
+    if (simpleOnly)
+        return writePng(out, simple) ? 0 : 1;
+
+    const auto small = out.getSiblingFile(out.getFileNameWithoutExtension() + "-small.png");
     const auto ico = out.withFileExtension("ico");
-    if (! writeIco(ico, { 16, 24, 32, 48, 64, 128, 256 }))
+    if (! writePng(out, master) || ! writePng(small, scaledTo(simple, 32)))
+        return 1;
+    if (! writeIco(ico, master, simple, { 16, 24, 32, 48, 64, 128, 256 }))
     {
         std::cerr << "Couldn't write " << ico.getFullPathName() << "\n";
         return 1;

@@ -80,10 +80,13 @@ namespace Presets
             return true;
         return id == inflate || id == push || id == ceiling || id == rideOn || id == hitSync
             || id == gateMode || id == duckMode || id == takeTurns || id == linkBuses || id == hitAim || id == masterTrim
+            || id == hitPosition // where a hit lands is set to the picture, as Direction and Side are (Hit Spread is part of a look)
             || id.startsWith("trem") // the peak tremolo, like the rest of the output stage // how the rig behaves: kept by presets and Randomise
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id == play || id == keysMode || id == throwLength // the transport, what MIDI keys do, how long a throw is
             || id == rideFollowMaster // needs this session's Master track
+            || id.startsWith("room") // the room's own settings go with the speakers, not with a look (the Flight Paths are part of a look)
+            || id.endsWith("Direction") || id.endsWith("Side") // which way and which side the passes fly is set to the picture, not by a look
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }
 
@@ -165,6 +168,7 @@ namespace Presets
                     p.values[bus[b][Duck]] = u(0.1f, 0.7f);
                     p.values[bus[b][Key]] = u(0.0f, 0.6f);
                 }
+                p.values[flightPath[b]] = static_cast<float>(r.nextInt(numFlightPaths)); // (heard in a room: Quad and wider)
                 break;
             }
             case Hits:
@@ -172,6 +176,7 @@ namespace Presets
                 p.values[hitBoost] = u(0.0f, 10.0f);
                 p.values[hitRelease] = u(0.15f, 0.6f);
                 p.values[hitDuck] = u(0.2f, 0.8f);
+                p.values[hitSpread] = u(0.0f, 0.5f); // from a point to half shared out: never a hit with no place
                 break;
             case Output:
                 p.values[space] = u(0.05f, 0.6f);
@@ -190,6 +195,7 @@ namespace Presets
                 p.values[stow[StowFilter]] = u(0.3f, 0.7f);
                 p.values[stow[StowDrive]] = u(0.0f, 0.35f);
                 p.values[stow[StowWidth]] = u(0.4f, 1.0f);
+                p.values[stowFlightPath] = static_cast<float>(r.nextInt(numFlightPaths)); // Fly's, in a room
                 break;
             default:
                 break;

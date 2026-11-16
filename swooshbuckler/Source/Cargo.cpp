@@ -341,6 +341,13 @@ void CargoData::analyse()
         gain = juce::jmin(gain, 1.0f / peak);
     autoGain = rms > 1.0e-6f ? juce::jlimit(0.1f, 16.0f, gain) : 1.0f;
 
+    double sideSum = 0.0;
+    if (const float* side = hasSide() && audio.getNumSamples() > 0 ? audio.getReadPointer(1) : nullptr)
+        for (const auto& r : regions)
+            for (int i = r.start; i < r.end; ++i)
+                sideSum += static_cast<double>(side[i]) * side[i];
+    midShare = sum + sideSum > 0.0 ? static_cast<float>(sum / (sum + sideSum)) : 1.0f;
+
     buildMips();
 }
 
@@ -1754,6 +1761,12 @@ void CargoPlayer::reseatHeads(const CargoData& d, bool skipSilence)
         }
         h.region = juce::jlimit(0, juce::jmax(0, numRegions(d, true) - 1), index - first);
     }
+}
+
+void CargoPlayer::letGoOfShots()
+{
+    for (auto& s : m_shots)
+        s = Shot {};
 }
 
 void CargoPlayer::resetShots()

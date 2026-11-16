@@ -12,8 +12,11 @@
  * Five questions, each a menu whose items say what you get: how many, what each file is (one whoosh or a stretch
  * of the whole ride) and how long, what varies between them (and by how much), whether the batch is a new one or
  * one rendered before, what the files are called, and whether every variation is a file, they all go into one
- * file with markers, or both. Under them the panel says in a sentence what Render will make: the name of the
- * first file, how many files, how much sound and roughly how long it will take.
+ * file with markers, or both. Then the files' width (Mono to 7.1.4: the batch is rendered natively in that room,
+ * whatever the track or device is; it starts at the width the rig plays at), their Channel Order and File Layout
+ * (one setting with the tape's, also in Settings), and a line that spells out what each file holds. Under them the
+ * panel says in a sentence what Render will make: the name of the first file, how many files, how much sound, how
+ * big and roughly how long it will take, or why the format chosen can't hold it.
  *
  * Render and Cancel; and while a batch renders a progress bar with the percentage, "37 of 100", the variation in
  * hand and the time left. The batch carries on with the panel closed (the header button shows the percentage),
@@ -31,6 +34,13 @@ public:
 
     /** Open Takes was pressed. */
     std::function<void()> onOpenTakes;
+    /** Set the Room was pressed: the panel has closed, and the window shows where the room's controls are. */
+    std::function<void()> onShowRoom;
+    /** For a room (Channels Quad and wider): how the room is set, the line under the Channels row. Empty below Quad. */
+    juce::String roomLine() const;
+    /** What a first-time user would not expect of these files: a room the speakers do not play (so not heard), and
+        speakers that will be silent (C with Centre Speaker off, an LFE with nothing to play). Empty when none. */
+    juce::String roomNote() const;
     /** A text box has finished with the keyboard (Return / Escape): hand it back to the rig. */
     std::function<void()> onKeyboardDone;
 
@@ -39,7 +49,18 @@ public:
     /** The sentence under the menus that says what the chosen What Varies gives. */
     static juce::String whatVariesSentence(VariationRenderer::Mode mode, float amount);
 
-    static constexpr int c_panelWidth = 760, c_panelHeight = 500;
+    static constexpr int c_panelWidth = 760, c_panelHeight = 628;
+
+    /** What Channel Order and File Layout do (their tooltips here and in Settings, after the name). */
+    static constexpr const char* c_channelOrderTip =
+        "Like Pro Tools writes each width the way Pro Tools itself does: up to 7.1.2 in the standard WAV order with the speakers "
+        "labelled in the header, and 7.1.4 in Pro Tools' own order (L C R ...) with each channel named inside the file. WAV Standard "
+        "writes 7.1.4 in the standard WAV order with the speakers labelled in the header too, for programs that only read that. "
+        "Below 7.1.4 both give the same file, and a FLAC file always has FLAC's own order. The line underneath spells out the "
+        "order you get.";
+    static constexpr const char* c_fileLayoutTip =
+        "Interleaved: one file that holds every channel. Multi-Mono: a mono file for each channel, its name ending in the speaker "
+        "as Pro Tools names it (Whoosh_001.L.wav, Whoosh_001.C.wav ...). The Takes list shows a set as one take.";
 
 private:
     void timerCallback() override;
@@ -53,22 +74,28 @@ private:
     juce::File folder() const;
     juce::String formatLine() const;
     bool repeatedBatch(VariationRenderer::Batch& batch) const; // the batch Render would repeat, if any
+    juce::String planKey(const VariationRenderer::Job& j) const; // every choice that changes what Render makes
     void takeFrom(const VariationRenderer::Batch& batch);      // a batch to repeat: its count, lengths and what varied
 
     SwooshbucklerAudioProcessor& m_processor;
     const Theme::Fonts& m_fonts;
     juce::TextEditor m_count, m_length, m_batchName, m_gap;
     juce::ComboBox m_each, m_mode, m_batch, m_names, m_files;
+    juce::ComboBox m_width, m_order, m_layout; // the files' width (the panel's own), Channel Order and File Layout (the tape's)
     juce::Slider m_amount;
     juce::TextButton m_choose { "Choose..." }, m_dated { "Dated Folder" };
     juce::TextButton m_render { "Render" }, m_cancel { "Cancel" }, m_show, m_openTakes { "Open Takes" }, m_close { "Close" };
+    juce::TextButton m_showRoom { "Set the Room" }; // Channels a room: closes the panel and points at the room's controls
     std::unique_ptr<juce::FileChooser> m_chooser;
 
-    juce::Rectangle<int> m_panel, m_folderText, m_firstText, m_getText, m_variesText, m_bar, m_status, m_amountValue, m_lengthUnit, m_gapUnit;
-    std::array<juce::Rectangle<int>, 11> m_captions;
+    juce::Rectangle<int> m_panel, m_folderText, m_firstText, m_getText, m_variesText, m_bar, m_status, m_amountValue, m_lengthUnit, m_gapUnit, m_orderText, m_roomText;
+    std::array<juce::Rectangle<int>, 14> m_captions;
     VariationRenderer::Progress m_shown;
+    juce::String m_shownPlan;          // the choices the batch shown was made with (or Render was refused for)
+    bool m_planChanged = false;        // a choice has changed since: the batch's Done / Cancelled line has gone
     juce::String m_error;              // a batch that could not start
     juce::String m_firstLine, m_getLine; // what Render will make, worked out when a control changes
+    bool m_getProblem = false;         // m_getLine says why Render would be refused (the format, the one file's size)
     double m_whooshSeconds = 3.0, m_rideSeconds = 10.0; // Length, for each kind of file
     enum class Repeat { New = 0, Last, Chosen };
     Repeat m_repeat = Repeat::New;

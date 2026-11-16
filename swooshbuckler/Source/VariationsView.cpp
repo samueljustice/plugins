@@ -68,7 +68,7 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     : m_processor(processor), m_fonts(fonts)
 {
     m_show.setButtonText(showButtonText());
-    for (auto* b : { &m_choose, &m_dated, &m_render, &m_cancel, &m_show, &m_openTakes, &m_close })
+    for (auto* b : { &m_choose, &m_dated, &m_render, &m_cancel, &m_show, &m_openTakes, &m_close, &m_showRoom })
     {
         b->setColour(juce::TextButton::buttonOnColourId, TC::flight);
         b->setWantsKeyboardFocus(false);
@@ -117,16 +117,33 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     m_gap.setTooltip("Gap\nThe silence between one variation and the next in the one long file, from 0 to 10 seconds.");
     m_gap.onTextChange = [this] { syncControls(); };
     m_gap.onFocusLost = [this] { m_gap.setText(oneDecimal(job().gapSeconds), false); keepChoices(); syncControls(); };
-    m_batchName.setTooltip("Batch Name\nThe name your files start with. For example, Dragon Wings gives Dragon Wings_001, Dragon Wings_002 and so on.");
-    m_batchName.setTextToShowWhenEmpty("Type a name", TC::textFaint);
-    m_batchName.onTextChange = [this] { syncControls(); };
+    m_batchName.setTooltip("Batch Name\nType a name here and your files start with it. For example, Dragon Wings gives Dragon Wings_001, Dragon Wings_002 and "
+                           "so on. Typing a name sets File Names to Batch Name and Counter for you.");
+    m_batchName.setTextToShowWhenEmpty("Type a name for your files", TC::textFaint);
+    m_batchName.onTextChange = [this]
+    {
+        // Typing a name is asking for named files: nobody should have to find the File Names menu first.
+        if (m_batchName.getText().trim().isNotEmpty() && m_names.getSelectedId() - 1 != static_cast<int>(Names::BatchNameAndCounter))
+            m_names.setSelectedId(static_cast<int>(Names::BatchNameAndCounter) + 1, juce::sendNotificationSync);
+        syncControls();
+    };
     m_batchName.onFocusLost = [this] { keepChoices(); syncControls(); };
 
-    for (auto* box : { &m_each, &m_mode, &m_batch, &m_names, &m_files })
+    for (auto* box : { &m_each, &m_mode, &m_batch, &m_names, &m_files, &m_width, &m_order, &m_layout })
     {
         box->setWantsKeyboardFocus(false);
         addAndMakeVisible(*box);
     }
+    m_width.onChange = [this]
+    {
+        // The width the rig plays at is followed (the default); any other is kept as chosen.
+        const auto width = static_cast<room::Width>(juce::jlimit(0, room::c_numWidths - 1, m_width.getSelectedId() - 1));
+        m_processor.getVariations().chooseWidth(width == m_processor.getRoomWidth() ? std::nullopt : std::optional<room::Width>(width));
+        fillMenus(); // the Channel Order items show this width's orders
+        syncControls();
+    };
+    m_order.onChange = [this] { m_processor.setChannelOrder(static_cast<room::FileOrder>(juce::jlimit(0, 1, m_order.getSelectedId() - 1))); syncControls(); };
+    m_layout.onChange = [this] { m_processor.setFileLayout(static_cast<takefile::Layout>(juce::jlimit(0, 1, m_layout.getSelectedId() - 1))); syncControls(); };
     m_each.onChange = [this]
     {
         const bool ride = m_each.getSelectedId() == 2;
@@ -200,6 +217,15 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     m_openTakes.setTooltip("Open Takes\nOpens Takes, where you can hear the newest files, star them and drag them out.");
     m_openTakes.onClick = [this] { if (onOpenTakes) onOpenTakes(); };
     m_close.onClick = [this] { setVisible(false); };
+    m_showRoom.setTooltip("Set the Room\nCloses this panel. A room's files are shaped by the room strip under the sea (Spread, Height, "
+                          "Height Varies, Centre Speaker, the LFE) and by each bus's Flight Path, Direction and Side, even while your "
+                          "speakers are Stereo and you do not hear them.");
+    m_showRoom.onClick = [this]
+    {
+        setVisible(false);
+        if (onShowRoom)
+            onShowRoom();
+    };
     setMouseCursor(juce::MouseCursor::NormalCursor);
     fillMenus();
 }
@@ -219,7 +245,7 @@ void VariationsView::fillMenus()
          { { VariationRenderer::eachName(Each::OneWhoosh), "A single pass, from silence until it has rung out" },
            { VariationRenderer::eachName(Each::WholeRide), "A stretch of the rig playing, as you hear it with Play on" } });
     fill(m_mode, static_cast<int>(defaults.mode),
-         { { VariationRenderer::modeName(Mode::NewPasses), "Your sound exactly as you set it; only the passes differ" },
+         { { VariationRenderer::modeName(Mode::NewPasses), "Your settings as they are; every pass flies its own way" },
            { VariationRenderer::modeName(Mode::SmallChanges), "Your sound, with every knob moved a little" },
            { VariationRenderer::modeName(Mode::RandomiseEverything), "A different sound in every file" } });
     // The names as they would be for this session, so each item shows what it gives.
@@ -242,6 +268,34 @@ void VariationsView::fillMenus()
          { { VariationRenderer::filesName(Files::PerVariation), "Every variation is a file of its own" },
            { VariationRenderer::filesName(Files::OneWithMarkers), "One long file, with a named marker at each variation" },
            { VariationRenderer::filesName(Files::Both), "The separate files, and the one long file as well" } });
+
+    // Channels: every width, each saying how many channels it gives; the one your speakers are says so.
+    {
+        m_width.clear(juce::dontSendNotification);
+        const auto rig = m_processor.getRoomWidth();
+        for (int w = 0; w < room::c_numWidths; ++w)
+        {
+            const auto& layout = room::layout(static_cast<room::Width>(w));
+            const juce::String channels = layout.numChannels == 1 ? juce::String("1 channel") : juce::String(layout.numChannels) + " channels";
+            addChoice(*m_width.getRootMenu(), w + 1, layout.name, static_cast<room::Width>(w) == rig ? channels + ", as your speakers are" : channels);
+        }
+        m_width.setSelectedId(static_cast<int>(defaults.width) + 1, juce::dontSendNotification);
+    }
+    // Channel Order: each order as it is at this width (both are the same below 7.1.4).
+    {
+        m_order.clear(juce::dontSendNotification);
+        for (int o = 0; o < room::c_numFileOrders; ++o)
+        {
+            const auto order = static_cast<room::FileOrder>(o);
+            addChoice(*m_order.getRootMenu(), o + 1, room::fileOrderName(order),
+                      takefile::orderMatters(defaults.width) ? juce::String(room::orderLabel(defaults.width, order))
+                                                             : juce::String("The same file as the other below 7.1.4"));
+        }
+        m_order.setSelectedId(static_cast<int>(defaults.options.order) + 1, juce::dontSendNotification);
+    }
+    fill(m_layout, static_cast<int>(defaults.options.layout),
+         { { takefile::layoutName(takefile::Layout::Interleaved), "One file with every channel" },
+           { takefile::layoutName(takefile::Layout::MultiMono), "A mono file for each channel, named for its speaker" } });
     fillBatchMenu();
 }
 
@@ -362,6 +416,8 @@ VariationRenderer::Job VariationsView::job() const
     j.batchName = m_batchName.getText().trim();
     j.files = static_cast<Files>(juce::jlimit(0, 2, m_files.getSelectedId() - 1));
     j.gapSeconds = juce::jlimit(0.0, VariationRenderer::c_maxGapSeconds, m_gap.getText().getDoubleValue());
+    if (m_width.getSelectedId() > 0)
+        j.width = static_cast<room::Width>(juce::jlimit(0, room::c_numWidths - 1, m_width.getSelectedId() - 1));
     if (VariationRenderer::Batch batch; repeatedBatch(batch))
         j.batchSeed = batch.number;
     return j;
@@ -374,7 +430,7 @@ juce::String VariationsView::formatLine() const
     const int bits = j.options.type != TapeRecorder::FileType::Wav && j.options.bitDepth == 32 ? 24 : j.options.bitDepth;
     juce::String line;
     line << types[juce::jlimit(0, 2, static_cast<int>(j.options.type))] << ", " << bits << "-bit" << (bits == 32 ? " float" : "") << ", "
-         << oneDecimal(j.rate / 1000.0) << " kHz, " << (j.options.mono ? "mono" : "stereo");
+         << oneDecimal(j.rate / 1000.0) << " kHz";
     return line;
 }
 
@@ -388,7 +444,7 @@ juce::String VariationsView::whatVariesSentence(Mode mode, float amount)
             return "Each one is a fresh Randomise: a different sound every time.";
         case Mode::NewPasses:
         default:
-            return "Each one uses your settings exactly as they are. Only the passes differ.";
+            return "Your settings stay exactly as they are. Each one plays on from where the last one stopped, and flies its own way.";
     }
 }
 
@@ -397,7 +453,7 @@ void VariationsView::syncControls()
     const bool rendering = m_processor.getVariations().isRendering();
     const auto j = job();
     for (auto* c : std::initializer_list<juce::Component*> { &m_count, &m_length, &m_each, &m_mode, &m_batch, &m_names, &m_files, &m_choose, &m_dated,
-                                                              &m_render })
+                                                              &m_width })
         c->setEnabled(! rendering);
     auto dim = [rendering](juce::Component& c, bool used)
     {
@@ -405,7 +461,23 @@ void VariationsView::syncControls()
         c.setAlpha(used ? 1.0f : 0.35f);
     };
     dim(m_amount, j.mode == Mode::SmallChanges);
-    dim(m_batchName, j.names == Names::BatchNameAndCounter);
+    // Channel Order only changes one 7.1.4 WAV or AIFF file (the line under it says why when it rests); File Layout
+    // means something from Stereo up.
+    const auto container = TapeRecorder::containerOf(j.options.type);
+    m_showRoom.setVisible(j.width >= room::Width::Quad);
+    m_showRoom.setEnabled(! rendering);
+    dim(m_order, takefile::orderMatters(j.width, j.options.layout, container));
+    dim(m_layout, takefile::layoutMatters(j.width));
+    m_width.setTooltip("Channels\nHow many channels each file gets, from Mono to 7.1.4. A file wider than Stereo is rendered in that room "
+                       "from the start, whatever your speakers are, so the same batch can be had in Mono, Stereo, 5.1 and 7.1.4. "
+                       "In a room the room strip under the sea (Spread, Height, Height Varies, Centre Speaker, the LFE) and each bus's "
+                       "Flight Path, Direction and Side shape it, even while your speakers are Stereo: the line under these says how "
+                       "they are set. It starts at your speakers' width.");
+    m_order.setTooltip(juce::String("Channel Order\n") + c_channelOrderTip + " The same setting as in Settings, for the tape.");
+    m_layout.setTooltip(juce::String("File Layout\n") + c_fileLayoutTip + " The same setting as in Settings, for the tape.");
+    // The name box is always there to type in. A name left in it while another File Names choice is in use is shown fainter.
+    m_batchName.setEnabled(! rendering);
+    m_batchName.setAlpha(j.names == Names::BatchNameAndCounter || m_batchName.isEmpty() ? 1.0f : 0.45f);
     dim(m_gap, j.files != Files::PerVariation);
     m_dated.setToggleState(m_processor.getVariationFolder().isEmpty(), juce::dontSendNotification);
     m_cancel.setEnabled(rendering);
@@ -421,8 +493,9 @@ void VariationsView::syncControls()
                           ? "What Varies\nYour settings, with each knob moved a little either way, by up to How Different. A family of sounds around the one you dialled in."
                           : j.mode == Mode::RandomiseEverything
                                 ? "What Varies\nA fresh Randomise for every file, so each one is a different sound. Your tracks, their levels and any locked section stay as they are."
-                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Only the passes differ: how each one flies, how close it comes "
-                                  "and which part of each sound it plays.");
+                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Each file carries on through your sounds from "
+                                  "where the last one stopped, and each pass flies its own way: how near it comes, when it is closest, and the balance "
+                                  "of your tracks as the ride moves them.");
     m_batch.setTooltip(m_repeat == Repeat::New
                            ? "Batch\nEvery press of Render makes variations you have not had before."
                            : "Batch\nRender makes the same variations as that batch again, as long as your settings and sounds are the same. Handy for the same "
@@ -432,25 +505,107 @@ void VariationsView::syncControls()
     // saying what it is making (its own files would move the next free number along under it).
     if (rendering)
     {
+        m_render.setEnabled(false);
         repaint();
         return;
     }
     const auto plan = VariationRenderer::planOf(j);
     const auto extension = TapeRecorder::extensionOf(j.options.type);
     const auto format = " (" + formatLine() + ", as chosen in Settings)";
+    // The names as they will be on disk: a Multi-Mono set's first file ends .L before the extension.
+    auto onDisk = [&j](const juce::File& file)
+    {
+        const auto files = TapeRecorder::filesFor(file, room::layout(j.width).numChannels, j.options);
+        return files.isEmpty() ? file.getFileName() : files[0].getFileName();
+    };
+    const auto firstName = onDisk(plan.combined.getSiblingFile(plan.firstName + extension));
+    const auto combinedName = onDisk(plan.combined);
     switch (j.files)
     {
-        case Files::OneWithMarkers: m_firstLine = "The file: " + plan.combined.getFileName() + format; break;
-        case Files::Both:           m_firstLine = "First file: " + plan.firstName + extension + ", and all of them in " + plan.combined.getFileName() + format; break;
+        case Files::OneWithMarkers: m_firstLine = "The file: " + combinedName + format; break;
+        case Files::Both:           m_firstLine = "First file: " + firstName + ", and all of them in " + combinedName + format; break;
         case Files::PerVariation:
-        default:                    m_firstLine = "First file: " + plan.firstName + extension + format; break;
+        default:                    m_firstLine = "First file: " + firstName + format; break;
     }
     const auto estimate = m_processor.getVariations().estimate(j);
-    m_getLine = VariationRenderer::oneFileTooBig(j, estimate)
-                    ? juce::String("That one file would be over 4 GB, too big for markers. Make fewer or shorter ones, or use FLAC.")
-                    : VariationRenderer::estimateText(j, estimate);
+    const auto problem = VariationRenderer::formatProblem(j);
+    const bool tooBig = VariationRenderer::oneFileTooBig(j, estimate);
+    m_getProblem = problem.isNotEmpty() || tooBig;
+    // Render rests while the plan can't be made; the red line under the choices says why.
+    m_render.setEnabled(! m_getProblem);
+    m_render.setTooltip(m_getProblem ? "Render\nNot with these choices: the red line above says why and what to change."
+                                     : "Render\nMakes the files in the background, from your settings as they are right now. You can keep playing and changing "
+                                       "things meanwhile; the files will not pick up those changes.");
+    m_getLine = problem.isNotEmpty() ? problem
+              : tooBig ? (j.options.type == TapeRecorder::FileType::Aiff
+                              ? juce::String("That one AIFF file would be over 2 GB, more than AIFF can hold. Make fewer or shorter ones, or use WAV.")
+                              : juce::String("That one file would be over 4 GB, too big for markers. Make fewer or shorter ones, or use FLAC."))
+                       : VariationRenderer::estimateText(j, estimate);
     m_syncedMinute = juce::Time::getCurrentTime().getMinutes();
+    // A choice changed since the last batch (or since Render was refused): its Done, Cancelled or failure line
+    // gives way to the new plan (Show in Finder and Open Takes still go to what it made).
+    const auto key = planKey(j);
+    if (m_shownPlan.isEmpty())
+        m_shownPlan = key;
+    if (key != m_shownPlan)
+    {
+        m_shownPlan = key;
+        m_planChanged = true;
+        m_error.clear();
+    }
     repaint();
+}
+
+juce::String VariationsView::roomLine() const
+{
+    const auto j = job();
+    if (j.width < room::Width::Quad)
+        return {};
+    return "The room as set: " + m_processor.describeRoom(j.width);
+}
+
+juce::String VariationsView::roomNote() const
+{
+    const auto j = job();
+    if (j.width < room::Width::Quad)
+        return {};
+    const auto& layout = room::layout(j.width);
+    const auto speakers = m_processor.getRoomWidth();
+    juce::StringArray silent, why;
+    if (layout.centre >= 0 && m_processor.getState().getRawParameterValue(ParamIDs::roomCentre)->load() < 0.5f)
+    {
+        silent.add("C");
+        why.add("Centre Speaker Off");
+    }
+    const auto feed = m_processor.getLfeFeedAt(j.width);
+    if (feed == SwooshbucklerAudioProcessor::LfeFeed::Off)
+    {
+        silent.add("the LFE");
+        why.add("LFE Mode Off");
+    }
+    else if (SwooshbucklerAudioProcessor::lfeIsUnfed(feed))
+    {
+        silent.add("the LFE");
+        why.add(feed == SwooshbucklerAudioProcessor::LfeFeed::NoSubTrack ? "Discrete, with no track on Stowaway"
+                                                                       : "Discrete, with Stowaway off or not in Sub");
+    }
+    juce::String note;
+    if (speakers < room::Width::Quad)
+        note << "Not heard on your " << room::layout(speakers).name << " speakers. ";
+    if (! silent.isEmpty())
+        note << (silent.size() == 1 ? silent[0].substring(0, 1).toUpperCase() + silent[0].substring(1) : juce::String("C and the LFE"))
+             << " will be silent (" << why.joinIntoString(", ") << ").";
+    return note.trim();
+}
+
+juce::String VariationsView::planKey(const VariationRenderer::Job& j) const
+{
+    juce::String key;
+    key << j.count << "|" << static_cast<int>(j.each) << "|" << j.seconds << "|" << j.rideSeconds << "|" << static_cast<int>(j.mode) << "|" << j.amount
+        << "|" << static_cast<int>(j.names) << "|" << j.batchName << "|" << static_cast<int>(j.files) << "|" << j.gapSeconds << "|" << static_cast<int>(j.width)
+        << "|" << static_cast<int>(j.options.order) << "|" << static_cast<int>(j.options.layout) << "|" << static_cast<int>(j.options.type)
+        << "|" << j.options.bitDepth << "|" << j.rate << "|" << m_processor.getVariationFolder() << "|" << static_cast<int>(m_repeat) << "|" << static_cast<int>(m_repeatNumber);
+    return key;
 }
 
 void VariationsView::startBatch()
@@ -466,6 +621,8 @@ void VariationsView::startBatch()
     if (! m_processor.getVariations().start(j, error))
         m_error = error;
     m_shown = m_processor.getVariations().getProgress();
+    m_shownPlan = planKey(j);
+    m_planChanged = false;
     fillBatchMenu(); // this batch is now the last one
     syncControls();
 }
@@ -480,7 +637,7 @@ void VariationsView::timerCallback()
     m_shown = progress;
     if (ended)
         m_processor.refreshTakes(); // the last files are in Takes by the time Open Takes can be pressed
-    // Date And Time names, and a dated folder, follow the clock: the First File line moves on with the minute.
+    // Date and Time names, and a dated folder, follow the clock: the First File line moves on with the minute.
     const bool newMinute = progress.state != State::Rendering && juce::Time::getCurrentTime().getMinutes() != m_syncedMinute;
     if (changed || ended || newMinute)
         syncControls();
@@ -502,7 +659,7 @@ void VariationsView::resized()
     struct Row
     {
         juce::Rectangle<int> captions, controls;
-        std::array<juce::Rectangle<int>, 11>& names;
+        std::array<juce::Rectangle<int>, 14>& names;
         size_t& next;
         juce::Rectangle<int> take(int width, int gapAfter = 20)
         {
@@ -549,6 +706,19 @@ void VariationsView::resized()
         m_gap.setBounds(gap.removeFromLeft(44));
         m_gapUnit = gap.withTrimmedLeft(6);
     }
+    // Width, Channel Order, File Layout, and under them what each file will hold
+    {
+        auto line = row();
+        m_width.setBounds(line.take(120));
+        m_order.setBounds(line.take(190));
+        m_layout.setBounds(line.take(150, 0));
+        m_showRoom.setBounds(line.controls.removeFromRight(120));
+        m_orderText = r.withTrimmedTop(-8).removeFromTop(20);
+        r.removeFromTop(14);
+        // In a room: how it is set (two lines), and what the files will not have.
+        m_roomText = r.removeFromTop(54);
+        r.removeFromTop(8);
+    }
     // Folder: where it is, and the two ways to say where
     {
         m_captions[caption++] = r.removeFromTop(20);
@@ -587,14 +757,16 @@ void VariationsView::paint(juce::Graphics& g)
                                  Icons::Icon::Variations);
 
     const char* captions[] = { "How Many", "What Each File Is", "Length", "What Varies", "How Different", "Batch",
-                               "File Names", "Batch Name", "Files", "Gap", "Folder" };
+                               "File Names", "Batch Name", "Files", "Gap", "Channels", "Channel Order", "File Layout", "Folder" };
     const auto mode = static_cast<Mode>(juce::jlimit(0, 2, m_mode.getSelectedId() - 1));
     const bool small = mode == Mode::SmallChanges;
-    const bool named = m_names.getSelectedId() - 1 == static_cast<int>(Names::BatchNameAndCounter);
     const bool gapped = m_files.getSelectedId() - 1 != static_cast<int>(Files::PerVariation);
+    const auto j = job();
+    const bool ordered = takefile::orderMatters(j.width, j.options.layout, TapeRecorder::containerOf(j.options.type));
+    const bool laidOut = takefile::layoutMatters(j.width);
     for (size_t i = 0; i < m_captions.size(); ++i)
     {
-        const bool used = (i != 4 || small) && (i != 7 || named) && (i != 9 || gapped);
+        const bool used = (i != 4 || small) && (i != 9 || gapped) && (i != 11 || ordered) && (i != 12 || laidOut);
         g.setColour(used ? TC::textDim : TC::textFaint);
         Theme::fitText(g, captions[i], m_captions[i], m_fonts.caption(), juce::Justification::centredLeft);
     }
@@ -616,8 +788,28 @@ void VariationsView::paint(juce::Graphics& g)
                                 : folder().getFullPathName();
         Theme::fitText(g, fitPath(body, path, m_folderText.getWidth()), m_folderText, body, juce::Justification::centredLeft, Theme::Fit::Name);
         g.setColour(TC::textDim);
+        Theme::fitText(g, takefile::orderLine(j.width, j.options.order, j.options.layout, TapeRecorder::containerOf(j.options.type)), m_orderText, body,
+                       juce::Justification::centredLeft, Theme::Fit::Sentence);
+        // A room: how it is set (and that it is made so while the speakers are narrower), and any speaker that will
+        // be silent in the files.
+        {
+            auto box = m_roomText;
+            const auto line = roomLine(), note = roomNote();
+            if (line.isNotEmpty())
+            {
+                // One line when it fits, two when it does not; the note right under it.
+                const int lines = Theme::textWidth(body, line) <= static_cast<float>(box.getWidth()) ? 1 : 2;
+                Theme::fitLines(g, line, box.removeFromTop(18 * lines), body, TC::textDim);
+            }
+            if (note.isNotEmpty())
+            {
+                g.setColour(TC::brass);
+                Theme::fitText(g, note, box.removeFromTop(18), body, juce::Justification::centredLeft, Theme::Fit::Sentence);
+            }
+            g.setColour(TC::textDim);
+        }
         Theme::fitText(g, m_firstLine, m_firstText, body, juce::Justification::centredLeft, Theme::Fit::Name);
-        g.setColour(TC::text);
+        g.setColour(m_getProblem ? TC::hits.brighter(0.2f) : TC::text);
         Theme::fitText(g, m_getLine, m_getText, body, juce::Justification::centredLeft, Theme::Fit::Sentence);
         g.setColour(TC::textDim);
         VariationRenderer::Batch batch;
@@ -627,7 +819,10 @@ void VariationsView::paint(juce::Graphics& g)
     }
 
     // Progress: the bar with its percentage, then what is happening in words.
-    const auto& p = m_shown;
+    // A batch that has ended is shown until a choice changes; then the panel shows the new plan, as before any batch.
+    auto p = m_shown;
+    if (m_planChanged && p.state != State::Rendering)
+        p.state = State::Idle;
     const bool rendering = p.state == State::Rendering;
     const int handled = p.done + p.silent;
     const float fraction = p.total > 0 ? juce::jlimit(0.0f, 1.0f, static_cast<float>(handled) / static_cast<float>(p.total)) : 0.0f;
@@ -663,14 +858,18 @@ void VariationsView::paint(juce::Graphics& g)
     const auto folderName = p.folder.getFileName();
     const bool ride = p.each == Each::WholeRide;
     auto things = [ride](int n) { return juce::String(n) + (ride ? (n == 1 ? " ride" : " rides") : (n == 1 ? " whoosh" : " whooshes")); };
-    // What was made, by how the files were asked for.
+    // What was made, by how the files were asked for. A Multi-Mono set is one take of many files: both are said.
     juce::String made;
+    const int per = juce::jmax(1, p.filesPerTake);
+    const juce::String onDisk = per > 1 ? " (" + VariationRenderer::withCommas(p.files * per) + " files)" : juce::String();
     switch (p.filing)
     {
-        case Files::OneWithMarkers: made = p.combinedFile + ", with " + things(p.done) + " in it, in " + folderName; break;
-        case Files::Both:           made = juce::String(p.done) + (p.done == 1 ? " file" : " files") + " and " + p.combinedFile + " in " + folderName; break;
+        case Files::OneWithMarkers: made = p.combinedFile + ", with " + things(p.done) + " in it, in " + folderName + onDisk; break;
+        case Files::Both:           made = (per > 1 ? things(p.done) : VariationRenderer::withCommas(p.done) + (p.done == 1 ? " file" : " files"))
+                                         + " and " + p.combinedFile + " in " + folderName + onDisk; break;
         case Files::PerVariation:
-        default:                    made = juce::String(p.done) + (p.done == 1 ? " file" : " files") + " in " + folderName; break;
+        default:                    made = (per > 1 ? things(p.done) : VariationRenderer::withCommas(p.done) + (p.done == 1 ? " file" : " files"))
+                                         + " in " + folderName + onDisk; break;
     }
     const juce::String silentNote = p.silent > 0 ? " " + juce::String(p.silent) + (p.silent == 1 ? " had no sound and was left out." : " had no sound and were left out.")
                                                  : juce::String();
