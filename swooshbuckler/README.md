@@ -495,7 +495,7 @@ Sessions saved before Aim existed open with it off, so they keep the gate they w
 
 #### Where a hit lands
 
-Two controls decide where a hit is heard and how big it is. They sit together in the Hits panel, in the cherry-edged group named **Where It Lands** between Aim and the knobs: **Hit Position**, three stamped keys, and the **Hit Spread** wheel. Under the keys is the choice in words; each key's tooltip names it too.
+Two controls decide where a hit is heard and how big it is. They sit together in the Hits panel, in the cherry-edged group named **Where It Lands** between Aim and the knobs: **Hit Position**, three stamped keys, and the **Hit Spread** wheel. Under the keys is the choice in words, and the tooltip's first line names it too.
 
 | Control | Range (default) | What it does |
 |---|---|---|
@@ -825,7 +825,7 @@ In a room the comets fly where the passes are: the front of the room is out towa
 - **The ship's hull** in the middle is you.
 - **A lamp for each speaker** on the walls, lighting with what it plays. The speakers overhead are on the inner square (7.1.2 and 7.1.4), and the LFE is the square green lamp under the room.
 - **A dot for each sound**, with a short trail: the passes in their bus's colour, throws in brass, the hits in cherry and Stowaway in kelp green. A sound higher up is drawn nearer the middle. A pass or a throw on the move has a small arrowhead ahead of its dot, pointing the way it goes.
-- **A hit** is a soft cherry glow where it lands, as big as [Hit Spread](#where-a-hit-lands) makes it: a small glow at 0%, the whole room at 100%, wider across for a stereo hit. It comes up with the hit and fades over about half a second, so a run of hits glows steadily rather than flickering.
+- **A hit** is a soft cherry glow where it lands, as big as [Hit Spread](#where-a-hit-lands) makes it: a small glow at 0%, the whole room at 100%, a little wider across than up and down, as a hit's left and right sides are a little apart. It comes up with the hit and fades over about half a second, so a run of hits glows steadily rather than flickering.
 
 ### Exporting at any width
 

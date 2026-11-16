@@ -1129,6 +1129,26 @@ juce::Point<float> SeaVisualiser::planDot(int object, float* brightness) const
     return planPoint(planRoomBox(roomPlanArea()), p.x, p.y, p.z);
 }
 
+float SeaVisualiser::planHeading(int object, juce::Point<float>& direction) const
+{
+    // A pass or a throw on the move: its heading from the far end of its trail, steady as the trail is.
+    direction = {};
+    if (object < 0 || object > RigEngine::ObjThrow4)
+        return 0.0f;
+    const auto& dot = m_dots[static_cast<size_t>(object)];
+    if (dot.count <= c_headingSpan || dot.level < 0.01f)
+        return 0.0f;
+    const auto box = planRoomBox(roomPlanArea());
+    const auto& p = dot.trail[static_cast<size_t>(dot.head)];
+    const auto& was = dot.trail[static_cast<size_t>((dot.head - (dot.count - 1) + c_dotTrail) % c_dotTrail)];
+    const auto at = planPoint(box, p.x, p.y, p.z), from = planPoint(box, was.x, was.y, was.z);
+    const float moved = at.getDistanceFrom(from);
+    if (moved <= 1.5f)
+        return 0.0f;
+    direction = (at - from) / moved;
+    return juce::jmin(1.0f, (moved - 1.5f) / 2.0f);
+}
+
 SeaVisualiser::PlanFlash SeaVisualiser::planFlash() const
 {
     PlanFlash f;
@@ -1332,22 +1352,15 @@ void SeaVisualiser::paintRoom(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(r * 2.0f + 2.0f, r * 2.0f + 2.0f).withCentre(at));
         g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
         g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at));
-        if (i <= RigEngine::ObjThrow4 && dot.count > c_headingSpan)
+        juce::Point<float> d;
+        if (const float shown = planHeading(i, d); shown > 0.0f)
         {
-            // Its heading, from the far end of its trail: steady, as the trail is.
-            const auto& was = dot.trail[static_cast<size_t>((dot.head - (dot.count - 1) + c_dotTrail) % c_dotTrail)];
-            const auto from = planPoint(box, was.x, was.y, was.z);
-            const float moved = at.getDistanceFrom(from);
-            if (moved > 1.5f)
-            {
-                const auto d = (at - from) / moved;
-                const juce::Point<float> n { -d.y, d.x };
-                const auto tip = at + d * (r + 5.0f), back = at + d * (r + 1.0f);
-                juce::Path head;
-                head.addTriangle(tip, back + n * 2.6f, back - n * 2.6f);
-                g.setColour(colour.withAlpha(juce::jmin(1.0f, (moved - 1.5f) / 2.0f) * juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
-                g.fillPath(head);
-            }
+            const juce::Point<float> n { -d.y, d.x };
+            const auto tip = at + d * (r + 5.0f), back = at + d * (r + 1.0f);
+            juce::Path head;
+            head.addTriangle(tip, back + n * 2.6f, back - n * 2.6f);
+            g.setColour(colour.withAlpha(shown * juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
+            g.fillPath(head);
         }
     }
 }

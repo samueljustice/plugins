@@ -2003,10 +2003,31 @@ int main(int argc, char* argv[])
                 float frontMost = 1.0f, backMost = -1.0f, leftMost = 1.0f, rightMost = -1.0f, innerMost = 2.0f, highest = 0.0f;
                 std::array<bool, 4> quarters {};
                 int comets = 0, onTheirObjects = 0, sided = 0, sameSide = 0;
+                // Each pass's arrowhead points the way its dot is going on the plan (never back along a jump).
+                int arrows = 0, arrowsAgainst = 0;
+                std::array<juce::Point<float>, 4> lastDot {};
+                std::array<bool, 4> hadDot {};
                 const int frames = 7 * 60;
                 for (int f = 0; f < frames; ++f)
                 {
                     rig.run(1.0 / 60.0);
+                    for (int o = RigEngine::ObjPassA1; o <= RigEngine::ObjPassB2; ++o)
+                    {
+                        const auto o_ = static_cast<size_t>(o);
+                        float lit = 0.0f;
+                        const auto now = sea.planDot(o, &lit);
+                        juce::Point<float> d;
+                        const float shown = sea.planHeading(o, d);
+                        const auto moved = now - lastDot[o_];
+                        const float step = moved.getDistanceFromOrigin();
+                        if (hadDot[o_] && shown > 0.3f && lit > 0.05f && step > 0.2f && step < 0.1f * half)
+                        {
+                            ++arrows;
+                            arrowsAgainst += (d.x * moved.x + d.y * moved.y) / step < 0.0f ? 1 : 0;
+                        }
+                        hadDot[o_] = lit > 0.0f;
+                        lastDot[o_] = now;
+                    }
                     // Each bus's comet flies where its pass is in the room.
                     for (int i = RigEngine::ObjPassA1; i <= RigEngine::ObjPassB2; ++i)
                     {
@@ -2064,6 +2085,9 @@ int main(int argc, char* argv[])
                 check(path == 2 || (sided > 50 && sameSide >= sided * 9 / 10),
                       juce::String("room: ") + pathNames[path] + ": a pass at the left of the room is at the left of the sea and of the plan (" + juce::String(sameSide)
                           + " of " + juce::String(sided) + " looks)");
+                check(arrows > 40 && arrowsAgainst == 0,
+                      juce::String("room: ") + pathNames[path] + ": each pass's arrowhead points the way it goes on the plan (" + juce::String(arrowsAgainst)
+                          + " of " + juce::String(arrows) + " looks pointing back)");
                 float nearest = 0.0f;
                 const float step = worstCometStep(5.0, nearest);
                 check(nearest >= 1.29f && step <= stereoStep * 1.4f,

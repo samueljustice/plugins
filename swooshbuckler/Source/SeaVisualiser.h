@@ -82,9 +82,12 @@ public:
     static constexpr float c_planHeightIn = 0.45f;
     /** The hit's flash on the plan: where its glow is centred (this component's coordinates), its radius across and
         up the plan, and how bright it is now (0: none). Its size follows Hit Spread: a small glow at 0%, the whole
-        room at 100% (a stereo hit's two sides draw it wider across). For the tests. */
+        room at 100% (a hit's two sides, a little apart, draw it wider across). For the tests. */
     struct PlanFlash { juce::Point<float> at; float radiusX = 0.0f, radiusY = 0.0f, level = 0.0f; };
     PlanFlash planFlash() const;
+    /** A pass's or a throw's arrowhead on the plan: the way it points (a unit step on the screen) and how strongly it
+        shows (0: none, still or too short a trail). For the tests. */
+    float planHeading(int object, juce::Point<float>& direction) const;
     /** The smallest flash (Hit Spread 0%) and how far past the room's half-width it reaches at 100%. */
     static constexpr float c_flashPoint = 6.0f, c_flashRoom = 1.15f;
 
