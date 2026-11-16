@@ -134,7 +134,7 @@ namespace roar
         static constexpr double c_grindBias = 0.15;
         static constexpr double c_warmDriveDb = 9.0;
         static constexpr double c_grindDriveDb = 9.0;
-        static constexpr double c_grindMakeupDb = 1.0;
+        static constexpr double c_grindMakeupDb = 1.4;   // Grind meets Warm at working level (test-set median)
         static constexpr double c_grindDepthScale = 1.2;   // Grind's depth, re Warm's (keeps the tremolo as deep)
         static constexpr double c_dcBlockHz = 10.0;
         static constexpr double c_optoTauOn = 0.003, c_optoTauOff = 0.025, c_optoReferenceHz = 8.0;
