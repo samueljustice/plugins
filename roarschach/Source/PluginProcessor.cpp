@@ -203,7 +203,7 @@ namespace
             v[static_cast<size_t>(k)] = d;
         }
         auto l = Learning::fromValues(v);
-        if (l.s1 < 0.0 || l.s2 < 0.0 || l.so < 0.0 || l.seconds < 0.0 || l.evidence < 0.0)
+        if (!roar::RoarModule::isPlausible(l))   // damaged or hand-edited: a new learn
             return std::nullopt;
         return l;
     }

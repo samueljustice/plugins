@@ -1771,7 +1771,38 @@ namespace stageb3
                       && restored.anchored == saved.anchored && std::abs(restored.anchorA - saved.anchorA) < 1.0e-12,
                   "S20f: ROAR's learning did not survive the state");
 
-            for (const char* text : { "", "1 2 three 4 5 6 7 8 9 10", "1 2 3" })
+            // Finite but impossible learnings (a damaged or hand-edited state) are treated as missing too.
+            const auto asText = [](const roar::RoarModule::LevelLearning& l)
+            {
+                juce::String t;
+                for (const double v : l.toValues())
+                {
+                    juce::int64 bits = 0;
+                    std::memcpy(&bits, &v, sizeof bits);
+                    t << (t.isEmpty() ? "" : " ") << juce::String::toHexString(bits).paddedLeft('0', 16);
+                }
+                return t;
+            };
+            std::vector<juce::String> texts { "", "1 2 three 4 5 6 7 8 9 10", "1 2 3" };
+            {
+                auto huge = saved;
+                huge.s1 *= 1.0e20;
+                huge.s2 *= 1.0e40;   // consistent with s1, but far louder than anything ROAR is fed
+                auto moreEvidence = saved;
+                moreEvidence.evidence = saved.seconds * 2.0;
+                auto ages = saved;
+                ages.seconds = 1.0e12;
+                auto anchor = saved;
+                anchor.anchorA = 5.0;
+                auto sumsWithoutSeconds = saved;
+                sumsWithoutSeconds.seconds = sumsWithoutSeconds.evidence = 0.0;
+                check(roar::RoarModule::isPlausible(saved) && roar::RoarModule::isPlausible(roar::RoarModule::LevelLearning {}),
+                      "S20f: a real learning or a new one is taken as damaged");
+                for (const auto& l : { huge, moreEvidence, ages, anchor, sumsWithoutSeconds })
+                    texts.push_back(asText(l));
+            }
+            int absurdNew = 0;
+            for (const auto& text : texts)
             {
                 auto edited = std::make_unique<juce::XmlElement>(*xml);
                 if (juce::String(text).isEmpty())
@@ -1783,9 +1814,11 @@ namespace stageb3
                 p->setStateInformation(other.getData(), static_cast<int>(other.getSize()));
                 (void) render(*p, dual(Signal(static_cast<size_t>(block), 0.0f)), block);
                 const auto fresh = roarOf(*p);
-                check(fresh.corrDb == 0.0 && fresh.seconds == 0.0 && fresh.s1 == 0.0,
-                      juce::String("S20f: a state with levelRoar \"") + text + "\" did not load as a new learn");
+                const bool isNew = fresh.corrDb == 0.0 && fresh.seconds == 0.0 && fresh.s1 == 0.0;
+                absurdNew += isNew && text.length() > 40 ? 1 : 0;
+                check(isNew, juce::String("S20f: a state with levelRoar \"") + text + "\" did not load as a new learn");
             }
+            std::printf("  S20f damaged learnings (too loud, evidence over the seconds, 1e12 s, Drive anchor 5, sums without seconds): %d of 5 load as a new learn\n", absurdNew);
         }
     }
 }

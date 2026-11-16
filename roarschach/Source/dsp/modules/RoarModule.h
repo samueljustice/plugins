@@ -162,6 +162,10 @@ namespace roar
 
         /** For the session. */
         LevelLearning getLearning() const { return m_learn; }
+        /** Whether a learning (from a session) could have come from a learn: finite, sums that agree
+            with each other and with the seconds, powers inside what ROAR is fed, anchors on the knobs'
+            ranges. Anything else is treated as missing. */
+        static bool isPlausible (const LevelLearning& l);
         /** Sets what was learnt; clears the pass state. */
         void restoreLearning (const LevelLearning& l);
         /** What feeds ROAR has changed: learn again from the held correction. */

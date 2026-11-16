@@ -332,12 +332,32 @@ namespace roar
         m_haveRaw = false;
     }
 
-    void RoarModule::restoreLearning (const LevelLearning& l)
+    bool RoarModule::isPlausible (const LevelLearning& l)
     {
+        constexpr double c_maxSeconds = 1.0e6;        // sounding seconds: about eleven days of a take
+        constexpr double c_maxMeanPower = 1.0e4;      // the stage is fed at most c_inputLimit (power 1024)
         const bool finite = std::isfinite (l.corrDb) && std::isfinite (l.s1) && std::isfinite (l.s2) && std::isfinite (l.so)
                          && std::isfinite (l.seconds) && std::isfinite (l.evidence) && std::isfinite (l.anchorA)
                          && std::isfinite (l.anchorTone) && std::isfinite (l.anchorMic);
-        m_learn = finite ? l : LevelLearning {};
+        if (! finite || l.s1 < 0.0 || l.s2 < 0.0 || l.so < 0.0 || l.seconds < 0.0 || l.evidence < 0.0 || l.seconds > c_maxSeconds)
+            return false;
+        if (l.anchorA < 0.0 || l.anchorA > 1.0 || l.anchorTone < -1.0 || l.anchorTone > 1.0 || (l.anchorMic != 0.0 && l.anchorMic != 1.0))
+            return false;
+        if (l.seconds <= 0.0)
+            return l.s1 == 0.0 && l.s2 == 0.0 && l.so == 0.0 && l.evidence == 0.0;
+        // Every frame learnt from was sounding (above the floor), and the evidence s1^2 / s2 can
+        // never exceed the seconds (Cauchy-Schwarz).
+        const double meanIn = l.s1 / l.seconds;
+        const double tol = 1.0e-9;
+        return meanIn >= c_soundingFloor * (1.0 - tol) && meanIn <= c_maxMeanPower
+            && l.s2 / l.seconds <= c_maxMeanPower * c_maxMeanPower && l.so / l.seconds <= c_maxMeanPower
+            && l.evidence <= l.seconds * (1.0 + tol) + tol
+            && std::abs (l.evidence - (l.s2 > 0.0 ? l.s1 * l.s1 / l.s2 : 0.0)) <= 1.0e-6 * std::max (1.0, l.seconds);
+    }
+
+    void RoarModule::restoreLearning (const LevelLearning& l)
+    {
+        m_learn = isPlausible (l) ? l : LevelLearning {};
         m_learn.corrDb = std::clamp (m_learn.corrDb, -c_correctionBoundDb, c_correctionBoundDb);
         clearPass();
         // The ratio the sums hold, as the instance that learnt them had it (so a restored instance
