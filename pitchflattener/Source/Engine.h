@@ -46,14 +46,33 @@
 // machine too busy to search within the budget it starts late, at the right place for that
 // moment). Hosts that compensate latency see the flattened sound line up with the original.
 //
+// Carried with the plug-in state. Every learned sound has a random 64-bit id. Published sounds go
+// into a process-wide registry (SoundRegistry.h), so an instance given a state that names one takes
+// it at once (adoptLearned()); the state also carries the sound itself, compressed by a codec the
+// host side supplies (Hooks), so an instance in another process, or a reopened session, decodes
+// and analyses it again (restoreLearned()) exactly as after a Learn.
+//
+// Faster than real time. A host may render a file through the plug-in as fast as it can without
+// saying so (setNonRealtime). The audio thread measures the audio it gets against the wall clock:
+// over the last blocks covering at least 0.1 s of audio (and at least 4 blocks), audio arriving at
+// more than 2.5 times real time counts as a render, until it falls under 1.5 times. A real-time
+// host does not deliver audio that fast for that long; one catching up after a dropout does so for
+// a moment at most, and the waits below only block when they must (they never wait for a search
+// whose answer could not affect the audio being output now).
+//
 // Threads:
 //   - process() and processBypassed() run on the audio thread. In real time they never allocate,
 //     lock or free: results arrive as shared_ptr copies taken with a spin try-lock (a reference
 //     count increment), and the engine keeps every result it published until nobody else holds
-//     it, then frees it on its own thread. Offline (setNonRealtime(true)) the audio thread may also
-//     wait for the search or for a render, and wakes the house thread with a condition variable
-//     (which can take a lock inside): the host is rendering as fast as it can, and waiting is what
-//     keeps a bounce identical to a real-time pass.
+//     it, then frees it on its own thread. The audio thread reads the clock (steady_clock) each
+//     block, and posts log events through the sink (which must be lock-free).
+//   - Offline (setNonRealtime(true)) or when the audio comes faster than real time, the audio
+//     thread may also wait: for the search when the output would otherwise pass an input position
+//     not yet searched (up to 3 s), for a pending render (up to 30 s), and for an analysis in
+//     progress, as after a state with a sound in it (up to 60 s). It spins with yields or sleeps
+//     a millisecond, and wakes the house thread with a condition variable (which can take a lock
+//     inside). The host is rendering as fast as it can, and waiting is what keeps a bounce
+//     identical to a real-time pass. Each wait is counted, and logged when long or given up.
 //   - armLearn(), disarmLearn(), clear(), setOptions() and the readouts are for the message thread
 //     (or tests); they take a mutex that the audio thread never touches.
 //   - The analysis thread runs core::analyse / core::flatten; the house thread searches, ends
@@ -68,7 +87,9 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <string>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -90,6 +111,9 @@ struct Learned
     // Stereo only: half the difference of the channels, followed by a probe's length of zeros
     // (as the locator's mix is), so a copy with its channels swapped is told apart.
     std::vector<float> side;
+    // The sound compressed for the plug-in's state, made once when it is learned (null without a
+    // codec, or when it is larger than Engine::kMaxStoredBytes: then the state carries the id only).
+    std::shared_ptr<const std::vector<char>> stored;
 };
 
 /** One render of a learned sound. Shared, never modified. */
@@ -98,6 +122,7 @@ struct Result
     std::uint64_t generation = 0;
     std::shared_ptr<const Learned> learned;
     core::Options options;             // as rendered; line is the one actually used (-1 = none usable)
+    core::Options requested;           // as asked for (line -1 = the analysis' pick)
     core::Flattened flattened;
 
     bool playable() const noexcept
@@ -106,9 +131,72 @@ struct Result
     }
 };
 
+// What the engine tells the log (see Engine::setLogSink). Plain numbers: it may come from the
+// audio thread, which must not format text.
+struct EngineEvent
+{
+    enum class Kind : int
+    {
+        CaptureStarted,   // i0 channels; d0 rate
+        CaptureEnded,     // i0 why (0 silence, 1 audio stopped arriving, 2 disarmed, 3 two minutes, 4 too short, kept armed); i1 samples; d0 rate
+        Analysed,         // i0 id; i1 pick; i2 channels; i3 samples; i4 restored from the state; d0 rate; d1 ms
+        Stored,           // i0 id; i1 bytes (0 = not stored); i2 too large; d0 ms
+        Rendered,         // i0 target; i1 line; i2 keep length; i3 length; i4 valid; i5 corrections; d0 amount; d1 ms; d2 rate
+        Cleared,
+        Cancelled,        // i0 what (0 armed, 1 listening, 2 analysing, 3 nothing)
+        Adopted,          // i0 id; i1 took its render too
+        RestoreStarted,   // i0 id; i1 bytes
+        RestoreFailed,    // i0 id
+        Wait,             // i0 for (0 search, 1 render, 2 analysis); i1 gave up; d0 ms
+        PaceChanged,      // i0 faster than real time now; d0 ratio
+        RunStarted,       // i0 run; i1 first block; i2 channels; i3 host says offline; i4 bypassed; d0 rate
+        RunEnded,         // see Engine::RunSummary
+        Searched,         // i0 probe input; i1 best learned position (-1 none); i2 places that passed; i3 outcome (0 matched,
+                          // 1 ambiguous and too quiet, 2 residual too high, 3 nothing like it); i4 next try in samples (-1 none);
+                          // i5 quick retry at the sound's start; d0 best residual dB; d1 rate; d2 ms
+        Extended,         // i0 matched at input; i1 starts at input; i2 why it stopped (0 nothing before it, 1 the sound's start,
+                          // 2 a difference in its first 30 ms, accepted, 3 other material, 4 a reset or the learned sound's start); d0 rate
+        MatchFailed,      // i0 input; i1 cancelled before heard; i2 why (0 residual, 1 silence, 2 other audio where the sound is silent); d0 residual dB; d1 rate
+        Reset,            // i0 requests since the last; i1 input position; i2 audio had arrived in this run; d0 rate
+        // Input against learned at a near miss or a let-go, each level free (see Engine::diagnose).
+        // i0 input; i1 learned; i2 0 near miss, 1 let go; i3 input stereo; i4 learned stereo; then
+        // residuals in hundredths of a dB: i5 L/L, i6 R/R, i7 L/R, i8 R/L, i9 L/mix, i10 R/mix,
+        // i11 sum/sum, i12 difference/difference; i13 input L/R level, i14 learned L/R level
+        // (hundredths of a dB); i15 correlation of input L with input R (thousandths);
+        // d0 rate; d1 best fractional offset (samples); d2 mix residual there (dB); d3 mix residual at 0 (dB);
+        // d4 mix residual through the best short filter (dB); d5 that filter's share in 3 adjacent taps
+        Diagnosed
+    };
+    Kind kind = Kind::Cleared;
+    std::int64_t i[16] {};
+    double d[6] {};
+};
+using LogSink = void (*)(void* context, const EngineEvent& event) noexcept;
+
 class Engine
 {
 public:
+    // What the host side supplies (all called on the engine's own threads, never the audio thread).
+    struct Hooks
+    {
+        // The learned sound compressed for the state (empty: none), and back.
+        std::function<std::vector<char>(const core::Channels& sound, double sampleRate)> encode;
+        std::function<bool(const std::vector<char>& bytes, core::Channels& sound, double& sampleRate)> decode;
+        // The options for a sound about to be rendered for the first time (its hand corrections
+        // belong to its reading, which only now exists).
+        std::function<core::Options(const Learned& learned)> optionsFor;
+        // Saves audio for a near miss (input and learned, for listening to later): called on the
+        // house thread, with a name to use; the host side picks the folder and logs where.
+        std::function<void(const std::string& name, const core::Channels& audio, double sampleRate)> saveCapture;
+    };
+
+    // A run of audio (blocks with no gap of half a second), summarised when it ends.
+    // RunEnded event: i0 run; i1 blocks; i2 samples; i3 searches; i4 matches; i5 cancelled starts;
+    // i6 first match input (from the run's start); i7 first match learned sample; i14 there was a match;
+    // i8 output samples flattened; i9 output samples dry; i10 latency; i11 input samples after the
+    // learned sound's end (-1 no match); i12 flags (1 host offline, 2 faster than real time,
+    // 4 a wait gave up); i13 waits; d0 rate; d1 wall seconds; d2 ms waited.
+    static constexpr std::int64_t kMaxStoredBytes = 30 * 1024 * 1024;
     enum class State : int
     {
         Idle,               // nothing learned
@@ -152,7 +240,11 @@ public:
     int latencySamples() const noexcept { return m_latency; }
     double sampleRate() const noexcept { return m_rate.load(); }
     /** Asks the audio thread to empty its delay line and stop playing (safe from any thread). */
-    void requestReset() noexcept { m_resetRequested.store(true, std::memory_order_release); }
+    void requestReset() noexcept
+    {
+        m_resetRequests.fetch_add(1, std::memory_order_relaxed);
+        m_resetRequested.store(true, std::memory_order_release);
+    }
     /** Offline (non-realtime) the audio thread waits for the search and renders instead of running ahead of them. */
     void setNonRealtime(bool nonRealtime) noexcept { m_nonRealtime.store(nonRealtime, std::memory_order_relaxed); }
 
@@ -160,6 +252,26 @@ public:
     void process(float* const* channels, int numChannels, int numSamples) noexcept;
     /** Bypassed: the input delayed by the latency, nothing played; Learn still captures. */
     void processBypassed(float* const* channels, int numChannels, int numSamples) noexcept;
+
+    // ---- the learned sound and the plug-in state (message thread) ----
+    void setHooks(Hooks hooks);
+    void setLogSink(LogSink sink, void* context) noexcept;
+    /** The id of the sound this instance has (or is analysing), 0 for none. */
+    std::uint64_t learnedId() const;
+    /** The learned sound, compressed, for the state (null: nothing learned, or too large to store). */
+    std::shared_ptr<const std::vector<char>> storedSound() const;
+    /** Takes the sound with this id from the registry (another instance in this process), with
+        these options; false when it is not there. */
+    bool adoptLearned(std::uint64_t id, const core::Options& options);
+    /** The sound learned elsewhere, from its compressed copy: decoded and analysed in the background. */
+    void restoreLearned(std::uint64_t id, std::shared_ptr<const std::vector<char>> stored);
+    /** The reading of a sound in the registry (to work out its options before adopting it). */
+    static std::shared_ptr<const Learned> findRegistered(std::uint64_t id);
+    /** Ends the current run of audio now and logs its summary (it would otherwise end after half a
+        second without audio). Not concurrent with process(). */
+    void closeRun() noexcept { endRun(); }
+    /** The audio is arriving faster than real time (a render the host did not announce). */
+    bool runningFasterThanRealTime() const noexcept { return m_fast.load(std::memory_order_relaxed); }
 
     // ---- message thread ----
     void armLearn();
@@ -209,6 +321,10 @@ public:
     std::int64_t lastMatchSource() const noexcept { return m_lastMatchSource.load(std::memory_order_relaxed); }
     /** Matches found but cancelled before they were heard (the input stopped being the sound). */
     std::uint64_t cancelledStarts() const noexcept { return m_cancelledStarts.load(std::memory_order_relaxed); }
+    /** Shorter limits for the offline waits (search, render, analysis), to test that they end. */
+    void setWaitLimitsForTesting(double search, double render, double analysis) noexcept;
+    /** A smaller limit on the compressed sound kept for the state. */
+    void setStoreLimitForTesting(std::int64_t bytes) noexcept { m_storeLimit.store(bytes); }
 
 private:
     enum CaptureState : int { CapIdle = 0, CapArmed = 1, CapListening = 2, CapFinished = 3 };
@@ -261,12 +377,21 @@ private:
     void stopMatching(std::int64_t outNext) noexcept;
     bool readAnswer(const Result& r, std::int64_t outNext) noexcept;
     void verify(const Result& r, std::int64_t tEnd, std::int64_t outNext) noexcept;
-    void failMatch(std::int64_t at, std::int64_t outNext) noexcept;
+    void failMatch(std::int64_t at, std::int64_t outNext, int why = 0, double residual = 1.0) noexcept;
     void watchTail(std::int64_t tEnd, std::int64_t outNext) noexcept;
     void pushGain(std::int64_t at, double gain) noexcept;
     void followGain(std::int64_t windowStart, double gain) noexcept;
     void waitForSearch(std::int64_t tEnd) noexcept;
     void waitForRender() noexcept;
+    void waitForAnalysis() noexcept;
+    void noteWait(int what, double milliseconds, bool gaveUp) noexcept;
+    void measurePace(int numSamples) noexcept;
+    void beginRun(int numSamples, int numChannels, bool bypassed) noexcept;
+    void endRun() noexcept;   // any thread; posts the summary once
+    void log(const EngineEvent& event) const noexcept;
+    void diagnose(const Learned& learned, std::int64_t input, std::int64_t source, int length, int kind);
+    void captureStep();   // house thread: writes a pending capture once its input has arrived
+    void letGoLocked();   // m_mutex held: the registry keeps what this instance drops a while
     void pushEvent(const Event& e) noexcept;
     void renderOutput(float* const* channels, int numChannels, int numSamples, std::int64_t t0) noexcept;
     float voiceSample(const Voice& v, int channel, int numChannels, std::int64_t u, float dry) const noexcept;
@@ -288,11 +413,14 @@ private:
     // ---- host settings ----
     std::atomic<double> m_rate { 0.0 };   // read by the house thread too
     int m_latency = 0;
+    std::atomic<int> m_latencyShared { 0 };   // the same, for the house thread
+    std::atomic<int> m_verifyWindowShared { 1024 };
     int m_fadeLength = 1;
     int m_verifyWindow = 1024;
     std::atomic<bool> m_prepared { false };
     std::atomic<bool> m_nonRealtime { false };
     std::atomic<bool> m_resetRequested { false };
+    std::atomic<int> m_resetRequests { 0 };   // counted, so the log shows one line for a burst of them
 
     // ---- control (guarded by m_mutex) ----
     mutable std::mutex m_mutex;
@@ -301,14 +429,16 @@ private:
     std::uint64_t m_renderedOptions = 0;                 // the options generation last rendered
     std::shared_ptr<const Learned> m_learned;             // the reading renders are made from
     std::unique_ptr<core::Channels> m_pendingCapture;     // waiting for the analysis thread
+    std::shared_ptr<const std::vector<char>> m_pendingStored;   // or a compressed sound to decode first
+    std::uint64_t m_pendingId = 0;
     double m_pendingRate = 0.0;
+    Hooks m_hooks;
     std::atomic<std::uint64_t> m_captureEpoch { 0 };      // bumped by every capture and Clear: older work stops
     std::atomic<bool> m_analysing { false };
     std::atomic<bool> m_rendering { false };
     std::atomic<bool> m_renderPending { false };          // options changed and their render is not published yet
     bool m_disarmedByUser = false;
     std::vector<std::shared_ptr<const Result>> m_published;   // every result maybe still held
-    std::uint64_t m_nextGeneration = 1;
 
     // ---- capture buffers (allocated off the audio thread; written by it while armed) ----
     std::array<std::unique_ptr<float[]>, kMaxChannels> m_capture;
@@ -317,6 +447,7 @@ private:
     std::atomic<bool> m_captureWriting { false };
     std::atomic<std::int64_t> m_captureLength { 0 };
     std::atomic<int> m_captureChannels { 0 };
+    std::atomic<int> m_captureEndWhy { 0 };               // see EngineEvent::CaptureEnded
     std::atomic<double> m_captureRate { 0.0 };
     std::atomic<std::uint64_t> m_blocks { 0 };            // the house thread watches this for a stall
     // Audio thread: the 50 ms before the sound starts, the silence at the end so far, the loudest block.
@@ -358,10 +489,13 @@ private:
     std::atomic<std::uint64_t> m_answerLearned { 0 };
     std::atomic<std::int64_t> m_answerInput { 0 }, m_answerSource { 0 };
     std::atomic<int> m_answerLength { 0 };
+    std::atomic<std::int64_t> m_answerVerifyFrom { 0 };   // checked already up to here (the probe's end)
     std::atomic<double> m_answerGain { 1.0 }, m_answerGainEnd { 1.0 };
-    // What the house thread needs before it can do more for an epoch (offline waits on this).
+    // What the house thread needs before it can do more for an epoch, and the input position before
+    // which nothing more can be found (offline waits on these).
     std::atomic<std::uint32_t> m_workerEpoch { 0 };
     std::atomic<std::int64_t> m_workerNeed { 0 };
+    std::atomic<std::int64_t> m_workerDecided { 0 };
     std::atomic<std::uint64_t> m_searches { 0 };
     std::atomic<double> m_lastSearchMs { 0.0 };
 
@@ -372,7 +506,21 @@ private:
     std::int64_t m_wGate = 0;          // no attempt starts before this input position (the back-off)
     std::int64_t m_wBackoff = 0;       // the next back-off, in samples
     std::int64_t m_wSilentRun = 0;
+    // The start of the sound now playing in the input (the first sound after silence, a reset or a
+    // new search), and the quick retries it has had: a miss there costs 20 ms, not the back-off.
+    std::int64_t m_wSoundStart = -1;
+    std::int64_t m_wFrom = 0;          // where this search began: a match never reaches back before it
+    int m_wQuickRetries = 0;
     std::uint64_t m_wFailuresSeen = 0, m_wHoldsSeen = 0;
+
+    // Diagnostics (house thread): a let-go asked for by the audio thread, and a capture waiting
+    // for its input to arrive.
+    std::atomic<std::uint32_t> m_diagnoseRequest { 0 };
+    std::atomic<std::int64_t> m_diagnoseInput { 0 }, m_diagnoseSource { 0 };
+    std::uint32_t m_diagnoseSeen = 0;
+    bool m_captured = false;              // once per instance
+    std::int64_t m_captureInputFrom = -1, m_captureSourceFrom = 0;
+    std::shared_ptr<const Learned> m_captureLearned;
 
     // ---- audio thread only ----
     std::array<std::vector<float>, kMaxChannels> m_delay;
@@ -400,6 +548,41 @@ private:
     int m_gainHead = 0, m_gainTail = 0;
     float m_gainNow = 1.0f, m_gainStep = 0.0f;
     std::int64_t m_gainRampLeft = 0;
+
+    // ---- pace (audio thread) ----
+    static constexpr int kPaceBlocks = 64;
+    std::array<std::int64_t, kPaceBlocks> m_paceWall {};
+    std::array<int, kPaceBlocks> m_paceSamples {};
+    int m_paceHead = 0, m_paceCount = 0;
+    std::atomic<bool> m_fast { false };
+    std::atomic<double> m_searchWaitLimit, m_renderWaitLimit, m_analysisWaitLimit;
+    std::atomic<std::int64_t> m_storeLimit { kMaxStoredBytes };
+    // A wait that gave up is not tried again for the same thing (audio thread): the epoch searched,
+    // the options generation rendered, the analysis in progress. Otherwise a stuck engine would
+    // cost the limit on every block.
+    std::uint32_t m_searchGaveUpEpoch = 0;
+    std::uint64_t m_renderGaveUpGeneration = 0;
+    bool m_analysisGaveUp = false;
+
+    // ---- the current run (audio thread writes; whoever ends it reads the copy) ----
+    enum RunField : int
+    {
+        RunIndex, RunBlocks, RunSamples, RunSearchesAtStart, RunMatches, RunCancelledAtStart, RunFirstMatchInput,
+        RunFirstMatchSource, RunFlattened, RunDry, RunLatency, RunLearnedEnd, RunFlags, RunWaits, RunWaitMicros,
+        RunStartWall, RunLastWall, RunStartInput, RunInputEnd, NumRunFields
+    };
+    std::array<std::atomic<std::int64_t>, NumRunFields> m_run {};
+    std::atomic<bool> m_runOpen { false };
+    std::int64_t m_runCount = 0;
+    std::int64_t m_lastBlockWall = 0;   // audio thread: when the last block arrived (the pace)
+    // When the last block was done with: a wait inside a block is not a gap between blocks.
+    std::atomic<std::int64_t> m_lastBlockDone { 0 };
+    std::atomic<bool> m_inBlock { false };   // the audio thread is inside process() (perhaps waiting)
+    std::int64_t m_waitedMicros = 0;         // audio thread: time spent in its own waits, kept off the pace clock
+
+    // ---- log ----
+    std::atomic<LogSink> m_logSink { nullptr };
+    std::atomic<void*> m_logContext { nullptr };
 
     // ---- readouts ----
     std::atomic<std::int64_t> m_playPosition { -1 };

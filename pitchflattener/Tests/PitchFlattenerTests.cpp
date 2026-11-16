@@ -15,11 +15,14 @@
 #include "FlightView.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "DiagnosticLog.h"
+#include "SoundRegistry.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 
 using namespace pftest;
@@ -868,8 +871,17 @@ void testParametersAndState()
            "state round trip");
     check (b.getEngine().options().target == pitchflattener::core::Target::Note, "restored state reaches the engine");
     {
-        auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
-        check (xml != nullptr && xml->getIntAttribute ("stateVersion") == Processor::stateVersion, "state version 1 saved");
+        // Version 2: "PFS2", the version, the XML (then the learned sound, none here).
+        juce::MemoryInputStream in (state, false);
+        char magic[4] {};
+        in.read (magic, 4);
+        const int version = in.readInt();
+        juce::MemoryBlock text;
+        in.readIntoMemoryBlock (text, in.readInt());
+        const auto xml = juce::parseXML (text.toString());
+        check (std::memcmp (magic, "PFS2", 4) == 0 && version == Processor::stateVersion && xml != nullptr
+                   && xml->getIntAttribute ("stateVersion") == Processor::stateVersion && Processor::stateVersion == 2,
+               "state version 2 saved");
     }
     {
         Processor v;
@@ -1294,6 +1306,287 @@ void testEditor (const juce::File& pngFolder, const juce::File& soundFile)
 
     check (Editor::textOverflowCount() == 0, "every text fits its box: " + std::to_string (Editor::textOverflowCount()) + " did not");
 }
+//==============================================================================
+// The learned sound in the plug-in's state, and the log.
+//==============================================================================
+// A pass-by, its right channel its own (so stereo is stereo), with road noise as a recording has.
+juce::AudioBuffer<float> recording (double rate, int channels, double seconds, double noise = 0.05)
+{
+    auto b = passBy (rate, channels, seconds);
+    juce::Random random (91);
+    for (int i = 0; i < b.getNumSamples(); ++i)
+    {
+        const float hiss = (float) (noise * 0.3 * (random.nextDouble() * 2.0 - 1.0));
+        b.addSample (0, i, hiss);
+        if (channels > 1)
+            b.setSample (1, i, 0.6f * b.getSample (1, i) - 0.5f * hiss + 0.01f * (float) (random.nextDouble() - 0.5));
+    }
+    return b;
+}
+
+void setLayout (Processor& p, int channels)
+{
+    const auto set = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
+    juce::AudioProcessor::BusesLayout layout;
+    layout.inputBuses.add (set);
+    layout.outputBuses.add (set);
+    p.setBusesLayout (layout);
+}
+
+bool learnThrough (Processor& p, const juce::AudioBuffer<float>& sound)
+{
+    p.armLearn();
+    play (p, sound, 0.2, 1.3);
+    return p.getEngine().waitUntilIdle (120.0) && p.getEngine().state() == State::Ready;
+}
+
+// Plays the sound through p (from silence `before`) and counts output samples that differ from its
+// render played from the match on. compared = 0 when nothing matched.
+struct Heard
+{
+    int compared = 0, bad = 0;
+    juce::int64 match = -1;
+};
+
+Heard hear (Processor& p, const juce::AudioBuffer<float>& sound, double before, juce::int64 base, bool flatOut = false)
+{
+    Heard h;
+    const auto out = play (p, sound, before, 1.0, 512);
+    const auto r = p.getEngine().result();
+    if (r == nullptr || ! r->playable() || p.getEngine().lastMatchInput() < base)
+        return h;
+    const int L = p.getLatencySamples();
+    const auto N = p.getEngine().lastMatchInput() - base;
+    h.match = N;
+    const auto F0 = (juce::int64) std::llround (r->flattened.outputSampleFor ((double) p.getEngine().lastMatchSource()));
+    const auto fade = (juce::int64) std::llround (pitchflattener::Engine::kFadeSeconds * p.getSampleRate()) + 1;
+    const auto& flat = r->flattened.channels;
+    for (auto t = N + fade; t + L < out.getNumSamples(); ++t)
+    {
+        const auto f = F0 + (t - N);
+        if (f >= (juce::int64) flat[0].size())
+            break;
+        for (int c = 0; c < out.getNumChannels(); ++c)
+        {
+            const float want = flat.size() == 1 ? flat[0][(size_t) f]
+                             : out.getNumChannels() == 1 ? 0.5f * (flat[0][(size_t) f] + flat[1][(size_t) f])
+                                                         : flat[(size_t) std::min (c, 1)][(size_t) f];
+            h.bad += identical (out.getSample (c, (int) (t + L)), want) ? 0 : 1;
+        }
+        ++h.compared;
+    }
+    (void) flatOut;
+    return h;
+}
+
+void testStateTravels()
+{
+    beginCase ("processor: the learned sound travels with the state (another instance, another process, a reopened session)");
+    using pitchflattener::SoundRegistry;
+    for (const double rate : { 44100.0, 96000.0 })
+        for (const int channels : { 1, 2 })
+        {
+            const auto what = juce::String (rate / 1000.0, 1) + " kHz " + (channels == 1 ? "mono" : "stereo");
+            const auto sound = recording (rate, channels, 2.5);   // float, never quantised
+            Processor a;
+            setLayout (a, channels);
+            a.setNonRealtime (true);
+            prepare (a, rate, 512);
+            check (learnThrough (a, sound), "learned (" + what.toStdString() + ")");
+            const auto ra = a.getEngine().result();
+            if (ra == nullptr || ! ra->playable())
+                continue;
+            const int line = a.lineInUse();
+            const std::vector<pitchflattener::core::CurvePoint> edits { { 0.6, 0.4 }, { 1.4, -0.3 } };
+            a.setEdits (line, edits);
+            a.getEngine().waitUntilIdle (60.0);
+            const auto rEdited = a.getEngine().result();
+            check (rEdited != nullptr && rEdited->options.edits.size() == 2 && rEdited->learned == ra->learned, "hand corrections rendered");
+            check (ra->learned->stored != nullptr, "compressed once, when learned");
+
+            juce::MemoryBlock state;
+            a.getStateInformation (state);
+
+            // Same process: taken from the instance that has it, at once.
+            {
+                Processor same;
+                setLayout (same, channels);
+                same.setNonRealtime (true);
+                prepare (same, rate, 512);
+                same.setStateInformation (state.getData(), (int) state.getSize());
+                check (same.getEngine().state() == State::Ready && same.getEngine().result() == rEdited,
+                       "same process: the other instance's sound and render, at once (" + what.toStdString() + ")");
+            }
+
+            // Another process (nothing to take): decoded from the state and analysed again.
+            SoundRegistry::instance().clearForTesting();
+            Processor b;
+            setLayout (b, channels);
+            b.setNonRealtime (true);
+            prepare (b, rate, 512);
+            b.setStateInformation (state.getData(), (int) state.getSize());
+            check (b.getEngine().state() == State::Analysing, "another process: analysing the sound from the state");
+            check (b.getEngine().waitUntilIdle (120.0) && b.getEngine().state() == State::Ready, "then ready");
+            const auto rb = b.getEngine().result();
+            if (rb == nullptr || ! rb->playable())
+                continue;
+            check (rb->learned->id == ra->learned->id && rb->learned->stored != nullptr && rb->learned->stored->size() == ra->learned->stored->size(),
+                   "the same sound (id, and the same bytes for its own state)");
+            check (b.getEdits (line) .size() == 2 && rb->options.edits.size() == 2, "its hand corrections came with it");
+            // The original float audio, played through: it must match the 24-bit copy, and flatten.
+            const auto h = hear (b, sound, 0.5, 0);
+            check (h.match >= 0 && h.compared > (int) (1.0 * rate) && h.bad == 0,
+                   "the original float sound matches the copy and comes out flattened (" + what.toStdString() + "): "
+                       + std::to_string (h.bad) + " of " + std::to_string (h.compared) + " differ");
+        }
+
+    // Too large to carry: the id only.
+    {
+        Processor a;
+        a.setNonRealtime (true);
+        prepare (a, 48000.0, 512);
+        a.getEngine().setStoreLimitForTesting (1000);
+        check (learnThrough (a, recording (48000.0, 2, 2.0)), "learned (store limit 1000 bytes)");
+        juce::MemoryBlock state;
+        a.getStateInformation (state);
+        check (a.getEngine().storedSound() == nullptr && state.getSize() < 4000, "over the limit: the state carries the id only (" + std::to_string (state.getSize()) + " bytes)");
+        SoundRegistry::instance().clearForTesting();
+        Processor b;
+        b.setStateInformation (state.getData(), (int) state.getSize());
+        check (b.getEngine().state() == State::Idle, "and another process has nothing to restore");
+    }
+
+    // A version 1 state (no sound in it) loads its parameters and leaves the learned sound alone.
+    {
+        Processor a;
+        a.setNonRealtime (true);
+        prepare (a, 48000.0, 512);
+        check (learnThrough (a, recording (48000.0, 2, 2.0)), "learned");
+        const auto before = a.getEngine().result();
+        auto old = a.parameters.copyState();
+        old.setProperty ("stateVersion", 1, nullptr);
+        for (auto child : old)
+            if (child.getProperty ("id").toString() == Processor::targetId)
+                child.setProperty ("value", 2.0f, nullptr);
+        juce::MemoryBlock block;
+        if (const auto xml = old.createXml())
+            juce::AudioProcessor::copyXmlToBinary (*xml, block);
+        a.setStateInformation (block.getData(), (int) block.getSize());
+        check (a.optionsFromParameters().target == pitchflattener::core::Target::LowPoint && a.getEngine().learnedId() == before->learned->id,
+               "a version 1 state: its parameters, and the learned sound stays");
+    }
+
+    // Sizes and the cost of a save, for a 5 s and a 30 s stereo sound at 48 kHz.
+    for (const double seconds : { 5.0, 30.0 })
+    {
+        Processor a;
+        a.setNonRealtime (true);
+        prepare (a, 48000.0, 512);
+        check (learnThrough (a, recording (48000.0, 2, seconds)), "learned " + std::to_string ((int) seconds) + " s");
+        juce::MemoryBlock state;
+        double fastest = 1.0e9;
+        for (int k = 0; k < 5; ++k)
+        {
+            const auto started = std::chrono::steady_clock::now();
+            a.getStateInformation (state);
+            fastest = std::min (fastest, std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - started).count());
+        }
+        const double raw = seconds * 48000.0 * 2 * 3;
+        std::printf ("    -> %.0f s stereo 48 kHz: state %.2f MB (the sound %.0f%% of 24-bit raw); getStateInformation %.2f ms\n", seconds,
+                     (double) state.getSize() / 1.0e6, 100.0 * (double) a.getEngine().storedSound()->size() / raw, fastest);
+        check (fastest < 50.0, "a save costs a copy of the bytes, not a compression");
+    }
+}
+
+void testRenderInstance()
+{
+    beginCase ("processor: a render instance (state given, nothing in the process, run flat out without being told) flattens the whole file");
+    const double rate = 48000.0;
+    const auto sound = recording (rate, 2, 3.0);
+    juce::MemoryBlock state;
+    {
+        Processor a;
+        prepare (a, rate, 512);
+        a.setNonRealtime (true);
+        check (learnThrough (a, sound), "learned in the live instance");
+        a.getStateInformation (state);
+    }
+    pitchflattener::SoundRegistry::instance().clearForTesting();
+    Processor render;   // as a host makes one for a render: state, prepare, audio at once
+    render.setStateInformation (state.getData(), (int) state.getSize());
+    prepare (render, rate, 512);
+    const auto h = hear (render, sound, 0.0, 0);
+    check (render.getEngine().runningFasterThanRealTime(), "it saw it was rendering");
+    int firstSound = 0;
+    while (firstSound < sound.getNumSamples() && std::abs (sound.getSample (0, firstSound)) < pitchflattener::Locator::kSilence
+           && std::abs (sound.getSample (1, firstSound)) < pitchflattener::Locator::kSilence)
+        ++firstSound;
+    std::printf ("    -> matched at input sample %lld (the file's first audible sample is %d)\n", (long long) h.match, firstSound);
+    check (h.match >= 0 && h.match <= firstSound + 1 && h.compared > (int) (2.4 * rate) && h.bad == 0,
+           "waited for the analysis, then flattened from the file's first sample: " + std::to_string (h.bad) + " of " + std::to_string (h.compared) + " differ");
+}
+
+void testDiagnosticLog (const juce::File& logFile)
+{
+    beginCase ("the diagnostic log: what the host did, readable afterwards");
+    pitchflattener::DiagnosticLog::instance().flush();
+    const auto text = logFile.loadFileAsString();
+    for (const char* line : { "instance created in", "prepareToPlay:", "learn: capture started", "learn: capture ended (a second of silence)",
+                              "analysed learned sound", "compressed for the state", "rendered: target", "getStateInformation:", "setStateInformation:",
+                              "registry hit", "registry miss", "restoring sound", "analysed restored sound", "FASTER THAN REAL TIME", "waited",
+                              "run 1 started", "ended:", "input after the learned sound's end", "instance destroyed", "setNonRealtime(true)", "id only", "first match at input 0.000 s", "covers the latency", "waited", "search: probe at input", "match extended back", "reset x" })
+        check (text.contains (line), std::string ("logged: ") + line);
+    std::printf ("    -> %s (%d lines)\n", logFile.getFullPathName().toRawUTF8(), juce::StringArray::fromLines (text).size());
+}
+void testCaptures (const juce::File& logFile)
+{
+    beginCase ("processor: a near miss in a render is compared in the log and captured to disk (input and learned)");
+    const double rate = 48000.0;
+    const auto sound = recording (rate, 2, 2.5, 0.3);
+    juce::MemoryBlock state;
+    std::uint64_t id = 0;
+    Processor a;
+    prepare (a, rate, 512);
+    a.setNonRealtime (true);
+    check (learnThrough (a, sound), "learned");
+    id = a.getEngine().learnedId();
+    a.getStateInformation (state);
+
+    // The render path plays it through a linear interpolator at unity rate (0.37 of a sample late).
+    juce::AudioBuffer<float> shifted (2, sound.getNumSamples());
+    for (int c = 0; c < 2; ++c)
+        for (int t = 0; t < sound.getNumSamples(); ++t)
+            shifted.setSample (c, t, 0.63f * sound.getSample (c, t) + 0.37f * sound.getSample (c, std::min (t + 1, sound.getNumSamples() - 1)));
+    Processor b;
+    b.setStateInformation (state.getData(), (int) state.getSize());
+    prepare (b, rate, 512);
+    play (b, shifted, 0.5, 1.5, 512);
+    b.releaseResources();   // the run ends: the capture is written with what arrived
+
+    const auto folder = Processor::captureFolder();
+    const auto idText = juce::String::toHexString ((juce::int64) id).paddedLeft ('0', 16);
+    juce::Array<juce::File> files;
+    for (int k = 0; k < 200 && files.size() < 2; ++k)
+    {
+        juce::Thread::sleep (25);
+        files = folder.findChildFiles (juce::File::findFiles, false, "*" + idText + "*.wav");
+    }
+    check (files.size() == 2, "two files captured (" + folder.getFullPathName().toStdString() + ")");
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    for (const auto& f : files)
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
+        check (reader != nullptr && reader->numChannels == 2 && reader->bitsPerSample == 32 && reader->usesFloatingPointData
+                   && reader->lengthInSamples >= (juce::int64) (2.0 * rate) && reader->lengthInSamples <= (juce::int64) (3.0 * rate) + 1,
+               "readable, 32-bit float stereo, up to 3 s: " + f.getFileName().toStdString());
+    }
+    pitchflattener::DiagnosticLog::instance().flush();
+    const auto text = logFile.loadFileAsString();
+    check (text.contains ("compare (near miss)") && text.contains ("captured: ") && text.contains ("through a short filter"),
+           "the comparison and the capture are in the log");
+}
+
 } // namespace
 
 int main (int argc, char* argv[])
@@ -1312,6 +1605,12 @@ int main (int argc, char* argv[])
             setEngineTestSeed ((unsigned) juce::String (argv[++i]).getLargeIntValue());
     }
 
+    // The log goes to a file of the tests' own (never the user's).
+    const auto logFile = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PitchFlattenerTests.log");
+    logFile.deleteFile();
+    pitchflattener::DiagnosticLog::instance().setFileForTesting (logFile.getFullPathName().toStdString());
+    pitchflattener::DiagnosticLog::instance().retain();
+
     const auto start = std::chrono::steady_clock::now();
     runLocatorTests();
     runEngineTests();
@@ -1325,6 +1624,11 @@ int main (int argc, char* argv[])
     testCurveEditor (pngFolder, soundFile);
     testSeveralSounds (pngFolder);
     testEndAndTail (pngFolder);
+    testStateTravels();
+    testRenderInstance();
+    testCaptures (logFile);
+    testDiagnosticLog (logFile);
+    pitchflattener::DiagnosticLog::instance().release();
 
     std::printf ("\n%d checks, %d failed (%.1f s)\n", g_checks, g_failures,
                  std::chrono::duration<double> (std::chrono::steady_clock::now() - start).count());

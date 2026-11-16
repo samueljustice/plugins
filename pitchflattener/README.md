@@ -20,6 +20,7 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 - **Two views**: SCOPE draws the pitch over time exactly; FLIGHT flies the sound as a course, its pitch as a track that rises and falls beside the level lane of the flattened sound.
 - **Says what to do next**: the next button to press pulses, a banner across the display announces each change, and a bar under it says what is happening in plain words.
 - **A fixed delay**, 0.4 s at ordinary block sizes, reported to the host, so hosts that compensate delay line the result up with the original.
+- **Saved with the session**: the learned sound and its corrections go with the plug-in's settings, so a reopened session, or a fresh copy of the plug-in that a host makes to render, has the sound without learning it again.
 - **Mono or stereo**.
 
 ## How to use it
@@ -35,13 +36,15 @@ Pitch Flattener is made for a rack, such as a sound library's DSP rack, or a tra
 
 **CLEAR** forgets the sound. Press LEARN again to learn another one in its place. To hear the input itself again, bypass the plug-in or press CLEAR.
 
+The learned sound goes with the plug-in's settings. It is saved with the session, together with its hand corrections, and when the session is reopened the window shows ANALYSING for a moment and is then ready, with no need to learn again. It also goes to any other copy of the plug-in made from the same settings: the copy a host builds for a render or a transfer, another rack slot given the same settings, or the same session opened again. That is why spotting or bouncing a sound from a sound library's DSP rack comes out flattened, even though the host does it with a fresh copy of the plug-in.
+
 ## The window
 
 The window is drawn in chunky pixels, like an old console screen.
 
 ### LEARN, CLEAR and the readouts
 
-<img src="docs/learn-row.png" alt="The top of the window: the title, DELAY 0.40 S, VERSION 3.1.0 and the ? button; below, the LEARN button reading LEARNED, PRESS TO LEARN ANOTHER, the CLEAR button, and the readouts LENGTH 17.22 S to 12.78 S and FLAT ON G#6 +36" width="964">
+<img src="docs/learn-row.png" alt="The top of the window: the title, DELAY 0.40 S, VERSION 3.1.1 and the ? button; below, the LEARN button reading LEARNED, PRESS TO LEARN ANOTHER, the CLEAR button, and the readouts LENGTH 17.22 S to 12.78 S and FLAT ON G#6 +36" width="964">
 
 The **LEARN** button shows what the plug-in is doing, with a hint under the word:
 
@@ -115,7 +118,7 @@ A correction says what the pitch really is at that moment. Pulling the line up s
 
 UNDO, REDO and RESET CURVE appear once the line has been corrected. While the mouse is over the line, the guidance bar says how to edit it.
 
-Corrections belong to the reading they were made on: each of the three readings keeps its own, and switching SOURCE brings back the corrections for that reading. They are forgotten by CLEAR or by learning another sound, and they are not saved with the session.
+Corrections belong to the reading they were made on: each of the three readings keeps its own, and switching SOURCE brings back the corrections for that reading. They are forgotten by CLEAR or by learning another sound, and they are saved with the session along with the learned sound.
 
 ### Zooming in
 
@@ -256,6 +259,17 @@ KEEP LENGTH works in two steps. First the sound is flattened by speed, exactly a
 
 TARGET, NOTE, AMOUNT, SOURCE, LENGTH and CHARACTER are host parameters, saved with the session and open to automation. A change renders the flat version again in the background.
 
+## The diagnostic log
+
+Pitch Flattener writes what the host asks of it, and how each pass went, to a text file:
+
+- macOS: `~/Library/Logs/SammyJ/PitchFlattener.log`
+- Windows: `%APPDATA%\SammyJ\Logs\PitchFlattener.log`
+
+It starts afresh once it passes 4 MB, keeping one older copy. It is the file to send with a problem report.
+
+When the input comes close to the learned sound without matching it, the plug-in also saves the two stretches it compared, the input and the learned sound, as WAV files in a **PitchFlattener captures** folder next to the log, so the difference can be heard. It saves at most three such pairs each time the application runs, and the folder keeps the newest three.
+
 ## About and updates
 
 Click **?** at the top right for the About window, with the version, the credits and the licence. CHECK FOR UPDATES asks GitHub whether a newer version is out.
@@ -275,11 +289,14 @@ When the window opens, Pitch Flattener asks GitHub, at most once a day, whether 
 - **A leap in a reading is taken out of the line.** A sound's pitch can sweep very fast, but it does not jump, so a sudden jump in a reading is nearly always the reading changing its mind: stepping to another partial or octave, or a voice breaking into a growl. Each jump is taken out and the rest of the line moved to meet it, so the flattening never lurches. The exception is a sweep that snaps back and starts again, such as a yelping siren: there the jumps are real, and the reading is kept as it is.
 - **The delay.** The output is always the input delayed by a fixed time, whether the flat version or the input itself is playing, and bypass is delayed the same, so switching never shifts the audio in time. The plug-in reports the delay, so hosts that compensate delay line the result up with the original. That time is what lets it find where the recording is, and check it, before the audio reaches the output. The delay is 0.4 s or, if longer, about 85 ms plus one host block plus a quarter of a second: so 0.4 s for blocks of up to 2048 samples at 44.1 or 48 kHz and 4096 at 88.2 or 96 kHz, and about 1 s for a block of 32768 samples at 48 kHz. DELAY at the top of the window shows the figure in use.
 - **A sound with no steady pitch is left as it is**, such as noise or a crash: when none of the three readings can follow it, the window says NO STEADY PITCH, and the sound passes through unchanged.
-- **What is recognised.** Only that same recording, played at the same speed, at any level, from the start or from any point in it. The input has to equal the learned recording, not just sound like it: to start, anything else in the input must be at least about 30 dB under it, and once playing, anything louder than about 20 dB under it makes the plug-in let go. And nothing is heard until the match has held for the whole delay, so a moment that only resembles the sound never comes out flattened. What therefore passes through untouched: another take of the sound; the same sound layered with something louder than about 20 dB under it; a copy at another speed or pitch; a copy with its polarity inverted; a stereo file with its channels swapped; and a different file that only shares a hum or a tone with it (where the input matches the learned sound in many places, as a steady hum does, it is taken only when it is within 12 dB of the learned sound's loudest moment).
+- **What is recognised.** Only that same recording, played at the same speed, at any level, from the start or from any point in it. The input has to equal the learned recording, not just sound like it, with one allowance: a host may play a file through an interpolating playback engine, or shifted by a fraction of a sample, which smooths or shifts it very slightly. The plug-in also accepts the learned recording through such a change, as long as it amounts to a short delay with a level (spread over no more than a few samples either way, with most of it in three neighbouring samples, and never inverted). Beyond that: to start, anything else in the input must be at least about 30 dB under it, and once playing, anything louder than about 20 dB under it makes the plug-in let go. And nothing is heard until the match has held for the whole delay, so a moment that only resembles the sound never comes out flattened. What therefore passes through untouched: another take of the sound; the same sound layered with something louder than about 20 dB under it; a copy at another speed or pitch; a copy with its polarity inverted; a stereo file with its channels swapped; a dual-mono copy of a stereo learned sound (both channels the same mix); and a different file that only shares a hum or a tone with it (where the input matches the learned sound in many places, as a steady hum does, it is taken only when it is within 12 dB of the learned sound's loudest moment).
 - **The flattened sound follows the playback level.** Play the recording louder or quieter than it was learned, and the flattened sound comes out louder or quieter by the same amount. The level is followed all the way through, so a fade on the player comes out as a fade. A level within about a tenth of a decibel of the learned one counts as the same.
 - **When it lets go.** The output returns to the input, with a 5 ms fade, as soon as the input stops being the learned recording: another sound, a jump to another place (which it then finds), the player stopping (even in a quiet gap between sounds), or a host reset. Played to its end, a longer VARISPEED result plays out its end until the input is no longer silent; a shorter one has already finished, and the input comes back when the original would have ended. After a false start it waits a little longer before trying again (from 0.1 s, doubling up to 2 s), so unrelated audio is only searched now and then.
-- **Rendering offline** works: when the host renders faster than real time, the plug-in waits for its search and for a render instead of running ahead of them, so a bounce matches a real-time pass. If a wait ever gives up, the guidance bar says the bounce used the previous version and asks you to bounce again.
-- **The learned sound and its corrections are kept in memory only.** They are not saved with the session: after reopening the session, learn the sound again. The controls and the chosen view are saved.
+- **The start of a sound.** Once the plug-in has recognised the recording, it reaches back to where the sound began (as far as the delay allows), so the sound is flattened from its first sample. A host's transfer may treat a sound's first moments a little differently, with a short fade for instance: a difference in the first 30 ms is accepted when everything after it matched, and a miss right at the start is retried a few times, a little later each time.
+- **Rendering offline** works: when the host renders faster than real time, the plug-in waits (for a limited time) for its search, for a render and for an analysis in progress instead of running ahead of them, so a bounce matches a real-time pass. If a wait ever gives up, the guidance bar says the bounce used the previous version and asks you to bounce again.
+- **Renders the host does not announce.** Some hosts render a file through the plug-in as fast as they can without saying so. When audio arrives at more than 2.5 times real time, measured over at least 0.1 s of audio and at least 4 blocks, the plug-in treats it as a render and waits in the same way, so a fast render is flattened from the right sample. It goes back to real-time behaviour when the audio falls under 1.5 times real time.
+- **The learned sound is saved with the session**, with its hand corrections, the controls and the chosen view. The audio is stored compressed without loss, up to 30 MB of it. A larger sound is saved only as a reference, which works only while the application that holds it is still running (another copy of the plug-in there can still find it); after that it has to be learned again.
+- **Other copies of the plug-in use the same sound.** A copy made from the same settings, such as the one a host builds for a render or a transfer, picks up the learned sound at once when the application already has it, and otherwise rebuilds it from the saved audio (ANALYSING, then ready).
 - **One sound per instance.** Learning another sound replaces the first. For several sounds, use several instances, or learn them in one recording with short silences between them.
 - **The sample rate must match.** The flattened sound plays only at the sample rate it was learned at. At another rate the window says WRONG SAMPLE RATE and the audio passes through: set the session back to the rate it was learned at, or learn the sound again.
 - **Up to 120 seconds per sound.** Learn stops by itself at two minutes.
@@ -332,8 +349,12 @@ The same tests check that flattening to the high point never makes the sound lon
 | 5 s of unrelated noise | Searched 6 times, not continuously. |
 | The first 2 s of the sound, then silence (VARISPEED, shorter result) | The flattened sound stops at the input's cut; the last moment heard is the sound's 2.046 s. |
 | The same with KEEP LENGTH | Nothing past the checked input is played. |
+| The learned file delayed by 0.3 or 0.5 of a sample, or by 4.25 samples | Matched and flattened from its first sample, none of it dry. Left over after a plain level: -20.3, -16.0 and -21.8 dB; after the short fit: -33.5, -31.6 and -34.7 dB. |
+| The learned file through linear interpolation at the same rate, or a gentle low-pass at 12 kHz | Matched and flattened from its first sample, none of it dry. Left over after a plain level: -19.9 and -25.5 dB; after the short fit: -62.7 and -61.7 dB. |
+| A dual-mono copy of a stereo learned sound | The input, untouched. |
+| A fresh copy of the plug-in, given the sound by its settings, rendering flat out without telling the plug-in | The whole file flattened, from the right sample. |
 
-All 384 of its checks pass, including the window's states and the pictures on this page.
+All 516 of its checks pass, including saving and reopening the learned sound, the window's states and the pictures on this page.
 
 ## System requirements
 

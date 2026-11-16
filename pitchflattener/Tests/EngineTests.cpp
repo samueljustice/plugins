@@ -9,6 +9,7 @@
 #include "Check.h"
 #include "Engine.h"
 #include "Locator.h"
+#include "SoundRegistry.h"
 #include "core/Flatten.h"
 
 #include <algorithm>
@@ -17,8 +18,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <random>
 #include <string>
@@ -158,6 +161,18 @@ std::int64_t firstNonZero(const float* x, std::int64_t n)
 }
 
 unsigned g_seed = 1;
+
+// Every rig's engine logs into this (as the plug-in's does into its lock-free queue), so the
+// allocation watch covers the audio thread's logging too.
+std::atomic<int> g_logged { 0 };
+const bool g_printEvents = std::getenv("PITCHFLATTENER_PRINT_EVENTS") != nullptr;   // to see what an engine did (debugging)
+void countingSink(void*, const pitchflattener::EngineEvent& e) noexcept
+{
+    g_logged.fetch_add(1);
+    if (g_printEvents)
+        std::printf("      [event %d: %lld %lld %lld %lld %lld | %.2f %.2f]\n", static_cast<int>(e.kind), static_cast<long long>(e.i[0]), static_cast<long long>(e.i[1]),
+                    static_cast<long long>(e.i[2]), static_cast<long long>(e.i[3]), static_cast<long long>(e.i[4]), e.d[0], e.d[1]);
+}
 unsigned g_seedChosen = 0;
 
 // One engine, driven like a host drives a plug-in.
@@ -172,6 +187,7 @@ struct Rig
     explicit Rig(double sampleRate = 48000.0, int maxBlockSize = 1024)
         : rate(sampleRate), rng(g_seed++), maxBlock(maxBlockSize)
     {
+        engine.setLogSink(&countingSink, nullptr);
         engine.prepare(rate, maxBlock);
         engine.setNonRealtime(true);
     }
@@ -212,8 +228,14 @@ struct Rig
                 onBlock();
             if (realtimePacing > 0.0)
             {
+                // Paced like an audio device: one block per block's worth of time. A device never
+                // sends blocks early to make up for a late one, so neither does this: after an
+                // oversleep (a busy machine) the next block is due a block's time from now. Catching
+                // up instead would send bursts faster than real time, which the engine rightly
+                // takes for a render.
                 clock += std::chrono::microseconds(static_cast<std::int64_t>(1.0e6 * block / rate));
                 std::this_thread::sleep_until(clock);
+                clock = std::max(clock, std::chrono::steady_clock::now());
             }
         }
         played += static_cast<std::int64_t>(n);
@@ -1027,7 +1049,8 @@ void enginePendingAndLayers()
         rig.play(noise(5.0, rate, 0.2f, 9));
         const auto searches = rig.engine.searchesDone() - before;
         std::printf("    -> 5 s of unrelated noise: %llu searches, %.0f ms offline\n", static_cast<unsigned long long>(searches), msSince(started));
-        check(searches <= 12, "unrelated audio is searched a few times, not continuously: " + std::to_string(searches));
+        // The back-off, plus up to 8 quick retries at the start of the sound (20 ms apart).
+        check(searches <= 20, "unrelated audio is searched a few times, not continuously: " + std::to_string(searches));
     }
 }
 
@@ -1346,6 +1369,9 @@ void engineCaptureFaults()
         std::weak_ptr<const pitchflattener::Learned> learned = rig.engine.result()->learned;
         rig.play(join({ silence(0.5, rate), passBy(rate, 2.0), silence(0.5, rate) }));
         rig.engine.clear();
+        // The registry keeps a sound an instance lets go of for a while (for a render instance
+        // made just after); without that, the instance itself must hold nothing.
+        pitchflattener::SoundRegistry::instance().clearForTesting();
         check(eventually([&] { rig.play(silence(0.02, rate)); return render.expired() && learned.expired(); }, 5.0), "Clear gives the learned sound's memory back");
     }
 }
@@ -1388,6 +1414,515 @@ void engineLargeBlocks()
     check(r != nullptr && dry == 0, "none of the sound's start leaks through unflattened");
 }
 
+//==============================================================================
+// The learned sound travelling with the state, and renders the host does not announce.
+//==============================================================================
+
+// A codec that keeps the floats as they are (the plug-in's own is FLAC: PitchFlattenerTests).
+Engine::Hooks plainCodec(std::function<void()> whileDecoding = {})
+{
+    Engine::Hooks hooks;
+    hooks.encode = [](const core::Channels& sound, double rate)
+    {
+        std::vector<char> bytes(sizeof(double) + sizeof(std::uint32_t) * 2);
+        const auto channels = static_cast<std::uint32_t>(sound.size()), frames = static_cast<std::uint32_t>(sound[0].size());
+        std::memcpy(bytes.data(), &rate, sizeof(double));
+        std::memcpy(bytes.data() + sizeof(double), &channels, sizeof(channels));
+        std::memcpy(bytes.data() + sizeof(double) + sizeof(channels), &frames, sizeof(frames));
+        for (const auto& c : sound)
+        {
+            const auto* p = reinterpret_cast<const char*>(c.data());
+            bytes.insert(bytes.end(), p, p + c.size() * sizeof(float));
+        }
+        return bytes;
+    };
+    hooks.decode = [whileDecoding](const std::vector<char>& bytes, core::Channels& sound, double& rate)
+    {
+        if (whileDecoding)
+            whileDecoding();
+        std::uint32_t channels = 0, frames = 0;
+        std::memcpy(&rate, bytes.data(), sizeof(double));
+        std::memcpy(&channels, bytes.data() + sizeof(double), sizeof(channels));
+        std::memcpy(&frames, bytes.data() + sizeof(double) + sizeof(channels), sizeof(frames));
+        sound.assign(channels, std::vector<float>(frames));
+        const char* p = bytes.data() + sizeof(double) + 2 * sizeof(std::uint32_t);
+        for (auto& c : sound)
+        {
+            std::memcpy(c.data(), p, frames * sizeof(float));
+            p += frames * sizeof(float);
+        }
+        return true;
+    };
+    return hooks;
+}
+
+// Plays `in` in a rig and checks the output is the render from the match on, to the end of the input.
+bool playsFlattened(Rig& rig, const Sound& in, const Result& r, std::int64_t soundStart, std::int64_t learnedSoundStart, std::string& why)
+{
+    const auto base = rig.played;
+    const Sound out = rig.play(in);
+    const auto N = rig.engine.lastMatchInput() - base;
+    const auto S = rig.engine.lastMatchSource();
+    const auto fc = compareFlat(core::Channels { out }, r, rig.engine.latencySamples(), N, S, static_cast<std::int64_t>(in.size()), rig.rate, 1);
+    const bool fromStart = N == soundStart && S == learnedSoundStart + (N - soundStart);
+    why = "matched at " + std::to_string(N) + " (sound at " + std::to_string(soundStart) + "), " + std::to_string(fc.bad) + " of " + std::to_string(fc.compared) + " differ";
+    return fromStart && fc.compared > static_cast<int>(1.0 * rig.rate) && fc.bad == 0;
+}
+
+void engineRegistry()
+{
+    beginCase("engine: another instance takes the learned sound by its id (the registry)");
+    const double rate = 48000.0;
+    const Sound A = passBy(rate, 2.5);
+    const Sound in = join({ silence(0.5, rate), A, silence(1.0, rate) });
+    const auto soundStart = static_cast<std::int64_t>(0.5 * rate);
+    std::uint64_t id = 0;
+    std::shared_ptr<const Result> renderA;
+    {
+        Rig a;
+        check(a.learn(A), "the first instance learned");
+        renderA = a.engine.result();
+        id = a.engine.learnedId();
+        check(id != 0 && renderA != nullptr && renderA->learned->id == id, "the sound has an id");
+
+        Rig b;
+        check(! b.engine.adoptLearned(id ^ 0x5555, b.engine.options()), "an unknown id: nothing");
+        check(b.engine.adoptLearned(id, a.engine.options()) && b.engine.state() == Engine::State::Ready && b.engine.result() == renderA,
+              "a second instance takes it at once, render and all, when the options are the same");
+        std::string why;
+        check(playsFlattened(b, in, *renderA, soundStart, soundStartInLearned(a.engine), why), "and plays it exactly as the first does: " + why);
+
+        auto low = b.engine.options();
+        low.target = core::Target::LowPoint;
+        check(b.engine.adoptLearned(id, low), "taken again with other options");
+        check(b.engine.waitUntilIdle(60.0), "renders for them");
+        const auto renderB = b.engine.result();
+        check(renderB != nullptr && renderB != renderA && renderB->learned == renderA->learned && renderB->flattened.channels[0].size() > renderA->flattened.channels[0].size(),
+              "its own render, from the same reading (no analysis)");
+
+        b.engine.clear();
+        check(b.engine.result() == nullptr && a.engine.result() == renderA, "Clear in the second leaves the first as it was");
+        check(playsFlattened(a, in, *renderA, soundStart, soundStartInLearned(a.engine), why), "and the first still plays it: " + why);
+    }
+    // The first instance is gone; the registry keeps its sound a while for a render instance.
+    Rig c;
+    check(c.engine.adoptLearned(id, c.engine.options()) && c.engine.result() == renderA, "after the first instance is deleted, a new one still finds it");
+    renderA.reset();
+}
+
+void engineFastWithoutFlag()
+{
+    beginCase("engine: a render the host does not announce (audio flat out, setNonRealtime(false)) is flattened from the right sample");
+    const double rate = 48000.0;
+    const Sound A = passBy(rate, 2.5);
+    Rig rig;
+    check(rig.learn(A), "learned");
+    const auto r = rig.engine.result();
+    if (r == nullptr || ! r->playable())
+        return;
+    const auto learnedStart = soundStartInLearned(rig.engine);
+    rig.engine.setNonRealtime(false);
+    rig.fixedBlock = 512;
+    bool fastSeen = false;
+    rig.onBlock = [&] { fastSeen = fastSeen || rig.engine.runningFasterThanRealTime(); };
+    std::string why;
+    for (const double lead : { 0.3, 0.0 })   // after a little silence, and from the file's very first sample
+    {
+        rig.engine.prepare(rate, 512);   // a new render pass
+        rig.played = 0;
+        const Sound in = join({ silence(lead, rate), A, silence(1.0, rate) });
+        check(playsFlattened(rig, in, *r, firstSound(in), learnedStart, why), "flat out, sound " + num(lead, 1) + " s in: the whole sound flattened: " + why);
+    }
+    rig.onBlock = {};
+    check(fastSeen, "the pace was seen to be faster than real time");
+    check(! rig.engine.offlineWaitGaveUp(), "no wait gave up");
+
+    // Paced in real time it is real time.
+    rig.engine.prepare(rate, 512);
+    rig.played = 0;
+    rig.fixedBlock = 0;
+    bool fastPaced = false;
+    rig.onBlock = [&] { fastPaced = fastPaced || rig.engine.runningFasterThanRealTime(); };
+    rig.play(core::Channels { join({ silence(0.3, rate), slice(A, 0.0, 1.0, rate) }) }, false, 1.0);
+    rig.onBlock = {};
+    check(! fastPaced, "a real-time paced run is never taken for a render");
+}
+
+void engineRestoredRenderInstance()
+{
+    beginCase("engine: a render instance given the sound (no registry) waits for the analysis and flattens the whole file");
+    const double rate = 48000.0;
+    const Sound A = passBy(rate, 2.5);
+    std::uint64_t id = 0;
+    std::shared_ptr<const std::vector<char>> stored;
+    std::int64_t learnedStart = 0;
+    {
+        Rig a;
+        a.engine.setHooks(plainCodec());
+        check(a.learn(A), "learned");
+        id = a.engine.learnedId();
+        stored = a.engine.storedSound();
+        learnedStart = soundStartInLearned(a.engine);
+        check(stored != nullptr && ! stored->empty(), "compressed for the state once, when learned");
+    }
+    pitchflattener::SoundRegistry::instance().clearForTesting();   // another process: nothing to take
+
+    Rig b;
+    b.engine.setHooks(plainCodec());
+    b.engine.setNonRealtime(false);   // and the host says nothing about rendering
+    b.fixedBlock = 512;
+    check(! b.engine.adoptLearned(id, b.engine.options()), "not in the registry");
+    b.engine.restoreLearned(id, stored);
+    check(b.engine.state() == Engine::State::Analysing && b.engine.learnedId() == id, "analysing the sound from the state");
+    const Sound in = join({ A, silence(1.0, rate) });   // the file from its first sample, flat out at once
+    const Sound out = b.play(in);
+    const auto r = b.engine.result();
+    check(r != nullptr && r->playable() && r->learned->id == id && r->learned->stored == stored, "restored: the same id, and the same bytes for its own state");
+    if (r != nullptr && r->playable())
+    {
+        const auto N = b.engine.lastMatchInput();
+        const auto fc = compareFlat(core::Channels { out }, *r, b.engine.latencySamples(), N, b.engine.lastMatchSource(), static_cast<std::int64_t>(in.size()), rate, 1);
+        check(N == firstSound(in) && b.engine.lastMatchSource() == learnedStart + N && fc.compared > static_cast<int>(2.0 * rate) && fc.bad == 0,
+              "the whole file flattened from its first sound: " + std::to_string(fc.bad) + " differ");
+    }
+
+    // The waits end: an analysis that takes longer than the limit is given up on, and the audio goes on.
+    pitchflattener::SoundRegistry::instance().clearForTesting();
+    Rig slow;
+    slow.engine.setHooks(plainCodec([] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); }));
+    slow.engine.setNonRealtime(true);
+    slow.engine.setWaitLimitsForTesting(0.3, 0.3, 0.3);
+    slow.engine.restoreLearned(id, stored);
+    const auto started = std::chrono::steady_clock::now();
+    const Sound quick = silence(0.1, rate);
+    const Sound passed = slow.play(quick);
+    const double took = msSince(started);
+    check(slow.engine.offlineWaitGaveUp() && took < 1200.0, "a wait gives up at its limit (" + num(took, 0) + " ms), so a bounce can never hang");
+    slow.engine.waitUntilIdle(30.0);
+}
+
+//==============================================================================
+// The head of a sound, as a host's transfer path may treat it differently from its audition path.
+//==============================================================================
+// Plays `in` through a fresh instance that takes the learned sound by id (as a render instance
+// given the state does), flat out or paced, and counts the audible samples of the head
+// [soundStart + allowance, soundStart + headSeconds) that come out dry.
+struct HeadRun
+{
+    std::int64_t dry = 0, audible = 0;
+};
+
+HeadRun headRun(std::uint64_t id, const core::Options& options, const Sound& in, std::int64_t soundStart, std::int64_t allowance,
+                double headSeconds, bool paced, bool resetsAfterFirstBlock)
+{
+    HeadRun h;
+    Rig b;
+    b.engine.adoptLearned(id, options);
+    b.engine.setNonRealtime(false);   // the host says nothing (as the log showed)
+    b.fixedBlock = 512;
+    int blocks = 0;
+    if (resetsAfterFirstBlock)
+        b.onBlock = [&] { if (++blocks == 1) for (int k = 0; k < 3; ++k) b.engine.requestReset(); };
+    const auto out = b.play(core::Channels { in }, false, paced ? 1.0 : 0.0)[0];
+    const int L = b.engine.latencySamples();
+    const auto end = std::min<std::int64_t>(soundStart + static_cast<std::int64_t>(headSeconds * b.rate), static_cast<std::int64_t>(in.size()) - L);
+    for (auto t = soundStart + allowance; t < end; ++t)
+    {
+        const auto x = in[static_cast<std::size_t>(t)];
+        if (std::abs(x) < Locator::kSilence)
+            continue;
+        ++h.audible;
+        h.dry += identical(out[static_cast<std::size_t>(t + L)], x) ? 1 : 0;
+    }
+    return h;
+}
+
+void engineHeadOfSound()
+{
+    beginCase("engine: the head of the sound is flattened in a render instance (a de-click fade, a late first sample, resets after the first block)");
+    const double rate = 48000.0;
+    const Sound A = passBy(rate, 2.5);
+    // Learned through a real-time-paced run, as an audition is.
+    Rig a;
+    a.engine.armLearn();
+    a.play(core::Channels { join({ silence(0.2, rate), A, silence(1.3, rate) }) }, false, 1.0);
+    check(a.engine.waitUntilIdle(60.0) && a.engine.state() == Engine::State::Ready, "learned in real time");
+    const auto id = a.engine.learnedId();
+    const auto options = a.engine.options();
+    const auto lead = static_cast<std::int64_t>(0.5 * rate);
+    const auto ms = [rate](double m) { return static_cast<std::int64_t>(m * rate / 1000.0); };
+
+    for (const bool paced : { false, true })
+    {
+        const std::string how = paced ? " (paced in real time)" : " (flat out)";
+        {
+            Sound faded = A;
+            for (std::int64_t i = 0; i < ms(5.0); ++i)
+                faded[static_cast<std::size_t>(i)] *= static_cast<float>(i) / static_cast<float>(ms(5.0));
+            const auto h = headRun(id, options, join({ silence(0.5, rate), faded, silence(1.0, rate) }), lead, ms(5.0), 0.3, paced, false);
+            std::printf("    -> 5 ms fade-in%s: %lld of %lld audible head samples dry\n", how.c_str(), static_cast<long long>(h.dry), static_cast<long long>(h.audible));
+            check(h.audible > 0 && h.dry == 0, "a 5 ms fade-in on the head: flattened from the end of the fade" + how);
+        }
+        {
+            const Sound late(A.begin() + ms(3.0), A.end());
+            const auto h = headRun(id, options, join({ silence(0.5, rate), late, silence(1.0, rate) }), lead, 0, 0.3, paced, false);
+            std::printf("    -> first 3 ms missing%s: %lld of %lld audible head samples dry\n", how.c_str(), static_cast<long long>(h.dry), static_cast<long long>(h.audible));
+            check(h.audible > 0 && h.dry == 0, "a head starting 3 ms late: flattened from its first sample" + how);
+        }
+        {
+            // The sound from the file's first sample; three resets after the first block (that
+            // block is cleared from the delay line by the reset, so it is silent either way).
+            const auto h = headRun(id, options, join({ A, silence(1.0, rate) }), 0, 512, 0.3, paced, true);
+            std::printf("    -> three resets after the first block%s: %lld of %lld audible head samples dry\n", how.c_str(), static_cast<long long>(h.dry), static_cast<long long>(h.audible));
+            check(h.audible > 0 && h.dry == 0, "three resets after the first block: flattened from the first sample after them" + how);
+        }
+    }
+    {
+        // A different sound whose later part is the learned one: its own first 0.2 s stays as it is.
+        const Sound other = tone(0.2, rate, [](double) { return 330.0; }, kRich, 0.02, 99u);
+        const Sound in = join({ silence(0.5, rate), other, slice(A, 0.2, 2.5, rate), silence(1.0, rate) });
+        Rig b;
+        b.engine.adoptLearned(id, options);
+        b.engine.setNonRealtime(false);
+        b.fixedBlock = 512;
+        const Sound out = b.play(in);
+        check(countDryMismatches(in, out, b.engine.latencySamples(), lead, lead + static_cast<std::int64_t>(other.size())) == 0,
+              "other material before the matching part is not replaced");
+        check(b.engine.lastMatchInput() >= lead + static_cast<std::int64_t>(other.size()) - ms(1.0), "the match does not reach back into it");
+    }
+}
+
+//==============================================================================
+// A host that plays the file through a short filter on its transfer path (interpolation, a
+// fraction of a sample of offset), and the comparison it logs.
+//==============================================================================
+Sound fractionalDelay(const Sound& x, double delay)
+{
+    // A windowed sinc: the output is the input `delay` samples later.
+    constexpr int taps = 24;
+    constexpr double pi = 3.14159265358979323846;
+    Sound y(x.size(), 0.0f);
+    for (std::size_t t = 0; t < x.size(); ++t)
+    {
+        double sum = 0.0;
+        for (int j = -taps; j <= taps; ++j)
+        {
+            const auto k = static_cast<std::int64_t>(t) - j;
+            if (k < 0 || k >= static_cast<std::int64_t>(x.size()))
+                continue;
+            const double u = j - delay + std::floor(delay);
+            const double d = static_cast<double>(j) - (delay - std::floor(delay));
+            const double sinc = std::abs(d) < 1.0e-12 ? 1.0 : std::sin(pi * d) / (pi * d);
+            const double window = std::abs(d) < taps ? 0.5 + 0.5 * std::cos(pi * d / taps) : 0.0;
+            (void) u;
+            sum += x[static_cast<std::size_t>(k)] * sinc * window;
+        }
+        y[t] = static_cast<float>(sum);
+    }
+    const auto whole = static_cast<std::size_t>(std::floor(delay));
+    Sound out(x.size(), 0.0f);
+    for (std::size_t t = whole; t < x.size(); ++t)
+        out[t] = y[t - whole];
+    return out;
+}
+
+Sound linearPhase(const Sound& x, double phase)
+{
+    Sound y(x.size(), 0.0f);
+    for (std::size_t t = 0; t + 1 < x.size(); ++t)
+        y[t] = static_cast<float>((1.0 - phase) * x[t] + phase * x[t + 1]);
+    return y;
+}
+
+Sound lowPass(const Sound& x, double cutoff, double rate)
+{
+    const double a = std::exp(-kTwoPi * cutoff / rate);
+    Sound y(x.size());
+    double state = 0.0;
+    for (std::size_t t = 0; t < x.size(); ++t)
+    {
+        state = (1.0 - a) * x[t] + a * state;
+        y[t] = static_cast<float>(state);
+    }
+    return y;
+}
+
+// Spot-like: a new instance given the sound by id, three resets before prepare, the sound 1.0 s
+// in, flat out without the host saying so. Returns the audible samples of the sound that came out dry.
+std::int64_t spotDry(std::uint64_t id, const core::Options& options, const core::Channels& sound, double rate, std::int64_t& matchedAt)
+{
+    Rig b;
+    for (int k = 0; k < 3; ++k)
+        b.engine.requestReset();
+    b.engine.prepare(rate, 512);
+    b.engine.adoptLearned(id, options);
+    b.engine.setNonRealtime(false);
+    b.fixedBlock = 512;
+    core::Channels in;
+    for (const auto& ch : sound)
+        in.push_back(join({ silence(1.0, rate), ch, silence(1.0, rate) }));
+    const auto out = b.play(in);
+    matchedAt = b.engine.lastMatchInput() - static_cast<std::int64_t>(1.0 * rate);
+    const int L = b.engine.latencySamples();
+    std::int64_t dry = 0;
+    const auto start = static_cast<std::int64_t>(1.0 * rate);
+    for (auto t = start; t < start + static_cast<std::int64_t>(sound[0].size()) && t + L < static_cast<std::int64_t>(in[0].size()); ++t)
+        for (std::size_t c = 0; c < in.size(); ++c)
+            if (std::abs(in[c][static_cast<std::size_t>(t)]) >= Locator::kSilence && identical(out[c][static_cast<std::size_t>(t + L)], in[c][static_cast<std::size_t>(t)]))
+            {
+                ++dry;
+                break;
+            }
+    return dry;
+}
+
+void engineFilteredPaths()
+{
+    beginCase("engine: the learned recording through a short filter (a host's interpolation) still matches from its first sample");
+    const double rate = 48000.0;
+    const Sound A = passBy(rate, 2.5, 0.0, 0.3);   // bright: road noise up to the top of the band
+    Rig a;
+    check(a.learn(A), "learned");
+    const auto id = a.engine.learnedId();
+    const auto options = a.engine.options();
+    struct Case { const char* name; Sound sound; int whole; };
+    const std::vector<Case> cases {
+        { "0.3-sample delay", fractionalDelay(A, 0.3), 0 },
+        { "0.5-sample delay", fractionalDelay(A, 0.5), 0 },
+        { "linear interpolation, unity ratio, 0.37 phase", linearPhase(A, 0.37), 0 },
+        { "first-order low-pass at 12 kHz", lowPass(A, 12000.0, rate), 0 },
+        { "4.25-sample delay", fractionalDelay(A, 4.25), 4 },
+    };
+    for (const auto& c : cases)
+    {
+        // The residual at the sound's start before (a plain level) and after (a short filter).
+        const int n = 4096;
+        const auto fit = pitchflattener::matching::fitRecording(
+            [&](int t) { return static_cast<double>(c.sound[static_cast<std::size_t>(t + c.whole)]); },
+            [&](int t) { return t >= 0 && t < static_cast<int>(A.size()) ? static_cast<double>(A[static_cast<std::size_t>(t)]) : 0.0; }, n);
+        std::int64_t matchedAt = -1;
+        const auto dry = spotDry(id, options, core::Channels { c.sound }, rate, matchedAt);
+        std::printf("    -> %s: residual %.1f dB with a plain level, %.1f dB through the fit (%.0f%% in 3 taps); matched %lld samples in; %lld samples dry\n", c.name,
+                    10.0 * std::log10(std::max(fit.plainResidual, 1.0e-15)), 10.0 * std::log10(std::max(fit.filterResidual, 1.0e-15)), 100.0 * fit.delayShare,
+                    static_cast<long long>(matchedAt), static_cast<long long>(dry));
+        check(fit.filtered && fit.residual < pitchflattener::matching::kAcceptResidual, std::string(c.name) + ": the fit brings it under the accept figure");
+        check(dry == 0 && matchedAt >= 0 && matchedAt <= c.whole + 2, std::string(c.name) + ": flattened from its first sample, all through");
+    }
+
+    // A dual-mono copy of a stereo learned sound has the same mix but no side: refused.
+    Rig s;
+    const Sound right = tone(2.5, rate, [](double t) { return 330.0 + 20.0 * t; }, kRich, 0.05, 31u);
+    Sound mixR(A.size());
+    for (std::size_t i = 0; i < A.size(); ++i)
+        mixR[i] = 0.2f * A[i] + 0.4f * right[i];
+    check(s.learn(core::Channels { A, mixR }), "learned in stereo");
+    Sound mono(A.size());
+    for (std::size_t i = 0; i < A.size(); ++i)
+        mono[i] = 0.5f * (A[i] + mixR[i]);
+    std::int64_t matchedAt = -1;
+    const auto audible = static_cast<std::int64_t>(A.size());
+    const auto dry = spotDry(s.engine.learnedId(), s.engine.options(), core::Channels { mono, mono }, rate, matchedAt);
+    check(dry >= audible - 512, "a dual-mono copy of a stereo sound passes untouched (" + std::to_string(audible - dry) + " samples not dry)");
+}
+
+// The comparison lines the engine logs (house thread), kept for the tests.
+std::mutex g_diagnosedMutex;
+std::vector<pitchflattener::EngineEvent> g_diagnosed;
+void diagnosingSink(void*, const pitchflattener::EngineEvent& e) noexcept
+{
+    g_logged.fetch_add(1);
+    if (e.kind != pitchflattener::EngineEvent::Kind::Diagnosed)
+        return;   // (the audio thread's events: nothing locked or allocated for them)
+    const std::lock_guard<std::mutex> lock(g_diagnosedMutex);
+    if (g_diagnosed.size() < 64)
+        g_diagnosed.push_back(e);
+}
+
+void engineDiagnostics()
+{
+    beginCase("engine: a near miss logs what differs (one channel on both, a 0.3-sample delay, a balance)");
+    const double rate = 48000.0;
+    const Sound L = passBy(rate, 2.5, 0.0, 0.3);
+    const Sound other = tone(2.5, rate, [](double t) { return 330.0 + 20.0 * t; }, kRich, 0.05, 31u);
+    Sound R(L.size());
+    for (std::size_t i = 0; i < L.size(); ++i)
+        R[i] = 0.2f * L[i] + 0.4f * other[i];
+    Rig a;
+    check(a.learn(core::Channels { L, R }), "learned in stereo");
+    const auto id = a.engine.learnedId();
+    const auto options = a.engine.options();
+    const auto run = [&](const core::Channels& in)
+    {
+        {
+            const std::lock_guard<std::mutex> lock(g_diagnosedMutex);
+            g_diagnosed.clear();
+        }
+        Rig b;
+        b.engine.setLogSink(&diagnosingSink, nullptr);
+        b.engine.adoptLearned(id, options);
+        b.engine.setNonRealtime(false);
+        b.fixedBlock = 512;
+        core::Channels padded;
+        for (const auto& ch : in)
+            padded.push_back(join({ silence(0.5, rate), ch, silence(1.0, rate) }));
+        b.play(padded);
+        b.engine.waitUntilIdle(5.0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        const std::lock_guard<std::mutex> lock(g_diagnosedMutex);
+        return g_diagnosed.empty() ? pitchflattener::EngineEvent {} : g_diagnosed.front();
+    };
+    const auto show = [](const char* what, const pitchflattener::EngineEvent& e)
+    {
+        std::printf("    -> %s: L/L %.1f, R/R %.1f, L/R %.1f, R/L %.1f, L/mix %.1f, R/mix %.1f, sum %.1f, diff %.1f dB; L-R level in %+.2f, learned %+.2f dB; "
+                    "L-R correlation %.3f; best offset %+.3f (%.1f dB there, %.1f at 0); filter %.1f dB (%.0f%%)\n",
+                    what, static_cast<double>(e.i[5]) / 100.0, static_cast<double>(e.i[6]) / 100.0, static_cast<double>(e.i[7]) / 100.0,
+                    static_cast<double>(e.i[8]) / 100.0, static_cast<double>(e.i[9]) / 100.0, static_cast<double>(e.i[10]) / 100.0,
+                    static_cast<double>(e.i[11]) / 100.0, static_cast<double>(e.i[12]) / 100.0, static_cast<double>(e.i[13]) / 100.0,
+                    static_cast<double>(e.i[14]) / 100.0, static_cast<double>(e.i[15]) / 1000.0, e.d[1], e.d[2], e.d[3], e.d[4], 100.0 * e.d[5]);
+    };
+    {
+        const auto e = run(core::Channels { L, L });
+        show("left channel on both", e);
+        check(e.kind == pitchflattener::EngineEvent::Kind::Diagnosed && e.i[5] < -10000 && e.i[8] < -10000 && e.i[15] > 990,
+              "one channel on both: L/L and R/L exact, input L-R correlation 1");
+    }
+    {
+        const auto e = run(core::Channels { fractionalDelay(L, 0.3), fractionalDelay(R, 0.3) });
+        show("0.3-sample delay", e);
+        check(e.kind == pitchflattener::EngineEvent::Kind::Diagnosed && std::abs(e.d[1] - 0.3) < 0.07 && e.d[2] < e.d[3] - 10.0,
+              "a 0.3-sample delay: the best offset found, much better there than at 0");
+    }
+    {
+        Sound quieter = R;
+        for (auto& v : quieter)
+            v *= 0.7f;
+        const auto e = run(core::Channels { L, quieter });
+        show("L/R gains 1.0/0.7", e);
+        check(e.kind == pitchflattener::EngineEvent::Kind::Diagnosed && e.i[5] < -10000 && e.i[6] < -10000 && std::abs(static_cast<double>(e.i[13] - e.i[14]) / 100.0 - 3.10) < 0.1,
+              "L/R gains 1.0/0.7: each channel exact, the balance 3.1 dB off the learned");
+    }
+}
+
+void engineFitCost()
+{
+    beginCase("engine: the cost of the short-filter fit (the per-window check on the audio thread)");
+    const double rate = 48000.0;
+    const Sound x = passBy(rate, 1.0, 0.0, 0.3);
+    const Sound y = fractionalDelay(x, 0.3);
+    double fastest = 1.0e9;
+    double sink = 0.0;
+    for (int k = 0; k < 200; ++k)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        const auto fit = pitchflattener::matching::fitRecording([&](int t) { return static_cast<double>(y[static_cast<std::size_t>(t + 8000)]); },
+                                                                [&](int t) { return static_cast<double>(x[static_cast<std::size_t>(t + 8000)]); }, 1024);
+        fastest = std::min(fastest, msSince(started) * 1000.0);
+        sink += fit.residual;
+    }
+    std::printf("    -> a 1024-sample window: %.1f microseconds (%.2f%% of the window's own 21.3 ms)\n", fastest, fastest / 21333.0 * 100.0);
+    check(fastest < 200.0 && sink >= 0.0, "a window's check costs well under a millisecond");
+}
+
 } // namespace
 
 void runLocatorTests()
@@ -1425,7 +1960,15 @@ void runEngineTests()
     engineTelemetry();
     engineCaptureFaults();
     engineLargeBlocks();
+    engineRegistry();
+    engineFastWithoutFlag();
+    engineRestoredRenderInstance();
+    engineHeadOfSound();
+    engineFilteredPaths();
+    engineDiagnostics();
+    engineFitCost();
     beginCase("engine: the audio thread never allocated or freed");
+    check(g_logged.load() > 0, "the engines logged (" + std::to_string(g_logged.load()) + " events)");
     check(g_audioAllocations.load() == 0 && g_audioFrees.load() == 0,
           "allocations " + std::to_string(g_audioAllocations.load()) + ", frees " + std::to_string(g_audioFrees.load()));
 }

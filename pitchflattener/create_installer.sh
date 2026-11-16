@@ -71,7 +71,7 @@ EOF
 
 # Create readme
 cat > installer/resources/readme.txt << 'EOF'
-SammyJs Pitch Flattener v3.1.0
+SammyJs Pitch Flattener v3.1.1
 
 Learns one sound and plays it back with its pitch flattened.
 
@@ -108,7 +108,7 @@ echo "Building component package..."
 pkgbuild --root installer/root \
          --scripts installer/scripts \
          --identifier "com.samueljustice.pitchflattener.pkg" \
-         --version "3.1.0" \
+         --version "3.1.1" \
          --install-location "/" \
          installer/SammyJsPitchFlattener.pkg
 

@@ -8,7 +8,7 @@ endif()
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 3.1.0)
+project(PitchFlattener VERSION 3.1.1)
 
 # The C++ runtime is linked in on Windows, so the installer needs no redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -51,6 +51,7 @@ set(PF_CORE_SOURCES
 set(PF_ENGINE_SOURCES
     Source/Engine.cpp
     Source/Locator.cpp
+    Source/SoundRegistry.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
@@ -85,6 +86,8 @@ juce_generate_juce_header(PitchFlattener)
 target_sources(PitchFlattener
     PRIVATE
         Source/PluginProcessor.cpp
+        Source/DiagnosticLog.cpp
+        Source/SoundCodec.cpp
         Source/PluginEditor.cpp
         Source/PitchDisplay.cpp
         Source/FlightView.cpp
