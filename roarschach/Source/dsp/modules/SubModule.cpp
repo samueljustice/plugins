@@ -32,6 +32,9 @@ namespace roar
         constexpr int c_maxDivisions = 4;               // f0 / 16: a 1500 Hz voice lands at 94 Hz
         constexpr double c_repickSeconds = 0.150;       // a pitch that returns after this long picks afresh
         constexpr double c_divisionWaitSeconds = 0.040; // a pending change of division waits this long for a toggle
+        constexpr double c_voiceSeconds = 0.008;        // mean-square time of the voice reference
+        constexpr double c_voiceCapDb = -4.4;           // the divided harmonic counts as at most this much of the whole voice
+        constexpr double c_thickCapDb = 0.8;            // Thick: margin on the power sum of the two bands
         constexpr double c_estimateRange = 0.68;        // octaves (x 1.6) a divider toggle rate may differ from fIn
         constexpr double c_estimateCoeff = 0.25;
 
@@ -172,6 +175,7 @@ namespace roar
         }
         m_divisionWaitMax = dsp::samplesFor (c_divisionWaitSeconds, m_fs, 1);
         m_repickSamples = dsp::samplesFor (c_repickSeconds, m_fs, 1);
+        m_voiceCoeff = dsp::onePoleCoeff (c_voiceSeconds, m_fs);
 
         for (int bi = 0; bi < 2; ++bi)
         {
@@ -306,6 +310,8 @@ namespace roar
         m_adaaF1 = antiderivative (0.0);
         m_expGain = 0.0f;
         m_levelEnv = 0.0f;
+        m_voicePower = 0.0;
+        m_capGain = 1.0f;
         m_estimateLog = m_inLog;
         m_gainTarget = gainTarget();
         m_gain = m_gainTarget;
@@ -351,7 +357,24 @@ namespace roar
         return static_cast<float> (levelLawGain (static_cast<double> (m_settings.level))
                                    * driveMakeup (static_cast<double> (m_driveDb), betaIndex())
                                    * static_cast<double> (m_filterMakeup[static_cast<size_t> (m_settings.character)])
-                                   / static_cast<double> (m_dividedFundamental));
+                                   / static_cast<double> (m_dividedFundamental) * static_cast<double> (m_capGain));
+    }
+
+    void SubModule::updateVoiceCap()
+    {
+        // The divided harmonic (band 1's amplitude; Thick: the power sum with band 2's share, plus
+        // 0.8 dB) counts as at most -4.4 dB of the whole voice, read as a sine's amplitude.
+        if (! m_diagnostics.voiceCap)
+        {
+            m_capGain = 1.0f;
+            return;
+        }
+        const bool thick = m_settings.character == Params::SubCharacter::thick;
+        const double e1 = static_cast<double> (m_div1.env);
+        const double e2 = thick ? static_cast<double> (c_band2Gain) * static_cast<double> (m_div2.env) : 0.0;
+        const double h1 = thick ? dsp::dbToGain (c_thickCapDb) * std::sqrt (e1 * e1 + e2 * e2) : e1;
+        const double voice = std::sqrt (2.0 * std::max (m_voicePower, 0.0)) * dsp::dbToGain (c_voiceCapDb);
+        m_capGain = h1 > voice ? static_cast<float> (voice / std::max (h1, 1.0e-9)) : 1.0f;
     }
 
     void SubModule::updateTracker (const VoiceFrame& frame)
@@ -509,6 +532,7 @@ namespace roar
             m_adaaF1 = antiderivative (m_adaaX1);   // keep the ADAA step consistent
         }
 
+        updateVoiceCap();
         m_gainTarget = gainTarget();
         m_evenGain = evenGainTarget();
         updateFilters();
@@ -607,6 +631,7 @@ namespace roar
             for (int k = i; k < end; ++k)
             {
                 const float x = stereo ? sanitizeInput (0.5f * (l[k] + r[k])) : sanitizeInput (l[k]);
+                m_voicePower = dsp::flushTiny (m_voicePower + m_voiceCoeff * (static_cast<double> (x) * static_cast<double> (x) - m_voicePower));
                 if (m_divisions != m_divisionsWanted && ++m_divisionWait >= m_divisionWaitMax)
                     m_divisions = m_divisionsWanted;   // no toggle came: apply it anyway
                 if (m_divisions == m_divisionsWanted)
@@ -684,6 +709,7 @@ namespace roar
     {
         const auto& o = sameType<SubModule> (other);
         m_settings = o.m_settings;
+        m_diagnostics = o.m_diagnostics;
         m_fade.copyStateFrom (o.m_fade);
         m_band1a.copyStateFrom (o.m_band1a);
         m_band1b.copyStateFrom (o.m_band1b);
@@ -719,6 +745,8 @@ namespace roar
         m_divisions = o.m_divisions;
         m_divisionWait = o.m_divisionWait;
         m_untrackedSamples = o.m_untrackedSamples;
+        m_voicePower = o.m_voicePower;
+        m_capGain = o.m_capGain;
         m_inLog = o.m_inLog;
         m_subLog = o.m_subLog;
         m_estimateLog = o.m_estimateLog;

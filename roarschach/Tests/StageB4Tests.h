@@ -1274,6 +1274,118 @@ namespace stageb4
         }
     }
 
+    void testSubVoiceCap()
+    {
+        std::printf("[stageb4] SUB: the layer referenced to the voice\n");
+        const Params::SubRegister regs[] { Params::SubRegister::follow, Params::SubRegister::tight, Params::SubRegister::deep };
+        const Params::SubCharacter chars[] { Params::SubCharacter::clean, Params::SubCharacter::resonant, Params::SubCharacter::thick };
+        const char* charNames[] { "Clean", "Resonant", "Thick" };
+        const auto makeSubD = [](double sr, const roar::SubSettings& st, bool cap)
+        {
+            auto m = makeSub(sr, st, 32);
+            roar::SubModule::Diagnostics d;
+            d.voiceCap = cap;
+            m->setDiagnostics(d);
+            return m;
+        };
+
+        // T-SUB-7: a sine voice, every register and character: the layer stays under the voice.
+        {
+            double worst = -200.0, lawLo = 1.0e9, lawHi = -1.0e9;
+            for (const double level : { -20.0, -40.0 })
+                for (const double f0 : { 100.0, 150.0, 220.0, 300.0, 440.0, 571.0, 800.0 })
+                {
+                    auto in = makeSine(c_fs, 1.5, f0, 1.0);
+                    scaleToRmsDb(in, level);
+                    const int from = static_cast<int>(0.5 * c_fs);
+                    for (const auto reg : regs)
+                        for (int c = 0; c < 3; ++c)
+                        {
+                            auto m = makeSubD(c_fs, subSettings(reg, chars[c]), true);
+                            const auto r = runSub(*m, in, c_fs, [f0](double) { return f0; }, { 32 });
+                            const double db = rmsDb(r.layer, from) - rmsDb(in, from);
+                            worst = std::max(worst, db);
+                            check(db <= -0.5, juce::String("T-SUB-7 ") + registerName(reg) + " " + charNames[c] + ", " + juce::String(f0, 0) + " Hz at "
+                                                  + juce::String(level, 0) + " dBFS: layer " + juce::String(db, 2) + " dB re the voice (<= -0.5)");
+                            const bool bandOnPartial = ! (reg == Params::SubRegister::tight && f0 < 110.0);
+                            if (c == 0 && bandOnPartial)
+                            {
+                                auto off = makeSubD(c_fs, subSettings(reg, chars[c]), false);
+                                const auto ro = runSub(*off, in, c_fs, [f0](double) { return f0; }, { 32 });
+                                const double law = rmsDb(ro.layer, from) - rmsDb(in, from);
+                                lawLo = std::min(lawLo, law);
+                                lawHi = std::max(lawHi, law);
+                                check(std::abs(law - 2.6) <= 0.3, juce::String("T-SUB-7 cap off, ") + registerName(reg) + " Clean, " + juce::String(f0, 0) + " Hz at "
+                                                                      + juce::String(level, 0) + " dBFS: layer " + juce::String(law, 2) + " dB (+2.6 +-0.3)");
+                            }
+                        }
+                }
+            std::printf("  T-SUB-7 sine voice 100-800 Hz, -20 and -40 dBFS, every register and character: layer %.2f dB re the voice at most; cap off, Clean: %+.2f .. %+.2f dB\n",
+                        worst, lawLo, lawHi);
+        }
+
+        // T-SUB-8: a voice whose first partial is 7 dB under its total: the cap never engages; onset.
+        {
+            double worst = -400.0;
+            for (const double f0 : { 110.0, 150.0, 220.0, 300.0 })
+            {
+                const auto in = eightPartial(c_fs, 1.5, f0);
+                for (const auto reg : { Params::SubRegister::follow, Params::SubRegister::deep })
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        auto on = makeSubD(c_fs, subSettings(reg, chars[c]), true);
+                        auto off = makeSubD(c_fs, subSettings(reg, chars[c]), false);
+                        const auto a = runSub(*on, in, c_fs, [f0](double) { return f0; }, { 32 });
+                        const auto b = runSub(*off, in, c_fs, [f0](double) { return f0; }, { 32 });
+                        const double db = rmsDb(minus(a.layer, b.layer)) - rmsDb(b.layer);
+                        worst = std::max(worst, db);
+                        check(db <= -90.0, juce::String("T-SUB-8 ") + registerName(reg) + " " + charNames[c] + " at " + juce::String(f0, 0)
+                                               + " Hz: the cap moves the layer by " + juce::String(db, 1) + " dB (<= -90)");
+                    }
+            }
+            std::printf("  T-SUB-8 eight-partial voice: capped re uncapped layer %.1f dB at most\n", worst);
+
+            // Onset: a one-partial 300 Hz voice gated on at 0.3 s.
+            Signal in(static_cast<size_t>(1.5 * c_fs), 0.0f);
+            const auto tone = makeSine(c_fs, 1.5, 300.0, 0.1);
+            const int onset = static_cast<int>(0.3 * c_fs);
+            for (size_t i = static_cast<size_t>(onset); i < in.size(); ++i)
+                in[i] = tone[i];
+            const auto pitch = [](double t) { return t < 0.3 ? 0.0 : 300.0; };
+            const auto riseMs = [&](bool cap)
+            {
+                auto m = makeSubD(c_fs, subSettings(Params::SubRegister::follow), cap);
+                const auto r = runSub(*m, in, c_fs, pitch, { 32 });
+                const int win = static_cast<int>(0.002 * c_fs);
+                const double steady = rmsOf(r.layer, onset + static_cast<int>(0.6 * c_fs), onset + static_cast<int>(1.1 * c_fs));
+                for (int i = onset; i + win < static_cast<int>(r.layer.size()); i += win / 2)
+                    if (rmsOf(r.layer, i, i + win) >= 0.9 * steady)
+                        return 1000.0 * (i + win / 2 - onset) / c_fs;
+                return 1000.0;
+            };
+            const double withCap = riseMs(true), without = riseMs(false);
+            std::printf("  T-SUB-8 onset: the layer reaches 90 %% of its steady level %.1f ms after the voice (cap off: %.1f ms)\n", withCap, without);
+            check(withCap - without <= 10.0, "T-SUB-8 the cap holds the onset back by " + juce::String(withCap - without, 1) + " ms (<= 10)");
+        }
+
+        // T-SUB-9: Level 0 is still a bit-exact null; a reset starts again exactly.
+        {
+            const auto in = eightPartial(c_fs, 1.0, 150.0);
+            bool exact = true;
+            for (const auto reg : regs)
+                for (int c = 0; c < 3; ++c)
+                {
+                    auto m = makeSub(c_fs, subSettings(reg, chars[c], 0.0), 512);
+                    exact = exact && identical(runSub(*m, in, c_fs, [](double) { return 150.0; }).out, in);
+                }
+            check(exact, "T-SUB-9 Level 0 is not a bit-exact null");
+            auto m = makeSub(c_fs, subSettings(Params::SubRegister::deep, Params::SubCharacter::thick), 512);
+            const auto a = runSub(*m, howl(c_fs, 1.0, 571.0), c_fs, [](double) { return 571.0; }).out;
+            m->reset();
+            check(identical(a, runSub(*m, howl(c_fs, 1.0, 571.0), c_fs, [](double) { return 571.0; }).out), "T-SUB-9 a reset does not start again exactly");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -1290,5 +1402,7 @@ namespace stageb4
             testEnsembleCap();
         if (sectionWanted("sub"))
             testSubRegisters();
+        if (sectionWanted("sub2"))
+            testSubVoiceCap();
     }
 }

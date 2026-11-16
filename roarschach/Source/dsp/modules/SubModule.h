@@ -73,6 +73,13 @@ namespace roar
      * output is evenDbFor (Drive): -30 dB at -6 dB, -25 dB at 0 dB, -20 dB at +6 dB (the
      * default), capped at -12 dB.
      *
+     * Voice reference: the divided harmonic is never counted as more than -4.4 dB of the whole
+     * voice (the module's input as a sine's amplitude, from an 8 ms mean square): when band 1's
+     * envelope (Thick: the power sum of both bands' shares, + 0.8 dB) is above that, the gain is
+     * scaled down by the ratio. A voice that is one partial then gets a layer about 1 dB under
+     * it at the default Level and Drive; a voice whose first partial is 4.4 dB or more under its
+     * total is untouched. It rides the 20 ms gain smoothing.
+     *
      * Level law: the sub's f / 2 component = H1 (the band 1 amplitude) x
      * 10^((-14 + 24 uLevel^0.5) / 20) in the steady state (laws::subLevelDb; 50 % -> +3.0 dB), faded linearly to
      * nothing below u = 0.02 (0 is an exact null). A static table (built in prepare()) removes
@@ -97,6 +104,13 @@ namespace roar
         void publishFeatures (MonsterFeatures& features) const override;
 
         void setParams (const SubSettings& s);
+
+        /** Test-only overrides. */
+        struct Diagnostics
+        {
+            bool voiceCap = true;   // false: the layer is not referenced to the voice
+        };
+        void setDiagnostics (const Diagnostics& d) { m_diagnostics = d; }
 
         // Readouts.
         /** Smoothed peak level of the added layer, linear (scaled by the On fade). */
@@ -137,11 +151,13 @@ namespace roar
         double curve (double v) const;
         double antiderivative (double v) const;
         double driveMakeup (double driveDb, int betaIndex) const;
-        float gainTarget() const;   // level law x drive makeup x filter makeup
+        float gainTarget() const;   // level law x drive makeup x filter makeup x voice reference
+        void updateVoiceCap();
         float evenGainTarget() const;
         int betaIndex() const { return m_settings.character == Params::SubCharacter::clean ? 0 : 1; }
 
         SubSettings m_settings;
+        Diagnostics m_diagnostics;
         OnFade m_fade;
         double m_fs = 48000.0;
 
@@ -190,6 +206,9 @@ namespace roar
         int m_divisionWaitMax = 1920;
         int m_untrackedSamples = 1 << 30;   // samples since the last usable pitch frame
         int m_repickSamples = 7200;
+        double m_voicePower = 0.0;     // mean square of the module's mono input (8 ms)
+        double m_voiceCoeff = 0.0;
+        float m_capGain = 1.0f;        // the voice reference's scale on the gain
         double m_inLog = 0.0;          // glided log2 fIn
         double m_subLog = 0.0;         // glided log2 fsub (output filters)
         double m_estimateLog = 0.0;    // log2 of the band-1 frequency from the divider toggles
