@@ -276,6 +276,8 @@ begin
     RemoveUserFolder(Data + '\SammyJs\Subbertone');
     RemoveUserFolder(Data + '\SammyJs\PitchFlattener');
     RemoveUserFolder(Data + '\SammyJs\Roarschach');
+    RemoveUserFile(Data + '\SammyJ\Logs\PitchFlattener.log');
+    RemoveUserFolder(Data + '\SammyJ\Logs\PitchFlattener captures');
     RemoveUserFile(Data + '\SammyJ\Logs\TonalRecall.log');
     DeleteIfEmpty(Data + '\SammyJ\Logs');
     DeleteIfEmpty(Data + '\SammyJ');
