@@ -1248,7 +1248,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ta(on, 15.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
-            .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
+            .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
             .match(3.6f)),
 
         // UTILITY ----------------------------------------------------------------------------------
@@ -1270,7 +1270,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ta(off, 12.0f)
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
-            .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
+            .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
             .match(1.9f)),
 
         // A slightly bigger voice, with every flavour just audible.
