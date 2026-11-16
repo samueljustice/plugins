@@ -99,6 +99,17 @@ namespace roar
         // still sounds there: the 60..900 Hz band over half a period around the point holds at
         // least c_liveShare of the power of the mark's own cycle, and no onset lies between.
         constexpr double c_liveShare = 0.1;
+
+        // Own mark chain (prototype, ROARSCHACH_PITCH_OWN_MARKS): the low band's share of the
+        // full-band power to begin and to go on, the lag search around the run's period, the
+        // correlation a continued cycle needs, how many continued marks in a row, and the restart.
+        constexpr double c_ownAliveShare = 0.2;
+        constexpr double c_ownStopShare = 0.1;
+        constexpr double c_ownLagRange = 0.2;
+        constexpr double c_ownCorrelation = 0.5;
+        constexpr int c_ownMaxInRow = 6;
+        constexpr double c_ownRestartSeconds = 0.005;
+        constexpr double c_ownRestartPeak = 0.6;
         constexpr double c_letGoSeconds = 0.003;              // a grain past a run's end fades over this
 
         // Air (sibilants and fricatives) is left at phi in Keep; everything else that is not
@@ -648,6 +659,7 @@ namespace roar
             m_inR[at] = xr;
 
         const float mid = stereo ? 0.5f * (xl + xr) : xl;
+        c.stereoIn = stereo;
 
         // Band-limited copy for the peak search: the glottal pulse shows as one clear peak per
         // period once the upper formants are gone.
@@ -1244,19 +1256,35 @@ namespace roar
     {
         Core& c = m_core;
         const VoiceInfo& v = m_detector.getVoiceInfo();
-        if (! v.voiced || v.f0Hz <= 0.0f)
+        double detectorPeriod = 0.0;
+        const bool detectorVoiced = v.voiced && v.f0Hz > 0.0f;
+        if (detectorVoiced)
+            detectorPeriod = m_fs / static_cast<double> (v.f0Hz);
+        else
         {
+           #if ROARSCHACH_PITCH_OWN_MARKS
+            // The detector let go: a run goes on at its own rhythm while the low band is alive,
+            // and a new one may start from the band copy's own periodicity.
+            if (! c.haveLastMark)
+            {
+                ownRestart();
+                return;
+            }
+            if (! ownMarksAllowed (c.markPeriod))
+            {
+                closeRun();
+                return;
+            }
+            detectorPeriod = c.markPeriod;
+           #else
             closeRun();
             return;
+           #endif
         }
 
         const std::int64_t newest = c.writePos - 1;
         const double threshold = markThreshold();
-        const double period = std::clamp (m_fs / static_cast<double> (v.f0Hz), static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod));
-        const double tolerance = c_markTolerance * period;
-        const std::int64_t newestMark = c.markCount > 0
-                                          ? c.marks[static_cast<size_t> ((c.markHead + c.markCount - 1) % c_maxMarks)].pos
-                                          : std::numeric_limits<std::int64_t>::min() / 2;
+        const double period = std::clamp (detectorPeriod, static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod));
 
         // Continue a run. The mark rhythm (the spacing of the last two marks) is trusted over the
         // detector when the two disagree by about an octave: YIN can slip an octave down for a few
@@ -1303,9 +1331,14 @@ namespace roar
                         c.shortTriedFor = c.lastMark;   // fall back to the rhythm for this mark
                         return;
                     }
+                   #if ROARSCHACH_PITCH_OWN_MARKS
+                    if (ownContinue (runPeriod))
+                        return;
+                   #endif
                     closeRun();
                     return;
                 }
+                c.ownInRow = 0;
 
                 // The peak proposes the cycle; the mark itself goes one best-matching lag after
                 // the previous mark, so consecutive grains are cut at the same place in the
@@ -1329,9 +1362,28 @@ namespace roar
             }
         }
 
+       #if ROARSCHACH_PITCH_OWN_MARKS
+        if (! detectorVoiced)
+        {
+            closeRun();
+            ownRestart();
+            return;
+        }
+       #endif
+        startRun (period, threshold);
+    }
+
+    void PitchModule::startRun (double period, double threshold)
+    {
         // Start of a voiced run: the strongest peak in the last-but-one half period..1.5 periods,
         // then walk back towards the onset so the first grains of the vowel are voiced too.
         // A failed start is retried half a period later, not on every sample.
+        Core& c = m_core;
+        const std::int64_t newest = c.writePos - 1;
+        const double tolerance = c_markTolerance * period;
+        const std::int64_t newestMark = c.markCount > 0
+                                          ? c.marks[static_cast<size_t> ((c.markHead + c.markCount - 1) % c_maxMarks)].pos
+                                          : std::numeric_limits<std::int64_t>::min() / 2;
         if (newest < c.startRetry)
             return;
         c.startRetry = newest + static_cast<std::int64_t> (0.5 * period);
@@ -1409,6 +1461,120 @@ namespace roar
         c.lastMark = first;
         c.lastFine = static_cast<double> (first);
         c.haveLastMark = true;
+        c.ownInRow = 0;
+    }
+
+    bool PitchModule::ownMarksAllowed (double period) const
+    {
+        // The own chain runs only on sound that is not air and whose 60..900 Hz copy holds a fair
+        // share of the full-band power over the last period: 20 % to begin, 10 % to go on.
+        const Core& c = m_core;
+        if (c.airNow)
+            return false;
+        const std::int64_t newest = c.writePos - 1;
+        const auto length = static_cast<std::int64_t> (std::clamp (period, static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod)));
+        double full = 0.0;
+        for (std::int64_t t = newest - length + 1; t <= newest; ++t)
+        {
+            const auto at = static_cast<size_t> (t & m_mask);
+            const double x = c.stereoIn ? 0.5 * (static_cast<double> (m_inL[at]) + static_cast<double> (m_inR[at])) : static_cast<double> (m_inL[at]);
+            full += x * x;
+        }
+        full /= static_cast<double> (length);
+        if (! (full > 1.0e-12))
+            return false;
+        return bandPower (newest - length + 1, newest) >= (c.ownInRow > 0 ? c_ownStopShare : c_ownAliveShare) * full;
+    }
+
+    bool PitchModule::ownContinue (double period)
+    {
+        // Keep the run going one cycle at the chain's own lag (+-20 % of the run's period), when
+        // that lag is bracketed and the two cycles correlate at c_ownCorrelation or more; at most
+        // c_ownMaxInRow such marks before a peak-confirmed one is needed again.
+        Core& c = m_core;
+        if (c.ownInRow >= c_ownMaxInRow || ! ownMarksAllowed (period))
+            return false;
+        bool found = false;
+        const double lag = similarityLag (c.lastFine, period, 1.0, 0.0, period, c_ownLagRange, found);
+        if (! found)
+            return false;
+        const auto previous = static_cast<std::int64_t> (std::llround (c.lastFine));
+        const auto chained = static_cast<std::int64_t> (std::llround (c.lastFine + lag));
+        if (markCorrelation (chained, previous) < c_ownCorrelation)
+            return false;
+        pushMark (c.lastFine + lag, static_cast<float> (period));
+        c.markPeriod = lag;
+        c.lastMark = chained;
+        c.lastFine += lag;
+        ++c.ownInRow;
+        ++c.ownMarks;
+        return true;
+    }
+
+    void PitchModule::ownRestart()
+    {
+        // While the detector says unvoiced, every 5 ms: normalised autocorrelation of the band copy
+        // over the last 20 ms at lags of 2 to 20 ms (a 6 kHz grid, then single samples). A peak of
+        // c_ownRestartPeak or more, bracketed, starts a run at that period with the usual walk back.
+        Core& c = m_core;
+        const std::int64_t newest = c.writePos - 1;
+        if (newest < c.ownRestartAt)
+            return;
+        c.ownRestartAt = newest + static_cast<std::int64_t> (c_ownRestartSeconds * m_fs);
+
+        const int lagLo = std::max (m_minPeriod, static_cast<int> (0.002 * m_fs));
+        const int lagHi = std::min (m_maxPeriod, static_cast<int> (0.020 * m_fs));
+        const int window = static_cast<int> (0.020 * m_fs);
+        if (newest < static_cast<std::int64_t> (window + lagHi + 2) || lagHi - lagLo < 4)
+            return;
+        if (! ownMarksAllowed (0.010 * m_fs))
+            return;
+
+        const int step = std::max (1, static_cast<int> (m_fs / c_markLagGridHz));
+        const int count = window / step;
+        const auto similarity = [&] (int lag)
+        {
+            double xy = 0.0, xx = 1.0e-20, yy = 1.0e-20;
+            for (int k = 0; k < count; ++k)
+            {
+                const std::int64_t at = newest - static_cast<std::int64_t> (k) * step;
+                const auto u = static_cast<double> (m_band[static_cast<size_t> (at & m_mask)]);
+                const auto w = static_cast<double> (m_band[static_cast<size_t> ((at - lag) & m_mask)]);
+                xy += u * w;
+                xx += u * u;
+                yy += w * w;
+            }
+            return xy / std::sqrt (xx * yy);
+        };
+
+        int best = lagLo;
+        double bestValue = -2.0;
+        for (int lag = lagLo; lag <= lagHi; lag += step)
+        {
+            const double value = similarity (lag);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                best = lag;
+            }
+        }
+        const int coarse = best;
+        for (int lag = std::max (lagLo, coarse - step + 1); lag <= std::min (lagHi, coarse + step - 1); ++lag)
+        {
+            const double value = lag == coarse ? bestValue : similarity (lag);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                best = lag;
+            }
+        }
+        if (bestValue < c_ownRestartPeak || best <= lagLo || best >= lagHi)
+            return;
+
+        c.startRetry = 0;
+        startRun (static_cast<double> (best), markThreshold());
+        if (c.haveLastMark)
+            ++c.ownMarks;
     }
 
     //==============================================================================

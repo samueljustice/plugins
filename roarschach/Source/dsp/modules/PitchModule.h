@@ -21,6 +21,12 @@
  #define ROARSCHACH_PITCH_READER 0
 #endif
 
+// Prototype (audit D14): PITCH's own mark chain for rough voice, continuing and restarting runs of
+// marks from the band copy's own periodicity where the detector lets go. Off by default.
+#ifndef ROARSCHACH_PITCH_OWN_MARKS
+ #define ROARSCHACH_PITCH_OWN_MARKS 0
+#endif
+
 namespace roar
 {
     /** PITCH settings, filled once per chunk by the processor (spec §5.2, §7). */
@@ -156,6 +162,9 @@ namespace roar
         std::uint64_t getForcedSplices() const { return m_core.forced; }
         std::uint64_t getReadsPastNewest() const { return m_core.readsPastNewest; }
         static constexpr bool usesReader() { return ROARSCHACH_PITCH_READER != 0; }
+        static constexpr bool usesOwnMarks() { return ROARSCHACH_PITCH_OWN_MARKS != 0; }
+        /** Marks made by the own chain (continued or restarted) since the last reset. */
+        std::uint64_t getOwnMarks() const { return m_core.ownMarks; }
         /** Test hook: -1 the air decision as measured, 0 never air, 1 always air. */
         void setAirForTests (int mode) { m_airForTests = mode; }
         int getNumOnsetsKept() const { return static_cast<int> (std::min<std::uint64_t> (m_core.onsetCount, c_maxOnsets)); }
@@ -250,6 +259,10 @@ namespace roar
             double markPeriod = 0.0;       // spacing of the last two marks of the current run
             std::int64_t shortTriedFor = -1;
             std::int64_t startRetry = 0;
+            int ownInRow = 0;                  // marks in a row from the own chain (prototype)
+            std::int64_t ownRestartAt = 0;
+            std::uint64_t ownMarks = 0;
+            bool stereoIn = false;
             float positivePeaks = 0.0f, negativePeaks = 0.0f, polarity = 1.0f;
 
             // Grains.
@@ -341,6 +354,10 @@ namespace roar
 
         // Shifter (TD-PSOLA).
         void findMarks();
+        void startRun (double period, double threshold);
+        bool ownMarksAllowed (double period) const;
+        bool ownContinue (double period);
+        void ownRestart();
         bool searchPeak (std::int64_t from, std::int64_t to, double predicted, double tolerance, std::int64_t& best, float& bestValue);
         double markCorrelation (std::int64_t mark, std::int64_t previous) const;
         double similarityLag (double anchor, double period, double before, double after, double centre, double range, bool& found) const;
