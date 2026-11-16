@@ -7,6 +7,9 @@ namespace
     constexpr float c_arcZ = 2.7f;      // cannonball passes start and end this far out
     constexpr float c_arcX = 1.75f;     // and this far either side
     constexpr float c_subLift = 0.17f;  // how far a sub at full level lifts the water (the camera is 0.62 above it)
+    constexpr float c_roomNearZ = 1.3f; // in a room, the back wall: about the nearest a close pass ever came
+    constexpr float c_roomAcross = 0.65f; // and the side walls this far out of the comets' width: a pass Across a room
+                                          // moves evenly, so it is drawn no faster across the sky than a Stereo one
 
     // The water's own colours. Depth, not loudness, picks them, and none of them is a bus colour (coral,
     // turquoise, cherry): the buses own the comets, the water owns the distance.
@@ -15,6 +18,11 @@ namespace
     const juce::Colour c_fog       { 0xff0e2a38 };  // what the horizon fades everything into
     const juce::Colour c_hollow    { 0xff071820 };  // the water between two rows
     const juce::Colour c_moonlight { 0xfff3e3c0 };
+
+    // How much of the mark's own shapes shows behind its stars: the grenade is the solid thing in the mark, so it
+    // is the heavier of the two; the cherry in front of it cuts a dark line round itself out of the grenade.
+    constexpr float c_glowGrenade = 0.15f, c_glowCherry = 0.10f, c_keyline = 1.6f;
+    constexpr float c_hazeMargin = 2.0f;
 
     /** The water at a distance: 1 at the camera, 0 at the horizon. */
     juce::Colour waterColour(float nearness, float height)
@@ -140,6 +148,9 @@ void SeaVisualiser::analyse()
 
 void SeaVisualiser::step(float dt)
 {
+    // Under a panel that covers the window the sea holds still: a dimmed picture, not 60 repaints a second behind it.
+    if (Theme::isCovered(*this))
+        return;
     // The sea keeps its own rate: 60 a second however fast the screen is, and after five seconds of quiet 20 a
     // second - a big picture that costs little when there is nothing to show. The time between steps is gathered
     // up and handed on whole, so the swell rolls at the same speed whichever rate it is running at.
@@ -169,10 +180,17 @@ void SeaVisualiser::step(float dt)
 
     bool anyFlight = false;
     const auto& engine = m_processor.getEngine();
+    stepRoom(dt);
+    // In a room each comet is an object: a bus's two passes are its first two, the throws the next four, in the
+    // order the flights are numbered (RigEngine::Object).
+    static_assert(RigEngine::ObjPassA1 == 0 && RigEngine::ObjThrow1 == RigEngine::c_maxBuses * 2
+                  && RigEngine::ObjThrow1 + RigEngine::c_throws == RigEngine::ObjHits, "the flights and the objects are numbered alike");
     for (int i = 0; i < RigEngine::c_maxFlights; ++i)
     {
         const auto ii = static_cast<size_t>(i);
-        anyFlight = stepFlight(engine.getFlightView(i), m_trails[ii], m_flightEnv[ii], m_flash[ii], m_lastX[ii], dt) || anyFlight;
+        const auto object = engine.getObject(i);
+        anyFlight = stepFlight(engine.getFlightView(i), m_inRoom ? &object : nullptr, m_trails[ii], m_flightEnv[ii], m_flash[ii], m_lastX[ii], dt)
+                    || anyFlight;
     }
 
     // Stowaway: nothing while it is off. Its level shows in the Mode it is in; Fly's passes are comets of its own;
@@ -194,7 +212,9 @@ void SeaVisualiser::step(float dt)
             const auto hi = static_cast<size_t>(h);
             auto view = engine.getStowFlight(h);
             view.active = view.active && on && mode == ParamIDs::StowFly;
-            anyFlight = stepFlight(view, m_stowTrails[hi], m_stowEnv[hi], m_stowFlash[hi], m_stowLastX[hi], dt) || anyFlight;
+            const auto object = engine.getObject(RigEngine::ObjStow1 + h);
+            anyFlight = stepFlight(view, m_inRoom ? &object : nullptr, m_stowTrails[hi], m_stowEnv[hi], m_stowFlash[hi], m_stowLastX[hi], dt)
+                        || anyFlight;
         }
         // The wake: bus A's louder comet lays it down as it goes, and it lingers behind the comet.
         const float wake = m_stowShown[ParamIDs::StowWake];
@@ -266,25 +286,42 @@ void SeaVisualiser::step(float dt)
     repaint();
 }
 
-bool SeaVisualiser::stepFlight(const RigEngine::FlightView& v, std::deque<P3>& trail, float& env, float& flash, float& lastX, float dt)
+SeaVisualiser::P3 SeaVisualiser::roomToSea(const RigEngine::ObjectView& object, float env)
+{
+    // Seen from the ship: across is across, the front of the room is out towards the horizon and the back is near
+    // the ship (never nearer than a comet ever came, so nothing rushes at the camera), and height is height. A
+    // pass at ear level still rides a little over the water, higher the louder it is, as the comets always have.
+    const float x = juce::jlimit(-1.0f, 1.0f, object.x), y = juce::jlimit(-1.0f, 1.0f, object.y), z = juce::jlimit(0.0f, 1.0f, object.z);
+    return { x * c_arcX * c_roomAcross, 0.14f + 0.2f * env + 0.75f * z, juce::jmap(y, -1.0f, 1.0f, c_roomNearZ, c_arcZ + 0.2f) };
+}
+
+bool SeaVisualiser::stepFlight(const RigEngine::FlightView& v, const RigEngine::ObjectView* object, std::deque<P3>& trail, float& env,
+                               float& flash, float& lastX, float dt)
 {
     if (v.active)
     {
         env += (v.env - env) * juce::jmin(1.0f, 21.0f * dt);
 
-        // Each pass is a cannonball arcing across the sea, swinging in towards us at the pass.
+        // Each pass is a cannonball arcing across the sea, swinging in towards us at the pass. In a room it flies
+        // where its object is.
         const float across = juce::jlimit(-1.0f, 1.0f, v.x);
-        const float middle = 1.0f - std::abs(across);
-        const float zClose = juce::jmap(v.closeness, 2.4f, 1.2f);
-        const float z = juce::jmap(middle, c_arcZ, zClose);
-        const float y = 0.12f + (0.22f + 0.2f * env) * std::sin(juce::MathConstants<float>::pi * 0.5f * (across + 1.0f));
-        trail.push_back({ across * c_arcX, y, z });
+        P3 at;
+        if (object != nullptr)
+            at = roomToSea(*object, env);
+        else
+        {
+            const float middle = 1.0f - std::abs(across);
+            const float zClose = juce::jmap(v.closeness, 2.4f, 1.2f);
+            at = { across * c_arcX, 0.12f + (0.22f + 0.2f * env) * std::sin(juce::MathConstants<float>::pi * 0.5f * (across + 1.0f)),
+                   juce::jmap(middle, c_arcZ, zClose) };
+        }
+        trail.push_back(at);
 
         if (static_cast<int>(trail.size()) > c_trail)
             trail.pop_front();
 
         // It splashes: a bump in the water under it, which then rolls away with the swell.
-        const float u = juce::jlimit(0.0f, 1.0f, (across * c_arcX / c_halfWidth + 1.0f) * 0.5f);
+        const float u = juce::jlimit(0.0f, 1.0f, (at.x / c_halfWidth + 1.0f) * 0.5f);
         const int band = juce::jlimit(0, c_bands - 1, juce::roundToInt(u * static_cast<float>(c_bands - 1)));
         for (int d = -3; d <= 3; ++d)
         {
@@ -324,65 +361,57 @@ void SeaVisualiser::buildConstellation()
     if (m_logo == nullptr || ! m_logo->isLoaded())
         return;
 
-    // The mark's outline, as a handful of brighter stars on it joined by faint lines. The outline has thousands
-    // of segments; a constellation wants a couple of dozen points, so each contour is walked and a star is
-    // dropped every so many units of its length.
-    const auto path = m_logo->createOutlinePath();
-
-    struct Contour { int first = 0, count = 0; float length = 0.0f; };
-    std::vector<juce::Point<float>> points;
-    std::vector<float> lengths;   // arc length to each point
-    std::vector<Contour> contours;
-
-    juce::PathFlatteningIterator it(path, {}, 0.004f);
-    float runningLength = 0.0f;
-    bool startNew = true;
-    while (it.next())
+    // The mark as stars: a few heavy ones on the corners the shape hangs on, light ones to carry the curves round.
+    const auto mark = LogoConstellation::build(*m_logo);
+    juce::Random r(1337);
+    juce::Point<float> low { 1.0e6f, 1.0e6f }, high { -1.0e6f, -1.0e6f };
+    for (const auto& s : mark.stars)
     {
-        if (startNew)
-        {
-            contours.push_back({ static_cast<int>(points.size()), 0, 0.0f });
-            runningLength = 0.0f;
-            points.push_back({ it.x1, it.y1 });
-            lengths.push_back(0.0f);
-        }
-        startNew = it.isLastInSubpath();
-        runningLength += juce::Point<float>(it.x1, it.y1).getDistanceFrom({ it.x2, it.y2 });
-        points.push_back({ it.x2, it.y2 });
-        lengths.push_back(runningLength);
-        auto& c = contours.back();
-        c.count = static_cast<int>(points.size()) - c.first;
-        c.length = runningLength;
+        m_constellation.push_back({ s.at, 1.15f + 1.9f * s.weight + 0.2f * r.nextFloat(), r.nextFloat() * 6.28f, s.weight, s.cherry });
+        low = { juce::jmin(low.x, s.at.x), juce::jmin(low.y, s.at.y) };
+        high = { juce::jmax(high.x, s.at.x), juce::jmax(high.y, s.at.y) };
     }
+    m_constellationBounds = m_constellation.empty() ? juce::Rectangle<float>() : juce::Rectangle<float>(low, high);
+    m_constellationLines = mark.lines;
+}
 
-    float longest = 0.0f;
-    for (const auto& c : contours)
-        longest = juce::jmax(longest, c.length);
-    if (longest <= 0.0f)
+void SeaVisualiser::buildConstellationHaze(float pixelScale)
+{
+    m_constellationHaze = juce::Image();
+    if (m_constellation.empty() || m_logo == nullptr)
         return;
 
-    for (const auto& c : contours)
+    const auto area = constellationArea().expanded(c_hazeMargin);
+    const float unit = (area.getWidth() - 2.0f * c_hazeMargin) / juce::jmax(0.1f, m_constellationBounds.getWidth());
+    const auto middle = m_constellationBounds.getCentre();
+    m_constellationHaze = juce::Image(juce::Image::ARGB, juce::jmax(1, juce::roundToInt(area.getWidth() * pixelScale)),
+                                      juce::jmax(1, juce::roundToInt(area.getHeight() * pixelScale)), true);
+    juce::Graphics g(m_constellationHaze);
+    const auto toImage = juce::AffineTransform::translation(-middle.x, -middle.y).scaled(unit, -unit)
+                             .translated(0.5f * area.getWidth(), 0.5f * area.getHeight()).scaled(pixelScale);
+    const auto grenade = m_logo->createOutlinePath(false), cherry = m_logo->createOutlinePath(true);
+
+    // What the cherry hides: itself and a keyline round it.
+    juce::Image hidden(juce::Image::SingleChannel, m_constellationHaze.getWidth(), m_constellationHaze.getHeight(), true);
     {
-        if (c.length < longest * 0.18f || c.count < 4)
-            continue;
-        const int stars = juce::jlimit(4, 9, juce::roundToInt(4.0f + 5.0f * c.length / longest));
-        const int first = static_cast<int>(m_constellation.size());
-        for (int s = 0; s < stars; ++s)
-        {
-            const float want = c.length * static_cast<float>(s) / static_cast<float>(stars);
-            int index = c.first;
-            for (int k = c.first; k < c.first + c.count; ++k, index = k)
-                if (lengths[static_cast<size_t>(k)] >= want)
-                    break;
-            const auto p = points[static_cast<size_t>(juce::jlimit(c.first, c.first + c.count - 1, index))];
-            m_constellation.push_back({ p, 1.5f + 1.1f * m_random.nextFloat(), m_random.nextFloat() * 6.28f });
-        }
-        const int added = static_cast<int>(m_constellation.size()) - first;
-        for (int s = 0; s < added; ++s)
-            m_constellationLines.push_back({ first + s, first + (s + 1) % added }); // the contour closes
-        if (m_constellation.size() >= 30)
-            break;
+        juce::Graphics mask(hidden);
+        mask.setColour(juce::Colours::white);
+        mask.fillPath(cherry, toImage);
+        mask.strokePath(cherry, juce::PathStrokeType(2.0f * c_keyline / juce::jmax(0.1f, unit)), toImage);
     }
+
+    g.setColour(juce::Colour(0xffa9c6dc).withAlpha(c_glowGrenade));
+    g.fillPath(grenade, toImage);
+    {
+        juce::Image::BitmapData haze(m_constellationHaze, juce::Image::BitmapData::readWrite);
+        const juce::Image::BitmapData cut(hidden, juce::Image::BitmapData::readOnly);
+        for (int y = 0; y < haze.height; ++y)
+            for (int x = 0; x < haze.width; ++x)
+                if (const auto covered = *cut.getPixelPointer(x, y))
+                    reinterpret_cast<juce::PixelARGB*>(haze.getPixelPointer(x, y))->multiplyAlpha(255 - static_cast<int>(covered));
+    }
+    g.setColour(juce::Colour(0xffe8455c).withAlpha(c_glowCherry));
+    g.fillPath(cherry, toImage);
 }
 
 juce::Rectangle<float> SeaVisualiser::clearOf(juce::Rectangle<float> area, const juce::Rectangle<float>* keepOut, int numKeepOut,
@@ -413,9 +442,13 @@ juce::Rectangle<float> SeaVisualiser::constellationArea() const
 {
     // Open sky: right of the moon, left of whatever the window puts in the sea's top right, above the horizon.
     // Taken from the sea's shape, not from the last frame, so it can be asked for before anything is painted.
-    const float horizon = static_cast<float>(getHeight()) * 0.30f;
-    const float span = juce::jmax(40.0f, horizon - 22.0f);
-    return juce::Rectangle<float>(span, span).withCentre({ static_cast<float>(getWidth()) * 0.55f, horizon * 0.50f });
+    // It is as tall as the sky lets it be: the mark has to be big enough to be known for what it is.
+    const float horizon = static_cast<float>(getHeight()) * 0.30f; // (the sky is as tall with the room strip under the water)
+    const float top = c_frame + 4.0f, bottom = horizon - 7.0f;   // under the frame, over the water
+    const float shapeW = juce::jmax(0.1f, m_constellationBounds.getWidth()), shapeH = juce::jmax(0.1f, m_constellationBounds.getHeight());
+    const float unit = juce::jmax(40.0f, juce::jmin((bottom - top) / shapeH, static_cast<float>(getWidth()) * 0.28f / shapeW));
+    return juce::Rectangle<float>(unit * shapeW, unit * shapeH)
+        .withCentre({ static_cast<float>(getWidth()) * 0.57f, 0.5f * (top + bottom) });
 }
 
 void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
@@ -424,28 +457,44 @@ void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
         return;
 
     const auto area = constellationArea();
-    const juce::Point<float> centre = area.getCentre();
-    const float span = area.getWidth();
+    const juce::Point<float> centre = area.getCentre(), middle = m_constellationBounds.getCentre();
+    const float unit = area.getWidth() / juce::jmax(0.1f, m_constellationBounds.getWidth());
     juce::ignoreUnused(w);
-    auto place = [&](juce::Point<float> p) { return juce::Point<float>(centre.x + p.x * span, centre.y - p.y * span); };
+    auto place = [&](juce::Point<float> p) { return juce::Point<float>(centre.x + (p.x - middle.x) * unit, centre.y - (p.y - middle.y) * unit); };
 
     const float alpha = juce::jlimit(0.0f, 1.0f, m_constellationOpacity);
     const float t = m_constellationTime;
+    // The grenade is cold starlight, the cherry is rosy: the two colours of the mark, as far as a night sky has them.
+    const juce::Colour colours[2] = { juce::Colour(0xffdbe9f6), juce::Colour(0xffff8a86) };
 
-    g.setColour(c_moonlight.withAlpha(0.14f * alpha));
+    // The haze first: the two shapes themselves, barely there, so the stars read as a grenade and a cherry and
+    // not as rings of wire. It is a picture made when the sky is (filling the shapes every frame would cost).
+    if (m_constellationHaze.isValid())
+    {
+        g.setOpacity(alpha);
+        g.drawImage(m_constellationHaze, area.expanded(c_hazeMargin));
+    }
+
+    // The outlines are the strong lines and the ring the strongest; the cap and stems are quieter, the lever and
+    // the cherry's dimple quieter still.
+    static constexpr float lineAlpha[4] = { 0.20f, 0.27f, 0.38f, 0.46f }, lineWidth[4] = { 0.7f, 0.85f, 1.0f, 1.1f };
     for (const auto& line : m_constellationLines)
     {
-        const auto a = place(m_constellation[static_cast<size_t>(line.first)].at);
-        const auto b = place(m_constellation[static_cast<size_t>(line.second)].at);
-        g.drawLine({ a, b }, 0.8f);
+        const auto& from = m_constellation[static_cast<size_t>(line.first)];
+        const auto& to = m_constellation[static_cast<size_t>(line.second)];
+        const auto tier = static_cast<size_t>(juce::jlimit(0, 3, line.tier));
+        g.setColour(colours[from.cherry && to.cherry ? 1 : 0].withAlpha(lineAlpha[tier] * alpha));
+        g.drawLine({ place(from.at), place(to.at) }, lineWidth[tier]);
     }
     for (const auto& s : m_constellation)
     {
         const float twinkle = 0.55f + 0.45f * std::sin(t * 2.1f + s.phase);
         const auto p = place(s.at);
-        g.setColour(c_moonlight.withAlpha(0.20f * alpha * twinkle));
-        g.fillEllipse(juce::Rectangle<float>(s.size * 3.2f, s.size * 3.2f).withCentre(p));
-        g.setColour(c_moonlight.withAlpha(juce::jmin(1.0f, 0.55f + 0.35f * twinkle) * alpha));
+        const auto colour = colours[s.cherry ? 1 : 0];
+        const float lit = 0.6f + 0.4f * s.weight;
+        g.setColour(colour.withAlpha(0.22f * alpha * twinkle * lit));
+        g.fillEllipse(juce::Rectangle<float>(s.size * 3.0f, s.size * 3.0f).withCentre(p));
+        g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.55f + 0.35f * twinkle) * alpha * lit));
         g.fillEllipse(juce::Rectangle<float>(s.size, s.size).withCentre(p));
     }
 }
@@ -453,6 +502,8 @@ void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
 //==============================================================================
 void SeaVisualiser::buildSky(float pixelScale)
 {
+    buildConstellationHaze(pixelScale);
+
     const auto bounds = getLocalBounds().toFloat();
     const int iw = juce::jmax(1, juce::roundToInt(bounds.getWidth() * pixelScale));
     const int ih = juce::jmax(1, juce::roundToInt(bounds.getHeight() * pixelScale));
@@ -478,6 +529,16 @@ void SeaVisualiser::buildSky(float pixelScale)
 }
 
 //==============================================================================
+float SeaVisualiser::rowHeight(int k, int band) const
+{
+    // Line k, between two steps: its own row, with the row arriving from nearer the camera blended in as the
+    // step goes by. The nearest line's arriving row is the sound as it is now.
+    const auto b = static_cast<size_t>(band);
+    const float own = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)][b];
+    const float arriving = k > 0 ? m_rows[static_cast<size_t>((m_rowHead - k + 1 + c_rows) % c_rows)][b] : m_smooth[b] + m_wake[b];
+    return own + (arriving - own) * m_rowPhase;
+}
+
 void SeaVisualiser::paintWater(juce::Graphics& g, float h)
 {
     juce::Path line, fill;
@@ -485,9 +546,11 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
 
     for (int k = c_rows - 1; k >= 0; --k)
     {
-        const auto& row = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)];
-        // The row sits between two steps: it rolls away smoothly instead of jumping once per step.
-        const float depth = static_cast<float>(k) + m_rowPhase;
+        // The lines of the sea stay where they are: only the waves travel along them. (Lines that slide away to
+        // the horizon all the time make the whole picture rush backwards, which is hard to look at.) Between two
+        // steps a line shows a blend of its own row and the one arriving from nearer the camera, so the waves
+        // still roll away smoothly instead of jumping once per step.
+        const float depth = static_cast<float>(k);
         const float z = m_zNear + depth * m_zStep;
         const float nearness = juce::jlimit(0.0f, 1.0f, 1.0f - depth / static_cast<float>(c_rows));
         const float t = static_cast<float>(m_time);
@@ -508,7 +571,7 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
             const float x = (u * 2.0f - 1.0f) * c_halfWidth;
             const float swell = swellGain * (0.022f * std::sin(x * 2.6f + t * 1.4f + depth * 0.55f)
                                            + 0.012f * std::sin(x * 5.3f - t * 0.9f + depth * 0.9f));
-            const float height = row[static_cast<size_t>(b)];
+            const float height = rowHeight(k, b);
             loudest = juce::jmax(loudest, height);
             p[static_cast<size_t>(b)] = project({ x, height * 0.42f + swell + lift, z });
         }
@@ -748,8 +811,9 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
         area = area.withX(juce::jlimit(8.0f, juce::jmax(8.0f, w - textW - 8.0f), area.getX())).withY(juce::jmax(8.0f, area.getY()));
 
         // Down out of the way of anything it lands on, and then of anything already placed.
-        const juce::Rectangle<float> keepOut[] = { m_titleBox, m_recBox, m_reserved };
-        area = clearOf(area, keepOut, 3, placed.data(), static_cast<int>(numPlaced));
+        const juce::Rectangle<float> keepOut[] = { m_titleBox, m_recBox, m_reserved, m_roomShown > 0.01f ? roomPlanArea() : juce::Rectangle<float>(),
+                                                   m_restNote.isNotEmpty() && m_roomShown < 0.99f ? restNoteArea() : juce::Rectangle<float>() };
+        area = clearOf(area, keepOut, 5, placed.data(), static_cast<int>(numPlaced));
         if (numPlaced < placed.size())
             placed[numPlaced++] = area;
 
@@ -766,9 +830,10 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
 void SeaVisualiser::paint(juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    const float w = bounds.getWidth(), h = bounds.getHeight();
+    const auto scene = bounds.withTrimmedBottom(static_cast<float>(m_foot)); // the water and the sky, over the frame's foot
+    const float w = scene.getWidth(), h = scene.getHeight();
     m_focal = juce::jmax(w * 0.36f, h * 0.42f);
-    m_horizon = h * 0.30f;
+    m_horizon = bounds.getHeight() * 0.30f; // the sky keeps its height over the room strip: the water gives it the room
     m_cx = w * 0.5f;
     // The nearest wave row lands on the bottom edge, so the sea fills the whole panel at any shape.
     m_zNear = juce::jlimit(0.25f, 1.2f, c_camHeight * m_focal / juce::jmax(1.0f, h * 1.02f - m_horizon));
@@ -818,13 +883,13 @@ void SeaVisualiser::paint(juce::Graphics& g)
         constexpr int rows = c_rows;
         for (int k = 0; k < rows; ++k)
         {
-            const float depth = static_cast<float>(k) + m_rowPhase;
+            const float depth = static_cast<float>(k);
             const float z = m_zNear + depth * m_zStep;
             const float nearness = juce::jlimit(0.0f, 1.0f, 1.0f - depth / static_cast<float>(rows));
             const float worldX = (moonAt.x - m_cx) * z / m_focal;
             const float u = juce::jlimit(0.0f, 1.0f, (worldX / c_halfWidth + 1.0f) * 0.5f);
             const int band = juce::jlimit(0, c_bands - 1, juce::roundToInt(u * static_cast<float>(c_bands - 1)));
-            const float height = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)][static_cast<size_t>(band)];
+            const float height = rowHeight(k, band);
             // A few flecks on each row, scattered across a path that widens towards the camera: the offsets are
             // in world units scaled by depth, so a fleck is the same few pixels wherever it is. They are lights
             // on the water, so they brighten quickly with nearness and sit on the lit crests: far out they fade
@@ -883,6 +948,8 @@ void SeaVisualiser::paint(juce::Graphics& g)
 
     paintStowaway(g, h);
     paintComets(g, w);
+    paintRoom(g);
+    paintRestNote(g);
 
     // The panel's name, and the recording lamp. The time itself is on the tape's own button in the header, so
     // there is one of it in the window.
@@ -924,7 +991,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
     if (! m_dock.isEmpty())
     {
         g.setColour(TC::window.withAlpha(0.55f));
-        g.fillRect(bounds);
+        g.fillRect(scene);
     }
 
     // The frame: the sea is a rectangular window in an iron frame, a gusset plate with a bolt in each corner.
@@ -942,13 +1009,23 @@ void SeaVisualiser::paint(juce::Graphics& g)
         Theme::Plate::drawBolt(g, c);
 }
 
+void SeaVisualiser::setFootHeight(int height)
+{
+    if (height == m_foot)
+        return;
+    m_foot = juce::jmax(0, height);
+    resized();
+    repaint();
+}
+
 void SeaVisualiser::resized()
 {
     const auto bounds = getLocalBounds().toFloat();
     m_sky = juce::Image();
-    // The window the sea shows through: the frame's inner edge, its corners cut off by the gussets.
+    // The window the sea shows through: the frame's inner edge, its corners cut off by the gussets. Under it, the
+    // frame's foot (the room strip) when there is one.
     const float band = c_frame, cut = c_gusset - band;
-    const auto window = bounds.reduced(band);
+    const auto window = bounds.reduced(band).withTrimmedBottom(static_cast<float>(m_foot));
     m_frameInner.clear();
     m_frameInner.startNewSubPath(window.getX() + cut, window.getY());
     m_frameInner.lineTo(window.getRight() - cut, window.getY());
@@ -963,4 +1040,327 @@ void SeaVisualiser::resized()
     m_ironFrame.addRectangle(bounds);
     m_ironFrame.addPath(m_frameInner);
     m_ironFrame.setUsingNonZeroWinding(false);
+}
+
+//==============================================================================
+// The room: a plan of it in the water's lower left corner.
+juce::Rectangle<float> SeaVisualiser::roomPlanArea() const
+{
+    // Square, in the corner of the water clear of the frame's gusset, and well under the horizon.
+    const float h = static_cast<float>(getHeight() - m_foot);
+    const float side = juce::jlimit(80.0f, 124.0f, h * 0.38f);
+    return { c_frame + 11.0f, h - c_frame - 9.0f - side, side, side };
+}
+
+void SeaVisualiser::setRestNote(const juce::String& note)
+{
+    if (note == m_restNote)
+        return;
+    m_restNote = note;
+    repaint();
+}
+
+juce::Rectangle<float> SeaVisualiser::restNoteArea() const
+{
+    // In the plan's corner, as wide as three lines need and clear of the morph pad's dock at the lower right.
+    const float h = static_cast<float>(getHeight() - m_foot);
+    constexpr float noteW = 236.0f, noteH = 50.0f;
+    return { c_frame + 11.0f, h - c_frame - 9.0f - noteH, noteW, noteH };
+}
+
+void SeaVisualiser::paintRestNote(juce::Graphics& g)
+{
+    // A quiet plate in the water, fading out as the plan of a room fades in: its first line, then the rest.
+    const float alpha = 1.0f - m_roomShown;
+    if (m_restNote.isEmpty() || alpha < 0.01f)
+        return;
+    namespace TC = Theme::Colours;
+    const auto plate = restNoteArea();
+    g.setColour(TC::well.withAlpha(0.78f * alpha));
+    Theme::Plate::fill(g, plate, Theme::Cut::control);
+    g.setColour(TC::edgeDark.withAlpha(alpha));
+    Theme::Plate::stroke(g, plate, Theme::Cut::control);
+    auto inner = plate.reduced(8.0f, 5.0f);
+    const auto head = m_restNote.upToFirstOccurrenceOf("\n", false, false);
+    const auto rest = m_restNote.fromFirstOccurrenceOf("\n", false, false);
+    g.setColour(TC::textDim.withAlpha(alpha));
+    Theme::fitText(g, head, inner.removeFromTop(14.0f), m_fonts.caption(), juce::Justification::centredLeft, Theme::Fit::Sentence);
+    Theme::fitLines(g, rest, inner.toNearestInt(), m_fonts.caption(), TC::textFaint.withAlpha(alpha));
+}
+
+juce::String SeaVisualiser::getTooltip()
+{
+    // The plan of the room explains itself when the mouse is over it.
+    if (m_roomShown > 0.5f && roomPlanArea().contains(getMouseXYRelative().toFloat()))
+        return "The Room From Above\nThe front of the room is at the top and you are the hull in the middle. Each speaker is a lamp on "
+               "the walls (the ones overhead on the inner square, the LFE the square under the room), lit as it plays. Each sound is a dot: "
+               "the buses, throws, hits and Stowaway in their colours, a higher one drawn nearer the middle. The speaker meters in "
+               "Output give the same levels in numbers.";
+    return juce::SettableTooltipClient::getTooltip();
+}
+
+juce::Point<float> SeaVisualiser::planPoint(juce::Rectangle<float> roomBox, float x, float y, float z)
+{
+    // Looking down on the room: the front wall at the top. A sound higher up is drawn nearer the middle, as far in
+    // as the tops at the ceiling, so the tops are an inner square and height reads at a glance.
+    const float in = 1.0f - c_planHeightIn * juce::jlimit(0.0f, 1.0f, z);
+    const auto c = roomBox.getCentre();
+    return { c.x + 0.5f * roomBox.getWidth() * juce::jlimit(-1.0f, 1.0f, x) * in,
+             c.y - 0.5f * roomBox.getHeight() * juce::jlimit(-1.0f, 1.0f, y) * in };
+}
+
+namespace
+{
+    /** The room's box inside the plan's plate: room round it for the lamps on the walls and, under it, the LFE's. */
+    juce::Rectangle<float> planRoomBox(juce::Rectangle<float> plate)
+    {
+        return plate.withTrimmedLeft(15.0f).withTrimmedRight(15.0f).withTrimmedTop(13.0f).withTrimmedBottom(21.0f);
+    }
+}
+
+juce::Point<float> SeaVisualiser::planDot(int object, float* brightness) const
+{
+    const auto& dot = m_dots[static_cast<size_t>(juce::jlimit(0, RigEngine::c_objects - 1, object))];
+    if (brightness != nullptr)
+        *brightness = dot.count > 0 ? dot.level * m_roomShown : 0.0f;
+    if (dot.count == 0)
+        return {};
+    const auto& p = dot.trail[static_cast<size_t>(dot.head)];
+    return planPoint(planRoomBox(roomPlanArea()), p.x, p.y, p.z);
+}
+
+float SeaVisualiser::planHeading(int object, juce::Point<float>& direction) const
+{
+    // A pass or a throw on the move: its heading from the far end of its trail, steady as the trail is.
+    direction = {};
+    if (object < 0 || object > RigEngine::ObjThrow4)
+        return 0.0f;
+    const auto& dot = m_dots[static_cast<size_t>(object)];
+    if (dot.count <= c_headingSpan || dot.level < 0.01f)
+        return 0.0f;
+    const auto box = planRoomBox(roomPlanArea());
+    const auto& p = dot.trail[static_cast<size_t>(dot.head)];
+    const auto& was = dot.trail[static_cast<size_t>((dot.head - (dot.count - 1) + c_dotTrail) % c_dotTrail)];
+    const auto at = planPoint(box, p.x, p.y, p.z), from = planPoint(box, was.x, was.y, was.z);
+    const float moved = at.getDistanceFrom(from);
+    if (moved <= 1.5f)
+        return 0.0f;
+    direction = (at - from) / moved;
+    return juce::jmin(1.0f, (moved - 1.5f) / 2.0f);
+}
+
+SeaVisualiser::PlanFlash SeaVisualiser::planFlash() const
+{
+    PlanFlash f;
+    const auto box = planRoomBox(roomPlanArea());
+    // Spread out, a hit is all over the room: its glow's centre moves from where it lands to the middle.
+    f.at = planPoint(box, m_hitGlow.at.x, m_hitGlow.at.y, m_hitGlow.at.z);
+    // (on a curve: a little spread keeps the glow on the hit, all of it centres it on the room)
+    f.at += (box.getCentre() - f.at) * (m_hitGlow.spread * m_hitGlow.spread);
+    const float half = box.getWidth() * 0.5f;
+    f.radiusY = c_flashPoint + (c_flashRoom * half - c_flashPoint) * m_hitGlow.spread;
+    f.radiusX = f.radiusY + half * m_hitGlow.apart * (1.0f - m_hitGlow.spread);
+    f.level = m_hitGlow.level * m_roomShown;
+    return f;
+}
+
+void SeaVisualiser::stepRoom(float dt)
+{
+    // The plan shows in a room and fades away at Mono and Stereo (keeping the last room's shape while it goes).
+    const auto width = m_processor.getRoomWidth();
+    m_inRoom = width >= room::Width::Quad;
+    if (m_inRoom)
+        m_planWidth = width;
+    m_roomShown += ((m_inRoom ? 1.0f : 0.0f) - m_roomShown) * juce::jmin(1.0f, 6.0f * dt);
+    if (std::abs(m_roomShown - (m_inRoom ? 1.0f : 0.0f)) < 0.002f)
+        m_roomShown = m_inRoom ? 1.0f : 0.0f;
+
+    // Each speaker's lamp: up at once with its level, down over about a third of a second (the meter itself falls
+    // back as the OUT meter does), from dark at -40 dB to full at 0 dBFS, on a curve, so the loud speakers stand
+    // out from the ones a sound only touches. No flicker: it never jumps down.
+    const int channels = room::layout(m_planWidth).numChannels;
+    for (int ch = 0; ch < room::c_maxChannels; ++ch)
+    {
+        auto& lamp = m_lamps[static_cast<size_t>(ch)];
+        const float db = juce::Decibels::gainToDecibels(ch < channels ? m_processor.getChannelPeak(ch) : 0.0f, -100.0f);
+        const float t = juce::jlimit(0.0f, 1.0f, (db + 40.0f) / 40.0f);
+        const float want = m_inRoom ? t * t : 0.0f;
+        lamp = want > lamp ? want : lamp + (want - lamp) * juce::jmin(1.0f, 7.0f * dt);
+        if (lamp < 1.0e-3f)
+            lamp = 0.0f;
+    }
+
+    // The objects: where each is, with a short trail, and a level that eases in and out.
+    const auto& engine = m_processor.getEngine();
+    {
+        // The hit's flash: up softly with the hits' level, down slowly; it takes the hit's place and Hit Spread as
+        // they are (a hit that lands somewhere new starts its own flash there, it does not fly across).
+        const auto hit = engine.getHitView();
+        // (on a curve, as the lamps are, so a quiet hit still shows)
+        const float want = m_inRoom ? juce::jlimit(0.0f, 1.0f, 1.6f * std::sqrt(juce::jmax(0.0f, hit.level))) : 0.0f;
+        auto& glow = m_hitGlow;
+        glow.level += (want - glow.level) * (1.0f - std::exp(-dt / (want > glow.level ? 0.05f : 0.45f)));
+        if (glow.level < 1.0e-3f)
+            glow.level = 0.0f;
+        if (want > 0.0f)
+        {
+            glow.at = { hit.x, hit.y, hit.z };
+            glow.spread = juce::jlimit(0.0f, 1.0f, hit.spread);
+            glow.apart = juce::jlimit(0.0f, 1.0f, hit.apart);
+        }
+    }
+    for (int i = 0; i < RigEngine::c_objects; ++i)
+    {
+        auto& dot = m_dots[static_cast<size_t>(i)];
+        const auto view = engine.getObject(i);
+        const bool on = m_inRoom && view.active;
+        dot.level += ((on ? juce::jlimit(0.0f, 1.0f, view.level) : 0.0f) - dot.level) * juce::jmin(1.0f, (on ? 12.0f : 4.0f) * dt);
+        if (on)
+        {
+            dot.head = (dot.head + 1) % c_dotTrail;
+            dot.trail[static_cast<size_t>(dot.head)] = { view.x, view.y, view.z };
+            dot.count = juce::jmin(c_dotTrail, dot.count + 1);
+        }
+        else if (dot.level < 0.01f)
+        {
+            dot.level = 0.0f;
+            dot.count = 0;
+        }
+    }
+}
+
+void SeaVisualiser::paintRoom(juce::Graphics& g)
+{
+    if (m_roomShown < 0.01f)
+        return;
+    namespace TC = Theme::Colours;
+    const float alpha = m_roomShown;
+    const auto plate = roomPlanArea();
+    const auto box = planRoomBox(plate);
+    const auto& layout = room::layout(m_planWidth);
+
+    // The plate: a dark well with a pressed edge, so the water shows faintly through it.
+    g.setColour(TC::well.withAlpha(0.84f * alpha));
+    Theme::Plate::fill(g, plate, Theme::Cut::control);
+    g.setColour(TC::edgeDark.withAlpha(alpha));
+    Theme::Plate::stroke(g, plate, Theme::Cut::control);
+    g.setColour(TC::stroke.withAlpha(0.55f * alpha));
+    Theme::Plate::stroke(g, plate.reduced(1.0f), Theme::Cut::control);
+
+    // The room's walls, and the ceiling (an inner square) when it has speakers overhead.
+    bool tops = false;
+    for (int ch = 0; ch < layout.numChannels; ++ch)
+        tops = tops || room::info(layout.speakers[static_cast<size_t>(ch)]).role == room::Role::Height;
+    g.setColour(TC::grid.brighter(0.35f).withAlpha(alpha));
+    g.drawRect(box, 1.0f);
+    if (tops)
+    {
+        g.setColour(TC::grid.brighter(0.2f).withAlpha(alpha));
+        const float in = 1.0f - c_planHeightIn;
+        g.drawRect(box.withSizeKeepingCentre(box.getWidth() * in, box.getHeight() * in), 1.0f);
+    }
+
+    // The listener: a small hull in the middle, its bow to the front.
+    {
+        const auto c = box.getCentre();
+        juce::Path hull;
+        hull.startNewSubPath(c.x, c.y - 6.5f);
+        hull.lineTo(c.x + 3.5f, c.y - 1.5f);
+        hull.lineTo(c.x + 3.0f, c.y + 5.0f);
+        hull.lineTo(c.x - 3.0f, c.y + 5.0f);
+        hull.lineTo(c.x - 3.5f, c.y - 1.5f);
+        hull.closeSubPath();
+        g.setColour(TC::textDim.withAlpha(0.8f * alpha));
+        g.fillPath(hull);
+    }
+
+    // A lamp at each speaker that glows with its level: round lamps on the walls, smaller on the ceiling, and the
+    // LFE a square lamp of its own under the room.
+    const juce::Colour lampLight { 0xfff3e3c0 };
+    for (int ch = 0; ch < layout.numChannels; ++ch)
+    {
+        const auto& speaker = room::info(layout.speakers[static_cast<size_t>(ch)]);
+        const float level = m_lamps[static_cast<size_t>(ch)];
+        if (speaker.role == room::Role::Lfe)
+        {
+            const auto at = juce::Point<float>(box.getCentreX(), box.getBottom() + 11.0f);
+            const auto lamp = juce::Rectangle<float>(8.0f, 8.0f).withCentre(at);
+            g.setColour(TC::stowaway.withAlpha((0.10f + 0.35f * level) * alpha));
+            g.fillRect(lamp.expanded(1.0f + 3.0f * level));
+            g.setColour(TC::edgeDark.withAlpha(alpha));
+            g.fillRect(lamp);
+            g.setColour(TC::stowaway.withAlpha((0.22f + 0.78f * level) * alpha));
+            g.fillRect(lamp.reduced(1.5f));
+            continue;
+        }
+        const bool high = speaker.role == room::Role::Height;
+        const auto at = planPoint(box, speaker.x, speaker.y, speaker.z);
+        const float r = high ? 3.2f : 4.2f;
+        if (level > 0.01f)
+        {
+            const float halo = r + 1.0f + 6.0f * level;
+            juce::ColourGradient glow(lampLight.withAlpha(0.55f * level * alpha), at.x, at.y, lampLight.withAlpha(0.0f), at.x + halo, at.y, true);
+            g.setGradientFill(glow);
+            g.fillEllipse(juce::Rectangle<float>(halo * 2.0f, halo * 2.0f).withCentre(at));
+        }
+        g.setColour(TC::edgeDark.withAlpha(alpha));
+        g.fillEllipse(juce::Rectangle<float>(r * 2.0f + 2.0f, r * 2.0f + 2.0f).withCentre(at));
+        g.setColour(TC::bolt.withAlpha(0.45f * alpha).interpolatedWith(lampLight.withAlpha(alpha), level));
+        g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at));
+    }
+
+    // The hit: a soft glow where it lands, as wide as Hit Spread makes it (filling the room at 100%), under the dots.
+    if (const auto flash = planFlash(); flash.level > 0.01f)
+    {
+        juce::Graphics::ScopedSaveState clip(g);
+        g.reduceClipRegion(plate.reduced(2.0f).toNearestInt());
+        // Spread thin, the same hit is fainter in each place: the glow's brightness goes down as it widens.
+        const float strength = flash.level * (0.8f - 0.4f * m_hitGlow.spread) * alpha;
+        const auto area = juce::Rectangle<float>(2.0f * flash.radiusX, 2.0f * flash.radiusY).withCentre(flash.at);
+        juce::ColourGradient glow(TC::hits.withAlpha(strength), flash.at.x, flash.at.y, TC::hits.withAlpha(0.0f), flash.at.x + flash.radiusY, flash.at.y, true);
+        glow.addColour(0.5, TC::hits.withAlpha(0.55f * strength));
+        g.setGradientFill(glow);
+        g.addTransform(juce::AffineTransform::scale(flash.radiusX / juce::jmax(1.0f, flash.radiusY), 1.0f, flash.at.x, flash.at.y));
+        g.fillEllipse(area.withSizeKeepingCentre(2.0f * flash.radiusY, 2.0f * flash.radiusY));
+    }
+
+    // The objects: a dot in its colour where it is, with a short fading trail behind it; a pass or a throw that is
+    // moving has a small arrowhead ahead of its dot, pointing the way it goes.
+    for (int i = 0; i < RigEngine::c_objects; ++i)
+    {
+        const auto& dot = m_dots[static_cast<size_t>(i)];
+        if (dot.count == 0 || dot.level < 0.01f)
+            continue;
+        const auto colour = i <= RigEngine::ObjPassA2 ? TC::busA
+                          : i <= RigEngine::ObjPassB2 ? TC::busB
+                          : i <= RigEngine::ObjThrow4 ? TC::brass
+                          : i == RigEngine::ObjHits   ? TC::hits
+                                                      : TC::stowaway;
+        const float level = dot.level * alpha;
+        for (int k = 1; k < dot.count; ++k)
+        {
+            const auto& a = dot.trail[static_cast<size_t>((dot.head - k + c_dotTrail) % c_dotTrail)];
+            const auto& b = dot.trail[static_cast<size_t>((dot.head - k + 1 + c_dotTrail) % c_dotTrail)];
+            const float fade = 1.0f - static_cast<float>(k) / static_cast<float>(c_dotTrail);
+            g.setColour(colour.withAlpha(0.5f * fade * level));
+            g.drawLine({ planPoint(box, a.x, a.y, a.z), planPoint(box, b.x, b.y, b.z) }, 1.4f);
+        }
+        const auto& p = dot.trail[static_cast<size_t>(dot.head)];
+        const auto at = planPoint(box, p.x, p.y, p.z);
+        const float r = 2.2f + 1.6f * dot.level;
+        g.setColour(TC::edgeDark.withAlpha(0.8f * level));
+        g.fillEllipse(juce::Rectangle<float>(r * 2.0f + 2.0f, r * 2.0f + 2.0f).withCentre(at));
+        g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
+        g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at));
+        juce::Point<float> d;
+        if (const float shown = planHeading(i, d); shown > 0.0f)
+        {
+            const juce::Point<float> n { -d.y, d.x };
+            const auto tip = at + d * (r + 5.0f), back = at + d * (r + 1.0f);
+            juce::Path head;
+            head.addTriangle(tip, back + n * 2.6f, back - n * 2.6f);
+            g.setColour(colour.withAlpha(shown * juce::jmin(1.0f, 0.35f + 0.9f * dot.level) * alpha));
+            g.fillPath(head);
+        }
+    }
 }

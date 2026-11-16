@@ -42,6 +42,8 @@ What was learned stays for as long as Pro Tools is running: selecting another cl
 
 A render reaches the plug-in with a little extra audio either side of the selection. Tonal Recall finds the learned effect inside it by itself, so the curve lines up with the effect. If you render a different clip from the one you learned, the fixed shift is applied, and the strip says the curve was not.
 
+The learned music itself is never shifted. Preview or render the music, or any part of it, with STAMP on and it comes out exactly as it is; the strip says that it is the learned music.
+
 ## 01 MUSIC
 
 <img src="docs/music.png" alt="The 01 MUSIC panel: LEARN and CLEAR, the music's notes as rows over time with the three notes marked TARGET, G MINOR, root G4 at 391.2 Hz, key 85% sure, tuning -3 c, and the TARGET NOTE buttons with NEAREST lit" width="476">

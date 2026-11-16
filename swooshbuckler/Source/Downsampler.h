@@ -69,6 +69,17 @@ public:
         m_weightsFor = -1.0;
     }
 
+    /** As if the input it needs ahead had already been fed, as silence: the first output is then as late as every
+        later one (getLatencySamples), not centred on the first input. For a stream that has to keep one constant
+        delay from its very first sample (the processor's monitor path, whose latency the host is told). */
+    void prime()
+    {
+        reset();
+        // The history is silent already, so this is the same as having fed it m_half + 1 - ratio zeros: the state
+        // of a running stream at the start of a block (an output has just used its input), not one more.
+        m_until = -m_ratio;
+    }
+
     /** How many input samples the next numOut output samples will use. */
     int inputsNeeded(int numOut) const
     {

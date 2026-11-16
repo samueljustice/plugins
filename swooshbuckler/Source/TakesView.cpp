@@ -1,5 +1,8 @@
 #include "TakesView.h"
 #include "LookAndFeel.h"
+#include "TakeFile.h"
+#include "TapeRecorder.h"
+#include "VariationRenderer.h"
 
 namespace TC = Theme::Colours;
 
@@ -47,6 +50,7 @@ void TakesView::syncTakes()
         if (! listed)
         {
             it->second->removeChangeListener(this);
+            m_closest.erase(it->first);
             it = m_thumbs.erase(it);
         }
         else
@@ -57,7 +61,18 @@ void TakesView::syncTakes()
         {
             auto thumb = std::make_unique<juce::AudioThumbnail>(256, m_formats, m_cache);
             thumb->addChangeListener(this);
-            thumb->setSource(new juce::FileInputSource(take.file));
+            // Read as the take: a Multi-Mono set as one, the channels in the room's order whatever the file's.
+            if (auto reader = takefile::openReader(take.file))
+            {
+                // A rendered whoosh's closest point (its Closest marker), drawn as a tick on the waveform.
+                std::vector<float> closest;
+                if (reader->lengthInSamples > 0)
+                    for (const auto& cue : TapeRecorder::readCues(take.file))
+                        if (cue.label.endsWith(VariationRenderer::c_closestLabel))
+                            closest.push_back(static_cast<float>(static_cast<double>(cue.frame) / static_cast<double>(reader->lengthInSamples)));
+                m_closest[take.id] = std::move(closest);
+                thumb->setReader(reader.release(), static_cast<juce::int64>(take.file.hashCode64() ^ take.file.getLastModificationTime().toMilliseconds()));
+            }
             m_thumbs[take.id] = std::move(thumb);
         }
     repaint();
@@ -100,6 +115,8 @@ TakesView::Row TakesView::rowBounds(int index) const
     r.length = a.removeFromRight(54);
     a.removeFromRight(6);
     r.kind = a.removeFromRight(70);
+    a.removeFromRight(6);
+    r.width = a.removeFromRight(76);
     a.removeFromRight(8);
     r.name = a;
     return r;
@@ -121,14 +138,35 @@ int TakesView::rowAt(juce::Point<int> p, Zone& zone) const
 juce::String TakesView::getTooltip()
 {
     Zone zone = Zone::None;
-    if (rowAt(getMouseXYRelative(), zone) < 0)
+    const auto mouse = getMouseXYRelative();
+    const int row = rowAt(mouse, zone);
+    if (row < 0)
         return {};
+    // The width tag: what the take is, and how it came to be that width.
+    if (zone == Zone::Body && rowBounds(row).width.contains(mouse))
+    {
+        const auto& take = m_processor.getTakes()[static_cast<size_t>(row)];
+        const juce::String width(room::layout(take.format.width).name);
+        const bool multi = take.files.size() > 1;
+        juce::String tip = SwooshbucklerAudioProcessor::widthTag(take) + "\n";
+        if (take.foldedFrom.has_value())
+            tip << "Played in " << room::layout(*take.foldedFrom).name << " and folded down to " << width
+                << (room::layout(*take.foldedFrom).numChannels > 2 ? ", held under the Ceiling." : ".")
+                << " For a real " << width << " render, use Render Variations at " << width << ".";
+        else
+            tip << width << (take.format.width == room::Width::Mono ? ": one channel." : ": " + juce::String(room::layout(take.format.width).numChannels) + " channels")
+                << (take.format.width == room::Width::Mono ? juce::String()
+                    : multi ? juce::String(", a Multi-Mono set of ") + juce::String(take.files.size()) + " files that plays and drags out as one take."
+                            : juce::String(" in one file: ") + takefile::channelLine(take.format.width, take.format.order) + ".");
+        return tip;
+    }
     switch (zone)
     {
         case Zone::Star: return "Keep\nStarred takes stay in this list when it is full. Without a star, the oldest take leaves the list first; its file stays where it is.";
         case Zone::Show: return Theme::localiseShortcuts("Show\nShows this file in the Finder / Explorer.");
         case Zone::Bin:  return "Delete\nMoves this file to the system trash and takes it off the list.";
-        case Zone::Body: return Theme::localiseShortcuts("Take\nClick to hear it: it plays over the rig and is not recorded. Click again to stop. "
+        case Zone::Body: return Theme::localiseShortcuts("Take\nClick to hear it: it plays over the rig and is not recorded. A take wider than your speakers is folded "
+                                                         "down to them and held under the Ceiling. Click again to stop. "
                                                          "Drag it out to the Finder / Explorer, or straight onto a track in your DAW.");
         case Zone::None: break;
     }
@@ -172,7 +210,10 @@ void TakesView::mouseDrag(const juce::MouseEvent& e)
     if (m_pressRow >= static_cast<int>(takes.size()) || ! takes[static_cast<size_t>(m_pressRow)].file.existsAsFile())
         return;
     m_dragged = true;
-    juce::DragAndDropContainer::performExternalDragDropOfFiles({ takes[static_cast<size_t>(m_pressRow)].file.getFullPathName() }, false, this);
+    juce::StringArray paths; // every file of a Multi-Mono set: Pro Tools takes them as one clip
+    for (const auto& f : takes[static_cast<size_t>(m_pressRow)].files)
+        paths.add(f.getFullPathName());
+    juce::DragAndDropContainer::performExternalDragDropOfFiles(paths, false, this);
 }
 
 void TakesView::mouseUp(const juce::MouseEvent& e)
@@ -198,9 +239,9 @@ void TakesView::mouseUp(const juce::MouseEvent& e)
             break;
         case Zone::Bin:
             if (m_processor.deleteTake(take.id))
-                status("Moved " + take.file.getFileName() + " to the trash");
+                status("Moved " + takefile::displayName(take.files) + " to the trash");
             else
-                status("Couldn't move " + take.file.getFileName() + " to the trash");
+                status("Couldn't move " + takefile::displayName(take.files) + " to the trash");
             break;
         case Zone::Body:
             if (m_processor.getAuditionTake() == take.id)
@@ -269,8 +310,27 @@ void TakesView::paint(juce::Graphics& g)
             const auto it = m_thumbs.find(take.id);
             if (it != m_thumbs.end() && it->second->getTotalLength() > 0.0)
             {
-                g.setColour(isPlaying ? TC::flight : TC::sources.withAlpha(missing ? 0.3f : 0.85f));
-                it->second->drawChannels(g, r.wave.reduced(2, 1), 0.0, it->second->getTotalLength(), 1.0f);
+                auto& thumb = *it->second;
+                const auto colour = isPlaying ? TC::flight : TC::sources.withAlpha(missing ? 0.3f : 0.85f);
+                if (thumb.getNumChannels() <= 2)
+                {
+                    g.setColour(colour);
+                    thumb.drawChannels(g, r.wave.reduced(2, 1), 0.0, thumb.getTotalLength(), 1.0f);
+                }
+                else
+                {
+                    // A room's speakers drawn over each other in one lane: twelve lanes of 2 pixels would show nothing.
+                    g.setColour(colour.withMultipliedAlpha(0.4f));
+                    for (int ch = 0; ch < thumb.getNumChannels(); ++ch)
+                        thumb.drawChannel(g, r.wave.reduced(2, 1), 0.0, thumb.getTotalLength(), ch, 1.0f);
+                }
+            }
+            if (const auto marks = m_closest.find(take.id); marks != m_closest.end())
+            {
+                g.setColour(TC::brass.withAlpha(missing ? 0.3f : 0.9f));
+                for (const float at : marks->second)
+                    if (at >= 0.0f && at <= 1.0f)
+                        g.fillRect(juce::Rectangle<float>(w.getX() + 2.0f + (w.getWidth() - 4.0f) * at - 0.5f, w.getY() + 1.0f, 1.0f, w.getHeight() - 2.0f));
             }
             if (isPlaying)
             {
@@ -281,7 +341,9 @@ void TakesView::paint(juce::Graphics& g)
 
         // Name, what it is, how long
         g.setColour(missing ? TC::textFaint : TC::text);
-        Theme::fitText(g, take.file.getFileName(), r.name, m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Name);
+        Theme::fitText(g, takefile::displayName(take.files), r.name, m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Name);
+        g.setColour(take.foldedFrom.has_value() ? TC::textFaint : TC::textDim);
+        Theme::fitText(g, SwooshbucklerAudioProcessor::widthTag(take), r.width, m_fonts.caption(), juce::Justification::centredLeft);
         g.setColour(TC::textDim);
         Theme::fitText(g, missing ? juce::String("Missing") : take.kind, r.kind, m_fonts.caption(), juce::Justification::centredLeft);
         const int whole = static_cast<int>(take.seconds);

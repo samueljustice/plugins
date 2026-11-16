@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "TapeRecorder.h"
+#include "RigEngine.h"
 
 #include <vector>
 
@@ -16,8 +17,9 @@ class SwooshbucklerAudioProcessor;
  *   Whole Ride : a set number of seconds of the rig as it sounds while it plays (the ride, the passes, the hits and
  *                the modulators all running), taken after a pre-roll so it does not start from silence, with a
  *                short fade at each end
- * The files are written the way the tape writes its own (file type, bit depth, sample rate, mono or stereo,
- * description) and join the Takes.
+ * The files are written the way the tape writes its own (file type, bit depth, sample rate, Channel Order, File
+ * Layout, description) and join the Takes. Their width is the panel's own (Job::width): the batch is rendered
+ * natively in that room, Mono to 7.1.4, whatever the track or the audio device is.
  *
  * The batch is rendered faster than real time, on this object's own thread, through a second rig made from the
  * session as it is when Render is pressed (SwooshbucklerAudioProcessor::makeOfflineCopy: the same parameters, wires
@@ -28,8 +30,15 @@ class SwooshbucklerAudioProcessor;
  *   My Settings, New Passes    : the settings as they are; only the rig's random draws differ (which passes, how
  *                                close, which sound of each track)
  *   My Settings, Small Changes : the settings as they are, each sound-shaping control nudged by up to How Different, each
- *                                track starting a little further into its sample
+ *                                track's start marker a little further into its sample
  *   Randomise Everything       : a fresh Randomise for every file (Presets::roll)
+ * Whatever the Mode, the files of a batch carry on through the sounds: each render starts every track where the one
+ * before left it (RigEngine::Places), as the rig does when you throw several in a row, and the first starts at the
+ * start markers. A whoosh also flies its own way (RigEngine::ThrowFlight, drawn from the file's random source): where
+ * its closest point falls (a third to two thirds of the way through), how near it comes (Chaos sets how far that
+ * varies), and the balance of the tracks from a moment of the ride; and every modulator starts from a moment of its
+ * cycle. A ride carries the faders' rides on as well. The batch is rendered in order on one thread, so the same
+ * number, settings and samples still give the same files.
  *
  * Every batch has a number (the panel never shows it as something to set: it offers "New Batch Every Time" or the
  * batches rendered lately to repeat). Every variation's random draws come from the batch's number and its place in
@@ -50,9 +59,10 @@ public:
     static constexpr double c_minRideSeconds = 1.0, c_maxRideSeconds = 120.0; // Whole Ride: how long each file is
     static constexpr double c_ridePreRollSeconds = 2.0;                     // Whole Ride: played first and thrown away
     static constexpr double c_rideFadeInSeconds = 0.01, c_rideFadeOutSeconds = 0.05;
-    static constexpr double c_maxGapSeconds = 10.0;                         // One File With Markers: the silence between
+    static constexpr double c_maxGapSeconds = 10.0;                         // One File with Markers: the silence between
     static constexpr double c_endFadeSeconds = 0.01;                        // the fade at the very end of every whoosh
     static constexpr float c_silence = 1.0e-4f;                             // -80 dBFS: under this the front of a whoosh is cut off
+    static constexpr const char* c_closestLabel = "Closest";                // the marker at a whoosh's closest (loudest) moment
     static constexpr int c_maxBatches = 6;                                  // how many batches are remembered to repeat
 
     enum class Mode { NewPasses = 0, SmallChanges, RandomiseEverything };
@@ -75,16 +85,30 @@ public:
         std::uint32_t batchSeed = 1;           // the batch's number
         juce::File folder;                     // made if it isn't there
         Names names = Names::Counter;
-        juce::String name { "Swooshbuckler" }; // Counter, Date And Time: the take name
-        juce::String preset { "Default" };     // Preset And Counter
-        juce::String batchName;                // Batch Name And Counter
-        juce::Time when;                       // Date And Time: the stamp
+        juce::String name { "Swooshbuckler" }; // Counter, Date and Time: the take name
+        juce::String preset { "Default" };     // Preset and Counter
+        juce::String batchName;                // Batch Name and Counter
+        juce::Time when;                       // Date and Time: the stamp
         Files files = Files::PerVariation;
-        double gapSeconds = 0.5;               // One File With Markers: the silence between two variations
+        double gapSeconds = 0.5;               // One File with Markers: the silence between two variations
         double rate = 48000.0;                 // the rate the rig renders at, and the files' rate
-        TapeRecorder::Options options;         // file type, bit depth, mono (its fileRate is not used: see rate)
+        /** The room the variations are rendered in, natively, whatever the live rig's track or audio device is:
+            the second rig is prepared at this width (Mono and Stereo play the stereo engine, Quad and wider the
+            room's), and the files have its channels. */
+        room::Width width = room::Width::Stereo;
+        TapeRecorder::Options options;         // file type, bit depth, Channel Order, File Layout (its fileRate is not
+                                               // used: see rate; its mono and stereo folds are left off: see width)
         juce::String creator { "Samuel Justice" };
     };
+    /** The channels each file of a job has (a Multi-Mono set: the channels of the set). */
+    static int channelsOf(const Job& job);
+    /** Why a job can't be written in the format chosen (FLAC holds at most eight channels in one file), in a
+        plain sentence; empty when it can. Said before anything is rendered. */
+    static juce::String formatProblem(const Job& job);
+    /** Render Variations' Width, as it was last chosen: a width, or nothing to follow the width the rig plays at
+        (the default). */
+    std::optional<room::Width> chosenWidth() const;
+    void chooseWidth(std::optional<room::Width> width);
 
     /** What a batch's files will be called. */
     struct Plan
@@ -92,7 +116,7 @@ public:
         juce::String stem;        // the name before the number: "Whoosh", "Whoosh_2026-11-13_1432", "Jet Passes"
         int firstNumber = 1;      // one past the highest number the folder already has under that name
         int lastNumber = 1;
-        juce::File combined;      // One File With Markers / Both: the one file, "<stem>_All" or the next free "<stem>_All_2"
+        juce::File combined;      // One File with Markers / Both: the one file, "<stem>_All" or the next free "<stem>_All_2"
         juce::String firstName;   // "<stem>_001"
     };
     static Plan planOf(const Job& job);
@@ -117,18 +141,31 @@ public:
     /** How much a batch comes to, before it is rendered. */
     struct Estimate
     {
-        int files = 0;
+        int files = 0;               // files on disk: each file of a Multi-Mono set counts
         double soundSeconds = 0.0;   // every variation, and the gaps of the one file
         double renderSeconds = 0.0;  // going by how fast the last batch went on this machine
-        double oneFileBytes = 0.0;   // One File With Markers / Both: how big the one file comes to (0 otherwise)
+        double oneFileBytes = 0.0;   // One File with Markers / Both: how big the one file comes to, each file of it
+                                     // for a Multi-Mono set (0 otherwise)
+        double totalBytes = 0.0;     // every file of the batch, uncompressed (FLAC comes to less); 0 = not worked out
+        int filesPerTake = 1;        // the channels of a Multi-Mono set, else 1
     };
-    /** A WAV or AIFF file has no room for markers at 4 GB or more: the one file is kept under this, with room to spare
-        for the estimate being short. FLAC lists its markers in its comments and has no such limit. */
+    /** A WAV file has no room for markers at 4 GB or more, and an AIFF file goes wrong past 2 GB: the one file is
+        kept under these, with room to spare for the estimate being short. FLAC lists its markers in its comments
+        and has no such limit. */
     static constexpr double c_maxOneFileBytes = 0.9 * 4294967295.0;
+    static constexpr double c_maxOneAiffBytes = 0.9 * 2147483647.0;
+    static double oneFileLimit(const Job& job);
     static bool oneFileTooBig(const Job& job, const Estimate& estimate);
+    /** The sentence the panel shows (and start() refuses with) when the one file would be too big. */
+    static juce::String oneFileTooBigText(const Job& job);
+    /** "about 41 MB", "about 2.3 GB". */
+    static juce::String roughSize(double bytes);
     Estimate estimate(const Job& job) const;
-    /** "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." */
+    /** "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." With the size worked out:
+        "100 files, one whoosh each: about 5 minutes of sound (about 86 MB), ready in about 20 seconds." */
     static juce::String estimateText(const Job& job, const Estimate& estimate);
+    /** 1200 as "1,200". */
+    static juce::String withCommas(int n);
     /** "about 20 seconds", "about 5 minutes". */
     static juce::String roughly(double seconds);
 
@@ -138,7 +175,8 @@ public:
         State state = State::Idle;
         int done = 0, total = 0;       // variations rendered, variations asked for
         int silent = 0;                // renders that had no sound in them (nothing is written for those)
-        int files = 0;                 // files written (one each, the one file that holds them all, or both)
+        int files = 0;                 // takes written (one each, the one file that holds them all, or both)
+        int filesPerTake = 1;          // files on disk for each of them: the channels of a Multi-Mono set, else 1
         Each each = Each::OneWhoosh;
         Files filing = Files::PerVariation;
         juce::String currentFile;      // the variation being rendered now
@@ -192,8 +230,13 @@ private:
     void releaseCopy(); // message thread: the second rig goes, and the live Cargo Hold stops lending
     /** Sets the second rig up for file `index` and renders it into m_take. Returns the number of samples from
         `first` on that belong in the file (0 = there was no sound), or -1 if it was cancelled. */
-    int renderOne(int index, int& first, juce::String& description);
-    juce::String describeHow() const;      // "My Settings, Small Changes 30%, Batch 4711, One Whoosh, Length 3.0 s"
+    /** Renders variation `index` into m_take: its length (0 silent, -1 cancelled), where its sound starts
+        (`first`), its loudest moment counted from `first` (`closest`, -1 for a Whole Ride, which has no one closest
+        point) and its description. */
+    int renderOne(int index, int& first, int& closest, juce::String& description);
+    /** The loudest moment of m_take's [first, first + samples): the middle of its loudest 50 ms, counted from first. */
+    int loudestMoment(int first, int samples) const;
+    juce::String describeHow() const;      // "Small Changes, How Different 30%, One Whoosh, Length 3.0 s"
     juce::String describeSettings() const; // every sound-shaping control of the second rig as it is now
     void rememberBatch(const Batch& batch); // message thread
     void setProgress(const std::function<void(Progress&)>& change);
@@ -205,6 +248,7 @@ private:
     std::vector<float> m_base;                           // and where each was when Render was pressed
     std::vector<float> m_baseStarts;                     // the tracks' start markers likewise
     juce::AudioBuffer<float> m_take;                     // one render: a whoosh and the longest tail, or a pre-roll and a ride
+    std::unique_ptr<RigEngine::Places> m_places;         // where the last render left the tracks and rides (none: the batch's first)
     std::atomic<bool> m_rendering { false };
 
     mutable juce::CriticalSection m_lock;

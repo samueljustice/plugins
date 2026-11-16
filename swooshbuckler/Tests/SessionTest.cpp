@@ -14,6 +14,7 @@
 #include <JuceHeader.h>
 #include "TestClock.h"
 #include "PluginProcessor.h"
+#include "SettingsFile.h"
 #include "Parameters.h"
 #include "MorphPad.h"
 #include "SessionAutosave.h"
@@ -245,6 +246,72 @@ int main(int argc, char* argv[])
     settings.setValue("recordFolder", tapeFolder.getFullPathName());
     SwooshbucklerAudioProcessor::useSettings(&settings);
 
+    // The shared settings file (SettingsFile.h): the app's session lives elsewhere, and every write is one key.
+    {
+        const auto dir = folder.getChildFile("shared");
+        dir.deleteRecursively();
+        const auto shared = dir.getChildFile("Swooshbuckler.settings");
+        const auto opts = settingsfile::options();
+        {
+            // As an earlier app left it: the small options and the app's whole session, samples and all.
+            juce::PropertiesFile old(shared, opts);
+            old.setValue("creator", "Anne Bonny");
+            old.setValue("filterState", juce::String::repeatedString("A", 20000000));
+            old.setValue("audioSetup", "<DEVICESETUP deviceType=\"CoreAudio\"/>");
+            old.save();
+        }
+        const auto before = shared.getSize();
+        settingsfile::separateAppSession(shared);
+        {
+            juce::PropertiesFile app(settingsfile::appSessionFile(shared), opts);
+            juce::PropertiesFile slim(shared, opts);
+            std::cout << "  the shared settings file: " << before << " bytes with the app's session in it, " << shared.getSize() << " after" << std::endl;
+            check(before > 20000000 && shared.getSize() < 4000 && slim.getValue("creator") == "Anne Bonny" && ! slim.containsKey("filterState")
+                      && ! slim.containsKey("audioSetup") && app.getValue("filterState").length() == 20000000 && app.containsKey("audioSetup"),
+                  "an old settings file gives the app's session to the app's own file and keeps the small options");
+        }
+
+        // Two copies opened at once (the app and a plug-in, two plug-ins): each write keeps what the other wrote.
+        juce::PropertiesFile first(shared, opts), second(shared, opts);
+        settingsfile::store(first, "takeName", "Fly By");
+        settingsfile::store(second, "bitDepth", 16);
+        settingsfile::store(first, "nameStyle", 1);
+        settingsfile::remove(second, "takeName");
+        settingsfile::store(second, "takeName", "Jet Pass");
+        {
+            juce::PropertiesFile reread(shared, opts);
+            check(reread.getValue("takeName") == "Jet Pass" && reread.getIntValue("bitDepth") == 16 && reread.getIntValue("nameStyle") == 1
+                      && reread.getValue("creator") == "Anne Bonny" && ! first.needsToBeSaved() && ! second.needsToBeSaved()
+                      && first.getIntValue("nameStyle") == 1 && second.getIntValue("bitDepth") == 16,
+                  "two copies of the settings: every write keeps the other's values, and neither is left to write back what it read");
+        }
+
+        // A plug-in instance writing one option: only that, and quickly. The app's session in its own file is untouched.
+        {
+            const auto appSession = settingsfile::appSessionFile(shared);
+            {
+                juce::PropertiesFile app(appSession, opts);
+                app.setValue("filterState", "THE SESSION THE APP SAVED ON QUIT");
+                app.save();
+            }
+            SwooshbucklerAudioProcessor::useSettings(&first);
+            {
+                SwooshbucklerAudioProcessor proc;
+                settingsfile::store(second, "creator", "Mary Read"); // the app, meanwhile
+                const auto start = juce::Time::getMillisecondCounterHiRes();
+                proc.setNameStyle(0);
+                const auto took = juce::Time::getMillisecondCounterHiRes() - start;
+                juce::PropertiesFile reread(shared, opts);
+                juce::PropertiesFile app(appSession, opts);
+                std::cout << "  one setting written by a plug-in: " << juce::String(took, 2) << " ms, the file " << shared.getSize() << " bytes" << std::endl;
+                check(reread.getIntValue("nameStyle", 1) == 0 && reread.getValue("creator") == "Mary Read" && ! reread.containsKey("filterState")
+                          && shared.getSize() < 4000 && app.getValue("filterState") == "THE SESSION THE APP SAVED ON QUIT",
+                      "a plug-in writing one option keeps the app's newer values and never touches the app's session");
+            }
+            SwooshbucklerAudioProcessor::useSettings(&settings);
+        }
+    }
+
     // Settings
     {
         Rig rig(sources, 0);
@@ -347,7 +414,7 @@ int main(int argc, char* argv[])
         rig.run(4.0);
         p.setFileType(2);
         p.setBitDepth(16);
-        p.setMono(true);
+        p.setTapeFold(SwooshbucklerAudioProcessor::TapeFold::Mono);
         juce::File written;
         juce::String error;
         check(p.saveRetro(written, error), "LAST 60s: saves " + error);
@@ -358,7 +425,7 @@ int main(int argc, char* argv[])
               "LAST 60s: written as the tape is set (FLAC, 16-bit, mono): " + written.getFileName());
         p.setFileType(0);
         p.setBitDepth(24);
-        p.setMono(false);
+        p.setTapeFold(SwooshbucklerAudioProcessor::TapeFold::AsPlayed);
     }
 
     // Harvesting on the real plug-in: one file per whoosh with names, descriptions and markers; the takes; audition.
@@ -431,7 +498,7 @@ int main(int argc, char* argv[])
             std::cout << std::endl;
             const auto description = TapeRecorder::readDescription(take.file);
             std::unique_ptr<juce::AudioFormatReader> r(juce::WavAudioFormat().createReaderFor(new juce::FileInputStream(take.file), true));
-            described = described && description.startsWith("Swooshbuckler " + juce::String(JucePlugin_VersionString) + ". Preset: Default. Energy ")
+            described = described && description.startsWith("Swooshbuckler " + juce::String(JucePlugin_VersionString) + ". Stereo. Preset: Default. Energy ")
                         && description.contains("Pass A Bed") && r != nullptr
                         && r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Anne Bonny";
             if (&take == &takes.front())

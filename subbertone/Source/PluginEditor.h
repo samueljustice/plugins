@@ -7,8 +7,12 @@
 #include "WaveformVisualizer.h"
 
 #include "HarmonicStrip.h"
+#include "KnobTaper.h"
+#include "LearnButton.h"
+#include "LearnView.h"
 
 #include <memory>
+#include <vector>
 
 class AboutWindow;
 class UpdatePopup;
@@ -63,7 +67,7 @@ private:
     void paintContent(juce::Graphics& g);
     void layoutContent();
 
-    void setupKnob(juce::Slider& slider, juce::Label& label, const juce::String& name, const juce::String& paramId,
+    void setupKnob(TaperedKnob& slider, juce::Label& label, const juce::String& name, const juce::String& paramId,
                    const juce::String& tooltip, juce::Colour accent, Format format);
     void setupCaption(juce::Label& label, const juce::String& text);
     void layoutKnobRow(juce::Rectangle<int> area, std::initializer_list<std::pair<juce::Slider*, juce::Label*>> knobs);
@@ -96,6 +100,12 @@ private:
 
     // MASTER header: repaints the gain-reduction readout when it appears, goes or moves.
     void updateLimiterReadout();
+
+    // LEARN: the button, its prompt and the editor's glow follow LEARN's status; its view takes the scope's place
+    // while open.
+    void updateLearn();
+    void setLearnViewOpen(bool open);
+    bool isLearnViewOpen() const { return m_learnView != nullptr && m_learnView->isVisible(); }
 
     /** Tooltips in a desktop window of their own: the scope's OpenGL view is a native view on
         top of the editor's window, so it would cover any part of a tip the editor paints itself. */
@@ -135,12 +145,14 @@ private:
     bool m_limiterReadoutShown = false;      // whether the last repaint asked for showed the readout
     bool m_sizeRestored = false;  // don't save the size until the saved one has been applied
 
-    juce::Slider m_mixSlider, m_distortionSlider, m_toneSlider, m_postDriveLowpassSlider,
-                 m_outputGainSlider, m_pitchThresholdSlider, m_fundamentalLimitSlider,
-                 m_resonanceSlider, m_envAmountSlider, m_envReleaseSlider,
-                 m_glideSlider, m_overtoneAmountSlider,
-                 m_inflateSlider, m_inflateCurveSlider, m_ceilingSlider, m_limiterReleaseSlider,
-                 m_loCutSlider;
+    // Knobs: each follows its parameter's own curve, or a taper of its own where that curve crowds the useful values
+    // into a corner of the knob (knobTaperFor() in PluginEditor.cpp).
+    TaperedKnob m_mixSlider, m_distortionSlider, m_toneSlider, m_postDriveLowpassSlider,
+                m_outputGainSlider, m_pitchThresholdSlider, m_fundamentalLimitSlider,
+                m_resonanceSlider, m_envAmountSlider, m_envReleaseSlider,
+                m_glideSlider, m_overtoneAmountSlider,
+                m_inflateSlider, m_inflateCurveSlider, m_ceilingSlider, m_limiterReleaseSlider,
+                m_loCutSlider;
 
     juce::Label m_mixLabel, m_distortionLabel, m_toneLabel, m_postDriveLowpassLabel,
                 m_outputGainLabel, m_pitchThresholdLabel, m_fundamentalLimitLabel,
@@ -155,6 +167,9 @@ private:
     juce::TextButton m_limiterButton;
     juce::TextButton m_loCutButton;
     juce::TextButton m_phaseAlignButton;     // in the HARMONICS header
+    LearnButton m_learnButton;               // large, in the middle of the editor's header ...
+    LearnPrompt m_learnPrompt;               // ... with what to do next beside it
+    LearnGlow m_learnGlow { m_content };     // in the margins while nothing is learned (or LEARN is busy)
     juce::Rectangle<int> m_outputHeader;
 
     // Attachments are declared after the controls they bind so they are destroyed first.
@@ -190,6 +205,9 @@ private:
     std::unique_ptr<AboutWindow> m_aboutWindow;     // at most one per editor, closed with it
     std::unique_ptr<UpdatePopup> m_updatePopup;     // the new-version popup, over everything in the editor
     std::unique_ptr<sammyj::UpdateCheck> m_updateCheck; // after the popup: stopped before anything its callback uses goes
+
+    std::unique_ptr<LearnView> m_learnView;         // made the first time it opens; in the scope's place while open
+    std::vector<subbertone::learn::TrailPoint> m_learnTrail; // the live trail, read for the view (kept to reuse its memory)
 
     std::array<Section, 6> m_sections;
 };

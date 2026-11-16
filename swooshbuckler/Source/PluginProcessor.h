@@ -5,9 +5,12 @@
 #include "Downsampler.h"
 #include "EditHistory.h"
 #include "MasterProcessor.h"
+#include "Room.h"
+#include "RoomMaster.h"
 #include "Parameters.h"
 #include "TapeRecorder.h"
 #include "TakeAudition.h"
+#include "SumGuard.h"
 #include "RigEngine.h"
 #include "Modulators.h"
 #include "MorphWander.h"
@@ -244,7 +247,10 @@ public:
     struct Take
     {
         int id = 0;
-        juce::File file;
+        juce::File file;        // the first of its files: the one shown and played from
+        juce::Array<juce::File> files; // every file of it (a Multi-Mono set has one per channel), in processing order
+        takefile::Format format; // its width, Channel Order and File Layout, as its files say
+        std::optional<room::Width> foldedFrom; // a fold-down of a wider room: the width it was played at
         juce::String kind;      // "Tape", "Whoosh", "Last 60 s", "Variation", "Variations", ...
         double seconds = 0.0;
         int markers = 0;
@@ -253,7 +259,10 @@ public:
     static constexpr int c_maxTakes = 20;
     /** Adds a file to the takes (any thread: off the message thread it is added a moment later). kind is the short
         tag shown beside it; seconds < 0 = read the length from the file. */
-    void registerTake(const juce::File& file, const juce::String& kind, double seconds = -1.0, int markers = 0);
+    void registerTake(const juce::File& file, const juce::String& kind, double seconds = -1.0, int markers = 0,
+                      std::optional<room::Width> foldedFrom = std::nullopt);
+    /** What the Takes list says a take's width is: "7.1.4", "Stereo", or for a fold-down "Stereo Fold". */
+    static juce::String widthTag(const Take& take);
     const std::vector<Take>& getTakes() const { return m_takes; }
     /** Puts the files the tape has closed (and Render Variations has written) since the last look into the takes.
         The processor does it by itself four times a second and when the tape stops; this is for looking sooner. */
@@ -261,7 +270,7 @@ public:
     /** Goes up whenever the list changes. */
     int getTakesGeneration() const { return m_takesGeneration; }
     void setTakeStarred(int id, bool starred);
-    /** Moves the file to the system trash and takes it off the list. False if the file could not be moved.
+    /** Moves its files to the system trash and takes it off the list. False if a file could not be moved.
         toTrash false deletes the file outright (tests: nothing is left in the trash). */
     bool deleteTake(int id, bool toTrash = true);
     /** Plays a take through the output, on top of the rig (it is not recorded). Click again, or another, to stop. */
@@ -288,8 +297,32 @@ public:
     double getDeviceRate() const { return m_deviceRate; }
     int getFileType() const;          // 0 WAV, 1 AIFF, 2 FLAC
     void setFileType(int type);
-    bool getMono() const;
-    void setMono(bool mono);
+    /** The width of the tape's files (and the saved last minutes'): the room as played (the default), or folded
+        down to Stereo (a room wider than Stereo) or to Mono. */
+    enum class TapeFold { AsPlayed = 0, Stereo, Mono };
+    TapeFold getTapeFold() const;
+    void setTapeFold(TapeFold fold);
+    /** The width the tape's files have right now: the room's, or the fold chosen when it is narrower. */
+    room::Width getTapeWidth() const;
+    /** Channel Order of interleaved WAV and AIFF files (Like Pro Tools unless chosen otherwise; the two differ only
+        at 7.1.4), and File Layout
+        (Interleaved unless chosen otherwise): for the tape, the saved last minutes and Render Variations (one
+        setting, shown in Settings and in the Render Variations panel). */
+    room::FileOrder getChannelOrder() const;
+    void setChannelOrder(room::FileOrder order);
+    takefile::Layout getFileLayout() const;
+    void setFileLayout(takefile::Layout layout);
+    /** How the tape and the saved last minutes write files now: the settings above, the file type, bit depth and
+        rate, the room it is played in and the Ceiling for a fold of a wider room. */
+    TapeRecorder::Options tapeOptions() const;
+    /** How much the saved last minutes really hold at this width and rate (the memory for them is capped). */
+    double getRetroSecondsKept() const { return m_recorder.getRetroCapacitySeconds(); }
+    /** The memory the saved last minutes have taken: none until the first Play, arm or sound. Message thread. */
+    std::int64_t getRetroBytes() const { return m_recorder.getRetroBytes(); }
+    /** The Last 60 s memory holds something that a change of Speakers (a re-prepare at another width) would empty. */
+    bool hasRetro() const { return m_recorder.hasRetro(); }
+    /** "Last 60 s", "Last 3 Min", or the real length when the memory cap holds less: "Last 55 s", "Last 3:42". */
+    juce::String retroLabel() const;
     bool getAutoRecord() const;
     void setAutoRecord(bool on);
     /** Skip Silence (on unless switched off): the tape leaves the quiet stretches out. Off: one continuous take. */
@@ -313,8 +346,13 @@ public:
     /** How much LAST 60s keeps: 1, 3 or 5 minutes. */
     int getRetroMinutes() const;
     void setRetroMinutes(int minutes);
-    /** The description written into every recorded file: version, preset and the main settings. Message thread. */
+    /** The description written into every recorded file: version, the room (wider than Stereo), preset and the main
+        settings, the most telling first (a WAV file's BWF description keeps the first 256 bytes). Message thread. */
     juce::String describeSettings() const;
+    /** The room's part of a description, for a width wider than Stereo (empty otherwise): "Flight Paths A Overhead,
+        B Across, Stowaway Around. Spread 40%, Height 100%, Centre Speaker Off, LFE Off." Any thread that may read
+        the parameters (an offline copy's own render thread). */
+    juce::String describeRoom(room::Width width) const;
 
     // Render Variations ---------------------------------------------------------
     /** Renders batches of thrown whooshes straight to files on its own thread, through a second rig (see
@@ -343,14 +381,33 @@ public:
     bool isOffline() const { return m_offline; }
     /** Offline copies only: everything starts again from silence at this sample rate (512-sample blocks), with
         every random source drawn from `seed`, Master Trim out of the way (files get the level the tape gets) and
-        the rig stopped. The same seed and settings give the same samples. The thread that calls processBlock. */
-    void prepareOffline(double sampleRate, std::uint32_t seed);
+        the rig stopped, playing in a room of `width` (its output bus is made that width: Mono and Stereo use the
+        stereo engine, Quad and wider the room's). The same seed, settings and width give the same samples. The
+        thread that calls processBlock, with buffers of room::layout(width).numChannels channels. */
+    void prepareOffline(double sampleRate, std::uint32_t seed, room::Width width = room::Width::Stereo);
+    /** Offline copies only, the thread that calls processBlock, between blocks. Where every track is in its sounds
+        and where each fader's ride is, so the next render of a batch can carry on from there (see carryOn). */
+    RigEngine::Places getPlaces() const { return m_engine.getPlaces(); }
+    /** Offline copies only, after prepareOffline (and after setPlaying, whose return to the start markers it takes
+        the place of): the tracks carry on from these places, and the rides from theirs. */
+    void carryOn(const RigEngine::Places& places);
+    /** Offline copies only, after prepareOffline: every modulator, and every fader's ride, from a moment drawn
+        from `seed` (see ModMatrix::scatter and RigEngine::scatterRide). */
+    void scatter(std::uint32_t seed);
+    /** Offline copies only: throws one whoosh that flies as `flight` says (the Throw button's flies as
+        RigEngine::ThrowFlight is made). The thread that calls processBlock. */
+    void throwWhoosh(const RigEngine::ThrowFlight& flight)
+    {
+        jassert(m_offline);
+        m_offlineFlight = flight;
+        m_uiThrows.fetch_add(1);
+    }
     /** The rig is stopped, has rung out and has faded: the next block would be silence. The thread that calls
         processBlock, after a block. */
     bool isAtRest() const { return ! m_playing.load() && m_uiThrows.load() == 0 && m_transportGain <= 0.0f && m_drainLeft <= 0; }
 
-    /** The settings file to use instead of opening our own: the standalone app shares its file (two objects on
-        one file would overwrite each other's values), and tests point it at a scratch file. Not owned; set it
+    /** The settings file to use instead of opening our own: the standalone app gives its rig the object it uses
+        itself, and tests point it at a scratch file. Not owned; set it
         before the processor is made and clear it after the processor is gone. Message thread. */
     static void useSettings(juce::PropertiesFile* shared) { s_sharedSettings = shared; }
     /** The settings file this rig reads and writes (its own, the standalone app's, or a test's). It may be
@@ -367,8 +424,81 @@ public:
     /** The highest such level since the last call, then starts again: for the meter's peak-hold line. */
     float takeOutputPeak() { return m_outputPeakHold.exchange(0.0f, std::memory_order_relaxed); }
 
+    // The room ------------------------------------------------------------------
+    /** How wide the output is. In a plug-in host it is the track's width (the output bus); in the app it is the
+        Listening setting (AppOutput sets the bus to it). Set when the processor is prepared. Any thread. */
+    room::Width getRoomWidth() const { return static_cast<room::Width>(m_roomWidth.load(std::memory_order_relaxed)); }
+
+    // Listening (the app) --------------------------------------------------------
+    /** The app itself, not a plug-in in a host and not Render Variations' offline copy. */
+    bool isApp() const { return wrapperType == wrapperType_Standalone && ! m_offline; }
+    /** What the app plays in: Mono, Stereo, Quad, 5.1, 7.1, 7.1.2 or 7.1.4 (settings key "listening", Stereo on a
+        fresh install). The app's rig takes this width and no other (isBusesLayoutSupported). In a host the track
+        decides and this is not used. Any thread. */
+    room::Width getListening() const { return static_cast<room::Width>(m_listening.load(std::memory_order_relaxed)); }
+    /** Chooses it and remembers it; then onListeningChanged (the app fades the sound out, opens the outputs the
+        room needs and prepares the rig again at the new width). Refused (false) in a host and while the tape
+        records: a take is written at the room's width. Message thread. */
+    bool setListening(room::Width width);
+    /** Set by the app (AppAudio); called by setListening on the message thread. */
+    std::function<void()> onListeningChanged;
+    /** The app's audio device: how many outputs are switched on (0: no device playing) and how many it has.
+        Set by AppOutput when it is prepared and by AppAudio when the device changes. Any thread. */
+    void setDeviceOutputs(int switchedOn, int available);
+    int getDeviceOutputs() const { return m_deviceOutputs.load(std::memory_order_relaxed); }
+    int getDeviceOutputsAvailable() const { return m_deviceOutputsAvailable.load(std::memory_order_relaxed); }
+    /** The app plays a fold-down of the room: the device has fewer outputs switched on than the room needs. */
+    bool isListeningFolded() const { return isApp() && listeningFolded(getListening(), getDeviceOutputs()); }
+    static bool listeningFolded(room::Width width, int deviceOutputs);
+    /** The status line when the app plays a fold-down ("Playing 7.1.4 folded to stereo: this audio device has 2
+        outputs."), empty otherwise and in a host. */
+    juce::String listeningStatus() const;
+    static juce::String listeningStatus(room::Width width, int deviceOutputs, int available);
+    /** The line under the Listening choice in Settings: where the speakers go, or the fold and why. */
+    static juce::String listeningLine(room::Width width, int deviceOutputs, int available);
+    /** The width has an LFE (5.1 and wider): LFE Mode and LFE Level do something. Mono, Stereo and Quad ignore them
+        (the room strip dims them there). */
+    bool roomHasLfe() const { return room::hasLfe(getRoomWidth()); }
+    /** How many speaker meters the width has (room::layout(getRoomWidth()).numChannels), in its processing order. */
+    int getMeterChannels() const { return room::layout(getRoomWidth()).numChannels; }
+    /** One speaker's level, as getOutputPeak is for the whole output (after the limiter, before Master Trim);
+        0 for a channel the width does not have. */
+    float getChannelPeak(int channel) const;
+    /** The highest level of that speaker since the last call, then starts again (one reader per channel). */
+    float takeChannelPeak(int channel);
+    /** The LFE's own limiter: its deepest reduction in the last block (dB, <= 0; 0 without an LFE). */
+    float getLfeGainReductionDb() const { return m_master.getLfeGainReductionDb(); }
+
+    /** What the LFE is fed, for whatever shows it (the room strip, Render Variations).
+          NoLfe       the width has no LFE (Mono, Stereo, Quad)
+          Off         LFE Mode is Off: the LFE is silent because it was asked to be
+          Mixdown     the low end of the whole mix
+          Sub         Discrete, and Stowaway's Sub is there to play: Stowaway is on, in Sub, with a track sent to it
+          NoSub       Discrete, but Stowaway is off or not in Sub: NOTHING FEEDS THE LFE
+          NoSubTrack  Discrete, Stowaway on in Sub, but no loaded track plays on it: NOTHING FEEDS THE LFE
+        Discrete never falls back to anything else (the Sub is the only thing it was asked to play, and the low
+        end of a whole mix arriving in the LFE unasked is worse than silence): it stays silent and says so here. */
+    enum class LfeFeed { NoLfe, Off, Mixdown, Sub, NoSub, NoSubTrack };
+    /** For a rig that is not this one's live state (a batch about to be rendered at another width). */
+    static LfeFeed lfeFeedFor(room::Width width, int lfeMode, bool stowawayOn, int stowawayMode, bool trackOnStowaway);
+    /** This rig's, as its parameters and its Cargo Hold stand. Any thread. */
+    LfeFeed getLfeFeed() const { return getLfeFeedAt(getRoomWidth()); }
+    /** The same at another width (Render Variations renders at the width it is given). Any thread. */
+    LfeFeed getLfeFeedAt(room::Width width) const;
+    /** LFE Mode is Discrete or Mixdown and yet nothing reaches the LFE. */
+    static bool lfeIsUnfed(LfeFeed feed) { return feed == LfeFeed::NoSub || feed == LfeFeed::NoSubTrack; }
+    /** Why nothing reaches the LFE and what to do about it, in a sentence; empty when it is fed, Off, or the width
+        has none. */
+    static juce::String lfeFeedReason(LfeFeed feed);
+    /** A loaded track plays on Stowaway (sent there by hand, or a Rumble on Auto while Stowaway is on in Sub). */
+    bool hasTrackOnStowaway() const;
+    /** The main speakers' low end is being kept in step with the LFE (the LFE carries a copy of what they carry):
+        see RigEngine::lfeCarriesMains. */
+    bool lfeCarriesMains() const { return m_engine.lfeCarriesMains(); }
+
     static constexpr int c_scopeSize = 1 << 13;
-    static constexpr int c_maxSection = 512; // the most samples processed between parameter and modulator updates
+    static constexpr int c_maxSection = 512; // the samples between parameter and modulator updates (a multiple of c_quantum)
+    static constexpr int c_quantum = 32;     // the rig is rendered this many samples at a time, whatever the host's block size (see processBlock)
     /** Copies the most recent count mono output samples (count <= c_scopeSize). */
     void copyScope(float* dest, int count) const;
 
@@ -395,7 +525,8 @@ private:
     void timerCallback() override;
     void updateEngineParams();
     void prepareInternal();
-    void renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n);
+    /** Renders n samples into the room's pipe (m_pipeChannels channels, see RoomMaster) at the render rate. */
+    void renderAtRenderRate(const float* inL, const float* inR, float* const* chans, int n);
     void applyRestoredState(const juce::ValueTree& cargo, int editorWidth, const juce::String& presetName); //
     void restoreStateTree(juce::ValueTree tree);
     void noteRecentSession(const juce::File& file);
@@ -451,6 +582,7 @@ private:
     bool m_hostWasPlaying = false;   // audio thread
     bool m_reseedPending = false;    // audio thread: the transport started, begin again from the seed
     std::atomic<int> m_uiThrows { 0 };
+    RigEngine::ThrowFlight m_offlineFlight; // how those throws fly: as made, except in an offline copy (throwWhoosh(flight))
     // MIDI keys (audio thread): down right now, and for Throw the keys of the last chord (they keep its pitches
     // after the keys are let go, until the next one starts).
     std::array<std::uint64_t, 2> m_keysDown {}, m_keysLatched {};
@@ -471,6 +603,15 @@ private:
         void timerCallback() override { owner.applyMidiControls(); }
         SwooshbucklerAudioProcessor& owner;
     } m_ccPump { *this };
+    // The saved last minutes' memory, when the rig is first played from the audio thread (a host's transport, a
+    // key): the audio thread raises a flag at the first sound and this takes the memory within a fiftieth of a
+    // second, so only the very start of that first fade-in is missed. It stops once the memory is taken.
+    struct RetroPump : juce::Timer
+    {
+        explicit RetroPump(SwooshbucklerAudioProcessor& p) : owner(p) {}
+        void timerCallback() override;
+        SwooshbucklerAudioProcessor& owner;
+    } m_retroPump { *this };
     void updateCcPump();
     int keysMode() const;
     int stowMode() const; // ParamIDs::StowMode
@@ -485,7 +626,7 @@ private:
     float m_transportGain = 0.0f;
     bool m_tapeRested = false; // the tape has been told the rig is at rest (audio thread)
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_trimGain { 1.0f }; // Master Trim, device rate
-    MasterProcessor m_master;
+    RoomMaster m_master;
     // Stop: the tail rings out (render-rate samples; audio thread)
     std::int64_t m_tailElapsed = 0, m_tailQuiet = 0;
     bool m_tailDone = false;
@@ -494,15 +635,34 @@ private:
     static juce::PropertiesFile* s_sharedSettings;
     std::unique_ptr<juce::PropertiesFile> m_ownSettings;
     juce::PropertiesFile* m_settings = nullptr;
+    /** Writes one setting: into the shared file as it is on disk now, nothing else (SettingsFile.h). */
+    void storeSetting(const juce::String& key, const juce::var& value);
+
+    // The room (set in prepareInternal, while nothing is processed). The pipe is the width the audio is carried
+    // at, Mono carried as Stereo and folded at the output (see RoomMaster).
+    std::atomic<int> m_roomWidth { static_cast<int>(room::Width::Stereo) };
+    std::atomic<int> m_listening { static_cast<int>(room::Width::Stereo) }; // the app's Listening (from the settings)
+    std::atomic<int> m_deviceOutputs { 0 }, m_deviceOutputsAvailable { 0 };  // the app's audio device
+    room::Width m_width = room::Width::Stereo;
+    int m_pipeChannels = 2;
+    std::array<float, room::c_maxChannels> m_loudnessWeight {}; // per pipe channel, BS.1770 (room::loudnessWeight)
+    std::array<float, room::c_maxChannels> m_monoFold {};       // per pipe channel: its share of the mono scope
+    std::array<std::atomic<float>, room::c_maxChannels> m_channelPeak {}, m_channelPeakHold {};
+    void publishChannelPeaks(const float* peaks, int numSamples);
 
     juce::AudioBuffer<float> m_work;
+    int m_carry = 0;        // samples of the last quantum (the end of m_work's first c_quantum) the host has not had yet
+    int m_sinceControl = 0; // samples until the modulators and parameters are next updated (0: now)
+    double m_followSquares = 0.0; // the output's power since that update, for the Output Follower
+    int m_followSamples = 0;
+    bool m_keysMoved = false; // a key arrived since the parameters were last handed to the engine
     double m_deviceRate = 0.0, m_renderRate = 48000.0;
     int m_blockSize = 512;
     // Rendering above the device rate: the render, the band-limited downsampler that makes what you hear from
     // it, and a limiter after that (removing the top of the spectrum moves the peaks, so the ceiling is held again).
     juce::AudioBuffer<float> m_highRate;
     Downsampler m_down;
-    MasterProcessor m_monitorLimiter;
+    RoomMaster m_monitorLimiter;
     int m_recordRateOverride = -1;
 
     struct Raw
@@ -521,6 +681,12 @@ private:
         std::atomic<float>* throwLength = nullptr, *play = nullptr, *keysMode = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
+        std::atomic<float>* flightPath[ParamIDs::numBuses] {}, *stowFlightPath = nullptr;
+        std::atomic<float>* roomSpread = nullptr, *roomHeight = nullptr, *roomCentre = nullptr;
+        std::atomic<float>* direction[ParamIDs::numBuses] {}, *side[ParamIDs::numBuses] {}, *stowDirection = nullptr, *stowSide = nullptr;
+        std::atomic<float>* roomHeightVaries = nullptr;
+        std::atomic<float>* hitPosition = nullptr, *hitSpread = nullptr;
+        std::atomic<float>* roomLfeMode = nullptr, *roomLfeLevel = nullptr;
         std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;
@@ -539,10 +705,12 @@ private:
     std::vector<ModTarget> m_modTargets;   // aligned with ModMatrix::targets()
     ModMatrix::FollowerInputs m_followerLevels {}; // RMS of the output, bus A, bus B and the hits (the Followers' inputs)
     std::array<int, ParamIDs::numCargoTracks> m_trackPitchTarget {}; // each track's pitch as a modulation target index
+    int m_directionTarget[ParamIDs::numBuses + 1] {}, m_sideTarget[ParamIDs::numBuses + 1] {}; // Direction and Side as modulation targets (bus A, bus B, Stowaway)
     /** A parameter's value with its wires applied (audio thread, no allocation). */
     float modValue(std::atomic<float>* raw);
     void runModulators(int numSamples);
-    void publishModViews(); // the knobs' live dots while stopped
+    void publishModViews();
+    void publishDirectionViews(); // the knobs' live dots while stopped
 
     std::array<float, c_scopeSize> m_scope {};
     std::atomic<int> m_scopeWrite { 0 };
@@ -555,6 +723,7 @@ private:
     int m_takesGeneration = 0, m_nextTakeId = 1, m_filesThisTake = 0;
     void updateTapeNaming();   // the name and description the tape gives its next file
     TakeAudition m_audition;
+    SumGuard m_sumGuard; // the rig and an auditioned take together, held under the Ceiling (see SumGuard)
 
     JUCE_DECLARE_WEAK_REFERENCEABLE(SwooshbucklerAudioProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SwooshbucklerAudioProcessor)

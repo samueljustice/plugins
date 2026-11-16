@@ -14,12 +14,12 @@
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
 ### Get them all
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.15.158/SammyJ-Plugins-2026-11-15-1441-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.15.158/SammyJ-Plugins-2026-11-15-1441-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.16.177/SammyJ-Plugins-2026-11-16-0855-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.16.177/SammyJ-Plugins-2026-11-16-0855-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 3.0.0 · Reversinator 2.1.0 · Roarschach 1.3.0 · Tonal Recall 0.2.2.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.4.0 · Pitch Flattener 3.1.0 · Reversinator 2.1.0 · Roarschach 1.3.0 · Tonal Recall 0.2.3.<br>
 Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
-Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
+Built 16 Nov 2026, 08:55 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
 <!-- get-them-all:end -->
 
 <sub>If these get some use in your work and you'd like to chip in, you can <a href="https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins">toss a coin in the jar</a> on PayPal. Every bit goes towards more of them.</sub>
@@ -34,7 +34,7 @@ Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.
 | [Pitch Flattener](#pitch-flattener) | [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) |
 |:---:|:---:|:---:|:---:|
 | [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) |
-| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass</sub> |
 
 </div>
 
@@ -75,7 +75,9 @@ A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buse
 
 The quickest way to work is the renderer. Dial in a sound you like, then ask for a hundred variations of it, or a thousand. It renders them in the background, much faster than real time, as separate files or as one long file with a marker on each. You can also record by hand: a tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
 
-There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in. Surround output, up to 7.1.4, is nearly finished and will come in a later version.
+It plays in mono, in stereo or in surround up to 7.1.4. In surround every pass flies through the room on a path you choose (across the front, past your head front to back, or overhead), each at a height of its own, and each hit lands where its whoosh is. Recordings and renders come out at any width, laid out as Pro Tools writes them or as one mono file per speaker.
+
+There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in.
 
 <details>
 <summary>More screenshots</summary>
@@ -170,25 +172,19 @@ Audio passes straight through it, so it can sit on a mix bus, or run as an app o
 **App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](soundadvice/README.md)
 
-## Work in progress
-
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
-This one works, but I'm still changing it, so expect differences between releases.
-
-### Subbertone
+## Subbertone
 
 <p align="center">
   <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
 </p>
 
-Follows the pitch of a bass, engine or drone and adds a sub an octave below. You can then draw in its harmonics, up to the sixteenth, which takes it from plain sub reinforcement to a bass you can hear on small speakers, or to a growl. Phase Align lines the added harmonics up with the ones already in the sound, so they add instead of cancelling. After that come saturation, a resonant filter and a limiter. It has about 2 ms of latency, which it reports to the host.
+Made mostly for cars and other engines: it follows the pitch of an engine, and also of a voice, bass or drone, and adds a sub an octave below. You can then draw in its harmonics, up to the sixteenth, and add deeper subs two and three octaves down, which takes it from plain sub reinforcement to a bass you can hear on small speakers, or to a growl. Phase Align lines the added harmonics up with the ones already in the sound, so they add instead of cancelling. After that come saturation, a resonant filter and a limiter. It has about 2 ms of latency, which it reports to the host. For passages that are hard to track as they play, such as engine run-ups, loop the passage in your host and press LEARN: Subbertone works out the pitch of the whole pass with hindsight, and the sub follows what it learned. LEARN is new and works best on close engine and exhaust recordings; the plug-in's [known limitations](subbertone/README.md#known-limitations) say what it doesn't handle well yet.
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="787">
+  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="701">
 </p>
 <p align="center">
   <img src="subbertone/docs/output-master.jpg" alt="Subbertone OUTPUT and MASTER sections" width="626">

@@ -17,6 +17,7 @@
  *                                                  +--> RMS follower --> sub amplitude
  *
  *   phase-continuous sine at f0/2 --+------------------------------------> clean
+ *                                   +--> its phase / 2 and / 4: sines at f0/4, f0/8 (S2, S3) --> clean
  *                                   +--> saturator --> remove DC + fundamental
  *                                        --> resonant multimode filter (env-swept) --> resonance drive --> harmonics
  *
@@ -35,6 +36,20 @@
  *
  * Input samples that are NaN, infinite or absurdly large (|x| >= 1e4) are treated
  * as silence, so a bad host buffer cannot poison the filter states.
+ *
+ * Deeper subs (Parameters::subOctave2 / subOctave3, S2 and S3 in the editor, off by default): sines two and three
+ * octaves below the input (f0/4, f0/8). They are not oscillators of their own: a 2-bit count q of the sub's cycles
+ * extends its phase phi to ((q & 1) + phi) / 2 and (q + phi) / 4, which divide the sub's octave exactly (S3 at twice
+ * its speed is S2), so both stay phase-locked to the sub and to each other through every glide and jump. They are
+ * clean sines like the sub: they fade with Drive as it does, the overtone Amount does not scale them, the saturator
+ * never sees them, and they sit under the level, the voicing gate and Phase Align's fades with the rest of the wet.
+ * Sub Floor: a deeper sub below 20 Hz is not generated; each fades in over the 3 semitones above 20 Hz (a gain worked
+ * out from the sub's pitch with the overtones' Nyquist guard and kept apart from the levels: no filter, so no phase
+ * shift). It follows the pitch within a few ms, so where the pitch drops below 20 Hz a deeper sub is 20 dB down within
+ * about 10 ms and gone within about 25 ms, and after a reset it starts at 0. Phase Align does not turn them (they are
+ * off the sub's partial grid), but where it jumps the sub to a new note's phase it counts q from the note's onset, so
+ * repeated hits start S2 and S3 at the same phase too; otherwise q runs on, continuous like the sub. With both at 0
+ * only the count runs (an add per sample) and the output is exactly the engine's without them.
  *
  * Phase Align (Parameters::phaseAlign, off by default). Classic adds the sub's partials
  * at whatever phase the oscillator happens to have, so at a partial the input also has
@@ -64,6 +79,21 @@
  * are still handled as above, so quick on / off automation never fades a note in and
  * out. A session that never switches it on runs the Classic code path only: bit-identical
  * to the engine without Phase Align, at the same cost.
+ *
+ * Pitch guidance (Learn). process() may be given a PitchGuide: for each sample, either "live" (the
+ * tracker decides, as without a guide) or the pitch a learned curve has at that moment, worked out
+ * offline with hindsight. A guided sample skips the tracker's decisions (no confirmation delay, no
+ * hold, no octave flips): the sub plays an octave below the learned line, starts each note on its
+ * pitch and glides towards the line one glide time ahead, so it lands on ramps instead of lagging.
+ * The Threshold still gates the sub, the detector keeps running (a hand-back to live tracking carries
+ * on from the learned pitch), and Drive and overtones work as they do live. Two things differ:
+ *   - the level: Max Pitch does not bound a learned line, so where the line lies above the detection
+ *     band the level follower takes a band that holds it (the same low-pass at 1.25 x the line,
+ *     taking over from the detection band where it stands), and the sub keeps the line's level;
+ *   - Phase Align: the sub's grid is exact there, so it follows only input partials within about
+ *     half a semitone of the sub's harmonics. A partial further off (an engine's half order beside
+ *     the sub) is another partial, and turning onto it would pull the sub off the learned pitch.
+ * Without a guide the engine runs exactly the loop it ran before guidance existed, bit for bit.
  *
  * No JUCE dependency, no allocation after prepare(): safe for the audio thread
  * and easy to test offline.
@@ -102,6 +132,11 @@ public:
         // This is intended: turning Drive up (which crossfades the clean sub towards the
         // saturator) or H1 down leaves the overtones where they are.
         std::array<float, 17> harmonicLevels { 0.0f, 1.0f, 0.6f, 0.4f, 0.3f, 0.24f, 0.2f };
+        // Deeper subs (S2, S3; see the top of this file), 0..1: sines two and three octaves below the input, relative
+        // to the unit sub like the levels above (1.0 is as loud as the sub at Drive 0 % and H1 100 %). The H1 level
+        // does not scale them; Drive fades them with the sub. 0 = off, at no cost.
+        float subOctave2 = 0.0f;
+        float subOctave3 = 0.0f;
         bool loCutOn = false;             // steep high-pass on the generated sub
         float loCutHz = 30.0f;            // 10..80 Hz
         // Phase Align (see the top of this file). false = Classic, today's sound, bit for bit and at no
@@ -113,12 +148,41 @@ public:
         bool phaseAlign = false;
     };
 
+    /** The level gate opens at the Threshold and closes this far below it. */
+    static constexpr float c_gateHysteresisDb = 3.0f;
+
     void prepare(double sampleRate);
     void reset();
     void setParameters(const Parameters& p);
 
-    /** in: mono input. out: wet subharmonic signal. residual: harmonics only (for display, may be null). */
-    void process(const float* in, float* out, float* residual, int numSamples);
+    /** Pitch guidance for one block (see the top of this file): arrays of one entry per sample of the block passed
+        to process(), only read during that call. */
+    struct PitchGuide
+    {
+        enum State : std::uint8_t
+        {
+            live = 0,              // the tracker decides
+            unvoiced = 1,          // the learned curve has no pitch here: no sub (it releases as at a note end)
+            voiced = 2,            // the learned curve has a pitch here: logLineHz / logTargetHz
+            voicingMask = 0x03,    // state & voicingMask is one of the three above
+            discontinuity = 0x80   // added to a guided state on the first sample after a timeline jump: the input
+                                   // jumped, so the sub may jump where it would otherwise glide
+        };
+
+        const std::uint8_t* state = nullptr;   // per sample
+        const float* logLineHz = nullptr;      // per sample, read where voiced: ln Hz of the followed line now (the
+                                               // input "fundamental"; the sub plays an octave below it)
+        const float* logTargetHz = nullptr;    // per sample, read where voiced: ln Hz of the line one glide time
+                                               // ahead, the glide's target, so the sub lands on the line on time
+    };
+
+    /** in: mono input. out: wet subharmonic signal. residual: harmonics only (for display, may be null).
+        guide: per-sample pitch guidance, or null for live tracking only: then the sample loop is the one the
+        engine had before guidance existed (bit-identical output, same cost). */
+    void process(const float* in, float* out, float* residual, int numSamples, const PitchGuide* guide = nullptr);
+
+    /** The last sample processed followed a learned curve (false after a block without a guide). */
+    bool isGuided() const { return m_guided; }
 
     /** Detected input fundamental (Hz), 0 when unvoiced. */
     float getFundamental() const { return m_fundamental; }
@@ -360,9 +424,26 @@ private:
     float m_overtoneCapScale = 1.0f;
     float m_activity = 0.0f;     // 0..1 how much sub is sounding now (for meters)
 
+    // Deeper subs (S2, S3): the sub's phase extended by a count of its cycles, at half and a quarter of its speed.
+    void updateSubOctaveTargets(double subFrequency);
+    bool subOctavesActive() const;               // either is set, or still fading out: their work is done
+    bool subOctaveSounding(int j) const;         // S2 (j = 0) or S3 (1) is set and above the Sub Floor, or fading out
+    void setOscillatorPhase(double cycles);      // Phase Align's jumps: the sub's phase, and S2 / S3 counted from the onset
+    std::uint32_t m_subCycle = 0;                // the sub's whole cycles (q above; only q & 3 is used)
+    float m_subOctaveTarget[2] {};               // S2, S3: their levels ...
+    float m_subOctaveGain[2] {};                 // ... smoothed per sample like the overtone gains (30 ms)
+    float m_subFloorTarget[2] {};                // the Sub Floor's gain at their pitches, at the control rate ...
+    float m_subFloorFast[2] {};                  // ... through two one-poles of a few ms ...
+    float m_subFloor[2] {};                      // ... to the gain they are played with (times the level)
+    float m_subFloorCoeff = 0.0f;
+
 public:
     /** 0..1: how much of harmonic k's set level is sounding right now (for the editor's meters). */
     float getHarmonicActivity(int k) const;
+
+    /** The same for the deeper subs: octaves 2 (S2) or 3 (S3) below the input. A deeper sub the Sub Floor silences at
+        the current pitch shows no activity. */
+    float getSubOctaveActivity(int octaves) const;
 
 private:
 
@@ -396,9 +477,10 @@ private:
         const float* entry(int index) const;
     };
 
-    // process() runs its sample loop as one of two instantiations of processSamples(): Classic, which contains no
-    // Phase Align code at all (a session that never switches it on costs what the engine without it did), and
-    // Phase Align, which returns early when it hands back to Classic mid-block.
+    // process() runs its sample loop as one of four instantiations of processSamples(). Classic contains no Phase
+    // Align code at all (a session that never switches it on costs what the engine without it did); Phase Align
+    // returns early when it hands back to Classic mid-block. Each comes unguided (no Learn code at all: the loop as
+    // it was before guidance existed) or guided, picked only for a block that has a guide.
     struct BlockConstants
     {
         float openMs = 0.0f, closeMs = 0.0f;
@@ -407,8 +489,22 @@ private:
         double loCutSetLog = 0.0, loCutRestLog = 0.0;
         float filterK = 0.0f;                             // updated every 8 samples: carried from one loop to the other
     };
-    template <bool aligned>
-    int processSamples(const float* in, float* out, float* residual, int start, int numSamples, BlockConstants& block);
+    template <bool aligned, bool guided>
+    int processSamples(const float* in, float* out, float* residual, int start, int numSamples, BlockConstants& block,
+                       const PitchGuide* guide);
+
+    // Learn: a guided sample, in place of the tracker's decisions (note starts, Phase Align, timeline jumps)
+    void applyGuide(std::uint8_t state, float logLineHz, float logTargetHz, bool hop);
+
+    // Learn: what the level follower hears on a guided sample, before applyGuide() (see the top of this file)
+    float guidedLevelBand(float x, float band, std::uint8_t state, float logLineHz);
+
+    bool m_guided = false;            // the last sample followed the guide
+    bool m_guideJumped = false;       // a timeline jump the sub has not followed yet (it may jump instead of gliding)
+    double m_guideHighestLog = 9.778; // highest line a guide may ask for, ln Hz (0.4 x the rate; set in prepare())
+    Biquad m_lineLp1, m_lineLp2;      // the level band at 1.25 x a learned line above the detection band ...
+    float m_lineCutoff = 0.0f;        // ... its cutoff (Hz)
+    bool m_lineActive = false;        // ... and whether it is the one the level follower hears
 
     void phaseReset();                                    // all Phase Align state (prepare, reset, switching on)
     void phaseBeginExit();                                // switched off: turn back to Classic, then hand over
@@ -420,6 +516,7 @@ private:
     void computeWetModel(double subHz);                   // the wet's partials k = 1..16 per unit level
     void batchEstimate(double f0, Cpx* X, float& rms) const; // the input's partials over its last period
     void updateAlignment(const Cpx* X, float rmsWindow);  // per-partial evidence and phase from a measurement
+    float phaseStability(int k) const;                    // 0..1 how phase-stable input partial k is on the sub's grid
     void setCorrectionTargets(bool snap);                 // targets of the additive correction
 
     bool m_paRunning = false;         // the Phase Align code path runs (on, or turning back to Classic)
@@ -462,6 +559,7 @@ private:
     double m_pendingPhase = 0.0;      // phase (cycles) chosen for sample m_pendingSample - 1 ...
     double m_pendingSubHz = 0.0;      // ... carried forward at this pitch to the jump
     std::int64_t m_pendingSample = 0;
+    std::int64_t m_pendingTurns = 0;  // whole sub cycles from the onset to that phase: where S2 / S3 count from
 
     // The wet per unit level before the post lowpass (S1 the clean sub, D the Drive path, O the overtones), and P the
     // post lowpass x Lo Cut, at the sub's partials

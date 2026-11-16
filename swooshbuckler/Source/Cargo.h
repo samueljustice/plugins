@@ -98,6 +98,9 @@ struct CargoData
     double sampleRate = 48000.0;
     std::vector<CargoRegion> regions;
     float autoGain = 1.0f;
+    /** How much of the sound's power (mono sum plus side signal, over its regions) the mono sum has: 1 without a
+        side signal, 0.5 for two unrelated sides. Filled by analyse(). */
+    float midShare = 1.0f;
     juce::String name;              // file name (or "Pasted")
 
     // Filled by SampleClassifier on load and kept across edits (makeEdited copies them).
@@ -474,6 +477,10 @@ public:
     static CargoRegion regionAt(const CargoData& d, bool skipSilence, float startFraction, int index);
     /** Index into d.regions of the first sound reaching past the start marker. */
     static int firstRegion(const CargoData& d, float startFraction);
+
+    /** Every one-shot still sounding or waiting stops at once; which sound comes next is kept. For a player that
+        carries on from where another left off (RigEngine::setPlaces), not for one that is heard. */
+    void letGoOfShots();
 
     /** Index (into regionAt) of the region of the newest one-shot, -1 = none yet. */
     int getShotRegion() const { return m_shotRegion; }

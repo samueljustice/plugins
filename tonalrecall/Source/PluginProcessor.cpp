@@ -179,7 +179,8 @@ namespace
         w("STAMP RUN %" PRId64 " END: %s, mode %s", e.i[9], e.i[7] != 0 ? "non-realtime (Render)" : "real time (Preview)", modeName(e.i[0]));
         if (static_cast<StampRunInfo::Mode>(e.i[0]) == StampRunInfo::Mode::Stamp)
         {
-            w(", output %s at the end, plan generation %" PRId64 ", shift %+.3f st, bend %s", e.i[8] != 0 ? "stamped" : "dry (Stamp switched off)",
+            w(", output %s at the end, plan generation %" PRId64 ", shift %+.3f st, bend %s",
+              e.flags & 4 ? "dry (it was the LEARNED MUSIC, which is never stamped)" : e.i[8] != 0 ? "stamped" : "dry (Stamp switched off)",
               e.i[1], e.d[0], e.flags & 1 ? "yes" : "no");
             if (e.i[2] != 0) w(", alignment found at stream sample %" PRId64 " (%.3f s)", e.i[3], secs(e.i[3]));
             else w(", alignment NOT found (fixed shift throughout)");
@@ -529,6 +530,13 @@ void TonalRecallProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
     else
     {
+        // A Preview that learns the music is playing the music. When Learn finishes, the match
+        // arrives while that Preview is still going round: stamping then would put the effect's
+        // shift on the music. So such a Preview stays untouched to its end; the next one stamps.
+        // (Learn called off by hand does not count: nothing new was learned.)
+        if (newRun)
+            m_musicLearnedInStream = false;
+
         for (int s = 0; s < kNumSlots; ++s)
         {
             const auto slot = static_cast<Slot>(s);
@@ -536,6 +544,8 @@ void TonalRecallProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             logPassEvent(slot, ev);
             if (ev.passStarted)
                 m_learnSkippedInRender.store(false, std::memory_order_relaxed);
+            if (slot == Slot::Music && ev.ended != PassEnd::None && ev.ended != PassEnd::Disarmed && ev.ended != PassEnd::Cleared)
+                m_musicLearnedInStream = true;
         }
     }
 
@@ -661,7 +671,7 @@ void TonalRecallProcessor::beginStampRun(int numChannels, bool nonRealtime, std:
     m_runPlanSeen = hub.planGeneration();
     m_restartStamp = false;
 
-    if (! armed && hub.stampEnabled())
+    if (! armed && hub.stampEnabled() && (nonRealtime || ! m_musicLearnedInStream))
     {
         // Pick up the newest plan. tryAcquirePlan copies a shared_ptr (no allocation); the plan
         // this releases is still held by the hub, so it is not freed here.
@@ -708,6 +718,12 @@ void TonalRecallProcessor::beginStampRun(int numChannels, bool nonRealtime, std:
         }
     }
     m_runMode = mode;
+    // The learned music is never stamped: it is looked for in whatever this run is given.
+    if (mode == StampRunInfo::Mode::Stamp && m_plan != nullptr)
+        m_musicFinder.begin(m_plan->musicChannels.get(), m_sampleRate.load(std::memory_order_relaxed));
+    else
+        m_musicFinder.end();
+    m_srMusic.store(false, std::memory_order_relaxed);
 
     m_srMode.store(static_cast<int>(mode), std::memory_order_relaxed);
     m_srNonRealtime.store(nonRealtime, std::memory_order_relaxed);
@@ -801,6 +817,9 @@ void TonalRecallProcessor::stampBlock(juce::AudioBuffer<float>& buffer, int numC
             // The trim stays at the old plan's until the new one is measured (below); the
             // limiter looks after anything the new curve raises in the meantime.
             // The old plan stays alive in the hub, so letting go of it here frees nothing.
+            // (The music may have been learned again: what is looked for follows the plan.)
+            if (next->musicChannels != m_plan->musicChannels)
+                m_musicFinder.begin(next->musicChannels.get(), m_sampleRate.load(std::memory_order_relaxed));
             m_plan = std::move(next);
             m_srBend.store(m_plan->bendActive, std::memory_order_relaxed);
             m_srSemitones.store(m_plan->staticSemitones, std::memory_order_relaxed);
@@ -847,16 +866,25 @@ void TonalRecallProcessor::stampBlock(juce::AudioBuffer<float>& buffer, int numC
         }
         m_delayPos = pos;
 
+        // Before the Stamper overwrites it: is this the learned music? The answer comes within a
+        // few hundred samples of the music starting, long before that moment leaves the Stamper
+        // (the latency), so the music is never heard shifted: the delayed dry signal takes over.
+        m_musicFinder.feed(chunk, numChannels, n);
+
         m_stamper->process(chunk, n);
 
-        if (! on)
+        if (! on || m_musicFinder.found())
             for (int c = 0; c < numChannels; ++c)
                 std::copy(m_dryScratch[static_cast<std::size_t>(c)].data(), m_dryScratch[static_cast<std::size_t>(c)].data() + n, chunk[c]);
         done += n;
     }
 
-    m_srStampOn.store(on, std::memory_order_relaxed);
-    m_srLimiterDb.store(m_stamper->limiterReductionDb(), std::memory_order_relaxed);
+    if (m_stamper->alignmentFound())
+        m_musicFinder.stop();   // it is the effect: no need to keep looking for the music
+    const bool music = m_musicFinder.found();
+    m_srMusic.store(music, std::memory_order_relaxed);
+    m_srStampOn.store(on && ! music, std::memory_order_relaxed);
+    m_srLimiterDb.store(music ? 0.0f : m_stamper->limiterReductionDb(), std::memory_order_relaxed);
     if (m_stamper->alignmentFound() && ! m_srAligned.load(std::memory_order_relaxed))
     {
         m_srOffset.store(m_stamper->alignmentOffset(), std::memory_order_relaxed);
@@ -881,7 +909,8 @@ void TonalRecallProcessor::postStampSummary(ThreadKind thread) noexcept
     e.d[1] = m_sampleRate.load(std::memory_order_relaxed);
     e.d[2] = static_cast<double>(m_srTrimDb.load(std::memory_order_relaxed));
     e.d[3] = static_cast<double>(m_srLimiterDb.load(std::memory_order_relaxed));
-    e.flags = (m_srBend.load(std::memory_order_relaxed) ? 1u : 0u) | (m_srTrimKnown.load(std::memory_order_relaxed) ? 2u : 0u);
+    e.flags = (m_srBend.load(std::memory_order_relaxed) ? 1u : 0u) | (m_srTrimKnown.load(std::memory_order_relaxed) ? 2u : 0u)
+            | (m_srMusic.load(std::memory_order_relaxed) ? 4u : 0u);
     // What the editor warns about: how hard the limiter had to work on the last Render (one that
     // did not stamp did not pass it).
     if (e.i[7] != 0)
@@ -909,6 +938,7 @@ StampRunInfo TonalRecallProcessor::lastStampRun() const noexcept
     info.trimKnown = m_srTrimKnown.load(std::memory_order_relaxed);
     info.trimDb = m_srTrimDb.load(std::memory_order_relaxed);
     info.limiterDb = m_srLimiterDb.load(std::memory_order_relaxed);
+    info.music = m_srMusic.load(std::memory_order_relaxed);
     return info;
 }
 
