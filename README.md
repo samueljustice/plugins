@@ -75,7 +75,9 @@ A whoosh maker. Drop in up to ten sounds and it sorts them onto two Doppler buse
 
 The quickest way to work is the renderer. Dial in a sound you like, then ask for a hundred variations of it, or a thousand. It renders them in the background, much faster than real time, as separate files or as one long file with a marker on each. You can also record by hand: a tape records every whoosh into one file and leaves out the silence, and Last 60 s saves the last minute if you weren't recording.
 
-There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in. Surround output, up to 7.1.4, is nearly finished and will come in a later version.
+It plays in mono, in stereo or in surround up to 7.1.4. In surround every pass flies through the room on a path you choose (across the front, past your head front to back, or overhead), each at a height of its own, and each hit lands where its whoosh is. Recordings and renders come out at any width, laid out as Pro Tools writes them or as one mono file per speaker.
+
+There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in.
 
 <details>
 <summary>More screenshots</summary>
