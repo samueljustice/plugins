@@ -133,9 +133,10 @@ namespace
         return names;
     }
 
-    // 2: the first release. 3: the knob laws of dsp/KnobLaws.h (older states are converted on load).
+    // 2: the first release. 3: the knob laws of dsp/KnobLaws.h. 4: De-ess on the shelf law.
+    // Older states are converted on load (laws::migrateFromFormat).
     const juce::Identifier c_stateVersion  { "stateVersion" };
-    constexpr int c_currentStateVersion = 3;
+    constexpr int c_currentStateVersion = 4;
     const juce::Identifier c_pluginVersion { "pluginVersion" };
 
     // The creature (saved among the view options: setStateInformation keeps only "view..." names).
@@ -1050,15 +1051,15 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
         if (child.hasProperty("value") && !std::isfinite(static_cast<double>(child.getProperty("value"))))
             child.removeProperty("value", nullptr);
 
-    // A state saved with the first release's knob laws: convert its values to the nearest setting under
-    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
-    if (xmlState->getIntAttribute(c_stateVersion.toString(), 0) < c_currentStateVersion)
+    // A state saved with earlier knob laws: convert its values to the nearest setting under the
+    // current laws (close, not identical: see migrateFromV1 for what cannot be carried over).
+    if (const int format = xmlState->getIntAttribute(c_stateVersion.toString(), 0); format < c_currentStateVersion)
     {
         std::map<std::string, double> values;
         for (auto child : tree)
             if (child.hasProperty("value"))
                 values[child.getProperty("id").toString().toStdString()] = static_cast<double>(child.getProperty("value"));
-        roar::laws::migrateFromV1(values);
+        roar::laws::migrateFromFormat(format, values);
         for (auto child : tree)
         {
             const auto it = values.find(child.getProperty("id").toString().toStdString());

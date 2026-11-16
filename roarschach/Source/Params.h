@@ -305,7 +305,7 @@ namespace Params
         // DE-ESS
         detail::toggle (deessOn, "De-ess On", true),
         detail::position (deessPos, "De-ess Position", 2),
-        detail::percent (deess, "De-ess", 49.0f),
+        detail::percent (deess, "De-ess", 50.9f),
         detail::choice (deessMode, "De-ess Mode", deessModeNames, 0),
         // DETAIL
         detail::toggle (detailOn, "Detail On", true),

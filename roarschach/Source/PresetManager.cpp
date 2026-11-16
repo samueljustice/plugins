@@ -14,8 +14,9 @@ namespace
     const juce::Identifier c_nameAttr       { "name" };
     const juce::Identifier c_versionAttr    { "pluginVersion" };
     const juce::Identifier c_formatAttr     { "version" };   // the preset format: 2 = the 14-module chain,
-                                                             // 3 = the knob laws of dsp/KnobLaws.h (2 is converted on load)
-    constexpr int c_currentFormat = 3;
+                                                             // 3 = the knob laws of dsp/KnobLaws.h, 4 = De-ess on
+                                                             // the shelf law (older formats are converted on load)
+    constexpr int c_currentFormat = 4;
 
     const juce::Identifier c_statePresetName     { "presetName" };
     const juce::Identifier c_statePresetFactory  { "presetIsFactory" };
@@ -869,14 +870,14 @@ bool PresetManager::readPresetFile(const juce::File& file, Values& values, juce:
         values.emplace_back(id, static_cast<float>(value));
     }
 
-    // A preset saved with the first release's knob laws: convert its values to the nearest setting under
-    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
-    if (xml->getIntAttribute(c_formatAttr.toString(), 0) < c_currentFormat)
+    // A preset saved with earlier knob laws: convert its values to the nearest setting under the
+    // current laws (close, not identical: see migrateFromV1 for what cannot be carried over).
+    if (const int format = xml->getIntAttribute(c_formatAttr.toString(), 0); format < c_currentFormat)
     {
         std::map<std::string, double> byId;
         for (const auto& [id, value] : values)
             byId[id.toStdString()] = static_cast<double>(value);
-        roar::laws::migrateFromV1(byId);
+        roar::laws::migrateFromFormat(format, byId);
         for (auto& [id, value] : values)
             value = static_cast<float>(byId[id.toStdString()]);
     }

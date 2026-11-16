@@ -12,6 +12,7 @@
 //   roar::laws       the laws the modules use
 //   roar::laws::v1   the laws of the first release (state format 2), kept only so states saved by it
 //                    can be converted to the nearest sound (migrateFromV1) and for the tests
+//   migrateFromFormat  brings a state or preset of any earlier format up to the current one
 namespace roar::laws
 {
     inline double clamp01 (double u) { return std::isfinite (u) ? std::clamp (u, 0.0, 1.0) : 0.0; }
@@ -269,15 +270,21 @@ namespace roar::laws
             return table[i] + (x - i) * (table[i + 1] - table[i]);
         }
         /**
-         * A position under the split-band law that came before the dynamic shelf -> the position
-         * under the shelf law with the same reduction of real esses (5-8 kHz on the sibilant frames
-         * of three voice recordings). Linear between measured points every 5 %; 0 maps to 0.
+         * A position under the split-band law that came before the dynamic shelf (state format 3)
+         * -> the position under the shelf law with the same reduction of real esses (5-8 kHz on the
+         * sibilant frames of three voice recordings). Linear between measured points every 5 %; 0
+         * maps to 0. The split-band reduction of esses grew up to 75 % (about -15 dB) and then fell
+         * back a little as its threshold moved down onto the rest of the voice, so 75 % and above
+         * all take the shelf position of the split band's deepest ess reduction.
          */
         inline double deessBaseToShelf (double basePct)
         {
-            static constexpr double table[] = { 0.0, 5.0, 9.3, 14.1, 18.9, 23.8, 28.9, 34.0, 39.2, 45.5, 52.2, 59.1, 65.5 };   // 0, 5, .. 60
-            const double x = std::clamp (basePct, 0.0, 60.0) / 5.0;
-            const int i = std::min (static_cast<int> (x), 11);
+            static constexpr double table[] = { 0.0, 5.0, 9.3, 14.1, 18.9, 23.8, 28.9, 34.0, 39.2, 45.5,
+                                                52.2, 59.1, 65.5, 70.7, 73.8, 74.9 };   // 0, 5, .. 75
+            if (! std::isfinite (basePct))
+                return basePct;
+            const double x = std::clamp (basePct, 0.0, 75.0) / 5.0;
+            const int i = std::min (static_cast<int> (x), 14);
             return table[i] + (x - i) * (table[i + 1] - table[i]);
         }
         /** The De-ess position for a first-release range (dB, <= 0). */
@@ -476,5 +483,29 @@ namespace roar::laws
         apply ("outPush", [&] (double x) { return convert::push (x, ceiling); });
         apply ("outClipShape", [&] (double x) { return convert::clipShape (x, clip); });
         apply ("outAttack", [] (double x) { return std::max (x, 0.2); });
+    }
+
+    /**
+     * Converts the values of a state or preset saved in format 3 (1.1 to 1.3.0) to format 4: the
+     * De-ess position on the split-band law becomes the shelf position with the same reduction of
+     * esses. It is the only knob law that changed between the two formats.
+     */
+    inline void migrateFromV3 (std::map<std::string, double>& v)
+    {
+        const auto it = v.find ("deess");
+        if (it != v.end() && std::isfinite (it->second))
+            it->second = convert::deessBaseToShelf (it->second);
+    }
+
+    /**
+     * Brings the values of a state or preset saved in an earlier format up to the current one
+     * (format 4). migrateFromV1 already lands on the shelf law, so a format 2 state takes only it.
+     */
+    inline void migrateFromFormat (int format, std::map<std::string, double>& v)
+    {
+        if (format < 3)
+            migrateFromV1 (v);
+        else if (format == 3)
+            migrateFromV3 (v);
     }
 }

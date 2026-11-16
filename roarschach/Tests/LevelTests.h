@@ -2133,8 +2133,8 @@ void testLevelsRep()
         (void) passes(*p, voice(6.0, -26.0, 571), 2);
         const auto b = saveState(*p);
         const auto xml = juce::AudioProcessor::getXmlFromBinary(b.getData(), static_cast<int>(b.getSize()));
-        const bool ok = xml != nullptr && xml->getIntAttribute("stateVersion") == 3 && xml->getIntAttribute("levelInLearnt") == 1
+        const bool ok = xml != nullptr && xml->getIntAttribute("stateVersion") == 4 && xml->getIntAttribute("levelInLearnt") == 1
                      && xml->getStringAttribute("levelOutKey").length() == 16;
-        check(ok, "state: stateVersion 3 with levelInLearnt and a 16-digit levelOutKey");
+        check(ok, "state: stateVersion 4 with levelInLearnt and a 16-digit levelOutKey");
     }
 }

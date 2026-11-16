@@ -9372,12 +9372,62 @@ namespace
             juce::MemoryBlock current;
             src->getStateInformation(current);
             auto xml = juce::AudioProcessor::getXmlFromBinary(current.getData(), static_cast<int>(current.getSize()));
-            check(xml != nullptr && xml->getIntAttribute("stateVersion") == 3, "states are written as version 3");
+            check(xml != nullptr && xml->getIntAttribute("stateVersion") == 4, "states are written as version 4");
 
             auto same = makeProcessor(48000.0, 512);
             same->setStateInformation(current.getData(), static_cast<int>(current.getSize()));
             check(std::abs(getParam(*same, Params::growl) - 48.0f) < 1e-3f && std::abs(getParam(*same, Params::outPush) - 8.0f) < 1e-3f,
                   "a current state is not converted");
+
+            // A version 3 state (1.1 to 1.3.0): De-ess was a position on the split-band law and takes the
+            // shelf position with the same reduction of esses; nothing else moves. A version 2 state goes
+            // through the first-release conversion only (it already lands on the shelf law).
+            {
+                const auto loadAs = [&current](int version, float deess)
+                {
+                    auto x = juce::AudioProcessor::getXmlFromBinary(current.getData(), static_cast<int>(current.getSize()));
+                    x->setAttribute("stateVersion", version);
+                    for (auto* child : x->getChildIterator())
+                        if (child->getStringAttribute("id") == Params::deess)
+                            child->setAttribute("value", deess);
+                    juce::MemoryBlock b;
+                    juce::AudioProcessor::copyXmlToBinary(*x, b);
+                    auto p = makeProcessor(48000.0, 512);
+                    p->setStateInformation(b.getData(), static_cast<int>(b.getSize()));
+                    return std::pair<float, float>(getParam(*p, Params::deess), getParam(*p, Params::growl));
+                };
+                const auto [v3a, g3] = loadAs(3, 50.0f);
+                const auto [v3b, g3b] = loadAs(3, 60.0f);
+                const auto [v3c, g3c] = loadAs(3, 100.0f);
+                const auto [v4, g4] = loadAs(4, 50.0f);
+                const auto [v2, g2] = loadAs(2, 50.0f);
+                std::printf("  state De-ess 50 %%: version 3 -> %.2f, version 4 -> %.2f, version 2 -> %.2f; version 3 at 60 / 100 %% -> %.2f / %.2f\n",
+                            v3a, v4, v2, v3b, v3c);
+                check(std::abs(v3a - 52.2f) < 0.06f && std::abs(v3b - 65.5f) < 0.06f && std::abs(v3c - 74.9f) < 0.06f,
+                      "a version 3 state's De-ess is not moved onto the shelf law");
+                check(std::abs(g3 - 48.0f) < 1e-3f, "a version 3 state converts more than De-ess");
+                check(std::abs(v4 - 50.0f) < 1e-3f && std::abs(g4 - 48.0f) < 1e-3f, "a version 4 state is converted");
+                const auto v1Deess = laws::convert::deess(50.0, true, 70.0);
+                check(std::abs(static_cast<double>(v2) - v1Deess) < 0.06, "a version 2 state's De-ess is not the first-release conversion alone ("
+                      + juce::String(v2) + " against " + juce::String(v1Deess) + ")");
+            }
+
+            // The format 3 step on its own (user presets and states share it): only De-ess, and the map
+            // never falls as the saved position rises.
+            {
+                std::map<std::string, double> v { { "deess", 49.0 }, { "growl", 48.0 }, { "outPush", 6.5 } };
+                laws::migrateFromFormat(3, v);
+                std::map<std::string, double> w { { "growl", 48.0 } };
+                laws::migrateFromFormat(3, w);
+                std::map<std::string, double> u { { "deess", 49.0 } };
+                laws::migrateFromFormat(4, u);
+                bool monotonic = true;
+                for (int i = 1; i <= 1000; ++i)
+                    monotonic = monotonic && laws::convert::deessBaseToShelf(i / 10.0) >= laws::convert::deessBaseToShelf((i - 1) / 10.0);
+                check(std::abs(v["deess"] - laws::convert::deessBaseToShelf(49.0)) < 1e-9 && v["growl"] == 48.0 && v["outPush"] == 6.5
+                          && w.count("deess") == 0 && u["deess"] == 49.0 && monotonic,
+                      "migrateFromFormat(3) does not convert De-ess alone, or the De-ess map falls somewhere");
+            }
 
             xml->setAttribute("stateVersion", 2);
             juce::MemoryBlock old;
@@ -9439,8 +9489,7 @@ namespace
                 };
                 expect(Params::cleanContain, cv::contain(o[0]));
                 expect(Params::cleanGate, cv::gate(o[1]));
-                // (De-ess: still the position on the split-band law; the preset pass moves it onto the shelf law.)
-                expect(Params::deess, cv::deessBasePositionForOldRange(laws::v1::deessRangeDb(o[2] / 100.0, old.roarOn, o[11] / 100.0)));
+                expect(Params::deess, cv::deess(o[2], old.roarOn, o[11]));
                 expect(Params::detailLow, cv::detail(o[3]));
                 expect(Params::detailHigh, cv::detail(o[4]));
                 expect(Params::gravel, cv::gravel(o[5]));
