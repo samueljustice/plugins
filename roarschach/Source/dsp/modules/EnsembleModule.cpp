@@ -98,6 +98,7 @@ namespace roar
         m_gainCoeff = dsp::onePoleCoeff (0.5 * c_gainSmoothingSeconds, controlRate);
         m_readoutCoeff = dsp::onePoleCoeff (c_readoutSeconds, controlRate);
         m_amountCoeff = static_cast<float> (dsp::onePoleCoeff (0.5 * c_amountSmoothingSeconds, m_fs));
+        m_capCoeff = dsp::onePoleCoeff (c_sideCapSeconds, m_fs);
 
         m_minDelay = static_cast<float> (c_minDelayMs * 0.001 * m_fs);
         m_maxDelay = static_cast<float> (c_maxDelayMs * 0.001 * m_fs);
@@ -280,9 +281,9 @@ namespace roar
             m_fade.outputDry (l, r, n, stereo);
             return;
         }
-        m_fade.consumeRestart();
-
         auto& st = m_state;
+        if (m_fade.consumeRestart())
+            st.capMid = st.capSide = 0.0;   // the side cap's powers belong to the wet
         const float amountTarget = effectiveAmount();
         const float widthTarget = sideGainForWidth (m_settings.width);
 
@@ -328,7 +329,7 @@ namespace roar
             const float dryGain = makeup * (1.0f - m);
             const float lowGain = 1.0f - dryGain;   // the dry's low part passes whole: exactly 0 at Amount 0
             const float mid = 0.5f * (wetL + wetR);
-            const float side = m_sideHp.highpass (0.5f * (wetL - wetR)) * (width * st.sideScale);
+            const float sideUnit = m_sideHp.highpass (0.5f * (wetL - wetR)) * st.sideScale;   // before the width gain
 
             if (m_diagnostics.wetOnly)
             {
@@ -339,10 +340,20 @@ namespace roar
                 continue;
             }
 
-            const float outL = dsp::flushTiny (dryGain * xl + lowGain * lowL + wetGain * (mid + side));
             if (stereo)
             {
-                const float outR = dsp::flushTiny (dryGain * xr + lowGain * lowR + wetGain * (mid - side));
+                // The side cap: the chorus's side (su, at width gain 1) against the output's mid.
+                const float midOut = dryGain * 0.5f * (xl + xr) + lowGain * 0.5f * (lowL + lowR) + wetGain * mid;
+                const float su = wetGain * sideUnit;
+                st.capMid = dsp::flushTiny (st.capMid + m_capCoeff * (static_cast<double> (midOut) * midOut - st.capMid));
+                st.capSide = dsp::flushTiny (st.capSide + m_capCoeff * (static_cast<double> (su) * su - st.capSide));
+                float widthNow = width;
+                if (m_diagnostics.sideCap && st.capSide > 1.0e-18)
+                    widthNow = std::min (widthNow, static_cast<float> (std::sqrt (c_sideCapRatio * st.capMid / st.capSide)));
+                const float dryMidL = dryGain * xl + lowGain * lowL + wetGain * mid;
+                const float dryMidR = dryGain * xr + lowGain * lowR + wetGain * mid;
+                const float outL = dsp::flushTiny (dryMidL + su * widthNow);
+                const float outR = dsp::flushTiny (dryMidR - su * widthNow);
                 l[i] = outL;
                 r[i] = outR;
                 const double om = 0.5 * static_cast<double> (outL + outR);

@@ -862,6 +862,94 @@ namespace stageb4
         }
     }
 
+    double monoFoldDb(const Stereo& s, int from)
+    {
+        return rmsDb(midOf(s), from) - channelPowerDb(s, from);
+    }
+
+    void testEnsembleCap()
+    {
+        std::printf("[stageb4] ENSEMBLE: the side cannot outrun the mid\n");
+        const int from = static_cast<int>(1.0 * c_fs);
+
+        // T-EN-7: the top corner, every motion: correlation and mono fold; teeth with the cap off.
+        {
+            const std::pair<const char*, Signal> sources[] { { "pink", fullBandPink(c_fs, 8.0) }, { "TV(150)", testVoice(c_fs, 8.0, 150.0, -20.0) } };
+            for (const auto& [name, in] : sources)
+            {
+                double worstCorr = 1.0, worstFold = 0.0;
+                for (const int voices : { 3, 6 })
+                    for (int motion = 0; motion < 4; ++motion)
+                        for (const int amount : { 30, 50, 70, 100 })
+                        {
+                            auto m = makeEnsemble(c_fs, ensembleSettings(amount / 100.0, 1.5, voices, motion));
+                            const auto out = runStereo(*m, in);
+                            const double corr = correlationOf(out, from), fold = monoFoldDb(out, from);
+                            worstCorr = std::min(worstCorr, corr);
+                            worstFold = std::min(worstFold, fold);
+                            check(corr >= 0.25, juce::String("T-EN-7 ") + name + ", " + juce::String(voices) + " voices " + motionName(motion) + ", Amount "
+                                                    + juce::String(amount) + " %, Width 150 %: correlation " + juce::String(corr, 2) + " (>= +0.25)");
+                            check(fold >= -2.3, juce::String("T-EN-7 ") + name + ", " + juce::String(voices) + " voices " + motionName(motion) + ", Amount "
+                                                    + juce::String(amount) + " %: mono fold " + juce::String(fold, 2) + " dB (>= -2.3)");
+                        }
+                std::printf("  T-EN-7 %s, Width 150 %%, Amount 30-100 %%, 3 and 6 voices, every motion: correlation %+.2f or more, mono fold %.2f dB or better\n",
+                            name, worstCorr, worstFold);
+            }
+            roar::EnsembleModule::Diagnostics off;
+            off.sideCap = false;
+            auto m = makeEnsemble(c_fs, ensembleSettings(1.0, 1.5, 6, 0), off);
+            const double corr = correlationOf(runStereo(*m, testVoice(c_fs, 8.0, 150.0, -20.0)), from);
+            std::printf("  T-EN-7 teeth: TV(150), six voices, Slow, Amount 100 %%, cap off: correlation %+.2f\n", corr);
+            check(corr <= 0.10, "T-EN-7 teeth: without the cap the corner reads " + juce::String(corr, 2) + " (<= +0.10)");
+        }
+
+        // T-EN-8: where the cap has nothing to do it does nothing.
+        {
+            const auto in = fullBandPink(c_fs, 10.0);
+            roar::EnsembleModule::Diagnostics off;
+            off.sideCap = false;
+            for (const auto& [amount, width] : { std::pair<double, double> { 0.21, 0.6 }, std::pair<double, double> { 0.50, 1.0 } })
+            {
+                auto a = makeEnsemble(c_fs, ensembleSettings(amount, width, 3, 1));
+                auto b = makeEnsemble(c_fs, ensembleSettings(amount, width, 3, 1), off);
+                const auto x = runStereo(*a, in), y = runStereo(*b, in);
+                const double db = std::max(rmsDb(minus(x.l, y.l)) - rmsDb(y.l), rmsDb(minus(x.r, y.r)) - rmsDb(y.r));
+                std::printf("  T-EN-8 Amount %.0f %% / Width %.0f %%: capped re uncapped difference %.1f dB\n", amount * 100.0, width * 100.0, db);
+                check(db <= -90.0, "T-EN-8 the cap engages at Amount " + juce::String(amount * 100.0, 0) + " % / Width " + juce::String(width * 100.0, 0)
+                                       + " %: " + juce::String(db, 1) + " dB (<= -90)");
+            }
+        }
+
+        // T-EN-9: Amount swept 0 -> 100 % in 50 ms at 1 s, Width 150 %, six voices, Slow.
+        {
+            const auto in = fullBandPink(c_fs, 4.0);
+            roar::EnsembleModule m;
+            auto s = ensembleSettings(0.0, 1.5, 6, 0);
+            m.setParams(s);
+            m.prepare(c_fs, 240);
+            m.setParams(s);
+            m.reset();
+            const auto out = runModule(m, Stereo { in, in }, true, { 240 }, [](int) { return roar::VoiceFrame {}; }, [&](int end)
+            {
+                const double t = end / c_fs;
+                if (t >= 1.0 && t <= 1.05 + 1.0e-9)
+                {
+                    s.amount = static_cast<float>(std::min(1.0, (t - 1.0 + 0.005) / 0.05));
+                    m.setParams(s);
+                }
+            });
+            const double corr = correlationOf(out, static_cast<int>(1.3 * c_fs), static_cast<int>(3.3 * c_fs));
+            double inPeak = 0.0, outPeak = 0.0;
+            for (const float v : in)
+                inPeak = std::max(inPeak, static_cast<double>(std::abs(v)));
+            for (int i = static_cast<int>(1.0 * c_fs); i < static_cast<int>(1.3 * c_fs); ++i)
+                outPeak = std::max({ outPeak, static_cast<double>(std::abs(out.l[static_cast<size_t>(i)])), static_cast<double>(std::abs(out.r[static_cast<size_t>(i)])) });
+            std::printf("  T-EN-9 Amount swept to 100 %% in 50 ms: correlation over 1.3-3.3 s %+.2f; peak in 1.0-1.3 s %.2f times the input's\n", corr, outPeak / inPeak);
+            check(corr >= 0.25, "T-EN-9 correlation after the sweep " + juce::String(corr, 2) + " (>= +0.25)");
+            check(outPeak <= 4.0 * inPeak, "T-EN-9 the sweep peaks at " + juce::String(outPeak / inPeak, 2) + " times the input's peak (<= 4)");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -874,5 +962,7 @@ namespace stageb4
             testGrind();
         if (sectionWanted("en"))
             testEnsembleLow();
+        if (sectionWanted("en2"))
+            testEnsembleCap();
     }
 }
