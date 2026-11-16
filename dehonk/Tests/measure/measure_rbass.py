@@ -296,6 +296,13 @@ def step1(args, paths: Paths, quiet_ok=False):
     report = {"run": run_info(), "attempts": [], "result": None}
     shells = find_shells(args)
     report["shells_found"] = {k: [str(p) for p in v] for k, v in shells.items()}
+    load_report_path = paths.results / "rbass_load_report.json"
+
+    def checkpoint(stage: str):
+        report["result"] = f"IN PROGRESS (if this stays, the process died at: {stage})"
+        load_report_path.write_text(json.dumps(report, indent=2, default=str))
+        log(f"  {stage}")
+
     rb_info = {} if args.shell else rbass_bundle_info(args)
     report["rbass_bundle"] = rb_info
     if rb_info:
@@ -317,6 +324,7 @@ def step1(args, paths: Paths, quiet_ok=False):
         for shell in [chosen]:
             att = {"format": fmt, "shell": str(shell), "shell_version": bundle_version(shell)}
             report["attempts"].append(att)
+            checkpoint(f"listing plug-ins in {shell.name}")
             try:
                 names = list(cls.get_plugin_names_for_file(str(shell)))
             except Exception as e:  # noqa: BLE001
@@ -336,6 +344,7 @@ def step1(args, paths: Paths, quiet_ok=False):
                 continue
             comps, errors = {}, {}
             for comp, pname in (("mono", mono), ("stereo", stereo)):
+                checkpoint(f"loading '{pname}' from {shell.name}")
                 try:
                     plug = pedalboard.load_plugin(str(shell), plugin_name=pname,
                                                   initialization_timeout=args.init_timeout)
@@ -351,7 +360,6 @@ def step1(args, paths: Paths, quiet_ok=False):
         if loaded:
             break
 
-    load_report_path = paths.results / "rbass_load_report.json"
     if not loaded:
         report["result"] = "FAILED: RBass did not load. Nothing else was run."
         load_report_path.write_text(json.dumps(report, indent=2, default=str))
