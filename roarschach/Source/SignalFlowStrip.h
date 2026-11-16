@@ -74,6 +74,15 @@ public:
     void showMoveMenu(int module);
     void showModeMenu(int module);
 
+    /** A knob's right-click menu: Reset to Default (with the default's value), Type a Value, and the
+        host's own items for the parameter when the host offers them. */
+    enum KnobMenuItem { knobReset = 0x5245, knobType = 0x5246 };
+    juce::PopupMenu buildKnobMenu(const char* paramId) const;
+    void applyKnobMenu(const char* paramId, int item);
+    void showKnobMenu(const char* paramId);
+    /** The knob slider of a parameter (nullptr when none). */
+    juce::Slider* getKnobFor(const char* paramId) const;
+
     //==============================================================================
     // The dice: ROLL ALL (in the empty slot after the last module) and one per module tile. The
     // editor connects them to the processor's DiceRoller.
@@ -144,6 +153,7 @@ private:
     class OutputTile;
     class MoveChip;
     class ModeChip;
+    class KnobSlider;
     class DragShadow;
 
     void timerCallback() override;

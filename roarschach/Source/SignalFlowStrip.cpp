@@ -140,6 +140,16 @@ namespace
         return c != nullptr ? juce::String(c->caption) : juce::String(Params::spec(id).name).toUpperCase();
     }
 
+    /** The second line of every knob's tooltip: how the knob handles. */
+    juce::String knobHandlingTip(const char* id)
+    {
+        const bool semitones = Params::spec(id).kind == Params::Kind::semitones;
+        return juce::String("Shift-drag for fine control. ")
+             + (semitones ? "The mouse wheel moves it a semitone at a time, with Shift a cent at a time. "
+                          : "The mouse wheel moves it in small steps, with Shift in finer ones. ")
+             + "Right-click to reset it or type a value; double-click also resets it.";
+    }
+
     // Short forms the mode chip falls back to when the full names do not fit.
     juce::String shortChoice(const juce::String& name)
     {
@@ -323,7 +333,10 @@ namespace
             if (e.eventTime == m_lastEvent)
                 return 0;
             m_lastEvent = e.eventTime;
-            const float d = (std::abs(wheel.deltaX) > std::abs(wheel.deltaY) ? -wheel.deltaX : wheel.deltaY) * (wheel.isReversed ? -1.0f : 1.0f);
+            // (with Shift held a mouse wheel scrolls sideways on some systems: the same turn of the wheel)
+            const bool sideways = std::abs(wheel.deltaX) > std::abs(wheel.deltaY);
+            const float raw = sideways ? (e.mods.isShiftDown() && wheel.deltaY == 0.0f ? wheel.deltaX : -wheel.deltaX) : wheel.deltaY;
+            const float d = raw * (wheel.isReversed ? -1.0f : 1.0f);
             if (!std::isfinite(d) || d == 0.0f)
                 return 0;
             if (!wheel.isSmooth)
@@ -351,10 +364,135 @@ namespace
 }
 
 //==============================================================================
+/** A knob: JUCE's rotary slider with the house's handling on top.
+    - Shift while dragging: fine steps (the drag counts a fraction of the mouse's travel, and Shift can
+      be pressed or let go in the middle of a drag without the knob jumping).
+    - The mouse wheel: small steps on a grid (PITCH a semitone, other knobs one unit of their scale or a
+      hundredth of their travel); with Shift finer ones (a cent, a tenth of a unit, a thousandth).
+      Each step is one gesture.
+    - Right-click: a menu with Reset to Default and Type a Value, and the host's own menu for the
+      parameter when the host offers one. */
+class SignalFlowStrip::KnobSlider : public juce::Slider
+{
+public:
+    void attach(juce::RangedAudioParameter* parameter, const Params::Spec& spec)
+    {
+        m_parameter = parameter;
+        m_spec = &spec;
+    }
+
+    /** The drag's share of the mouse's travel with Shift held. */
+    float fineFactor() const { return m_spec != nullptr && m_spec->kind == Params::Kind::semitones ? c_fineSemitones : c_fine; }
+
+    /** The value the wheel moves to from `value`, `steps` steps on (fine: with Shift). */
+    float wheelTarget(float value, int steps, bool fine) const
+    {
+        if (m_spec == nullptr || m_parameter == nullptr || steps == 0)
+            return value;
+        const auto& s = *m_spec;
+        const float dir = steps > 0 ? 1.0f : -1.0f;
+        const auto onGrid = [&](float v, float step)
+        {
+            // To the next point of the grid in the wheel's direction (a value between two lands on one).
+            for (int k = 0; k < std::abs(steps); ++k)
+                v = (dir > 0.0f ? std::floor(v / step + 1.0e-3f) + 1.0f : std::ceil(v / step - 1.0e-3f) - 1.0f) * step;
+            return v;
+        };
+        float target = value;
+        switch (s.kind)
+        {
+            case Params::Kind::semitones:    target = onGrid(value, fine ? 0.01f : 1.0f); break;
+            case Params::Kind::percent:
+            case Params::Kind::bipolar:      target = onGrid(value, fine ? 0.1f : 1.0f); break;
+            case Params::Kind::decibels:     target = onGrid(value, fine ? 0.1f : 0.5f); break;
+            case Params::Kind::octaves:      target = onGrid(value, fine ? 0.01f : 0.05f); break;
+            case Params::Kind::hertz:
+            case Params::Kind::ratio:
+            case Params::Kind::milliseconds:
+            {
+                // Steps of the knob's travel (its log taper), on that grid.
+                const float n = onGrid(m_parameter->convertTo0to1(value), fine ? 0.001f : 0.01f);
+                target = m_parameter->convertFrom0to1(juce::jlimit(0.0f, 1.0f, n));
+                break;
+            }
+            case Params::Kind::choice:
+            case Params::Kind::toggle:
+            case Params::Kind::position:     break;
+        }
+        return m_parameter->convertFrom0to1(m_parameter->convertTo0to1(juce::jlimit(s.minValue, s.maxValue, target)));
+    }
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (!isEnabled() || m_parameter == nullptr || e.mods.isAnyMouseButtonDown())
+            return;
+        const int steps = m_wheel.take(e, wheel);
+        if (steps == 0)
+            return;
+        const float from = m_parameter->convertFrom0to1(m_parameter->getValue());
+        const float to = wheelTarget(from, steps, e.mods.isShiftDown());
+        if (juce::exactlyEqual(to, from))
+            return;
+        m_parameter->beginChangeGesture();
+        m_parameter->setValueNotifyingHost(m_parameter->convertTo0to1(to));
+        m_parameter->endChangeGesture();
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        m_menuPress = e.mods.isPopupMenu();
+        if (m_menuPress)
+        {
+            if (onMenu != nullptr)
+                onMenu();
+            return;
+        }
+        m_lastMouse = m_virtualMouse = e.position;
+        juce::Slider::mouseDown(e);
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (m_menuPress)
+            return;
+        // The drag as the knob sees it: the mouse's own movement, a fraction of it while Shift is held.
+        const auto moved = e.position - m_lastMouse;
+        m_lastMouse = e.position;
+        m_virtualMouse += moved * (e.mods.isShiftDown() ? fineFactor() : 1.0f);
+        juce::Slider::mouseDrag(e.withNewPosition(m_virtualMouse));
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (std::exchange(m_menuPress, false))
+            return;
+        juce::Slider::mouseUp(e.withNewPosition(m_virtualMouse));
+    }
+
+    void mouseDoubleClick(const juce::MouseEvent& e) override
+    {
+        if (!e.mods.isPopupMenu())
+            juce::Slider::mouseDoubleClick(e);
+    }
+
+    /** A right-click (the knob's menu). */
+    std::function<void()> onMenu;
+
+    static constexpr float c_fine = 0.1f;            // Shift: a tenth of the travel per pixel
+    static constexpr float c_fineSemitones = 0.03f;  // PITCH with Shift: under half a cent per pixel
+
+private:
+    juce::RangedAudioParameter* m_parameter = nullptr;
+    const Params::Spec* m_spec = nullptr;
+    WheelSteps m_wheel;
+    juce::Point<float> m_lastMouse, m_virtualMouse;
+    bool m_menuPress = false;
+};
+
 struct SignalFlowStrip::Knob
 {
     const char* paramId = nullptr;
-    juce::Slider slider;
+    KnobSlider slider;
     juce::Label caption;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
@@ -466,13 +604,15 @@ public:
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 18);
         slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
-        slider.setTooltip(tooltipFor(id));
+        slider.setTooltip(tooltipFor(id) + "\n" + knobHandlingTip(id));
         slider.setTitle(Params::spec(id).name);
         RoarschachLookAndFeel::setValueFontHeight(slider, Type::value);
         knob->attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_owner.m_parameters, id, slider);
 
         if (auto* param = m_owner.m_parameters.getParameter(id))
         {
+            slider.attach(param, Params::spec(id));
+            slider.onMenu = [this, id] { m_owner.showKnobMenu(id); };
             // The value box shows the parameter's own text, and typed values go through its parser,
             // so the box reads exactly as the host does.
             slider.textFromValueFunction = [param](double v) { return param->getText(param->convertTo0to1(static_cast<float>(v)), 0); };
@@ -1899,6 +2039,79 @@ void SignalFlowStrip::showModeMenu(int module)
                            if (safe != nullptr && item > 0 && item < static_cast<int>(map.size()) && map[static_cast<size_t>(item)].first != nullptr)
                                safe->setParameter(map[static_cast<size_t>(item)].first, static_cast<float>(map[static_cast<size_t>(item)].second));
                        });
+}
+
+//==============================================================================
+juce::Slider* SignalFlowStrip::getKnobFor(const char* paramId) const
+{
+    std::vector<Tile*> tiles { m_inTile.get(), m_outTile.get() };
+    for (const auto& t : m_tiles)
+        tiles.push_back(t.get());
+    for (auto* t : tiles)
+        for (const auto& k : t->m_knobs)
+            if (std::string_view(k->paramId) == paramId)
+                return &k->slider;
+    return nullptr;
+}
+
+juce::PopupMenu SignalFlowStrip::buildKnobMenu(const char* paramId) const
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&getLookAndFeel());
+    auto* param = m_parameters.getParameter(paramId);
+    if (param == nullptr)
+        return menu;
+    // (compared as values: a value set from the default's knob position lands on the parameter's own steps)
+    const float value = param->convertFrom0to1(param->getValue()), defaultValue = param->convertFrom0to1(param->getDefaultValue());
+    const bool atDefault = std::abs(value - defaultValue) <= 1.0e-5f * std::max(1.0f, std::abs(defaultValue));
+    menu.addItem(knobReset, "Reset to Default (" + param->getText(param->getDefaultValue(), 0) + ")", !atDefault);
+    menu.addItem(knobType, "Type a Value");
+
+    // The host's own menu for this parameter (automation and the like), where it offers one.
+    juce::AudioProcessorEditor* editor = nullptr;
+    for (auto* c = getParentComponent(); c != nullptr && editor == nullptr; c = c->getParentComponent())
+        editor = dynamic_cast<juce::AudioProcessorEditor*>(c);
+    if (editor != nullptr)
+        if (auto* host = editor->getHostContext())
+            if (const auto hostMenu = host->getContextMenuForParameter(param))
+                if (const auto items = hostMenu->getEquivalentPopupMenu(); items.getNumItems() > 0)
+                {
+                    menu.addSectionHeader("HOST");
+                    for (juce::PopupMenu::MenuItemIterator it(items); it.next();)
+                        menu.addItem(juce::PopupMenu::Item(it.getItem()));
+                }
+    return menu;
+}
+
+void SignalFlowStrip::applyKnobMenu(const char* paramId, int item)
+{
+    auto* param = m_parameters.getParameter(paramId);
+    if (param == nullptr)
+        return;
+    if (item == knobReset)
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(param->getDefaultValue());
+        param->endChangeGesture();
+    }
+    else if (item == knobType)
+    {
+        if (auto* knob = getKnobFor(paramId))
+            knob->showTextBox();
+    }
+}
+
+void SignalFlowStrip::showKnobMenu(const char* paramId)
+{
+    auto* knob = getKnobFor(paramId);
+    if (knob == nullptr)
+        return;
+    buildKnobMenu(paramId).showMenuAsync(menuOptions(*knob),
+                                         [safe = juce::Component::SafePointer<SignalFlowStrip>(this), paramId](int item)
+                                         {
+                                             if (safe != nullptr && (item == knobReset || item == knobType))
+                                                 safe->applyKnobMenu(paramId, item);
+                                         });
 }
 
 //==============================================================================

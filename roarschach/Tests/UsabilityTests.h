@@ -394,4 +394,183 @@ namespace usability
             check(!p->getDice().rollAll({}, true), "dice: a Shift roll with no module on does nothing");
         }
     }
+
+    //==========================================================================
+    // U7: knobs: Shift-drag is fine, the wheel moves in small steps on a grid (Shift finer), right-click
+    // resets or types a value; PITCH takes whole semitones and single cents without a fight.
+    juce::MouseEvent knobEvent(juce::Component& c, juce::Point<float> pos, juce::Point<float> down, juce::ModifierKeys mods, bool dragged)
+    {
+        static juce::int64 ms = 500000;
+        const auto at = juce::Time(ms += 10);
+        return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), pos, mods, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                &c, &c, at, down, at, 1, dragged);
+    }
+
+    /** Drags a knob straight up by `pixels` in 1 px steps (with Shift from step `shiftFrom` on), returning
+        the parameter's real value after every step. */
+    std::vector<float> dragKnob(RoarschachAudioProcessor& p, juce::Slider& knob, const char* id, int pixels, int shiftFrom = 1 << 20)
+    {
+        const juce::ModifierKeys left(juce::ModifierKeys::leftButtonModifier);
+        const juce::ModifierKeys leftShift(juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::shiftModifier);
+        const auto start = knob.getLocalBounds().getCentre().toFloat();
+        knob.mouseDown(knobEvent(knob, start, start, left, false));
+        std::vector<float> values;
+        for (int k = 1; k <= pixels; ++k)
+        {
+            knob.mouseDrag(knobEvent(knob, start - juce::Point<float>(0.0f, static_cast<float>(k)), start, k >= shiftFrom ? leftShift : left, true));
+            values.push_back(getParam(p, id));
+        }
+        knob.mouseUp(knobEvent(knob, start - juce::Point<float>(0.0f, static_cast<float>(pixels)), start, left, true));
+        return values;
+    }
+
+    void testKnobs()
+    {
+        std::printf("[editor] knobs: Shift-drag, the wheel, the right-click menu, PITCH by semitones and cents\n");
+        auto p = makeProcessor(48000.0, 512);
+        OpenEditor open(*p);
+        auto& strip = open.strip();
+        auto* pitchKnob = strip.getKnobFor(Params::pitch);
+        auto* swirlKnob = strip.getKnobFor(Params::swirl);
+        auto* rateKnob = strip.getKnobFor(Params::swirlRate);
+        auto* trimKnob = strip.getKnobFor(Params::inTrim);
+        auto* pushKnob = strip.getKnobFor(Params::outPush);
+        check(pitchKnob != nullptr && swirlKnob != nullptr && rateKnob != nullptr && trimKnob != nullptr && pushKnob != nullptr,
+              "knobs: every tile's knobs, IN's and OUTPUT's included, are found by parameter");
+        if (pitchKnob == nullptr || swirlKnob == nullptr || rateKnob == nullptr || trimKnob == nullptr || pushKnob == nullptr)
+            return;
+
+        // Shift-drag: a fraction of the travel; Shift pressed in the middle of a drag does not jump.
+        setParam(*p, Params::swirl, 20.0f);
+        const float normal = dragKnob(*p, *swirlKnob, Params::swirl, 20).back() - 20.0f;
+        setParam(*p, Params::swirl, 20.0f);
+        const float fine = dragKnob(*p, *swirlKnob, Params::swirl, 20, 1).back() - 20.0f;
+        setParam(*p, Params::swirl, 20.0f);
+        const auto mixed = dragKnob(*p, *swirlKnob, Params::swirl, 20, 11);
+        const float jump = mixed[10] - mixed[9];
+        std::printf("  SWIRL Amount, 20 px up: %.2f %% plain, %.2f %% with Shift; the first pixel after Shift went down mid-drag moved %.2f %%\n",
+                    static_cast<double>(normal), static_cast<double>(fine), static_cast<double>(jump));
+        check(normal > 5.0f && fine > 0.05f * normal && fine < 0.15f * normal, "knobs: Shift-drag moves about a tenth as far");
+        check(jump >= 0.0f && jump < 0.1f, "knobs: pressing Shift in the middle of a drag goes on from where the knob is, at the fine rate");
+
+        // PITCH with Shift: every cent on the way is reachable (no cent skipped), under half a cent a pixel.
+        setParam(*p, Params::pitch, 0.0f);
+        const auto cents = dragKnob(*p, *pitchKnob, Params::pitch, 60, 1);
+        std::set<int> visited;
+        for (const float v : cents)
+            visited.insert(juce::roundToInt(v * 100.0f));
+        const int first = *visited.begin(), last = *visited.rbegin();
+        const bool everyCent = static_cast<int>(visited.size()) == last - first + 1;
+        setParam(*p, Params::pitch, 0.0f);
+        const float plainPitch = dragKnob(*p, *pitchKnob, Params::pitch, 10).back();
+        std::printf("  PITCH: 60 px with Shift went %d cents (%d distinct values, every cent: %s); 10 px plain went %.2f st\n", last - first,
+                    static_cast<int>(visited.size()), everyCent ? "yes" : "no", static_cast<double>(plainPitch));
+        check(everyCent && last - first >= 10 && last - first <= 40, "knobs: PITCH with Shift steps through every cent, at most two thirds of a cent a pixel");
+
+        // The wheel: PITCH a semitone (onto whole semitones), with Shift a cent.
+        GestureLog log;
+        setParam(*p, Params::pitch, -2.37f);
+        p->addListener(&log);
+        pitchKnob->mouseWheelMove(wheelEventFor(*pitchKnob), wheelOf(0.1f, false));
+        const float up1 = getParam(*p, Params::pitch);
+        pitchKnob->mouseWheelMove(wheelEventFor(*pitchKnob), wheelOf(0.1f, false));
+        const float up2 = getParam(*p, Params::pitch);
+        pitchKnob->mouseWheelMove(wheelEventFor(*pitchKnob, juce::ModifierKeys(juce::ModifierKeys::shiftModifier)), wheelOf(0.1f, false));
+        const float cent = getParam(*p, Params::pitch);
+        auto sideways = wheelOf(0.0f, false);
+        sideways.deltaX = 0.1f;   // (Shift turns a mouse wheel sideways on some systems)
+        pitchKnob->mouseWheelMove(wheelEventFor(*pitchKnob, juce::ModifierKeys(juce::ModifierKeys::shiftModifier)), sideways);
+        const float cent2 = getParam(*p, Params::pitch);
+        pitchKnob->mouseWheelMove(wheelEventFor(*pitchKnob), wheelOf(-0.1f, false));
+        const float down = getParam(*p, Params::pitch);
+        p->removeListener(&log);
+        int sets = 0;
+        const bool balanced = gesturesBalanced(log, sets);
+        std::printf("  PITCH by the wheel from -2.37 st: %.2f, %.2f, Shift %.2f, Shift (sideways) %.2f, down %.2f (%d values set)\n", static_cast<double>(up1),
+                    static_cast<double>(up2), static_cast<double>(cent), static_cast<double>(cent2), static_cast<double>(down), sets);
+        const auto near = [](float a, float b) { return std::abs(a - b) < 0.002f; };
+        check(near(up1, -2.0f) && near(up2, -1.0f) && near(cent, -0.99f) && near(cent2, -0.98f) && near(down, -1.0f),
+              "knobs: the wheel moves PITCH onto the next whole semitone, and with Shift by one cent");
+        check(balanced && sets == 5, "knobs: every wheel step is one gesture");
+
+        // Other scales: percent by 1 (Shift 0.1), decibels by 0.5 (Shift 0.1), a log knob by a hundredth of its travel.
+        setParam(*p, Params::swirl, 21.0f);
+        swirlKnob->mouseWheelMove(wheelEventFor(*swirlKnob), wheelOf(0.1f, false));
+        const float pct = getParam(*p, Params::swirl);
+        swirlKnob->mouseWheelMove(wheelEventFor(*swirlKnob, juce::ModifierKeys(juce::ModifierKeys::shiftModifier)), wheelOf(0.1f, false));
+        const float pctFine = getParam(*p, Params::swirl);
+        setParam(*p, Params::inTrim, 0.0f);
+        trimKnob->mouseWheelMove(wheelEventFor(*trimKnob), wheelOf(-0.1f, false));
+        const float db = getParam(*p, Params::inTrim);
+        auto* rate = p->getParameters()[Params::indexOf(Params::swirlRate)];
+        setParam(*p, Params::swirlRate, 0.35f);
+        const float n0 = rate->getValue();
+        rateKnob->mouseWheelMove(wheelEventFor(*rateKnob), wheelOf(0.1f, false));
+        const float n1 = rate->getValue();
+        std::printf("  the wheel: SWIRL Amount 21 -> %.1f -> %.1f (Shift); IN -> %.1f dB; SWIRL Rate travel %.4f -> %.4f\n", static_cast<double>(pct),
+                    static_cast<double>(pctFine), static_cast<double>(db), static_cast<double>(n0), static_cast<double>(n1));
+        check(near(pct, 22.0f) && near(pctFine, 22.1f) && near(db, -0.5f) && n1 > n0 && n1 - n0 <= 0.0101f && n1 - n0 > 0.001f,
+              "knobs: the wheel steps each scale by a small unit (a hundredth of the travel on a log knob), Shift by a tenth of it");
+        // A trackpad's small scrolls add up; its glide after the fingers lift adds nothing.
+        setParam(*p, Params::swirl, 30.0f);
+        for (int k = 0; k < 3; ++k)
+            swirlKnob->mouseWheelMove(wheelEventFor(*swirlKnob), wheelOf(0.02f, true));
+        auto glide = wheelOf(0.3f, true);
+        glide.isInertial = true;
+        swirlKnob->mouseWheelMove(wheelEventFor(*swirlKnob), glide);
+        check(near(getParam(*p, Params::swirl), 31.0f), "knobs: a trackpad scroll moves in whole steps and its glide adds none ("
+                                                            + juce::String(getParam(*p, Params::swirl), 2) + ")");
+
+        // The right-click menu: Reset to Default (with the default's value; off at the default) and Type a Value.
+        setParam(*p, Params::outPush, 12.0f);
+        const auto menu = strip.buildKnobMenu(Params::outPush);
+        juce::String resetText;
+        bool resetEnabled = false, hasType = false;
+        for (juce::PopupMenu::MenuItemIterator it(menu); it.next();)
+        {
+            if (it.getItem().itemID == SignalFlowStrip::knobReset)
+            {
+                resetText = it.getItem().text;
+                resetEnabled = it.getItem().isEnabled;
+            }
+            hasType = hasType || (it.getItem().itemID == SignalFlowStrip::knobType && it.getItem().text == "Type a Value");
+        }
+        GestureLog resetLog;
+        p->addListener(&resetLog);
+        strip.applyKnobMenu(Params::outPush, SignalFlowStrip::knobReset);
+        p->removeListener(&resetLog);
+        int resetSets = 0;
+        const bool resetBalanced = gesturesBalanced(resetLog, resetSets);
+        bool disabledAtDefault = false;
+        const auto menuAtDefault = strip.buildKnobMenu(Params::outPush);
+        for (juce::PopupMenu::MenuItemIterator it(menuAtDefault); it.next();)
+            if (it.getItem().itemID == SignalFlowStrip::knobReset)
+                disabledAtDefault = !it.getItem().isEnabled;
+        std::printf("  OUTPUT Push's menu: \"%s\" (enabled %d, type %d, off at the default %d)\n", resetText.toRawUTF8(), resetEnabled ? 1 : 0, hasType ? 1 : 0, disabledAtDefault ? 1 : 0);
+        check(resetText.startsWith("Reset to Default (") && resetText.contains("6.5") && resetEnabled && hasType && disabledAtDefault,
+              "knobs: the right-click menu offers Reset to Default with the default's value (not at the default) and Type a Value");
+        check(near(getParam(*p, Params::outPush), 6.5f) && resetBalanced && resetSets == 1, "knobs: Reset to Default is one gesture to the default");
+        strip.applyKnobMenu(Params::outPush, SignalFlowStrip::knobType);
+        bool editing = false;
+        for (auto* c : pushKnob->getChildren())
+            if (auto* label = dynamic_cast<juce::Label*>(c))
+                editing = editing || label->isBeingEdited();
+        check(editing, "knobs: Type a Value opens the knob's value for typing");
+        pushKnob->hideTextBox(true);
+
+        // Tooltips: every knob says how it handles; PITCH's names the semitone and the cent.
+        int withLine = 0, knobs = 0;
+        std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
+        for (int m = 0; m < Params::numModules; ++m)
+            tiles.push_back(strip.getModuleTile(m));
+        for (auto* tile : tiles)
+            for (const auto& [slider, id] : strip.getKnobs(tile))
+            {
+                ++knobs;
+                const auto tip = slider->getTooltip();
+                withLine += tip.contains("Shift-drag for fine control") && tip.contains("Right-click to reset it or type a value") ? 1 : 0;
+            }
+        check(withLine == knobs && pitchKnob->getTooltip().contains("a semitone at a time, with Shift a cent"),
+              "knobs: every knob's tooltip explains Shift-drag, the wheel and the right-click menu (" + juce::String(withLine) + " of " + juce::String(knobs) + ")");
+    }
 }

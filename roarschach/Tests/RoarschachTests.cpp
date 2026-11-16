@@ -9734,6 +9734,7 @@ int main(int argc, char* argv[])
         { "editor", testEditor },
         { "editor", usability::testModeMenus },
         { "editor", usability::testRollHolds },
+        { "editor", usability::testKnobs },
         { "ui", testUi },
         { "dice", testDice },
         { "creature", testCreature },
