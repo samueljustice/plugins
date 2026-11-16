@@ -1256,9 +1256,12 @@ namespace
         // phase of a pure tone, and the 5 ms frames of these runs compare against fresh renders
         // that are not phase-locked to the render: those runs are reported, not gated. The fade's
         // level on them is gated below, against the exact continuation of the previous order.
+        // ROAR is left out of the gated chain too: its learnt makeup starts a new learn whenever the
+        // modules before it change, so a chain reordered every 200 ms holds the level that the fresh
+        // renders it is compared with learn away from (a level stage, not the crossfade).
         const Values steady { { Params::growlOn, 0.0f }, { Params::shimmerOn, 0.0f }, { Params::swirlOn, 0.0f },
                               { Params::pitchOn, 0.0f }, { Params::ensembleOn, 0.0f }, { Params::subOn, 0.0f },
-                              { Params::overtoneOn, 0.0f } };
+                              { Params::overtoneOn, 0.0f }, { Params::roarOn, 0.0f } };
 
         struct Run { const char* name; bool sine; bool gated; Values values; };
         const std::vector<Run> runs {

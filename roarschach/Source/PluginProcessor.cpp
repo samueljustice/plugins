@@ -4,6 +4,8 @@
 #include "PluginEditor.h"
 #include "dsp/KnobLaws.h"
 
+#include <cstring>
+
 namespace
 {
     // Host-facing value text. These match the editor's knob readouts, so generic host editors,
@@ -160,16 +162,18 @@ namespace
     const juce::Identifier c_levelOutData    { "levelOutData" };
     const juce::Identifier c_levelOutGainDb  { "levelOutGainDb" };
     const juce::Identifier c_levelOutKey     { "levelOutKey" };
-    const juce::Identifier c_levelRoar       { "levelRoar" };   // ROAR's learnt makeup: its numbers, space separated
+    const juce::Identifier c_levelRoar       { "levelRoar" };   // ROAR's learnt makeup: its numbers' bits, 16 hex digits each, space separated
 
+    // Exact and locale-free: the same state saves to the same text, and a restored instance
+    // continues exactly where the saved one would.
     juce::String roarLearningToText(const roar::RoarModule::LevelLearning& l)
     {
         juce::String text;
         for (const double v : l.toValues())
         {
-            char buffer[40];
-            std::snprintf(buffer, sizeof buffer, "%.17g", v);
-            text << (text.isEmpty() ? "" : " ") << buffer;
+            juce::int64 bits = 0;
+            std::memcpy(&bits, &v, sizeof bits);
+            text << (text.isEmpty() ? "" : " ") << juce::String::toHexString(bits).paddedLeft('0', 16);
         }
         return text;
     }
@@ -186,11 +190,14 @@ namespace
         std::array<double, Learning::numValues> v {};
         for (int k = 0; k < tokens.size(); ++k)
         {
-            if (!tokens[k].containsOnly("+-.0123456789eE"))
+            if (tokens[k].length() != 16 || !tokens[k].containsOnly("0123456789abcdefABCDEF"))
                 return std::nullopt;
-            v[static_cast<size_t>(k)] = tokens[k].getDoubleValue();
-            if (!std::isfinite(v[static_cast<size_t>(k)]))
+            const juce::int64 bits = tokens[k].getHexValue64();
+            double d = 0.0;
+            std::memcpy(&d, &bits, sizeof d);
+            if (!std::isfinite(d))
                 return std::nullopt;
+            v[static_cast<size_t>(k)] = d;
         }
         auto l = Learning::fromValues(v);
         if (l.s1 < 0.0 || l.s2 < 0.0 || l.so < 0.0 || l.seconds < 0.0 || l.evidence < 0.0)
