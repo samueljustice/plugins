@@ -540,12 +540,24 @@ public:
 
 //==============================================================================
 /** A mode chip: a click opens its menu; the mouse wheel over it, or Up and Down while it has the
-    keyboard focus, step its first choice without opening the menu (onStep). */
+    keyboard focus from Tab, step its first choice without opening the menu (onStep). */
 class SignalFlowStrip::ModeChip : public juce::TextButton
 {
 public:
-    /** direction: +1 the next choice, -1 the previous one. */
-    std::function<void(int direction)> onStep;
+    /** direction: +1 the next choice, -1 the previous one. Returns whether the choice moved. */
+    std::function<bool(int direction)> onStep;
+
+    void focusGained(FocusChangeType cause) override
+    {
+        // A click focuses the chip too (and its menu hands the focus back when it closes), but then
+        // Up and Down belong to the host: only a focus that came by Tab takes them. The menu's
+        // hand-back (focusChangedDirectly) keeps how the focus first came.
+        if (cause == focusChangedByTabKey)
+            m_keyboardFocus = true;
+        else if (cause == focusChangedByMouseClick)
+            m_keyboardFocus = false;
+        juce::TextButton::focusGained(cause);
+    }
 
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
@@ -558,17 +570,18 @@ public:
 
     bool keyPressed(const juce::KeyPress& key) override
     {
-        if (!key.getModifiers().isAnyModifierKeyDown() && (key.isKeyCode(juce::KeyPress::upKey) || key.isKeyCode(juce::KeyPress::downKey)))
+        if (m_keyboardFocus && !key.getModifiers().isAnyModifierKeyDown()
+            && (key.isKeyCode(juce::KeyPress::upKey) || key.isKeyCode(juce::KeyPress::downKey)))
         {
-            if (onStep != nullptr)
-                onStep(key.isKeyCode(juce::KeyPress::downKey) ? 1 : -1);
-            return true;
+            // At either end of the list the key goes on to the host.
+            return onStep != nullptr && onStep(key.isKeyCode(juce::KeyPress::downKey) ? 1 : -1);
         }
         return juce::TextButton::keyPressed(key);
     }
 
 private:
     WheelSteps m_wheel;
+    bool m_keyboardFocus = false;
 };
 
 //==============================================================================
@@ -857,15 +870,15 @@ public:
                     tips.add(juce::String(Params::spec(id).name) + ": " + tooltipFor(id));
                     ++numChoices;
                 }
-            tips.add(numChoices > 1 ? "Scroll over the chip, or press Up or Down while it has the keyboard focus, to step "
+            tips.add(numChoices > 1 ? "Scroll over the chip, or move to it with Tab and press Up or Down, to step "
                                           + captionFor(m_spec.chipIds[0]) + " to the next or previous choice without opening the menu."
-                                    : juce::String("Scroll over the chip, or press Up or Down while it has the keyboard focus, to step to "
+                                    : juce::String("Scroll over the chip, or move to it with Tab and press Up or Down, to step to "
                                                    "the next or previous choice without opening the menu."));
             m_modeChip.setTooltip(tips.joinIntoString("\n"));
             m_modeChip.setTitle(name + " Modes");
             RoarschachLookAndFeel::setMenuChip(m_modeChip);
             m_modeChip.onClick = [this] { m_owner.showModeMenu(m_module); };
-            m_modeChip.onStep = [this](int direction) { m_owner.stepModeChoice(m_module, direction); };
+            m_modeChip.onStep = [this](int direction) { return m_owner.stepModeChoice(m_module, direction); };
             addAndMakeVisible(m_modeChip);
         }
 

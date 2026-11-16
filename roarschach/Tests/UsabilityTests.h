@@ -168,14 +168,31 @@ namespace usability
         const int atStart = juce::roundToInt(getParam(*p, Params::swirlCircuit));
         check(atEnd == 5 && atStart == 0, "mode chip: stepping stops at the first and the last choice");
 
-        // Up / Down while the chip has the focus; with a modifier the key goes on.
+        // Up / Down after a click (the chip has the focus, but not from the keyboard) go on to the host.
         setParam(*p, Params::swirlCircuit, 2.0f);
+        static_cast<juce::Component*>(chip)->focusGained(juce::Component::focusChangedByMouseClick);
+        static_cast<juce::Component*>(chip)->focusGained(juce::Component::focusChangedDirectly);   // the menu handing the focus back
+        const bool afterClickGoesOn = !static_cast<juce::Component*>(chip)->keyPressed(juce::KeyPress(juce::KeyPress::downKey));
+        check(afterClickGoesOn && juce::roundToInt(getParam(*p, Params::swirlCircuit)) == 2,
+              "mode chip: after a click, Down is taken by the chip instead of going on to the host");
+
+        // Up / Down while the chip has the focus from Tab; with a modifier the key goes on.
+        static_cast<juce::Component*>(chip)->focusGained(juce::Component::focusChangedByTabKey);
+        static_cast<juce::Component*>(chip)->focusGained(juce::Component::focusChangedDirectly);   // its menu opened and closed from the keyboard
         const bool usedDown = static_cast<juce::Component*>(chip)->keyPressed(juce::KeyPress(juce::KeyPress::downKey));
         const int keyDown = juce::roundToInt(getParam(*p, Params::swirlCircuit));
         const bool usedUp = static_cast<juce::Component*>(chip)->keyPressed(juce::KeyPress(juce::KeyPress::upKey));
         const int keyUp = juce::roundToInt(getParam(*p, Params::swirlCircuit));
         const bool passedOn = !static_cast<juce::Component*>(chip)->keyPressed(juce::KeyPress(juce::KeyPress::downKey, juce::ModifierKeys::altModifier, 0));
         check(usedDown && usedUp && keyDown == 3 && keyUp == 2 && passedOn, "mode chip: Down steps to the next choice and Up to the previous; Alt+Down goes on");
+        // At the ends of the list the key goes on.
+        setParam(*p, Params::swirlCircuit, 0.0f);
+        const bool upAtFirstGoesOn = !static_cast<juce::Component*>(chip)->keyPressed(juce::KeyPress(juce::KeyPress::upKey));
+        const int last = Params::spec(Params::swirlCircuit).numChoices - 1;
+        setParam(*p, Params::swirlCircuit, static_cast<float>(last));
+        const bool downAtLastGoesOn = !static_cast<juce::Component*>(chip)->keyPressed(juce::KeyPress(juce::KeyPress::downKey));
+        check(upAtFirstGoesOn && downAtLastGoesOn && juce::roundToInt(getParam(*p, Params::swirlCircuit)) == last,
+              "mode chip: Up at the first choice or Down at the last is not passed on to the host");
 
         // A single-choice chip (DE-ESS) steps its only choice; RING's steps Carrier (its first).
         setParam(*p, Params::deessMode, 0.0f);
