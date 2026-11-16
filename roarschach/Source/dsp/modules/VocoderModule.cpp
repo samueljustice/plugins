@@ -107,6 +107,7 @@ namespace roar
         m_fade.reset();
         m_engine.clearState();
         m_engine.resetPitchGate();
+        m_engine.resetMotion();
     }
 
     void VocoderModule::setParams (const VocoderSettings& s)
@@ -410,6 +411,20 @@ namespace roar
         m_noiseState = c_noiseSeed;
         m_wet = 0.0f;
         m_active = true;
+    }
+
+    void VocoderModule::Engine::resetMotion()
+    {
+        // What a new instance starts from: vibrato and drift at their start phases, the noise at
+        // its seed, the held pitch at 110 Hz and the carrier on the target that follows from it.
+        // The wet fade and the active state carry on (clearState).
+        m_vibratoPhase = 0.0f;
+        m_driftPhase = m_driftPhaseStart;
+        m_noiseState = c_noiseSeed;
+        m_heldF0 = 110.0f;
+        const float octave = m_octaveIndex == 0 ? 0.5f : 0.25f;
+        m_carrierTargetHz = std::clamp (m_heldF0 * octave, c_minCarrierHz, c_maxCarrierHz);
+        m_carrierHz = m_carrierTargetHz;
     }
 
     void VocoderModule::Engine::holdPitch (const float* left, const float* right, int numSamples, const VoiceFrameView& voice)
