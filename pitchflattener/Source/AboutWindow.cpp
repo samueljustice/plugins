@@ -51,6 +51,7 @@ namespace
         "Copyright (c) " COPYRIGHT_YEAR " Samuel Justice\n\n"
         "BUILT WITH\n"
         "- JUCE (juce.com), Raw Material Software Limited.\n"
+        "- Rubber Band Library (breakfastquay.com/rubberband), time stretching for Keep Length, GPL / commercial.\n"
         "- Azeret Mono typeface, The Azeret Project Authors, SIL Open Font License 1.1.\n\n"
         "Pitch tracking with thanks to Ben\n\n"
         "LICENSE (MIT)\n"

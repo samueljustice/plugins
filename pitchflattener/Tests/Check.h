@@ -37,4 +37,6 @@ inline void beginCase(const char* name)
 // The JUCE-free halves (EngineTests.cpp).
 void runLocatorTests();
 void runEngineTests();
+/** Replays a run's random block sizes (0: a new seed, printed). */
+void setEngineTestSeed(unsigned seed);
 } // namespace pftest

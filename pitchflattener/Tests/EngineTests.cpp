@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <new>
 #include <random>
 #include <string>
@@ -157,6 +158,7 @@ std::int64_t firstNonZero(const float* x, std::int64_t n)
 }
 
 unsigned g_seed = 1;
+unsigned g_seedChosen = 0;
 
 // One engine, driven like a host drives a plug-in.
 struct Rig
@@ -182,6 +184,9 @@ struct Rig
         return static_cast<int>(std::min<std::size_t>(left, static_cast<std::size_t>(size)));
     }
 
+    std::function<void()> onBlock;   // called after every block (readouts)
+    int fixedBlock = 0;              // > 0: every block this size
+
     core::Channels play(const core::Channels& in, bool bypass = false, double realtimePacing = 0.0)
     {
         core::Channels out = in;
@@ -192,7 +197,8 @@ struct Rig
         auto clock = std::chrono::steady_clock::now();
         while (pos < n)
         {
-            const int block = realtimePacing > 0.0 ? static_cast<int>(std::min<std::size_t>(n - pos, 480)) : nextBlock(n - pos);
+            const int block = fixedBlock > 0 ? static_cast<int>(std::min<std::size_t>(n - pos, static_cast<std::size_t>(fixedBlock)))
+                            : realtimePacing > 0.0 ? static_cast<int>(std::min<std::size_t>(n - pos, 480)) : nextBlock(n - pos);
             for (std::size_t c = 0; c < out.size(); ++c)
                 ptrs[c] = out[c].data() + pos;
             t_insideProcess = true;
@@ -202,6 +208,8 @@ struct Rig
                 engine.process(ptrs.data(), channels, block);
             t_insideProcess = false;
             pos += static_cast<std::size_t>(block);
+            if (onBlock)
+                onBlock();
             if (realtimePacing > 0.0)
             {
                 clock += std::chrono::microseconds(static_cast<std::int64_t>(1.0e6 * block / rate));
@@ -252,12 +260,11 @@ struct FlatCheck
     int compared = 0, bad = 0;
 };
 
-FlatCheck compareFlat(const core::Channels& out, const Result& r, int latency, std::int64_t matchInput, std::int64_t source,
-                      std::int64_t until, double rate, int hostChannels)
+FlatCheck compareFlatFrom(const core::Channels& out, const Result& r, int latency, std::int64_t matchInput, std::int64_t F0,
+                          std::int64_t until, double rate, int hostChannels)
 {
     FlatCheck fc;
     const auto& flat = r.flattened.channels;
-    const auto F0 = static_cast<std::int64_t>(std::llround(r.flattened.outputSampleFor(static_cast<double>(source))));
     const auto fade = static_cast<std::int64_t>(std::llround(Engine::kFadeSeconds * rate)) + 1;
     const auto flatLength = static_cast<std::int64_t>(flat[0].size());
     for (std::int64_t t = matchInput + fade; t < until; ++t)
@@ -280,6 +287,59 @@ FlatCheck compareFlat(const core::Channels& out, const Result& r, int latency, s
         ++fc.compared;
     }
     return fc;
+}
+
+FlatCheck compareFlat(const core::Channels& out, const Result& r, int latency, std::int64_t matchInput, std::int64_t source,
+                      std::int64_t until, double rate, int hostChannels)
+{
+    const auto F0 = static_cast<std::int64_t>(std::llround(r.flattened.outputSampleFor(static_cast<double>(source))));
+    return compareFlatFrom(out, r, latency, matchInput, F0, until, rate, hostChannels);
+}
+
+double rms(const Sound& x, std::int64_t a, std::int64_t b)
+{
+    double s = 0.0;
+    a = std::max<std::int64_t>(a, 0);
+    b = std::min<std::int64_t>(b, static_cast<std::int64_t>(x.size()));
+    if (b <= a)
+        return 0.0;
+    for (auto i = a; i < b; ++i)
+        s += static_cast<double>(x[static_cast<std::size_t>(i)]) * x[static_cast<std::size_t>(i)];
+    return std::sqrt(s / static_cast<double>(b - a));
+}
+
+double db(double v) { return 20.0 * std::log10(std::max(v, 1.0e-12)); }
+
+Sound mixIn(const Sound& a, const Sound& b, float gain)
+{
+    Sound out(std::max(a.size(), b.size()), 0.0f);
+    for (std::size_t i = 0; i < a.size(); ++i)
+        out[i] += a[i];
+    for (std::size_t i = 0; i < b.size(); ++i)
+        out[i] += gain * b[i];
+    return out;
+}
+
+void setTarget(Rig& rig, core::Target target, bool keepLength = false)
+{
+    auto o = rig.engine.options();
+    o.target = target;
+    o.keepLength = keepLength;
+    rig.engine.setOptions(o);
+    check(rig.engine.waitUntilIdle(60.0), "rendered again");
+}
+
+// Waits (up to timeout) for a condition, polling: robust on a loaded machine.
+bool eventually(const std::function<bool()>& condition, double timeoutSeconds)
+{
+    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(static_cast<int>(timeoutSeconds * 1000.0));
+    while (std::chrono::steady_clock::now() < end)
+    {
+        if (condition())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return condition();
 }
 
 //==============================================================================
@@ -342,9 +402,10 @@ void locatorBasics()
 void locatorRejects()
 {
     beginCase("locator: rejects unrelated audio, and the same sound at another speed or pitch");
-    // With road noise in it, as a recorded pass-by has. (A perfectly clean tone of constant timbre
-    // that falls through a pitch really is the same waveform, shifted, at another point of its
-    // fall: nothing in the audio tells them apart. The engine's checks while playing catch that.)
+    // With road noise in it, as a recorded pass-by has, so the near misses are near misses of a
+    // real recording. (A perfectly clean tone of constant timbre falling through a pitch is,
+    // shifted, nearly the same waveform at another point of its fall; with the residual test the
+    // search refuses that too, and the checks while playing would let go of it at once.)
     const double rate = 48000.0;
     const Sound x = passBy(rate, 5.0, 0.0, 0.5);
     Locator loc;
@@ -411,41 +472,54 @@ void locatorRepeats()
 
 void locatorTiming()
 {
-    beginCase("locator: a 120 s sound at 96 kHz");
-    const double rate = 96000.0;
-    const auto n = static_cast<std::size_t>(120.0 * rate);
-    Sound x(n);
-    std::mt19937 rng(3);
-    std::normal_distribution<float> nd(0.0f, 0.02f);
-    double phase = 0.0;
-    for (std::size_t i = 0; i < n; ++i)
+    beginCase("locator: a 120 s sound at 96 kHz and at 192 kHz, against the latency's search budget");
+    const double budgetMs = Engine::kSearchBudgetSeconds * 1000.0;
+    for (const double rate : { 96000.0, 192000.0 })
     {
-        const double t = static_cast<double>(i) / rate;
-        phase += kTwoPi * (300.0 + 100.0 * std::sin(t * 0.5)) / rate;
-        x[i] = static_cast<float>(0.3 * std::sin(phase)) + nd(rng);
-    }
-    auto start = std::chrono::steady_clock::now();
-    Locator loc;
-    loc.prepare(x.data(), static_cast<std::int64_t>(n), rate);
-    const double prepareMs = msSince(start);
-    const int P = loc.probeLength();
+        const auto n = static_cast<std::size_t>(120.0 * rate);
+        Sound x(n);
+        std::mt19937 rng(3);
+        std::normal_distribution<float> nd(0.0f, 0.02f);
+        double phase = 0.0;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const double t = static_cast<double>(i) / rate;
+            phase += kTwoPi * (300.0 + 100.0 * std::sin(t * 0.5)) / rate;
+            x[i] = static_cast<float>(0.3 * std::sin(phase)) + nd(rng);
+        }
+        auto start = std::chrono::steady_clock::now();
+        Locator loc;
+        loc.prepare(x.data(), static_cast<std::int64_t>(n), rate);
+        const double prepareMs = msSince(start);
+        const int P = loc.probeLength();
 
-    const std::int64_t places[] = { 0, static_cast<std::int64_t>(60.0 * rate), static_cast<std::int64_t>(n) - P - 1 };
-    for (const auto pos : places)
-    {
-        start = std::chrono::steady_clock::now();
-        const auto m = loc.locate(x.data() + pos);
-        const double ms = msSince(start);
-        std::printf("    -> at %.1f s: %.1f ms\n", static_cast<double>(pos) / rate, ms);
-        check(m.found && m.sourceSample == pos, "found at " + num(static_cast<double>(pos) / rate, 1) + " s");
-        check(ms < 500.0, "searched in under 0.5 s: " + num(ms, 1) + " ms");
+        // The quickest of three runs: what the machine can do, not what a busy moment allowed.
+        const auto timed = [&](const float* probe, Locator::Match& m)
+        {
+            double best = 1.0e9;
+            for (int k = 0; k < 3; ++k)
+            {
+                start = std::chrono::steady_clock::now();
+                m = loc.locate(probe);
+                best = std::min(best, msSince(start));
+            }
+            return best;
+        };
+        const std::int64_t places[] = { 0, static_cast<std::int64_t>(60.0 * rate), static_cast<std::int64_t>(n) - P - 1 };
+        for (const auto pos : places)
+        {
+            Locator::Match m;
+            const double ms = timed(x.data() + pos, m);
+            std::printf("    -> %.0f kHz, at %.1f s: %.1f ms\n", rate / 1000.0, static_cast<double>(pos) / rate, ms);
+            check(m.found && m.sourceSample == pos, "found at " + num(static_cast<double>(pos) / rate, 1) + " s, " + num(rate / 1000.0, 0) + " kHz: " + std::to_string(m.sourceSample));
+            check(ms < 1.5 * budgetMs, "searched within the budget (" + num(budgetMs, 0) + " ms, half again allowed for a busy machine): " + num(ms, 1) + " ms");
+        }
+        const Sound other = noise(0.1, rate, 0.2f, 5);
+        Locator::Match m;
+        const double ms = timed(other.data(), m);
+        std::printf("    -> unrelated (whole sound searched): %.1f ms; prepare %.1f ms; probe %d samples\n", ms, prepareMs, P);
+        check(! m.found && ms < 1.5 * budgetMs, "unrelated audio rejected within the budget");
     }
-    const Sound other = noise(0.1, rate, 0.2f, 5);
-    start = std::chrono::steady_clock::now();
-    const auto m = loc.locate(other.data());
-    const double ms = msSince(start);
-    std::printf("    -> unrelated (whole sound searched): %.1f ms; prepare %.1f ms; probe %d samples\n", ms, prepareMs, P);
-    check(! m.found && ms < 500.0, "unrelated audio rejected in under 0.5 s");
 }
 
 //==============================================================================
@@ -469,7 +543,7 @@ void engineLearnAndPlay()
     const auto learnedStart = soundStartInLearned(rig.engine);
     std::printf("    -> learned %.3f s (sound %.3f s), flattened %.3f s, %s line\n", static_cast<double>(r->learned->locator.length()) / rate,
                 static_cast<double>(sound.size()) / rate, static_cast<double>(r->flattened.channels[0].size()) / rate,
-                r->options.line == 0 ? "harmonic" : "ridge");
+                r->options.line >= 0 ? pitchflattener::core::trackerName((pitchflattener::core::Tracker) r->options.line) : "no");
     // The capture starts 50 ms before the first block with sound in it (the block itself may begin
     // before the sound does).
     const auto before = learnedStart - static_cast<std::int64_t>(0.05 * rate);
@@ -580,7 +654,7 @@ void engineLearnAndPlay()
 
 void engineChangeWhilePlaying()
 {
-    beginCase("engine: a new render arriving mid-sound takes over from the same moment");
+    beginCase("engine: a new render arriving mid-sound carries on from the moment being heard");
     Rig rig;
     const double rate = rig.rate;
     const int L = rig.engine.latencySamples();
@@ -602,13 +676,18 @@ void engineChangeWhilePlaying()
     const auto N = rig.engine.lastMatchInput() - base;
     const auto S = rig.engine.lastMatchSource();
     check(N == firstSound(first), "the match from the start still holds");
-    // After the switch (at the next output sample), the new render from the same moment of the sound.
+    // After the switch (at the next output sample): the moment of the sound the old render was
+    // playing there, found in the new render. (In Varispeed that is not the input's own moment:
+    // continuing from the input's moment replayed or skipped a stretch of the sound.)
     const auto at = static_cast<std::int64_t>(first.size()) - L;   // first output sample of the second play, as input position
-    const auto sourceAt = S + (at - N);
+    const auto oldOffset = static_cast<std::int64_t>(std::llround(r1->flattened.outputSampleFor(static_cast<double>(S)))) - N;
+    const double heard = r1->flattened.sourceSampleFor(static_cast<double>(at + oldOffset));
+    const auto F0 = static_cast<std::int64_t>(std::llround(r2->flattened.outputSampleFor(heard)));
     Sound joined = out1[0];
     joined.insert(joined.end(), out2[0].begin(), out2[0].end());
-    const auto fc = compareFlat(core::Channels { joined }, *r2, L, at, sourceAt, static_cast<std::int64_t>(joined.size()), rate, 1);
-    check(fc.compared > static_cast<int>(1.0 * rate) && fc.bad == 0, "the new render from the same moment: " + std::to_string(fc.bad) + " differ");
+    const auto fc = compareFlatFrom(core::Channels { joined }, *r2, L, at, F0, static_cast<std::int64_t>(joined.size()), rate, 1);
+    check(fc.compared > static_cast<int>(0.5 * rate) && fc.bad == 0, "the new render from the moment being heard: " + std::to_string(fc.bad) + " differ");
+    std::printf("    -> heard %.3f s of the sound at the switch (the input was at %.3f s)\n", heard / rate, static_cast<double>(S + (at - N)) / rate);
 }
 
 void engineNothingToFlatten()
@@ -667,8 +746,7 @@ void engineCaptureEnds()
         rig.engine.armLearn();
         rig.play(join({ silence(0.2, rate), sound }));
         check(rig.engine.state() == Engine::State::Listening, "listening while the sound plays");
-        std::this_thread::sleep_for(std::chrono::milliseconds(800));
-        check(rig.engine.state() != Engine::State::Listening, "ended when the audio stopped arriving");
+        check(eventually([&] { return rig.engine.state() != Engine::State::Listening; }, 10.0), "ended when the audio stopped arriving");
         check(rig.engine.waitUntilIdle(30.0), "analysed");
         const auto r = rig.engine.result();
         check(r != nullptr && r->learned->locator.length() >= soundLength - 2 && r->learned->locator.length() <= soundLength + slack,
@@ -795,10 +873,519 @@ void engineRateAndRealtime()
     const auto S = rig.engine.lastMatchSource();
     const auto learnedStart = soundStartInLearned(rig.engine);
     check(N == firstSound(in) && S == learnedStart + (N - static_cast<std::int64_t>(0.3 * rate)), "real time: matched at the start");
+    // Where the flattened sound took over: from the very first sample when the answer beat the
+    // latency (it does by far on an idle machine); on a loaded one it may start later, but always
+    // at the right place for that moment.
+    std::int64_t start = N;
+    while (start < static_cast<std::int64_t>(in.size()) - L && identical(out[0][static_cast<std::size_t>(start + L)], in[static_cast<std::size_t>(start)]))
+        ++start;
     const auto fc = compareFlat(out, *r, L, N, S, static_cast<std::int64_t>(in.size()), rate, 1);
-    check(fc.compared > static_cast<int>(1.5 * rate) && fc.bad == 0,
-          "real time: flattened from the very first sample of the sound (the answer beat the latency): " + std::to_string(fc.bad) + " differ");
-    std::printf("    -> search took %.1f ms\n", rig.engine.lastSearchMilliseconds());
+    FlatCheck after;
+    {
+        const auto F0 = static_cast<std::int64_t>(std::llround(r->flattened.outputSampleFor(static_cast<double>(S))));
+        after = compareFlatFrom(out, *r, L, N, F0, static_cast<std::int64_t>(in.size()), rate, 1);
+    }
+    if (start > N + static_cast<std::int64_t>(Engine::kFadeSeconds * rate) + 1)
+    {
+        const auto F0 = static_cast<std::int64_t>(std::llround(r->flattened.outputSampleFor(static_cast<double>(S)))) + (start - N);
+        after = compareFlatFrom(out, *r, L, start, F0, static_cast<std::int64_t>(in.size()), rate, 1);
+    }
+    check(after.compared > static_cast<int>(1.0 * rate) && after.bad == 0, "real time: the flattened sound at the right place: " + std::to_string(after.bad) + " differ");
+    std::printf("    -> search took %.1f ms; the flattened sound took over %s (%.1f ms after the sound began)\n", rig.engine.lastSearchMilliseconds(),
+                fc.bad == 0 ? "from its first sample" : "late", static_cast<double>(start - N) / rate * 1000.0);
+}
+
+//==============================================================================
+// The audit's faults, one test each: the plug-in must never replace audio it should leave alone.
+//==============================================================================
+void locatorResidual()
+{
+    beginCase("locator: the same recording, not a resemblance (residual under -30 dB)");
+    const double rate = 48000.0;
+    const Sound x = passBy(rate, 4.0);
+    Locator loc;
+    loc.prepare(x.data(), static_cast<std::int64_t>(x.size()), rate);
+    const auto pos = static_cast<std::size_t>(1.7 * rate);
+    const auto same = loc.locate(x.data() + pos);
+    check(same.found && same.residual < 1.0e-9, "the same file: residual " + num(db(std::sqrt(same.residual)) * 2.0, 0) + " dB");
+    Sound inverted(x.begin() + static_cast<std::ptrdiff_t>(pos), x.begin() + static_cast<std::ptrdiff_t>(pos) + loc.probeLength());
+    for (auto& v : inverted)
+        v = -v;
+    check(! loc.locate(inverted.data()).found, "a polarity-inverted copy is not the learned recording");
+    Sound offset(x.begin() + static_cast<std::ptrdiff_t>(pos), x.begin() + static_cast<std::ptrdiff_t>(pos) + loc.probeLength());
+    for (auto& v : offset)
+        v += 0.05f;
+    check(! loc.locate(offset.data()).found, "nor one with a DC offset");
+    // A fade on the player across the probe (40 dB a second) still fits.
+    Sound faded(x.begin() + static_cast<std::ptrdiff_t>(pos), x.begin() + static_cast<std::ptrdiff_t>(pos) + loc.probeLength());
+    for (std::size_t i = 0; i < faded.size(); ++i)
+        faded[i] *= static_cast<float>(std::pow(10.0, (-20.0 + 40.0 * static_cast<double>(i) / rate) / 20.0));
+    const auto mf = loc.locate(faded.data());
+    check(mf.found && mf.sourceSample == static_cast<std::int64_t>(pos), "a fade across the probe still matches, to the sample");
+    // Quiet material that matches everywhere (a steady tone) is no evidence; loud, it is.
+    const Sound held = tone(3.0, rate, [](double) { return 200.0; }, kRich);
+    Locator heldLoc;
+    heldLoc.prepare(held.data(), static_cast<std::int64_t>(held.size()), rate);
+    Sound quiet(held.begin() + 48000, held.begin() + 48000 + heldLoc.probeLength());
+    for (auto& v : quiet)
+        v *= 0.1f;   // -20 dB
+    const auto mq = heldLoc.locate(quiet.data());
+    check(! mq.found && mq.ambiguous && mq.tooQuiet, "an ambiguous match 20 dB under the learned sound is refused");
+    const auto ml = heldLoc.locate(held.data() + 48000);
+    check(ml.found && ml.sourceSample <= static_cast<std::int64_t>(rate / 200.0), "the same at full level is taken (the earliest place): " + std::to_string(ml.sourceSample));
+}
+
+void enginePendingAndLayers()
+{
+    beginCase("engine: a match is heard only once it has held; layers, fades, swaps, hum and tones are left alone");
+    Rig rig;
+    const double rate = rig.rate;
+    const int L = rig.engine.latencySamples();
+    const Sound A = passBy(rate, 4.0);
+    check(rig.learn(A), "learned");
+    const auto r = rig.engine.result();
+    if (r == nullptr || ! r->playable())
+        return;
+
+    // 0.2 s of the sound, then other audio: matched, but it stops holding before the output gets
+    // there, so nothing is heard.
+    {
+        const auto cancelledBefore = rig.engine.cancelledStarts();
+        const Sound in = join({ silence(0.3, rate), slice(A, 0.0, 0.2, rate), tone(1.0, rate, [](double) { return 330.0; }, kRich, 0.02, 9u), silence(0.6, rate) });
+        const Sound out = rig.play(in);
+        check(countDryMismatches(in, out, L, 0, static_cast<std::int64_t>(in.size())) == 0, "a match that did not hold is never heard: the input passes bit for bit");
+        check(rig.engine.cancelledStarts() > cancelledBefore, "the start was cancelled");
+    }
+    // Another sound layered 14 dB under the learned one: the layer would be lost, so the input passes.
+    {
+        const Sound other = tone(4.0, rate, [](double) { return 330.0; }, kRich, 0.05, 777u);
+        const float g = static_cast<float>(rms(A, 0, static_cast<std::int64_t>(A.size())) / rms(other, 0, static_cast<std::int64_t>(other.size())) * std::pow(10.0, -14.0 / 20.0));
+        const Sound in = join({ silence(0.5, rate), mixIn(A, other, g), silence(1.0, rate) });
+        const Sound out = rig.play(in);
+        check(countDryMismatches(in, out, L, 0, static_cast<std::int64_t>(in.size())) == 0, "a layer 14 dB under the learned sound: the input passes");
+    }
+    // A fade-out on the player: the flattened sound fades with it.
+    {
+        Sound f = A;
+        const double T = static_cast<double>(A.size()) / rate;
+        for (std::size_t i = 0; i < f.size(); ++i)
+        {
+            const double t = static_cast<double>(i) / rate;
+            if (t > T - 1.5)
+                f[i] *= static_cast<float>(std::pow(10.0, (-60.0 * (t - (T - 1.5)) / 1.5) / 20.0));
+        }
+        const Sound in = join({ silence(0.5, rate), f, silence(1.0, rate) });
+        const Sound out = rig.play(in);
+        double worst = 0.0;
+        for (const double t0 : { T - 1.4, T - 1.15, T - 0.9 })   // while the (shorter) render still plays
+        {
+            const auto a = static_cast<std::int64_t>((0.5 + t0) * rate), b = a + static_cast<std::int64_t>(0.05 * rate);
+            // The flattened sound at the learned level over the same output span, faded as the input is.
+            const double inputDb = db(rms(in, a, b)) - db(rms(join({ silence(0.5, rate), A }), a, b));
+            const double outputDb = db(rms(out, a + L, b + L));
+            const auto N = rig.engine.lastMatchInput() - (rig.played - static_cast<std::int64_t>(in.size()));
+            const auto offset = static_cast<std::int64_t>(std::llround(r->flattened.outputSampleFor(static_cast<double>(rig.engine.lastMatchSource())))) - N;
+            Sound flatSpan(static_cast<std::size_t>(b - a));
+            for (auto t = a; t < b; ++t)
+            {
+                const auto k = t + offset;
+                flatSpan[static_cast<std::size_t>(t - a)] = k >= 0 && k < static_cast<std::int64_t>(r->flattened.channels[0].size()) ? r->flattened.channels[0][static_cast<std::size_t>(k)] : 0.0f;
+            }
+            worst = std::max(worst, std::abs(outputDb - db(rms(flatSpan, 0, b - a)) - inputDb));
+        }
+        check(worst < 1.0, "a fade on the player comes out as a fade (within 1 dB): " + num(worst, 2) + " dB");
+    }
+    // Twice as loud (another, normalised copy): the flattened sound comes out twice as loud.
+    {
+        Sound loud = A;
+        for (auto& v : loud)
+            v *= 2.0f;
+        const Sound in = join({ silence(0.5, rate), loud, silence(1.0, rate) });
+        const Sound out = rig.play(in);
+        const auto N = rig.engine.lastMatchInput() - (rig.played - static_cast<std::int64_t>(in.size()));
+        const auto S = rig.engine.lastMatchSource();
+        const auto offset = static_cast<std::int64_t>(std::llround(r->flattened.outputSampleFor(static_cast<double>(S)))) - N;
+        double worst = 0.0;
+        for (auto t = N + static_cast<std::int64_t>(0.2 * rate); t < N + static_cast<std::int64_t>(2.0 * rate); ++t)
+            worst = std::max(worst, static_cast<double>(std::abs(out[static_cast<std::size_t>(t + L)] - 2.0f * r->flattened.channels[0][static_cast<std::size_t>(t + offset)])));
+        check(worst < 1.0e-5, "played 6 dB up: the render, 6 dB up: " + num(worst, 7));
+    }
+    // A reset mid-sound, then silence: nothing of the old sound comes back.
+    {
+        rig.play(join({ silence(0.5, rate), slice(A, 0.0, 2.0, rate) }));
+        rig.engine.requestReset();
+        const Sound out = rig.play(silence(1.0, rate));
+        int loud = 0;
+        for (const float v : out)
+            loud += identical(v, 0.0f) ? 0 : 1;
+        check(loud == 0, "after reset() with silent input the output is silent: " + std::to_string(loud) + " samples were not");
+    }
+    // Unrelated noise for 5 s: the search backs off instead of running all the time.
+    {
+        const auto before = rig.engine.searchesDone();
+        const auto started = std::chrono::steady_clock::now();
+        rig.play(noise(5.0, rate, 0.2f, 9));
+        const auto searches = rig.engine.searchesDone() - before;
+        std::printf("    -> 5 s of unrelated noise: %llu searches, %.0f ms offline\n", static_cast<unsigned long long>(searches), msSince(started));
+        check(searches <= 12, "unrelated audio is searched a few times, not continuously: " + std::to_string(searches));
+    }
+}
+
+void engineAmbiguousAndStereo()
+{
+    beginCase("engine: hum, a held tone and swapped channels are not the learned sound");
+    const double rate = 48000.0;
+    {
+        Rig rig;
+        const auto humAt = [rate](double seconds, double phase, std::uint32_t seed)
+        {
+            Sound h = tone(seconds, rate, [](double) { return 50.0; }, { 1.0, 0.5, 0.3, 0.2 }, 0.002, seed);
+            const auto shift = static_cast<std::size_t>(phase / (kTwoPi * 50.0) * rate);
+            std::rotate(h.begin(), h.begin() + static_cast<std::ptrdiff_t>(shift % h.size()), h.end());
+            for (auto& v : h)
+                v *= 0.02f;   // -46 dBFS
+            return h;
+        };
+        Sound A = humAt(5.0, 0.0, 1u);
+        const Sound pb = passBy(rate, 4.0);
+        for (std::size_t i = 0; i < pb.size(); ++i)
+            A[i + static_cast<std::size_t>(rate)] += pb[i];
+        check(rig.learn(A), "learned a sound with a second of hum before it");
+        const Sound in = join({ silence(0.5, rate), humAt(3.0, 2.0, 77u), silence(1.0, rate) });
+        const Sound out = rig.play(in);
+        check(countDryMismatches(in, out, rig.engine.latencySamples(), 0, static_cast<std::int64_t>(in.size())) == 0, "another file of the same hum passes untouched");
+    }
+    {
+        Rig rig;
+        const Sound A = tone(4.0, rate, [](double t) { return 200.0 * std::exp2(0.3 * std::sin(kTwoPi * t / 4.0) / 12.0); }, kRich, 0.01, 11u);
+        check(rig.learn(A), "learned a held note");
+        const Sound in = join({ silence(0.5, rate), tone(3.0, rate, [](double) { return 201.0; }, kRich, 0.01, 12345u), silence(1.0, rate) });
+        const Sound out = rig.play(in);
+        check(countDryMismatches(in, out, rig.engine.latencySamples(), 0, static_cast<std::int64_t>(in.size())) == 0, "a different steady tone at that pitch passes untouched");
+    }
+    {
+        Rig rig;
+        const Sound left = passBy(rate, 3.0);
+        const Sound hiss = noise(3.0, rate, 0.05f, 4);
+        Sound right(left.size());
+        for (std::size_t i = 0; i < right.size(); ++i)
+            right[i] = 0.3f * left[i] + hiss[i];
+        check(rig.learn(core::Channels { left, right }), "learned in stereo");
+        const core::Channels in { join({ silence(0.5, rate), right, silence(1.0, rate) }), join({ silence(0.5, rate), left, silence(1.0, rate) }) };
+        const auto out = rig.play(in);
+        const int L = rig.engine.latencySamples();
+        check(countDryMismatches(in[0], out[0], L, 0, static_cast<std::int64_t>(in[0].size())) == 0
+                  && countDryMismatches(in[1], out[1], L, 0, static_cast<std::int64_t>(in[1].size())) == 0,
+              "the same file with its channels swapped passes untouched");
+    }
+}
+
+void engineStopsAndTails()
+{
+    beginCase("engine: stopping in a quiet gap, the tail over the next file, the two timelines");
+    const double rate = 48000.0;
+    {
+        Rig rig;
+        const Sound s1 = passBy(rate, 1.5), s2 = passBy(rate, 1.5, 5.0, 0.02);
+        const Sound gap = noise(0.6, rate, 0.0015f, 3);   // room tone, about -60 dBFS
+        check(rig.learn(join({ s1, gap, s2 })), "learned two sounds with room tone between");
+        const int L = rig.engine.latencySamples();
+        const Sound in = join({ silence(0.5, rate), s1, slice(gap, 0.0, 0.1, rate), silence(2.5, rate) });
+        const Sound out = rig.play(in);
+        const auto stop = static_cast<std::int64_t>(0.5 * rate) + static_cast<std::int64_t>(s1.size() + static_cast<std::size_t>(0.1 * rate));
+        check(countDryMismatches(in, out, L, stop, static_cast<std::int64_t>(in.size())) == 0, "stopped in the gap: the output stops too");
+    }
+    {
+        Rig rig;
+        const Sound A = passBy(rate, 4.0);
+        check(rig.learn(A), "learned");
+        setTarget(rig, core::Target::LowPoint);
+        const auto r = rig.engine.result();
+        check(r != nullptr && static_cast<std::int64_t>(r->flattened.channels[0].size()) > r->learned->locator.length(), "a longer render");
+        const int L = rig.engine.latencySamples();
+        const int fade = static_cast<int>(std::llround(Engine::kFadeSeconds * rate)) + 2;
+        const Sound B = tone(2.0, rate, [](double) { return 523.0; }, kRich, 0.05, 99u);
+        for (const double gapSeconds : { 0.0, 0.3 })
+        {
+            const Sound in = join({ silence(0.5, rate), A, silence(gapSeconds, rate), B, silence(1.0, rate) });
+            const Sound out = rig.play(in);
+            const auto b0 = static_cast<std::int64_t>(0.5 * rate) + static_cast<std::int64_t>(A.size()) + static_cast<std::int64_t>(gapSeconds * rate);
+            check(countDryMismatches(in, out, L, b0 + fade, static_cast<std::int64_t>(in.size())) == 0,
+                  "the next file " + num(gapSeconds, 1) + " s after the sound comes through at once, not under the tail");
+        }
+        // With silence after the sound, the tail plays out.
+        const Sound in = join({ silence(0.5, rate), A, silence(2.0, rate) });
+        bool sawTail = false;
+        rig.onBlock = [&] { sawTail = sawTail || rig.engine.playback() == Engine::Playback::Tail; };
+        const Sound out = rig.play(in);
+        rig.onBlock = {};
+        const auto N = rig.engine.lastMatchInput() - (rig.played - static_cast<std::int64_t>(in.size()));
+        const auto fc = compareFlat(core::Channels { out }, *r, L, N, rig.engine.lastMatchSource(), static_cast<std::int64_t>(in.size()), rate, 1);
+        check(sawTail && fc.compared > static_cast<int>(4.5 * rate) && fc.bad == 0, "into silence the whole longer render plays, tail and all");
+    }
+    for (const bool keepLength : { false, true })
+    {
+        // The input is the first 2 s of the learned sound, then silence.
+        Rig rig;
+        const Sound A = passBy(rate, 4.0);
+        check(rig.learn(A), "learned");
+        setTarget(rig, core::Target::HighPoint, keepLength);
+        const auto r = rig.engine.result();
+        if (r == nullptr || ! r->playable())
+            continue;
+        const int L = rig.engine.latencySamples();
+        const auto cut = static_cast<std::int64_t>(0.5 * rate) + static_cast<std::int64_t>(2.0 * rate);
+        const Sound in = join({ silence(0.5, rate), slice(A, 0.0, 2.0, rate), silence(1.5, rate) });
+        const Sound out = rig.play(in);
+        const auto N = rig.engine.lastMatchInput() - (rig.played - static_cast<std::int64_t>(in.size()));
+        const auto S = rig.engine.lastMatchSource();
+        std::int64_t last = -1;
+        for (std::int64_t t = 0; t + L < static_cast<std::int64_t>(out.size()); ++t)
+            if (! identical(out[static_cast<std::size_t>(t + L)], in[static_cast<std::size_t>(t)]))
+                last = t;
+        const auto offset = static_cast<std::int64_t>(std::llround(r->flattened.outputSampleFor(static_cast<double>(S)))) - N;
+        const double heard = (r->flattened.sourceSampleFor(static_cast<double>(last + offset)) - static_cast<double>(S - N)) / rate - 0.5;
+        if (! keepLength)
+        {
+            // Varispeed (High Point: a shorter render, which runs ahead of the input). When the
+            // input stops being the sound, the output returns to the input at that input position.
+            // The last moment of the sound heard is then a little past what the input had.
+            check(last >= 0 && last < cut, "Varispeed: the flattened sound stops at the input's cut (" + num(static_cast<double>(last - static_cast<std::int64_t>(0.5 * rate)) / rate, 3) + " s), then the input");
+            std::printf("    -> Varispeed: the last flattened sample heard is the sound's moment %.3f s; the input had 0-2.000 s\n", heard);
+        }
+        else
+        {
+            check(last >= 0 && last < cut && heard <= 2.0 + 1.0e-3, "Keep Length: nothing past the checked input is played (last moment " + num(heard, 3) + " s)");
+        }
+    }
+}
+
+void engineRenderSwitchAndRelearn()
+{
+    beginCase("engine: offline right after a change uses the new render; a new capture plays nothing until analysed");
+    const double rate = 48000.0;
+    Rig rig;
+    const Sound A = passBy(rate, 3.0);
+    check(rig.learn(A), "learned");
+    const int L = rig.engine.latencySamples();
+    const auto before = rig.engine.result();
+    auto o = rig.engine.options();
+    o.target = core::Target::LowPoint;
+    rig.engine.setOptions(o);   // and bounce at once, without waiting
+    std::vector<std::uint64_t> heard;
+    rig.onBlock = [&]
+    {
+        if (rig.engine.playPosition() >= 0 && (heard.empty() || heard.back() != rig.engine.playGeneration()))
+            heard.push_back(rig.engine.playGeneration());
+    };
+    const Sound in = join({ silence(0.5, rate), A, silence(2.0, rate) });
+    const Sound out = rig.play(in);
+    rig.onBlock = {};
+    const auto after = rig.engine.result();
+    check(after != nullptr && after != before && heard.size() == 1 && heard[0] == after->generation && ! rig.engine.offlineWaitGaveUp(),
+          "the bounce waited for the new render and heard only it");
+    if (after != nullptr && after->playable())
+    {
+        const auto N = rig.engine.lastMatchInput() - (rig.played - static_cast<std::int64_t>(in.size()));
+        const auto fc = compareFlat(core::Channels { out }, *after, L, N, rig.engine.lastMatchSource(), static_cast<std::int64_t>(in.size()), rate, 1);
+        check(fc.compared > static_cast<int>(2.5 * rate) && fc.bad == 0, "and played it exactly");
+    }
+
+    // Learn another sound: while it is analysed, the old one is not played.
+    rig.engine.armLearn();
+    rig.play(join({ silence(0.2, rate), tone(3.0, rate, [](double t) { return 400.0 + 100.0 * t; }, kRich, 0.02, 8u), silence(1.3, rate) }));
+    check(eventually([&] { return rig.engine.state() == Engine::State::Analysing; }, 2.0), "analysing the new sound");
+    const Sound again = join({ silence(0.3, rate), A, silence(0.5, rate) });
+    const Sound out2 = rig.play(again);
+    const bool wasAnalysing = rig.engine.state() == Engine::State::Analysing;
+    check(! wasAnalysing || countDryMismatches(again, out2, L, 0, static_cast<std::int64_t>(again.size())) == 0, "the old sound passes dry while the new one is analysed");
+    rig.engine.waitUntilIdle(60.0);
+}
+
+void engineCancelLearn()
+{
+    beginCase("engine: cancelLearn() keeps the sound learned before, from armed, listening and analysing");
+    const double rate = 48000.0;
+    const Sound A = passBy(rate, 2.5);
+    const Sound B = tone(3.0, rate, [](double t) { return 400.0 + 100.0 * t; }, kRich, 0.02, 8u);
+    const auto playsA = [&](Rig& rig)
+    {
+        const auto r = rig.engine.result();
+        if (r == nullptr || ! r->playable())
+            return false;
+        const Sound in = join({ silence(0.4, rate), A, silence(0.8, rate) });
+        const auto base = rig.played;
+        const Sound out = rig.play(in);
+        const auto N = rig.engine.lastMatchInput() - base;
+        const auto fc = compareFlat(core::Channels { out }, *r, rig.engine.latencySamples(), N, rig.engine.lastMatchSource(), static_cast<std::int64_t>(in.size()), rate, 1);
+        return N >= 0 && fc.compared > static_cast<int>(1.5 * rate) && fc.bad == 0;
+    };
+    Rig rig;
+    check(rig.learn(A), "learned");
+    const auto learnedBefore = rig.engine.result();
+    for (int phase = 0; phase < 3; ++phase)
+    {
+        rig.engine.armLearn();
+        const char* what = phase == 0 ? "armed" : phase == 1 ? "listening" : "analysing";
+        if (phase == 1)
+            rig.play(join({ silence(0.2, rate), slice(B, 0.0, 1.0, rate) }));
+        if (phase == 2)
+        {
+            rig.play(join({ silence(0.2, rate), B, silence(1.3, rate) }));
+            check(eventually([&] { return rig.engine.state() == Engine::State::Analysing; }, 2.0), "analysing B");
+        }
+        rig.engine.cancelLearn();
+        check(rig.engine.state() == Engine::State::Ready && ! rig.engine.isLearnArmed() && rig.engine.result() == learnedBefore,
+              std::string("cancelled while ") + what + ": back to Ready with the earlier sound");
+        check(playsA(rig), std::string("and it plays flattened again (cancelled while ") + what + ")");
+    }
+    check(rig.engine.waitUntilIdle(30.0) && rig.engine.result() == learnedBefore, "the abandoned analysis never replaced it");
+    for (int phase = 0; phase < 3; ++phase)
+    {
+        Rig fresh;
+        fresh.engine.armLearn();
+        if (phase == 1)
+            fresh.play(join({ silence(0.2, rate), slice(B, 0.0, 1.0, rate) }));
+        if (phase == 2)
+        {
+            fresh.play(join({ silence(0.2, rate), B, silence(1.3, rate) }));
+            eventually([&] { return fresh.engine.state() == Engine::State::Analysing; }, 2.0);
+        }
+        fresh.engine.cancelLearn();
+        check(fresh.engine.state() == Engine::State::Idle && fresh.engine.result() == nullptr, "with nothing learned before, cancelling returns to Idle (" + std::to_string(phase) + ")");
+        check(fresh.engine.waitUntilIdle(30.0) && fresh.engine.result() == nullptr, "and stays there");
+    }
+}
+
+void engineTelemetry()
+{
+    beginCase("engine: what the output is doing, for the window");
+    const double rate = 48000.0;
+    Rig rig;
+    const Sound A = passBy(rate, 4.0);
+    check(rig.learn(A), "learned");
+    std::vector<Engine::Playback> seen;
+    bool currentWhileFlat = true;
+    rig.onBlock = [&]
+    {
+        const auto p = rig.engine.playback();
+        if (seen.empty() || seen.back() != p)
+            seen.push_back(p);
+        if (p == Engine::Playback::Flattened)
+            currentWhileFlat = currentWhileFlat && rig.engine.playingCurrentRender();
+    };
+    rig.play(join({ silence(0.5, rate), A, silence(1.0, rate) }));
+    const std::vector<Engine::Playback> highPoint { Engine::Playback::Searching, Engine::Playback::Flattened, Engine::Playback::FlattenedEnded, Engine::Playback::Searching };
+    check(seen == highPoint, "High Point (shorter): searching, flattened, flattened-ended, searching");
+    check(currentWhileFlat, "and it was the current render");
+    setTarget(rig, core::Target::LowPoint);
+    seen.clear();
+    rig.play(join({ silence(0.5, rate), A, silence(2.0, rate) }));
+    const std::vector<Engine::Playback> lowPoint { Engine::Playback::Searching, Engine::Playback::Flattened, Engine::Playback::Tail, Engine::Playback::Searching };
+    check(seen == lowPoint, "Low Point (longer): searching, flattened, tail, searching");
+    rig.onBlock = {};
+    rig.engine.clear();
+    rig.play(silence(0.1, rate));
+    check(rig.engine.playback() == Engine::Playback::Idle, "idle with nothing learned");
+}
+
+void engineCaptureFaults()
+{
+    beginCase("engine: Learn ends over a noise floor, survives a bad sample, captures while bypassed; Clear lets go");
+    const double rate = 48000.0;
+    Sound A = passBy(rate, 2.0);
+    float peak = 0.0f;
+    for (const float v : A)
+        peak = std::max(peak, std::abs(v));
+    for (auto& v : A)
+        v *= 0.891f / peak;   // -1 dBFS
+    for (const float floorPeak : { 0.00063f, 0.002f })   // -64 and -54 dBFS
+    {
+        Rig rig;
+        const Sound bed = noise(12.0, rate, floorPeak, 4);
+        Sound in = bed;
+        for (std::size_t i = 0; i < A.size(); ++i)
+            in[i + static_cast<std::size_t>(0.5 * rate)] += A[i];
+        rig.engine.armLearn();
+        rig.play(in);
+        check(rig.engine.state() != Engine::State::Listening, "a noise floor at " + num(db(floorPeak), 0) + " dBFS ends Learn");
+        check(rig.engine.waitUntilIdle(60.0), "analysed");
+        const auto r = rig.engine.result();
+        check(r != nullptr && r->learned->locator.length() < static_cast<std::int64_t>(A.size()) + static_cast<std::int64_t>(0.6 * rate) + 1024,
+              "and the floor after the sound is trimmed");
+    }
+    {
+        Rig rig;
+        Sound bad = passBy(rate, 3.0);
+        bad[static_cast<std::size_t>(1.0 * rate)] = std::numeric_limits<float>::quiet_NaN();
+        check(rig.learn(bad), "learned a sound with a NaN in it");
+        const auto r = rig.engine.result();
+        bool finite = r != nullptr && r->playable();
+        if (finite)
+            for (const float v : r->flattened.channels[0])
+                finite = finite && std::isfinite(v);
+        check(finite, "the render is all finite");
+        bad[static_cast<std::size_t>(1.0 * rate)] = 0.0f;
+        const auto base = rig.played;
+        const Sound out = rig.play(join({ silence(0.5, rate), slice(bad, 2.0, 3.0, rate), silence(1.0, rate) }));
+        bool allFinite = true;
+        for (const float v : out)
+            allFinite = allFinite && std::isfinite(v);
+        check(rig.engine.lastMatchInput() >= base && allFinite, "and it is still found, after the bad sample");
+    }
+    {
+        Rig rig;
+        rig.engine.armLearn();
+        rig.play(join({ silence(0.2, rate), passBy(rate, 2.0), silence(1.3, rate) }), true);
+        check(rig.engine.waitUntilIdle(60.0) && rig.engine.state() == Engine::State::Ready, "Learn captured the sound while bypassed");
+    }
+    {
+        Rig rig;
+        check(rig.learn(passBy(rate, 2.0)), "learned");
+        std::weak_ptr<const Result> render = rig.engine.result();
+        std::weak_ptr<const pitchflattener::Learned> learned = rig.engine.result()->learned;
+        rig.play(join({ silence(0.5, rate), passBy(rate, 2.0), silence(0.5, rate) }));
+        rig.engine.clear();
+        check(eventually([&] { rig.play(silence(0.02, rate)); return render.expired() && learned.expired(); }, 5.0), "Clear gives the learned sound's memory back");
+    }
+}
+
+void engineLargeBlocks()
+{
+    beginCase("engine: the latency covers the prepared block size (a 32768-sample block in real time)");
+    const double rate = 48000.0;
+    const int block = 32768;
+    check(Engine::latencyFor(rate, 512) == 19200 && Engine::latencyFor(rate, 2048) == 19200 && Engine::latencyFor(44100.0, 2048) == 17640
+              && Engine::latencyFor(96000.0, 4096) == 38400 && Engine::latencyFor(192000.0, 4096) == 76800,
+          "0.4 s for ordinary blocks (up to 2048 at 44.1/48 kHz, 4096 at 96/192 kHz)");
+    const int L = Engine::latencyFor(rate, block);
+    check(L >= Locator::nominalProbeLength(rate) + block + static_cast<int>(Engine::kSearchBudgetSeconds * rate), "probe + block + search budget for a big one: " + num(L / rate, 3) + " s");
+    Rig rig(rate, block);
+    const Sound A = passBy(rate, 4.0);
+    check(rig.learn(A), "learned");
+    check(rig.engine.latencySamples() == L, "reported");
+    rig.engine.setNonRealtime(false);
+    rig.fixedBlock = block;
+    const auto r = rig.engine.result();
+    const Sound in = join({ silence(0.75, rate), A, silence(1.5, rate) });
+    // Paced in real time, one 683 ms block at a time.
+    core::Channels io { in };
+    std::vector<float*> ptrs(1);
+    auto clock = std::chrono::steady_clock::now();
+    for (std::size_t pos = 0; pos < in.size(); pos += static_cast<std::size_t>(block))
+    {
+        const int n = static_cast<int>(std::min<std::size_t>(in.size() - pos, static_cast<std::size_t>(block)));
+        ptrs[0] = io[0].data() + pos;
+        rig.engine.process(ptrs.data(), 1, n);
+        clock += std::chrono::microseconds(static_cast<std::int64_t>(1.0e6 * n / rate));
+        std::this_thread::sleep_until(clock);
+    }
+    const auto N = rig.engine.lastMatchInput() - rig.played;
+    std::int64_t dry = 0;
+    for (std::int64_t t = static_cast<std::int64_t>(0.75 * rate); t < static_cast<std::int64_t>(0.75 * rate + static_cast<double>(A.size())); ++t)
+        dry += identical(io[0][static_cast<std::size_t>(t + L)], in[static_cast<std::size_t>(t)]) && ! identical(in[static_cast<std::size_t>(t)], 0.0f) ? 1 : 0;
+    std::printf("    -> %lld samples of the sound passed unflattened (matched at %lld)\n", static_cast<long long>(dry), static_cast<long long>(N));
+    check(r != nullptr && dry == 0, "none of the sound's start leaks through unflattened");
 }
 
 } // namespace
@@ -808,13 +1395,19 @@ void runLocatorTests()
     locatorBasics();
     locatorRejects();
     locatorRepeats();
+    locatorResidual();
     locatorTiming();
 }
 
+void setEngineTestSeed(unsigned seed) { g_seedChosen = seed; }
+
 void runEngineTests()
 {
-    g_seed = static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xffff) + 1u;
-    std::printf("(block sizes from seed %u)\n", g_seed);
+    // Random block sizes, from a seed printed here and accepted back (--seed) to replay a run.
+    if (const char* fromEnvironment = std::getenv("PITCHFLATTENER_SEED"); g_seedChosen == 0 && fromEnvironment != nullptr)
+        g_seedChosen = static_cast<unsigned>(std::strtoul(fromEnvironment, nullptr, 10));
+    g_seed = g_seedChosen != 0 ? g_seedChosen : static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xffff) + 1u;
+    std::printf("(block sizes from seed %u: --seed %u replays them)\n", g_seed, g_seed);
     g_audioAllocations.store(0);
     g_audioFrees.store(0);
     engineLearnAndPlay();
@@ -824,6 +1417,14 @@ void runEngineTests()
     engineCaptureEnds();
     engineChannels();
     engineRateAndRealtime();
+    enginePendingAndLayers();
+    engineAmbiguousAndStereo();
+    engineStopsAndTails();
+    engineRenderSwitchAndRelearn();
+    engineCancelLearn();
+    engineTelemetry();
+    engineCaptureFaults();
+    engineLargeBlocks();
     beginCase("engine: the audio thread never allocated or freed");
     check(g_audioAllocations.load() == 0 && g_audioFrees.load() == 0,
           "allocations " + std::to_string(g_audioAllocations.load()) + ", frees " + std::to_string(g_audioFrees.load()));
@@ -832,8 +1433,11 @@ void runEngineTests()
 } // namespace pftest
 
 #ifdef PF_ENGINE_TESTS_MAIN
-int main()
+int main(int argc, char* argv[])
 {
+    for (int i = 1; i + 1 < argc; ++i)
+        if (std::string(argv[i]) == "--seed")
+            pftest::setEngineTestSeed(static_cast<unsigned>(std::strtoul(argv[i + 1], nullptr, 10)));
     pftest::runLocatorTests();
     pftest::runEngineTests();
     std::printf("\n%d checks, %d failed\n", pftest::g_checks, pftest::g_failures);

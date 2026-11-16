@@ -5,5 +5,6 @@
 set -e
 P=pitchflattener
 clang++ -std=c++20 -O2 -Wall -Wextra -I$P/Source -I$P/Tools $P/Tools/FlattenFile.cpp $P/Source/core/Flatten.cpp $P/Source/core/HarmonicTracker.cpp \
-  $P/Source/core/HindsightTracker.cpp $P/Source/core/RidgeTracker.cpp -o $P/Tools/FlattenFile
+  $P/Source/core/HindsightTracker.cpp $P/Source/core/RidgeTracker.cpp $P/Source/core/KeepLength.cpp \
+  -ISDK/rubberband-4.0.0 SDK/rubberband-4.0.0/lib/librubberband.a -framework Accelerate -o $P/Tools/FlattenFile
 clang++ -std=c++20 -O2 -I$P/Tools $P/Tools/specplot.cpp -lz -o $P/Tools/specplot

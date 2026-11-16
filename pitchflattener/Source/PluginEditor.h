@@ -33,7 +33,7 @@ class UpdatePopup;
  * blink and flight frame runs from one clock and one 30 Hz timer, which idles while the editor is
  * not showing.
  */
-class PitchFlattenerAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
+class PitchFlattenerAudioProcessorEditor final : public juce::AudioProcessorEditor, public juce::TooltipClient, private juce::Timer
 {
 public:
     explicit PitchFlattenerAudioProcessorEditor (PitchFlattenerAudioProcessor&);
@@ -41,6 +41,8 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    /** Over the FLAT ON readout of a recording of several sounds: what SEVERAL means. */
+    juce::String getTooltip() override;
 
     /** Shows the "new version available" popup over everything in the editor (the update check calls it). */
     void showUpdatePopup (const sammyj::UpdateInfo&);
@@ -49,6 +51,56 @@ public:
     void refreshNow();
     const juce::String& statusText() const noexcept { return m_status; }
     const juce::String& learnButtonText() const noexcept { return m_learnText; }
+    const juce::String& flatOnText() const noexcept { return m_flatText; }
+    const juce::String& delayText() const noexcept { return m_delayText; }
+    juce::String clearButtonText() const { return m_clear.getButtonText(); }
+    bool clearButtonEnabled() const noexcept { return m_clear.isEnabled(); }
+    juce::String clearButtonTooltip() { return m_clear.getTooltip(); }
+    /** Tests: CLEAR (or CANCEL) pressed, at once. */
+    void pressClearForTests() { if (m_clear.onClick != nullptr) m_clear.onClick(); }
+    /** Tests: the header buttons whose place the rendering tag must stay clear of. */
+    std::vector<juce::Rectangle<int>> headerButtonsForTests() const
+    {
+        std::vector<juce::Rectangle<int>> r;
+        for (const auto* b : { &m_drawTool, &m_snapTool, &m_undo, &m_redo, &m_resetCurve, &m_zoomOut, &m_zoomIn, &m_fit, &m_scopeTab, &m_flightTab })
+            r.push_back (b->getBounds());
+        return r;
+    }
+    juce::Rectangle<int> viewAreaForTests() const noexcept { return m_viewArea; }
+    /** Tests: shows this rendering tag whatever the engine says (empty: back to the engine). */
+    void setRenderingTextForTests (const juce::String& text) { m_renderingOverride = text; refreshNow(); }
+    juce::String learnHintText() const { return m_learn.hint(); }
+    /** The tag in the display's header (RENDERING ..., or empty), and where it is. */
+    const juce::String& renderingTagText() const noexcept { return m_renderingText; }
+    juce::Rectangle<int> statusSlotForTests() const noexcept { return m_statusSlot; }
+    /** Whether the controls row is live (it is dimmed when there is nothing to flatten). */
+    bool controlsLive() const noexcept { return m_controlsLive; }
+    bool readoutsDimmed() const noexcept { return m_readoutsDim; }
+
+    /** What plays now, from the engine's own answer: one definition for the guidance bar, the
+        banners, the FLAT tag, the rendering tag, the scope's play head and FLIGHT. The flattened
+        sound is playing while it is heard (Flattened, or its Tail); the play head is placed only
+        while the current render is the one heard (only its time map can place it). */
+    struct Playback
+    {
+        pitchflattener::Engine::Playback mode = pitchflattener::Engine::Playback::Idle;
+        bool playing = false;
+        bool current = false;
+    };
+    static Playback playbackOf (pitchflattener::Engine::Playback mode, bool playingCurrentRender) noexcept;
+    /** The guidance once learned, for what the output is doing. */
+    static juce::String learnedStatus (pitchflattener::Engine::Playback mode);
+    /** The bounce warning: raised when an offline wait gave up, held until a newer render or Clear. */
+    struct BounceWarning
+    {
+        bool shown = false;
+        std::uint64_t generation = 0;
+        /** Reads the engine's flag and the current result; true while the warning shows. */
+        bool update (bool waitGaveUp, const pitchflattener::Result* result) noexcept;
+    };
+    static constexpr const char* kBounceWarning = "THE BOUNCE STARTED BEFORE THE NEW VERSION WAS READY: IT USED THE PREVIOUS ONE. BOUNCE AGAIN.";
+    /** The rendering tag for a state: empty when no render is pending. */
+    static juce::String renderingText (const Playback&, bool rendering);
 
     /** The view the display shows now (PitchFlattenerAudioProcessor::kViewScope or kViewFlight). */
     int shownView() const;
@@ -63,8 +115,33 @@ public:
     void showAbout();
     juce::Component* aboutContent() const;
 
+    // The curve editor (undo, redo and reset as their buttons do).
+    void undoEdit();
+    void redoEdit();
+    void resetCurve();
+    bool canUndo() const noexcept { return ! m_undoSteps.empty(); }
+    bool canRedo() const noexcept { return ! m_redoSteps.empty(); }
+    PitchDisplay& scopeForTests() noexcept { return m_display; }
+    /** The controls row's panels, by name (for the manual's pictures). */
+    std::vector<std::pair<juce::String, juce::Rectangle<int>>> panelsForTests() const
+    {
+        return { { "TARGET", m_targetCell }, { "NOTE", m_noteCell }, { "AMOUNT", m_amountCell }, { "SOURCE", m_sourceCell },
+                 { "LENGTH", m_lengthCell }, { "CHARACTER", m_characterCell }, { "DISPLAY", m_displayPanel }, { "GUIDANCE", m_guide } };
+    }
+    /** How often corrections are sent to the engine while a line is being dragged (the render follows). */
+    static constexpr double kLivePushSeconds = 0.25;
+
     /** Tests: freezes the animation clock at this time, so a picture shows a chosen moment. */
     void setClockForTests (double seconds) { m_clock.setManual (seconds); }
+    /** The block-aligned repaint that must follow a repaint of `region` (empty when none is needed). */
+    juce::Rectangle<int> followUpRepaint (juce::Rectangle<int> region) const;
+    /** Tests: shows or hides a tooltip as the tooltip window would. */
+    void showTooltipForTests (juce::Point<int> screenPosition, const juce::String& text) { m_tooltipWindow.displayTip (screenPosition, text); }
+    void hideTooltipForTests() { m_tooltipWindow.hideTip(); }
+    juce::Rectangle<int> tooltipBoundsForTests() const { return m_tooltipWindow.isVisible() ? m_tooltipWindow.getBounds() : juce::Rectangle<int>(); }
+    /** Tests: draws an area into the framebuffer as a repaint of it would, and the finished picture. */
+    void renderForTests (juce::Rectangle<int> area) { m_framebuffer.render (*this, area, [this] (juce::Graphics& fb) { paintContent (fb); }); }
+    const juce::Image& framebufferForTests() const noexcept { return m_framebuffer.output(); }
     /** How long the last framebuffer repaint took (drawing the area afresh and finishing it). */
     double framebufferMilliseconds() const noexcept { return m_framebuffer.lastMilliseconds(); }
     /** How long the last FLIGHT frame took to draw. */
@@ -95,7 +172,14 @@ private:
     HudButton m_clear { "CLEAR", HudButton::Style::Action }, m_about { "?", HudButton::Style::Action };
     HudButton m_scopeTab { "SCOPE", HudButton::Style::Tab }, m_flightTab { "FLIGHT", HudButton::Style::Tab };
     std::array<std::unique_ptr<HudButton>, 5> m_targets;
-    std::array<std::unique_ptr<HudButton>, 3> m_lines;
+    std::array<std::unique_ptr<HudButton>, 4> m_sources;         // AUTO, VOICE, ENGINE, TONE
+    std::array<std::unique_ptr<HudButton>, 2> m_lengthModes;     // VARISPEED, KEEP LENGTH
+    std::array<std::unique_ptr<HudButton>, 3> m_characters;      // HARMONIC, TRANSIENTS, VOICE (Keep length only)
+    // The curve editor's tools, in the display's header (SCOPE only).
+    HudButton m_drawTool { "DRAW", HudButton::Style::Tab }, m_snapTool { "SNAP", HudButton::Style::Tab };
+    HudButton m_undo { "UNDO", HudButton::Style::Action }, m_redo { "REDO", HudButton::Style::Action };
+    HudButton m_resetCurve { "RESET CURVE", HudButton::Style::Action };
+    HudButton m_zoomOut { "-", HudButton::Style::Action }, m_zoomIn { "+", HudButton::Style::Action }, m_fit { "FIT", HudButton::Style::Action };
     juce::Slider m_note, m_amount;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> m_noteAttachment, m_amountAttachment;
 
@@ -105,11 +189,29 @@ private:
     BannerLogic m_bannerLogic;
 
     // Layout (set in resized, drawn in paint).
-    juce::Rectangle<int> m_header, m_readout, m_displayPanel, m_viewArea, m_guide, m_targetCell, m_noteCell, m_amountCell, m_lineCell;
+    juce::Rectangle<int> m_header, m_readout, m_displayPanel, m_viewArea, m_guide, m_targetCell, m_noteCell, m_amountCell, m_sourceCell, m_lengthCell, m_characterCell;
+
+    // Undo for the corrections: what a reading's corrections were before each edit.
+    struct EditStep
+    {
+        int line = -1;
+        PitchDisplay::CurvePoints points;
+    };
+    std::vector<EditStep> m_undoSteps, m_redoSteps;
+    std::uint64_t m_stepsFor = 0;           // the learned sound the steps belong to
+    double m_lastLivePush = 0.0;            // when corrections were last sent while dragging
+    void applyEdits (int line, PitchDisplay::CurvePoints points);
+    void updateTools();
 
     juce::String m_status, m_learnText, m_lengthBefore, m_lengthAfter, m_flatText;
     juce::Colour m_statusColour = Theme::Colours::textDim;
     bool m_flatTagShown = false;
+    bool m_controlsLive = true, m_readoutsDim = false;
+    BounceWarning m_bounceWarning;
+    juce::String m_delayText;
+    juce::String m_renderingText, m_renderingOverride;
+    juce::Rectangle<int> m_statusSlot;   // the display header's tag place, before the tabs
+    juce::Rectangle<int> m_flatRow;
 
     juce::TooltipWindow m_tooltipWindow { this, 600 };
     std::unique_ptr<AboutWindow> m_aboutWindow;

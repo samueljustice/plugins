@@ -125,18 +125,21 @@ It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and 
   <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
 </p>
 
-Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends, and the length changes. Play the same sound again and you hear the flat version, from wherever you start.
+Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound three ways, for voices, engines and tones, uses the reading that flattens it best, and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends. You can let the length change with the speed, or have the sound stretched back to its own timing and length, with a character for tone, hits or voices. Play the same recording again, at the same speed, and you hear the flat version from wherever you start; anything else, even a near copy, passes through untouched.
 
-It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
+It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type, and a recording of several sounds with short silences between them gets each one flattened to its own pitch. Where a reading goes wrong you can pull the line into place by hand, zoomed in as far as you need. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay, 0.4 seconds at ordinary block sizes, that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
+  <img src="pitchflattener/docs/editor.png" alt="Pitch Flattener SCOPE with a corrected line" width="820">
+</p>
+<p align="center">
   <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
 </p>
 <p align="center">
-  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT and LINE" width="820">
+  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT, SOURCE, LENGTH and CHARACTER" width="820">
 </p>
 </details>
 
@@ -210,7 +213,7 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 | Dependency | Used by |
 |---|---|
 | [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Tonal Recall, Stretch Armstrong |
-| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Tonal Recall, Stretch Armstrong |
+| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Tonal Recall, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
 Then, from a project's folder:

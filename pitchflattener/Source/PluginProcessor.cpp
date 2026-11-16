@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -10,7 +11,8 @@ namespace
     juce::ParameterID pid (const char* id) { return { id, 1 }; }
 
     const juce::StringArray c_targetNames { "High Point", "Centre", "Low Point", "Start", "Note" };
-    const juce::StringArray c_lineNames { "Auto", "Harmonic", "Ridge" };
+    const juce::StringArray c_sourceNames { "Auto", "Voice", "Engine", "Tone" };
+    const juce::StringArray c_characterNames { "Harmonic", "Transients", "Voice" };
     const juce::Identifier c_viewProperty { "displayView" };
 
     /** "A4", "C#3", or a plain number: the MIDI note it names (with cents after it, "A4 +12"). */
@@ -76,7 +78,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
             .withStringFromValueFunction ([] (float v, int) { return juce::String (juce::roundToInt (v)) + "%"; })
             .withValueFromStringFunction ([] (const juce::String& t) { return t.retainCharacters ("0123456789.").getFloatValue(); })));
 
-    layout.add (std::make_unique<juce::AudioParameterChoice> (pid (lineId), "Line", c_lineNames, 0));
+    layout.add (std::make_unique<juce::AudioParameterChoice> (pid (sourceId), "Source", c_sourceNames, 0));
+    layout.add (std::make_unique<juce::AudioParameterBool> (pid (keepLengthId), "Keep Length", false,
+        juce::AudioParameterBoolAttributes().withStringFromValueFunction ([] (bool on, int) { return on ? "Keep length" : "Varispeed"; })));
+    layout.add (std::make_unique<juce::AudioParameterChoice> (pid (characterId), "Character", c_characterNames, 0));
 
     return layout;
 }
@@ -114,12 +119,62 @@ core::Options PitchFlattenerAudioProcessor::optionsFromParameters() const
     o.target = (core::Target) juce::jlimit (0, 4, target);
     o.noteMidi = parameters.getRawParameterValue (noteId)->load();
     o.amount = parameters.getRawParameterValue (amountId)->load() / 100.0;
-    o.line = juce::jlimit (0, 2, (int) parameters.getRawParameterValue (lineId)->load()) - 1;   // Auto = -1
+    o.line = juce::jlimit (0, core::kNumTrackers, (int) parameters.getRawParameterValue (sourceId)->load()) - 1;   // Auto = -1
+    o.keepLength = parameters.getRawParameterValue (keepLengthId)->load() > 0.5f;
+    o.character = (core::Character) juce::jlimit (0, 2, (int) parameters.getRawParameterValue (characterId)->load());
+    // The corrections on the reading in use, if they were made on the sound learned now.
+    if (const auto r = m_engine.result(); r != nullptr && r->learned != nullptr && r->learned->id == m_editsFor)
+        if (const int line = lineInUse(); line >= 0)
+            o.edits = m_edits[(size_t) line];
     return o;
+}
+
+int PitchFlattenerAudioProcessor::lineInUse() const
+{
+    const auto r = m_engine.result();
+    if (r == nullptr || r->learned == nullptr)
+        return -1;
+    const auto& analysis = r->learned->analysis;
+    const int source = juce::jlimit (0, core::kNumTrackers, (int) parameters.getRawParameterValue (sourceId)->load()) - 1;
+    if (source >= 0 && analysis.lines[(size_t) source].usable)
+        return source;
+    return analysis.pick;
+}
+
+std::vector<core::CurvePoint> PitchFlattenerAudioProcessor::getEdits (int line) const
+{
+    const auto r = m_engine.result();
+    if (line < 0 || line >= core::kNumTrackers || r == nullptr || r->learned == nullptr || r->learned->id != m_editsFor)
+        return {};
+    return m_edits[(size_t) line];
+}
+
+void PitchFlattenerAudioProcessor::setEdits (int line, std::vector<core::CurvePoint> edits)
+{
+    const auto r = m_engine.result();
+    if (line < 0 || line >= core::kNumTrackers || r == nullptr || r->learned == nullptr)
+        return;
+    if (r->learned->id != m_editsFor)
+    {
+        m_edits = {};
+        m_editsFor = r->learned->id;
+    }
+    if (edits.size() > kMaxEdits)
+        edits.resize (kMaxEdits);
+    std::sort (edits.begin(), edits.end(), [] (const core::CurvePoint& a, const core::CurvePoint& b) { return a.seconds < b.seconds; });
+    m_edits[(size_t) line] = std::move (edits);
+    syncOptions();
 }
 
 void PitchFlattenerAudioProcessor::syncOptions()
 {
+    // Another sound learned (or none): the corrections were for the one before.
+    if (const auto r = m_engine.result(); m_editsFor != 0 && (r == nullptr || r->learned == nullptr || r->learned->id != m_editsFor))
+    {
+        m_edits = {};
+        m_editsFor = 0;
+    }
+
     m_engine.setOptions (optionsFromParameters());
 }
 
@@ -227,7 +282,20 @@ void PitchFlattenerAudioProcessor::setStateInformation (const void* data, int si
     if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
         return;   // not a state of this plug-in: keep the defaults
 
-    parameters.replaceState (juce::ValueTree::fromXml (*xml));
+    const auto tree = juce::ValueTree::fromXml (*xml);
+    if ((int) tree.getProperty ("stateVersion", 1) <= stateVersion)
+    {
+        parameters.replaceState (tree);
+    }
+    else
+    {
+        // From a newer version: take the values of the parameters this version knows, by ID, and
+        // leave the rest of what it holds (its meaning may have changed).
+        for (const auto& child : tree)
+            if (auto* param = parameters.getParameter (child.getProperty ("id").toString()))
+                if (child.hasProperty ("value"))
+                    param->setValueNotifyingHost (param->convertTo0to1 ((float) child.getProperty ("value")));
+    }
     syncOptions();
 }
 

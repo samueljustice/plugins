@@ -1,5 +1,6 @@
 #include "Flatten.h"
 #include "HarmonicTracker.h"
+#include "KeepLength.h"
 #include "RidgeTracker.h"
 
 #include <algorithm>
@@ -26,6 +27,55 @@ namespace
         for (auto& v : mono)
             v *= scale;
         return mono;
+    }
+
+    struct LineStats
+    {
+        bool any = false;
+        double low = 0.0, centre = 0.0, high = 0.0, start = 0.0;
+    };
+
+    // Where the line sits over some of its frames, counted by level so a loud part outweighs a
+    // long quiet one: the 5th, 50th and 95th percentile, and the first 0.3 s that has a pitch.
+    LineStats statsOf(const PitchLine& line, int fromFrame, int toFrame)
+    {
+        LineStats stats;
+        std::vector<std::pair<float, float>> points;
+        std::vector<float> opening;
+        double total = 0.0;
+        const int frames = static_cast<int>(line.midi.size());
+        for (int f = std::max(0, fromFrame); f < std::min(frames, toFrame); ++f)
+        {
+            const auto uf = static_cast<std::size_t>(f);
+            if (line.trackedHz[uf] <= 0.0f)
+                continue;
+            const float weight = uf < line.level.size() ? line.level[uf] : 1.0f;
+            points.push_back({ line.midi[uf], weight });
+            total += weight;
+            if (static_cast<double>(opening.size()) * line.hopSeconds < 0.3)
+                opening.push_back(line.midi[uf]);
+        }
+        if (points.empty())
+            return stats;
+        std::sort(points.begin(), points.end());
+        const auto percentile = [&](double q)
+        {
+            double sum = 0.0;
+            for (const auto& p : points)
+            {
+                sum += p.second;
+                if (sum >= q * total)
+                    return static_cast<double>(p.first);
+            }
+            return static_cast<double>(points.back().first);
+        };
+        stats.any = true;
+        stats.low = percentile(0.05);
+        stats.centre = percentile(0.5);
+        stats.high = percentile(0.95);
+        std::nth_element(opening.begin(), opening.begin() + static_cast<std::ptrdiff_t>(opening.size() / 2), opening.end());
+        stats.start = opening[opening.size() / 2];
+        return stats;
     }
 
     // Turns a tracker's reading into the line the flattener uses.
@@ -72,15 +122,21 @@ namespace
             return line;
 
         // One continuous line. A sound's pitch can sweep fast (a ricochet falls more than 100
-        // semitones a second) but it does not leap; a leap in the reading is the tracker stepping
-        // to another partial or another octave. Each leap is taken out and everything after it
-        // moved by the same amount, so the line carries the sound's movement with no steps for
-        // the flattener to act on. A sound that really does leap again and again (a yelping
-        // siren snapping back to the bottom of each sweep) would send that correction running
-        // away, so when the leaps do not roughly cancel out the reading is kept as it is.
+        // semitones a second) but it does not leap, and a leap in the reading is nearly always
+        // the tracker changing its mind: stepping to another partial or another octave, or a
+        // voice breaking into a growl whose period is many times longer while its tone stays
+        // where it was. Flattened as read, a leap becomes a lurch in speed, which is the worst
+        // thing this plug-in can do to a sound. So each leap is taken out and everything after it
+        // moved by the same amount: the line carries the sound's movement with no steps.
+        //
+        // The one sound that really does leap is a sweep that snaps back and starts again (a
+        // yelping siren). Taking its leaps out would stack every sweep on top of the last, and
+        // the line would climb without end; that shows as a mended line that travels much further
+        // than the reading did, and then the reading is kept as it is.
         {
             std::vector<float> mended(raw);
-            float offset = 0.0f, before = 0.0f, furthest = 0.0f;
+            float offset = 0.0f, before = 0.0f;
+            float rawLow = 1.0e9f, rawHigh = -1.0e9f, mendedLow = 1.0e9f, mendedHigh = -1.0e9f;
             int at = -1, leaps = 0;
             for (int f = 0; f < frames; ++f)
             {
@@ -90,7 +146,8 @@ namespace
                 const float here = raw[uf];
                 if (at >= 0)
                 {
-                    const float allowed = 2.5f + 0.3f * static_cast<float>(f - at - 1);
+                    // Across a gap in the reading the pitch may have moved on a little, no more.
+                    const float allowed = 2.5f + std::min(4.0f, 0.1f * static_cast<float>(f - at - 1));
                     if (std::abs(here - before) > allowed)
                     {
                         offset -= here - before;
@@ -99,10 +156,13 @@ namespace
                 }
                 before = here;
                 at = f;
-                furthest = std::max(furthest, std::abs(offset));
                 mended[uf] = here + offset;
+                rawLow = std::min(rawLow, here);
+                rawHigh = std::max(rawHigh, here);
+                mendedLow = std::min(mendedLow, mended[uf]);
+                mendedHigh = std::max(mendedHigh, mended[uf]);
             }
-            if (furthest <= 14.0f)
+            if (leaps > 0 && mendedHigh - mendedLow <= (rawHigh - rawLow) + 6.0f)
             {
                 raw = std::move(mended);
                 line.leaps = leaps;
@@ -180,46 +240,22 @@ namespace
             line.midi[static_cast<std::size_t>(f)] = static_cast<float>(sum / weights);
         }
 
-        // Where the line sits, counted by level.
-        std::vector<std::pair<float, float>> points;
-        double total = 0.0;
-        std::vector<float> opening;
-        for (int f = 0; f < frames; ++f)
-        {
-            const auto uf = static_cast<std::size_t>(f);
-            if (line.trackedHz[uf] <= 0.0f)
-                continue;
-            points.push_back({ line.midi[uf], level[uf] });
-            total += level[uf];
-            if (static_cast<double>(opening.size()) * hop < 0.3)
-                opening.push_back(line.midi[uf]);
-        }
-        std::sort(points.begin(), points.end());
-        const auto percentile = [&](double q)
-        {
-            double sum = 0.0;
-            for (const auto& p : points)
-            {
-                sum += p.second;
-                if (sum >= q * total)
-                    return static_cast<double>(p.first);
-            }
-            return static_cast<double>(points.back().first);
-        };
-        line.lowMidi = percentile(0.05);
-        line.centreMidi = percentile(0.5);
-        line.highMidi = percentile(0.95);
-        std::nth_element(opening.begin(), opening.begin() + static_cast<std::ptrdiff_t>(opening.size() / 2), opening.end());
-        line.startMidi = opening[opening.size() / 2];
+        line.level = level;
+        const auto whole = statsOf(line, 0, frames);
+        line.lowMidi = whole.low;
+        line.centreMidi = whole.centre;
+        line.highMidi = whole.high;
+        line.startMidi = whole.start;
         return line;
     }
 
-    PitchLine readHarmonic(const std::vector<float>& mono, double rate)
+    // The voice and engine readings (and, for reading a result back, whichever of them suits).
+    PitchLine readHarmonic(const std::vector<float>& mono, double rate, SfxMethod method, Tracker tracker)
     {
-        auto sfx = analyseSfx(mono.data(), static_cast<int>(mono.size()), rate, SfxMethod::Auto);
+        auto sfx = analyseSfx(mono.data(), static_cast<int>(mono.size()), rate, method);
         // One fixed ring says nothing about how the pitch moves.
         const bool moving = sfx.valid && sfx.pitched && sfx.usedMethod != SfxMethod::Resonance;
-        auto line = buildLine(std::move(sfx.hz), sfx.hopSeconds, mono, rate, Tracker::Harmonic);
+        auto line = buildLine(std::move(sfx.hz), sfx.hopSeconds, mono, rate, tracker);
         line.usable = moving && ! line.midi.empty() && line.coverage >= 0.3;
         return line;
     }
@@ -245,7 +281,7 @@ namespace
             run = 0;
         }
         const bool sustained = voiced > 0 && inLongRuns >= 0.6 * voiced;
-        auto line = buildLine(std::move(ridge.hz), ridge.hop, mono, rate, Tracker::Ridge);
+        auto line = buildLine(std::move(ridge.hz), ridge.hop, mono, rate, Tracker::Tone);
         // The ridge tracker always finds something to follow, even in noise, where its line
         // wanders from frame to frame. Measured on real recordings, a ridge on a real partial
         // (sirens, ricochet whines) is unsteady by up to about 0.28 st and one wandering through
@@ -255,12 +291,58 @@ namespace
         return line;
     }
 
+    // The separate sounds in a recording: stretches above -50 dB of its peak, with a quarter of a
+    // second or more of quiet between them. Shorter gaps are part of one sound (the breath in a
+    // call, the dip in a pass).
+    std::vector<Analysis::Event> findEvents(const std::vector<float>& mono, double rate)
+    {
+        std::vector<Analysis::Event> events;
+        const auto frame = std::max<std::size_t>(1, static_cast<std::size_t>(0.005 * rate));
+        const std::size_t frames = mono.size() / frame;
+        std::vector<float> level(frames, 0.0f);
+        float peak = 0.0f;
+        for (std::size_t f = 0; f < frames; ++f)
+        {
+            float top = 0.0f;
+            for (std::size_t i = f * frame; i < (f + 1) * frame; ++i)
+                top = std::max(top, std::abs(mono[i]));
+            level[f] = top;
+            peak = std::max(peak, top);
+        }
+        const double total = static_cast<double>(mono.size()) / rate;
+        if (peak <= 0.0f)
+            return { { 0.0, total } };
+        const float floor = peak * 0.00316f;
+        const auto gap = static_cast<std::size_t>(0.25 / 0.005);
+        std::size_t start = frames, last = 0;
+        for (std::size_t f = 0; f < frames; ++f)
+        {
+            if (level[f] <= floor)
+                continue;
+            if (start == frames)
+                start = f;
+            else if (f - last > gap)
+            {
+                events.push_back({ static_cast<double>(start) * 0.005, static_cast<double>(last + 1) * 0.005 });
+                start = f;
+            }
+            last = f;
+        }
+        if (start != frames)
+            events.push_back({ static_cast<double>(start) * 0.005, static_cast<double>(last + 1) * 0.005 });
+        // A click of a few milliseconds is not a sound of its own to flatten.
+        events.erase(std::remove_if(events.begin(), events.end(), [](const Analysis::Event& e) { return e.endSeconds - e.startSeconds < 0.03; }), events.end());
+        if (events.empty())
+            events.push_back({ 0.0, total });
+        return events;
+    }
+
     // How far a sound's pitch travels, as both trackers read it (an unreadable result counts as
     // an octave: it is not a flat sound).
     double travelOf(const Channels& sound, double rate)
     {
         const auto mono = mixToMono(sound);
-        const auto a = readHarmonic(mono, rate), b = readRidge(mono, rate);
+        const auto a = readHarmonic(mono, rate, SfxMethod::Auto, Tracker::Voice), b = readRidge(mono, rate);
         return (a.usable ? a.highMidi - a.lowMidi : 12.0) + (b.usable ? b.highMidi - b.lowMidi : 12.0);
     }
 }
@@ -280,25 +362,42 @@ Analysis analyse(const Channels& sound, double sampleRate, bool score, const Can
         return analysis;
 
     const auto mono = mixToMono(sound);
-    analysis.lines[0] = readHarmonic(mono, sampleRate);
+    analysis.events = findEvents(mono, sampleRate);
+    analysis.lines[0] = readHarmonic(mono, sampleRate, SfxMethod::Tonal, Tracker::Voice);
     if (stop(cancelled))
         return analysis;
-    analysis.lines[1] = readRidge(mono, sampleRate);
+    analysis.lines[1] = readHarmonic(mono, sampleRate, SfxMethod::Engine, Tracker::Engine);
+    // The engine reading follows how the whole pattern of partials shifts, and it always comes
+    // back with a line, even from noise. It is only believed where the voice reading found the
+    // sound periodic at all (it may have read it badly, hopping between partials: that is what
+    // the engine reading is for).
+    if (analysis.lines[0].coverage < 0.3)
+        analysis.lines[1].usable = false;
+    if (stop(cancelled))
+        return analysis;
+    analysis.lines[2] = readRidge(mono, sampleRate);
     if (stop(cancelled))
         return analysis;
     analysis.valid = true;
 
-    const bool usable[2] { analysis.lines[0].usable, analysis.lines[1].usable };
-    if (! usable[0] && ! usable[1])
-        return analysis;
-    analysis.pick = usable[0] ? 0 : 1;
-    if (! score || ! (usable[0] && usable[1]))
+    int usable = 0;
+    for (int k = kNumTrackers - 1; k >= 0; --k)
+        if (analysis.lines[static_cast<std::size_t>(k)].usable)
+        {
+            analysis.pick = k;   // ends on the first usable one
+            ++usable;
+        }
+    if (! score || usable < 2)
         return analysis;
 
-    // Both lines are usable: flatten by each and read the results back. The flatter result
-    // wins.
+    // More than one line is usable: flatten by each and read the results back. The flattest
+    // result wins.
+    double best = 1.0e18;
     for (int k = 0; k < kNumTrackers; ++k)
     {
+        auto& line = analysis.lines[static_cast<std::size_t>(k)];
+        if (! line.usable)
+            continue;
         Options options;
         options.line = k;
         const auto result = flatten(sound, sampleRate, analysis, options, cancelled);
@@ -307,10 +406,25 @@ Analysis analyse(const Channels& sound, double sampleRate, bool score, const Can
             analysis.valid = false;
             return analysis;
         }
-        analysis.lines[static_cast<std::size_t>(k)].residual = travelOf(result.channels, sampleRate);
+        line.residual = travelOf(result.channels, sampleRate);
+        if (line.residual < best)
+        {
+            best = line.residual;
+            analysis.pick = k;
+        }
     }
-    analysis.pick = analysis.lines[0].residual <= analysis.lines[1].residual ? 0 : 1;
     return analysis;
+}
+
+const char* trackerName(Tracker tracker) noexcept
+{
+    switch (tracker)
+    {
+        case Tracker::Voice:  return "VOICE";
+        case Tracker::Engine: return "ENGINE";
+        case Tracker::Tone:   return "TONE";
+    }
+    return "";
 }
 
 //==============================================================================
@@ -340,11 +454,29 @@ double targetMidi(const PitchLine& line, const Options& options) noexcept
     return line.highMidi;
 }
 
+double targetMidi(const PitchLine& line, const Options& options, double fromSeconds, double toSeconds) noexcept
+{
+    if (options.target == Target::Note)
+        return options.noteMidi;
+    const auto stats = statsOf(line, static_cast<int>(std::floor(fromSeconds / line.hopSeconds)), static_cast<int>(std::ceil(toSeconds / line.hopSeconds)));
+    if (! stats.any)
+        return targetMidi(line, options);
+    switch (options.target)
+    {
+        case Target::HighPoint: return stats.high;
+        case Target::Centre:    return stats.centre;
+        case Target::LowPoint:  return stats.low;
+        case Target::Start:     return stats.start;
+        case Target::Note:      break;
+    }
+    return stats.high;
+}
+
 double editAt(const std::vector<CurvePoint>& edits, double seconds) noexcept
 {
     if (edits.empty())
         return 0.0;
-    constexpr double ease = 0.05;
+    constexpr double ease = 0.25;   // one pulled point bends a quarter of a second either side of it
     if (seconds <= edits.front().seconds)
     {
         const double d = edits.front().seconds - seconds;
@@ -395,7 +527,20 @@ Flattened flatten(const Channels& sound, double sampleRate, const Analysis& anal
         return out;
 
     out.sampleRate = sampleRate;
-    out.targetMidi = targetMidi(*line, options);
+    // Each separate sound has its own target. Between two of them the target changes over at the
+    // middle of the silence, where there is nothing to hear the speed change on.
+    std::vector<double> changeAt;   // sample positions where the next sound's target takes over
+    if (analysis.events.size() <= 1)
+        out.eventTargets.push_back(targetMidi(*line, options));
+    else
+        for (std::size_t e = 0; e < analysis.events.size(); ++e)
+        {
+            out.eventTargets.push_back(targetMidi(*line, options, analysis.events[e].startSeconds, analysis.events[e].endSeconds));
+            if (e + 1 < analysis.events.size())
+                changeAt.push_back(0.5 * (analysis.events[e].endSeconds + analysis.events[e + 1].startSeconds) * sampleRate);
+        }
+    out.targetMidi = out.eventTargets.front();
+    std::size_t current = 0;
     out.channels.assign(sound.size(), {});
     const auto length = static_cast<double>(sound[0].size());
     const double amount = std::clamp(options.amount, 0.0, 1.0);
@@ -426,7 +571,9 @@ Flattened flatten(const Channels& sound, double sampleRate, const Analysis& anal
     {
         if ((written & 0xffff) == 0 && stop(cancelled))
             return Flattened {};
-        speed = std::clamp(std::exp2(amount * (out.targetMidi - midiAt(p)) / 12.0), 0.125, 8.0);
+        while (current < changeAt.size() && p >= changeAt[current])
+            ++current;
+        speed = std::clamp(std::exp2(amount * (out.eventTargets[current] - midiAt(p)) / 12.0), 0.125, 8.0);
         while (nextMapped <= p)
         {
             out.outputAtSource.push_back(static_cast<double>(written) - (p - nextMapped) / speed);
@@ -464,8 +611,25 @@ Flattened flatten(const Channels& sound, double sampleRate, const Analysis& anal
         nextMapped += Flattened::kMapStep;
     }
 
-    // Reading between samples can raise a peak a little: the whole result is turned down by
-    // just enough to stay under full scale.
+    // Keep length: the flattened sound is brought back to the original's timing, and the time
+    // map becomes one to one.
+    if (options.keepLength)
+    {
+        const auto hits = options.character == Character::Transients ? findHits(sound, sampleRate) : std::vector<std::size_t> {};
+        auto restored = restoreTiming(out.channels, sampleRate, out.outputAtSource, Flattened::kMapStep, sound[0].size(), options.character, hits, cancelled);
+        if (restored.empty())
+            return Flattened {};
+        out.channels = std::move(restored);
+        for (std::size_t k = 0; k < out.outputAtSource.size(); ++k)
+            out.outputAtSource[k] = std::min(length, static_cast<double>(k) * Flattened::kMapStep);
+        peak = 0.0f;
+        for (const auto& channel : out.channels)
+            for (const float v : channel)
+                peak = std::max(peak, std::abs(v));
+    }
+
+    // Reading between samples (and stretching) can raise a peak a little: the whole result is
+    // turned down by just enough to stay under full scale.
     constexpr float kCeiling = 0.98855309f;   // -0.1 dBFS
     if (peak > kCeiling)
     {
