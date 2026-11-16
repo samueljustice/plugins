@@ -407,7 +407,8 @@ class RBassComponent:
         self.plugin_name = plugin_name
         self.plugin = plugin
         self.buffer_size = args.buffer_size
-        self.keys = list(plugin.parameters)
+        # The VST3 shell also exposes ~130 MIDI-CC placeholders with a single empty value; ignore them.
+        self.keys = [k for k in plugin.parameters if len(plugin.parameters[k].ranges) > 1]
         self.defaults = {k: plugin.parameters[k].raw_value for k in self.keys}
         self.roles = self._find_roles(args)
 
@@ -450,14 +451,25 @@ class RBassComponent:
         return snap
 
     def grid_raws(self, key: str, n: int) -> list:
-        """n raw values spread across the parameter's range. Discrete parameters use
-        evenly spaced steps (range midpoints), continuous ones evenly spaced raw values."""
+        """n values spread across the parameter's range, returned as raw values (range midpoints).
+        Numeric parameters are spaced in their own units: geometrically for Hz, evenly otherwise
+        (RBass: Frequency 32-256 Hz -> 32, 48.5, 73.5, 111, 169, 256; Intensity -24..+24 dB in 12 dB
+        steps), snapped to the nearest value the plug-in offers. Text parameters use evenly spaced steps."""
         p = self.plugin.parameters[key]
-        ranges = sorted(p.ranges.keys())
-        if len(ranges) <= 64:
-            idx = np.unique(np.round(np.linspace(0, len(ranges) - 1, n)).astype(int))
-            return [(ranges[i][0] + ranges[i][1]) / 2.0 for i in idx]
-        return list(np.linspace(0.0, 1.0, n))
+        items = sorted(p.ranges.items())
+        if p.type is float:
+            vals = np.array([float(v) for _, v in items])
+            lo, hi = float(vals.min()), float(vals.max())
+            unit = (p.label or "").strip().lower()
+            if unit == "hz" and lo > 0:
+                targets = np.geomspace(lo, hi, n)
+            else:
+                targets = np.linspace(lo, hi, n)
+            idx = [int(np.argmin(np.abs(vals - t))) for t in targets]
+        else:
+            idx = list(np.round(np.linspace(0, len(items) - 1, n)).astype(int))
+        idx = list(dict.fromkeys(idx))
+        return [(items[i][0][0] + items[i][0][1]) / 2.0 for i in idx]
 
     def set_raw(self, key: str, raw: float):
         self.plugin.parameters[key].raw_value = float(raw)
@@ -1162,7 +1174,8 @@ def plots(paths: Paths, lt_rows: list):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=["step1", "step2", "render", "analyse", "all"])
+    ap.add_argument("steps", nargs="+", choices=["step1", "step2", "render", "analyse", "all"],
+                    help="one or more steps, run in one process (loading RBass takes a while, so combine them)")
     ap.add_argument("--shell", action="append", help="path to a WaveShell .vst3 or .component (repeatable)")
     ap.add_argument("--format", choices=["auto", "vst3", "au"], default="auto")
     ap.add_argument("--waves-dir", help="Waves install folder holding 'Plug-Ins V*' (default /Applications/Waves)")
@@ -1186,19 +1199,16 @@ def main(argv=None):
     paths = Paths(args.corpus.resolve(), args.results.resolve())
     (paths.results / "run_info.json").write_text(json.dumps(run_info(), indent=2))
 
-    if args.step == "analyse":
-        analyse(args, paths)
-        return 0
-    comps = step1(args, paths)
-    if comps is None:
-        return 2
-    if args.step == "step1":
-        return 0
-    if args.step in ("step2", "all"):
-        step2(args, comps, paths)
-    if args.step in ("render", "all"):
-        render(args, comps, paths)
-    if args.step == "all":
+    steps = {"step1", "step2", "render", "analyse"} if "all" in args.steps else set(args.steps)
+    if steps != {"analyse"}:
+        comps = step1(args, paths)
+        if comps is None:
+            return 2
+        if "step2" in steps:
+            step2(args, comps, paths)
+        if "render" in steps:
+            render(args, comps, paths)
+    if "analyse" in steps:
         analyse(args, paths)
     return 0
 
