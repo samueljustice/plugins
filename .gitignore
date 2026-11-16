@@ -56,3 +56,6 @@ __pycache__/
 /.aax-sdk-download/
 /aax-signed/
 /site-preview/
+
+# De-Honk test corpus: client audio and renders, never committed
+dehonk/Tests/corpus/
