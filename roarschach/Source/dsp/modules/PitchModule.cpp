@@ -138,7 +138,6 @@ namespace roar
         // Onset detector (input time, on the mid tilted towards the band where bursts live).
         constexpr double c_onsetHopSeconds = 0.002;
         constexpr double c_onsetRise = 7.9432823472428150;    // 9 dB over the loudest of the 8 hops before (16 ms)
-        constexpr int c_onsetQuietHops = 8;
         constexpr int c_pulseMemoryHops = 5;                  // pulse memory: 9 dB over the 5 hops before (10 ms)
         constexpr double c_trainFromSeconds = 0.011, c_trainToSeconds = 0.060;
         constexpr double c_trainLike = 7.9432823472428150;    // within 9 dB either way
