@@ -96,7 +96,12 @@ void WaveformVisualizer::paint(juce::Graphics& g)
         g.setColour(m_outputColor);
         g.drawText(subText, readout.removeFromRight(120), juce::Justification::centredRight, false);
         g.setColour(m_inputColor);
-        g.drawText(f0Text, readout.removeFromRight(118), juce::Justification::centredRight, false);
+        const auto inBox = readout.removeFromRight(118);
+        g.drawText(f0Text, inBox, juce::Justification::centredRight, false);
+
+        // Where that pitch comes from, just before IN: placed for the widest reading, so it stays put as IN changes.
+        const float inLeft = static_cast<float>(inBox.getRight()) - juce::GlyphArrangement::getStringWidth(m_fonts->body(12.5f), "IN 999.9 Hz");
+        drawPitchSource(g, inLeft - 12.0f, static_cast<float>(inBox.getCentreY()));
     }
     else
     {
@@ -116,6 +121,55 @@ void WaveformVisualizer::paint(juce::Graphics& g)
     // Frame
     g.setColour(outlineSoft);
     g.drawRect(bounds, 1);
+
+    // LEARN's glow on the frame, fading inwards, clear of the legend and the readouts (they start 10 px in). Painted
+    // here because nothing the editor paints over the OpenGL view would show; this overlay is drawn every frame anyway.
+    if (const auto glow = juce::Colour(m_frameGlow.load(std::memory_order_relaxed)); glow.getAlpha() > 0)
+    {
+        constexpr int width = 8;
+
+        for (int i = 0; i < width; ++i)
+        {
+            const float d = (static_cast<float>(i) + 0.5f) / static_cast<float>(width);
+            g.setColour(glow.withMultipliedAlpha((1.0f - d) * (1.0f - d)));
+            g.drawRect(bounds.reduced(i), 1);
+        }
+    }
+}
+
+void WaveformVisualizer::drawPitchSource(juce::Graphics& g, float right, float centreY)
+{
+    using namespace Theme::Colours;
+
+    // LEARNED (the sub follows a curve LEARN worked out) or LIVE (the tracker), and a five-segment meter of how sure
+    // that source is: the curve's confidence there, or the tracker's.
+    const bool learned = m_audioProcessor.isPitchLearned();
+    const float confidence = juce::jlimit(0.0f, 1.0f, m_audioProcessor.getPitchConfidence());
+    const auto accent = learned ? input : textDim;
+
+    constexpr int segments = 5;
+    constexpr float width = 4.0f, height = 9.0f, gap = 2.0f;
+    const int lit = juce::roundToInt(confidence * static_cast<float>(segments));
+    const float left = right - static_cast<float>(segments) * width - static_cast<float>(segments - 1) * gap;
+
+    for (int i = 0; i < segments; ++i)
+    {
+        g.setColour(i < lit ? accent : outline);
+        g.fillRoundedRectangle(juce::Rectangle<float>(left + static_cast<float>(i) * (width + gap), centreY - 0.5f * height, width, height), 1.0f);
+    }
+
+    g.setFont(m_fonts->label(10.0f));
+    g.setColour(accent);
+    g.drawText(learned ? "LEARNED" : "LIVE", juce::Rectangle<float>(left - 90.0f, centreY - 9.0f, 82.0f, 18.0f),
+               juce::Justification::centredRight, false);
+}
+
+void WaveformVisualizer::visibilityChanged()
+{
+    if (isVisible())
+        startTimerHz(60);
+    else
+        stopTimer();
 }
 
 void WaveformVisualizer::updateIdleState()
