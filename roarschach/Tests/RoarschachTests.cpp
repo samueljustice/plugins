@@ -8478,6 +8478,10 @@ namespace
     // Levels and repeatability (IN's take gain, OUTPUT's match, Mix, the kept state).
 #include "LevelTests.h"
 
+    //==========================================================================
+    // PITCH, the voice stream and the fixes that ride along with them.
+#include "PitchBatchTests.h"
+
     // Offline render mode.
 
     struct RenderOptions
@@ -9653,6 +9657,9 @@ int main(int argc, char* argv[])
         { "presets", testPresets },
         { "robust", testNonFiniteInput },
         { "blocks", testBlockSizes },
+        { "blocks", pitchbatch::testBlockChains },
+        { "silence", pitchbatch::testSilence },
+        { "reset", pitchbatch::testResetEqualsFresh },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },
