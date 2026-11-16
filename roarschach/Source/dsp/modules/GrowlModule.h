@@ -28,12 +28,24 @@ namespace roar
      *   s      = shape (phase) in 0..1, 1 = fully open
      *   D      = 1 - 10^(-18 u / 20)                   (u = Depth, laws::growlDepth: even steps in dB
      *                                                   of trough; 25 % -> D = 0.40, 100 % -> 0.87)
-     *   D_eff  = D (1 + 0.3 m_env) (1 + 0.08 h) gate    (<= 0.95; h: per-cycle depth jitter in -1..1)
+     *   D_eff  = D (1 + 0.3 m_env) (1 + j h) w gate     (<= 0.95; h: per-cycle depth jitter in -1..1,
+     *                                                   j = 0.08 + 0.27 irr, w = 0.35 on a weak cycle)
      *   g      = 1 - D_eff (1 - s)                      (g <= 1: the stage never boosts by itself)
      *   gm     = g makeup,   makeup = 1 / rms (g), capped at +3 dB: in closed form from D_eff for
      *            the sine shapes (Sine, Throat, Rattle), so it follows the voicing gate and the level
-     *            push without lag; measured over each LFO cycle (then smoothed, 50 ms) for Opto and
-     *            Square. Derived from the modulation law only, never from the output level.
+     *            push without lag. For Opto and Square the shape's first two moments of q = 1 - s are
+     *            measured over each cycle (then smoothed, 50 ms) and the makeup is taken at the depth
+     *            of the moment: mean (g^2) = 1 - 2 D_eff m1 + D_eff^2 m2. Derived from the modulation
+     *            law only, never from the output level.
+     *
+     *   Irregular cycles (Sine, Opto, Square, Rattle; the way vocal fry is irregular): at each wrap of
+     *   the phase the next cycle gets its own length and depth. irr = smoothstep ((rate - 6) / 10), 0 at
+     *   or below 6 Hz (a tremolo stays regular), 1 from 16 Hz. A slow walk (memory 0.9 per cycle, unit
+     *   variance) and a cycle-to-cycle part give xi = clamp (0.6 slow + 0.8 white, -2.5, 2.5); the cycle
+     *   lasts T = clamp (1 + 0.16 irr xi, 0.6, 1.6) times the nominal period (symmetric, so the mean
+     *   rate is the Rate knob); a share 0.10 irr of the cycles is weak (depth x 0.35); the depth jitter widens
+     *   from 8 % to 35 % with irr. The draws come from their own generator, so the depth jitter's
+     *   sequence is unchanged. Throat is regular (its phase is the voice's).
      *
      *   The line depth of a sine at depth D is m = (D / 2) / (1 - D / 2): 0.25 at the default,
      *   0.77 at 100 %.
@@ -56,8 +68,8 @@ namespace roar
      *            already moves the rate
      *
      *   m_env = clamp ((e_dB - (R + 6)) / 24, 0, 1), e_dB from a 15 / 180 ms peak follower,
-     *   R = -20 dBFS. The rate drifts by at most +-0.5 % (a slow smooth random), so the line stays a
-     *   line. Shape changes crossfade the shape value over 20 ms.
+     *   R = -20 dBFS. The nominal rate drifts by at most +-0.5 % (a slow smooth random); the cycles
+     *   then vary around it as above. Shape changes crossfade the shape value over 20 ms.
      *
      * Character ("bias tremolo": the distortion moves with the gain), 2x oversampled:
      *   v = x gm dB(drive);  y = Sat (v + b (1 - g)) - Sat (b (1 - g));  out = y / dB(drive)
@@ -93,6 +105,7 @@ namespace roar
             bool humanize = true;    // false: no per-cycle depth jitter
             bool drift = true;       // false: the rate is exact
             bool envelope = true;    // false: m_env = 0 (no depth or rate push from the level)
+            bool irregular = true;   // false: every cycle the nominal length, never weak, 8 % depth jitter
         };
 
         static constexpr double c_maxDepth = 0.95;
@@ -104,6 +117,16 @@ namespace roar
         static constexpr double c_envDepthPush = 0.3;
         static constexpr double c_rattleOctaves = 1.5;
         static constexpr double c_humanizeDepth = 0.08;
+        static constexpr double c_periodJitter = 0.16;     // cycle length jitter at irr = 1
+        static constexpr double c_shimmer = 0.35;          // per-cycle depth jitter at irr = 1
+        static constexpr double c_weakCycles = 0.10;       // share of weak cycles at irr = 1 ...
+        static constexpr double c_weakDepth = 0.35;        // ... and their depth factor
+        static constexpr double c_slowMemory = 0.9;        // the slow walk's memory per cycle
+        static constexpr double c_slowShare = 0.6, c_whiteShare = 0.8;
+        static constexpr double c_jitterClamp = 2.5;
+        static constexpr double c_minPeriod = 0.6, c_maxPeriod = 1.6;
+        static constexpr double c_irregularFromHz = 6.0, c_irregularSpanHz = 10.0;
+        static constexpr std::uint32_t c_irregularSeed = 0x9e3779b9u;
         static constexpr double c_driftAmount = 0.005;
         static constexpr double c_driftRateHz = 0.2;
         static constexpr double c_makeupCapDb = 3.0;
@@ -146,6 +169,9 @@ namespace roar
         float getMakeupDb() const { return static_cast<float> (dsp::gainToDb (static_cast<double> (m_state.makeup))); }
         float getOnValue() const { return m_fade.getValue(); }
 
+        /** Wraps of the main phase since reset (test-only). */
+        std::uint32_t getCycleCount() const { return m_state.cycleCount; }
+
         /** D for a Depth u (0..1), and the line depth m of a sine at depth D. */
         static double depthForAmount (double u) { return laws::growlDepth (u); }
         static double lineDepthFor (double depth) { return (0.5 * depth) / (1.0 - 0.5 * depth); }
@@ -173,8 +199,15 @@ namespace roar
             double logRate = 0.0;        // smoothed log (rateHz)
             double rateNow = 27.0;       // rate used this sample (readout)
             double f0 = 110.0;           // smoothed voice f0
-            double gSquareSum = 0.0;     // makeup: sum of g^2 over the current cycle
-            int gSquareCount = 0;
+            double q1Sum = 0.0, q2Sum = 0.0;   // Opto / Square makeup: sums of q = 1 - s and q^2 over the current cycle
+            int cycleSamples = 0;
+            float m1 = 0.5f, m1Target = 0.5f;      // the shape's moments, smoothed (a raised cosine's to start)
+            float m2 = 0.375f, m2Target = 0.375f;
+            float slowWalk = 0.0f;       // slow part of the period jitter
+            float periodFactor = 1.0f;   // T: this cycle's length re the nominal
+            float cycleDepth = 1.0f;     // this cycle's depth factor (weak cycles 0.35)
+            float irr = 0.0f;            // how irregular the cycles are at this rate, 0..1
+            std::uint32_t cycleCount = 0;
             float depth = 0.38f;         // smoothed D
             float depthEff = 0.38f;      // smoothed D_eff
             float humanize = 0.0f;       // h for this cycle
@@ -184,8 +217,7 @@ namespace roar
             float levelPeak = 0.0f;      // recent peak of env (slow release)
             float lowEnv = 0.0f, highEnv = 0.0f;   // hiss detector: level below / above the split
             float makeup = 1.0f;         // applied
-            float makeupTarget = 1.0f;   // Opto / Square: from the last cycle
-            float makeupMeasured = 1.0f; // Opto / Square: smoothed
+            float makeupMeasured = 1.0f; // Opto / Square: from the moments and D_eff
             float square1 = 1.0f, square2 = 1.0f;   // Square 2-pole state
             float squareCoeff = 1.0f;    // per-pole one-pole coefficient (control rate)
             double lampRate = 27.0;      // rate the lamp times were last set for (control rate)
@@ -199,6 +231,7 @@ namespace roar
             std::array<float, c_gRingSize> gRing {};
             int gPos = 0;
             std::uint32_t random = 0x2545f491u;
+            std::uint32_t irrRandom = c_irregularSeed;   // the irregular cycles' own draws
         };
 
         void resetWet();
@@ -210,6 +243,7 @@ namespace roar
         float shapeValue (int shape, double phase, double throatPhase);
         float characterSample (Channel& ch, float w, float lift);
         float nextUniform();
+        float nextIrregularUniform();
 
         double m_fs = 48000.0;
         int m_maxBlock = 512;

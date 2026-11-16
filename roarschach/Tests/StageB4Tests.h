@@ -576,6 +576,7 @@ namespace stageb4
     roar::GrowlModule::Diagnostics regularGrowl()
     {
         roar::GrowlModule::Diagnostics d;
+        d.irregular = false;
         return d;
     }
 
@@ -632,6 +633,276 @@ namespace stageb4
                 }
                 std::printf("  T-GR-2 %.0f Hz sine at 0 dBFS through Grind: output peak %.2f dBFS at most\n", hz, worst);
                 check(worst <= bound, "T-GR-2 Grind's ceiling at " + juce::String(hz, 0) + " Hz: " + juce::String(worst, 2) + " dBFS (<= " + juce::String(bound, 1) + ")");
+            }
+        }
+    }
+
+    /** The gain alone: Clean on a constant 0.25, the output divided by 0.25. */
+    struct GrowlGain
+    {
+        Signal g;
+        std::uint32_t cycles = 0;
+        float maxDepthEff = 0.0f;
+    };
+
+    GrowlGain growlGain(const roar::GrowlSettings& s, const roar::GrowlModule::Diagnostics& d, double seconds, double sr = c_fs, int block = 512)
+    {
+        auto m = makeGrowl(sr, s, d, block);
+        GrowlGain r;
+        const Signal in(static_cast<size_t>(seconds * sr), 0.25f);
+        r.g = runModule(*m, Stereo { in, {} }, false, { block }, [](int) { return roar::VoiceFrame {}; },
+                        [&](int) { r.maxDepthEff = std::max(r.maxDepthEff, m->getEffectiveDepth()); }).l;
+        for (auto& v : r.g)
+            v *= 4.0f;
+        r.cycles = m->getCycleCount();
+        return r;
+    }
+
+    /** Modulation spectrum of a gain (after the first second): taken every 48th sample (1 kHz at
+        48 kHz), Welch with Hann windows of 2 s hopped by 1 s (0.5 Hz bins), mean removed. For a
+        nominal rate: the share of the power between rate / 2 and 1.9 rate that lies within +-1 Hz of
+        the rate, and the -3 dB width of the strongest peak in that band. */
+    struct LineMeasure
+    {
+        double share = 0.0, width = 0.0;
+    };
+
+    LineMeasure lineMeasure(const Signal& g, double sr, double rate)
+    {
+        const int step = static_cast<int>(std::lround(sr / 1000.0));
+        const double fe = sr / step;
+        std::vector<double> e;
+        for (size_t i = static_cast<size_t>(sr); i < g.size(); i += static_cast<size_t>(step))
+            e.push_back(static_cast<double>(g[i]));
+        double mean = 0.0;
+        for (const double v : e)
+            mean += v;
+        mean /= static_cast<double>(std::max<size_t>(1, e.size()));
+        const int seg = static_cast<int>(std::lround(2.0 * fe)), hop = seg / 2;
+        const int maxBin = std::min(seg / 2, static_cast<int>(std::ceil(1.9 * rate * 2.0)) + 4);
+        std::vector<double> cosT(static_cast<size_t>(seg)), sinT(static_cast<size_t>(seg)), win(static_cast<size_t>(seg));
+        for (int i = 0; i < seg; ++i)
+        {
+            cosT[static_cast<size_t>(i)] = std::cos(2.0 * c_pi * i / seg);
+            sinT[static_cast<size_t>(i)] = std::sin(2.0 * c_pi * i / seg);
+            win[static_cast<size_t>(i)] = 0.5 - 0.5 * std::cos(2.0 * c_pi * i / seg);
+        }
+        std::vector<double> p(static_cast<size_t>(maxBin + 1), 0.0);
+        std::vector<double> x(static_cast<size_t>(seg));
+        for (int start = 0; start + seg <= static_cast<int>(e.size()); start += hop)
+        {
+            for (int i = 0; i < seg; ++i)
+                x[static_cast<size_t>(i)] = (e[static_cast<size_t>(start + i)] - mean) * win[static_cast<size_t>(i)];
+            for (int k = 0; k <= maxBin; ++k)
+            {
+                double re = 0.0, im = 0.0;
+                int idx = 0;
+                for (int i = 0; i < seg; ++i)
+                {
+                    re += x[static_cast<size_t>(i)] * cosT[static_cast<size_t>(idx)];
+                    im -= x[static_cast<size_t>(i)] * sinT[static_cast<size_t>(idx)];
+                    idx += k;
+                    if (idx >= seg)
+                        idx -= seg;
+                }
+                p[static_cast<size_t>(k)] += re * re + im * im;
+            }
+        }
+        const double df = fe / seg;
+        double band = 0.0, near = 0.0, peak = -1.0;
+        int peakBin = 0;
+        for (int k = 0; k <= maxBin; ++k)
+        {
+            const double f = k * df;
+            if (f < 0.5 * rate || f > 1.9 * rate)
+                continue;
+            band += p[static_cast<size_t>(k)];
+            if (std::abs(f - rate) <= 1.0)
+                near += p[static_cast<size_t>(k)];
+            if (p[static_cast<size_t>(k)] > peak)
+            {
+                peak = p[static_cast<size_t>(k)];
+                peakBin = k;
+            }
+        }
+        int lo = peakBin, hi = peakBin;
+        while (lo > 0 && p[static_cast<size_t>(lo)] > 0.5 * peak)
+            --lo;
+        while (hi < maxBin && p[static_cast<size_t>(hi)] > 0.5 * peak)
+            ++hi;
+        return { band > 0.0 ? near / band : 0.0, (hi - lo) * df };
+    }
+
+    void testGrowlIrregular()
+    {
+        std::printf("[stageb4] GROWL: irregular cycles for the free shapes\n");
+        using S = Params::GrowlShape;
+        const auto clean = Params::GrowlCharacter::clean;
+        roar::GrowlModule::Diagnostics irregular;   // what a user runs
+        const auto regular = regularGrowl();
+        const char* const shapeNames[] { "Sine", "Opto", "Square", "Throat", "Rattle" };
+        const auto nameOf = [&](S s) { return shapeNames[static_cast<int>(s)]; };
+
+        // T-GR-3: Sine at 27 Hz, Depth 60 %, 60 s.
+        {
+            const auto a = growlGain(growlSettings(0.6, S::sine, clean), irregular, 60.0);
+            const auto b = growlGain(growlSettings(0.6, S::sine, clean), regular, 60.0);
+            const auto la = lineMeasure(a.g, c_fs, 27.0), lb = lineMeasure(b.g, c_fs, 27.0);
+            const double perSecond = a.cycles / 60.0;
+            std::printf("  T-GR-3 Sine 27 Hz, 60 %%: share within +-1 Hz %.2f (regular %.2f), -3 dB width %.1f Hz (regular %.1f), %.2f cycles/s\n",
+                        la.share, lb.share, la.width, lb.width, perSecond);
+            check(la.share <= 0.40, "T-GR-3 the 27 Hz line holds " + juce::String(la.share, 2) + " of the modulation (<= 0.40)");
+            check(lb.share >= 0.98, "T-GR-3 regular: the 27 Hz line holds " + juce::String(lb.share, 2) + " of the modulation (>= 0.98)");
+            check(la.width >= 4.0 && la.width <= 12.0, "T-GR-3 -3 dB width " + juce::String(la.width, 1) + " Hz (4 .. 12)");
+            check(std::abs(perSecond / 27.0 - 1.0) <= 0.02, "T-GR-3 " + juce::String(perSecond, 2) + " cycles per second (27 +-2 %)");
+        }
+        // T-GR-4: regular at 3 and 6 Hz; cycle counts follow the knob; the line spreads at 60 and 120 Hz.
+        {
+            juce::String line;
+            for (const double rate : { 3.0, 6.0 })
+            {
+                const auto m = lineMeasure(growlGain(growlSettings(0.6, S::sine, clean, rate), irregular, 60.0).g, c_fs, rate);
+                line << juce::String(rate, 0) << " Hz " << juce::String(m.share, 3) << "; ";
+                check(m.share >= 0.98, "T-GR-4 Sine at " + juce::String(rate, 0) + " Hz is not regular: share " + juce::String(m.share, 3) + " (>= 0.98)");
+            }
+            std::printf("  T-GR-4 Sine, share within +-1 Hz: %s\n", line.toRawUTF8());
+            for (const auto shape : { S::sine, S::opto, S::square })
+            {
+                juce::String counts;
+                for (const double rate : { 27.0, 60.0, 120.0 })
+                {
+                    const auto r = growlGain(growlSettings(0.6, shape, clean, rate), irregular, 60.0);
+                    const double perSecond = r.cycles / 60.0;
+                    counts << juce::String(rate, 0) << " Hz: " << juce::String(perSecond, 2);
+                    check(std::abs(perSecond / rate - 1.0) <= 0.02, juce::String("T-GR-4 ") + nameOf(shape) + " at " + juce::String(rate, 0) + " Hz: "
+                                                                        + juce::String(perSecond, 2) + " cycles per second (within 2 %)");
+                    if (shape == S::sine && rate > 30.0)
+                    {
+                        const auto m = lineMeasure(r.g, c_fs, rate);
+                        counts << " (share " << juce::String(m.share, 2) << ")";
+                        check(m.share <= 0.2, "T-GR-4 Sine at " + juce::String(rate, 0) + " Hz: the line holds " + juce::String(m.share, 2) + " (<= 0.2)");
+                    }
+                    counts << "; ";
+                }
+                std::printf("  T-GR-4 %s, cycles per second: %s\n", nameOf(shape), counts.toRawUTF8());
+            }
+        }
+        // T-GR-5: level re the regular render; g <= 1 before the makeup; D_eff <= 0.95.
+        {
+            for (const double depth : { 0.6, 1.0 })
+            {
+                juce::String line;
+                const double bound = depth < 0.7 ? 0.15 : 0.4;
+                for (const auto shape : { S::sine, S::opto, S::square, S::rattle })
+                {
+                    const auto a = growlGain(growlSettings(depth, shape, clean), irregular, 20.0);
+                    const auto b = growlGain(growlSettings(depth, shape, clean), regular, 20.0);
+                    const int from = static_cast<int>(c_fs);
+                    const double diff = rmsDb(a.g, from) - rmsDb(b.g, from);
+                    line << nameOf(shape) << " " << juce::String(diff, 2) << "; ";
+                    check(std::abs(diff) <= bound, juce::String("T-GR-5 ") + nameOf(shape) + " at Depth " + juce::String(depth * 100.0, 0) + " %: gain rms "
+                                                       + juce::String(diff, 2) + " dB re regular (<= " + juce::String(bound, 2) + ")");
+                    check(a.maxDepthEff <= 0.95f + 1.0e-6f, juce::String("T-GR-5 ") + nameOf(shape) + ": D_eff reached " + juce::String(a.maxDepthEff, 4));
+                    roar::GrowlModule::Diagnostics noMakeup;
+                    noMakeup.makeup = false;
+                    const auto c = growlGain(growlSettings(depth, shape, clean), noMakeup, 10.0, c_fs, 16);
+                    float gMax = 0.0f;
+                    for (const float v : c.g)
+                        gMax = std::max(gMax, v);
+                    check(gMax <= 1.0f + 1.0e-6f, juce::String("T-GR-5 ") + nameOf(shape) + ": g reached " + juce::String(gMax, 6) + " before the makeup");
+                    check(c.maxDepthEff <= 0.95f + 1.0e-6f, juce::String("T-GR-5 ") + nameOf(shape) + ": D_eff reached " + juce::String(c.maxDepthEff, 4) + " (16-sample blocks)");
+                }
+                std::printf("  T-GR-5 Depth %.0f %%, gain rms re regular: %s\n", depth * 100.0, line.toRawUTF8());
+            }
+        }
+        // T-GR-6: Throat on a voiced tone, and Sine at 3 Hz (drift off): irregular changes nothing.
+        {
+            const auto tone = makeSine(c_fs, 3.0, 110.0, 0.25);
+            const auto throatRun = [&](const roar::GrowlModule::Diagnostics& d)
+            {
+                auto m = makeGrowl(c_fs, growlSettings(0.6, S::throat, Params::GrowlCharacter::warm), d);
+                return runModule(*m, Stereo { tone, {} }, false, { 512 }, [](int) { return voiced(110.0); }, [](int) {}).l;
+            };
+            check(identical(throatRun(irregular), throatRun(regular)), "T-GR-6 Throat differs with the irregular cycles on");
+            auto noDrift = irregular, noDriftRegular = regular;
+            noDrift.drift = noDriftRegular.drift = false;
+            const auto a = growlGain(growlSettings(0.6, S::sine, Params::GrowlCharacter::warm, 3.0), noDrift, 10.0);
+            const auto b = growlGain(growlSettings(0.6, S::sine, Params::GrowlCharacter::warm, 3.0), noDriftRegular, 10.0);
+            check(identical(a.g, b.g), "T-GR-6 Sine at 3 Hz differs with the irregular cycles on");
+        }
+        // T-GR-7: repeatable; blocks; copy; rates.
+        {
+            const auto in = testVoice(c_fs, 6.0, 110.0, -18.0);
+            for (const auto shape : { S::sine, S::opto, S::square, S::rattle })
+            {
+                const auto s = growlSettings(0.6, shape, Params::GrowlCharacter::warm);
+                auto m1 = makeGrowl(c_fs, s, irregular);
+                const auto ref = runMono(*m1, in);
+                auto m2 = makeGrowl(c_fs, s, irregular);
+                bool same = identical(runMono(*m2, in), ref);
+                for (const auto& blocks : { std::vector<int> { 16 }, std::vector<int> { 64 }, std::vector<int> { 4096 }, randomBlocks(7) })
+                {
+                    const int maxBlock = *std::max_element(blocks.begin(), blocks.end());
+                    auto m = makeGrowl(c_fs, s, irregular, maxBlock);
+                    same = same && identical(runModule(*m, Stereo { in, {} }, false, blocks, [](int) { return roar::VoiceFrame {}; }, [](int) {}).l, ref);
+                }
+                check(same, juce::String("T-GR-7 ") + nameOf(shape) + ": a second run or another block size differs");
+                // copy mid-run
+                {
+                    const int half = static_cast<int>(2.5 * c_fs) & ~511;
+                    auto a = makeGrowl(c_fs, s, irregular);
+                    Signal first(in.begin(), in.begin() + half), second(in.begin() + half, in.end());
+                    runMono(*a, first);
+                    auto b = makeGrowl(c_fs, s, irregular);
+                    b->copyStateFrom(*a);
+                    const auto ca = runMono(*a, second), cb = runMono(*b, second);
+                    check(identical(ca, cb), juce::String("T-GR-7 ") + nameOf(shape) + ": copyStateFrom mid-run does not continue identically");
+                }
+            }
+            // rates: the sequence is per cycle, so the cycles per second do not depend on the rate
+            juce::String line;
+            double ref = 0.0;
+            for (const double sr : { 48000.0, 44100.0, 96000.0, 192000.0 })
+            {
+                const auto r = growlGain(growlSettings(0.6, S::sine, clean), irregular, 20.0, sr);
+                const double perSecond = r.cycles / 20.0;
+                if (sr == 48000.0)
+                    ref = perSecond;
+                line << juce::String(sr / 1000.0, 1) << " kHz " << juce::String(perSecond, 2) << "; ";
+                check(std::abs(perSecond / ref - 1.0) <= 0.01, "T-GR-7 at " + juce::String(sr / 1000.0, 1) + " kHz: " + juce::String(perSecond, 2) + " cycles per second (48 kHz "
+                                                                   + juce::String(ref, 2) + ", within 1 %)");
+            }
+            std::printf("  T-GR-7 Sine 27 Hz, cycles per second: %s\n", line.toRawUTF8());
+        }
+        // T-GR-8: a 3 kHz sine at -12 dBFS, Clean, 27 Hz: level in 400 ms windows.
+        {
+            auto tone = makeSine(c_fs, 30.0, 3000.0, 1.0);
+            scaleToRmsDb(tone, -12.0);
+            const int from = static_cast<int>(c_fs), win = static_cast<int>(0.4 * c_fs);
+            for (const double depth : { 0.6, 1.0 })
+            {
+                juce::String line;
+                const double rangeBound = depth < 0.7 ? 1.1 : 1.5, meanBound = depth < 0.7 ? 0.2 : 0.5;
+                for (const auto shape : { S::sine, S::opto, S::square })
+                {
+                    auto a = makeGrowl(c_fs, growlSettings(depth, shape, clean), irregular);
+                    auto b = makeGrowl(c_fs, growlSettings(depth, shape, clean), regular);
+                    const auto oa = runMono(*a, tone), ob = runMono(*b, tone);
+                    double lo = 1.0e9, hi = -1.0e9;
+                    for (int i = from; i + win <= static_cast<int>(oa.size()); i += win)
+                    {
+                        const double db = rmsDb(oa, i, i + win);
+                        lo = std::min(lo, db);
+                        hi = std::max(hi, db);
+                    }
+                    const double meanDiff = rmsDb(oa, from) - rmsDb(ob, from);
+                    line << nameOf(shape) << " range " << juce::String(hi - lo, 2) << " mean " << juce::String(meanDiff, 2) << "; ";
+                    check(hi - lo <= rangeBound, juce::String("T-GR-8 ") + nameOf(shape) + " at Depth " + juce::String(depth * 100.0, 0) + " %: 400 ms level range "
+                                                     + juce::String(hi - lo, 2) + " dB (<= " + juce::String(rangeBound, 1) + ")");
+                    check(std::abs(meanDiff) <= meanBound, juce::String("T-GR-8 ") + nameOf(shape) + " at Depth " + juce::String(depth * 100.0, 0) + " %: mean level "
+                                                               + juce::String(meanDiff, 2) + " dB re regular (<= " + juce::String(meanBound, 1) + ")");
+                }
+                std::printf("  T-GR-8 Depth %.0f %%: %s\n", depth * 100.0, line.toRawUTF8());
             }
         }
     }
@@ -1718,5 +1989,7 @@ namespace stageb4
             testOvertoneOctave();
         if (sectionWanted("ov2"))
             testOvertoneCap();
+        if (sectionWanted("gr2"))
+            testGrowlIrregular();
     }
 }

@@ -182,7 +182,7 @@ namespace roar
         m_state.charMix = 1.0f;
         m_state.osWeight = (character == c_clean) ? 0.0f : std::min (1.0f, m_state.depth / c_characterFullDepth);
 
-        m_state.makeupTarget = m_state.makeupMeasured = static_cast<float> (sineMakeupFor (depth));
+        m_state.makeupMeasured = static_cast<float> (sineMakeupFor (depth));
         m_state.makeup = m_diagnostics.makeup ? sineMakeupFor (m_state.depthEff) : 1.0f;
         m_state.modulation = 0.0f;
     }
@@ -218,6 +218,17 @@ namespace roar
     float GrowlModule::nextUniform()
     {
         auto& x = m_state.random;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        return static_cast<float> (static_cast<double> (x) * (2.0 / 4294967295.0) - 1.0);
+    }
+
+    float GrowlModule::nextIrregularUniform()
+    {
+        // Same kind of generator as nextUniform(), with its own state, so the depth jitter's
+        // sequence does not depend on whether the cycles are irregular.
+        auto& x = m_state.irrRandom;
         x ^= x << 13;
         x ^= x >> 17;
         x ^= x << 5;
@@ -396,31 +407,51 @@ namespace roar
                 st.squareCoeff = static_cast<float> (dsp::onePoleCoeff (0.5 * std::max (c_squareMinTau, c_squareSmooth / rate), m_fs));
             }
 
-            // Phases.
-            st.phase += rate * invFs;
+            // Phases. The main phase runs at the nominal rate over this cycle's length factor T.
+            st.phase += rate / static_cast<double> (st.periodFactor) * invFs;
             const bool wrapMain = st.phase >= 1.0;
             if (wrapMain)
+            {
                 st.phase -= std::floor (st.phase);
+                ++st.cycleCount;
+            }
             st.throatPhase += 0.5 * st.f0 * invFs;
             const bool wrapThroat = st.throatPhase >= 1.0;
             if (wrapThroat)
                 st.throatPhase -= std::floor (st.throatPhase);
 
-            // Once per cycle: the makeup for the cycle just finished, and the next depth jitter.
+            // Once per cycle: the shape's moments over the cycle just finished, the next depth
+            // jitter, and the next cycle's length and depth.
             const bool cycle = (st.shapeTo == c_throat) ? wrapThroat : wrapMain;
-            if (cycle || st.gSquareCount >= m_maxCycleSamples)
+            if (cycle || st.cycleSamples >= m_maxCycleSamples)
             {
-                if (st.gSquareCount > 0)
+                if (st.cycleSamples > 0)
                 {
-                    const double meanSquare = st.gSquareSum / static_cast<double> (st.gSquareCount);
-                    st.makeupTarget = meanSquare > 0.0
-                                        ? std::clamp (static_cast<float> (1.0 / std::sqrt (meanSquare)), 1.0f, makeupCap)
-                                        : makeupCap;
+                    const double count = static_cast<double> (st.cycleSamples);
+                    st.m1Target = static_cast<float> (st.q1Sum / count);
+                    st.m2Target = static_cast<float> (st.q2Sum / count);
                 }
-                st.gSquareSum = 0.0;
-                st.gSquareCount = 0;
+                st.q1Sum = st.q2Sum = 0.0;
+                st.cycleSamples = 0;
                 if (cycle)
+                {
                     st.humanize = m_diagnostics.humanize ? nextUniform() : 0.0f;
+
+                    const float uSlow = nextIrregularUniform();
+                    const float uWhite = nextIrregularUniform();
+                    const float uWeak = nextIrregularUniform();
+                    const bool irregular = m_diagnostics.irregular && st.shapeTo != c_throat;
+                    st.irr = irregular ? dsp::smoothstep01 (static_cast<float> ((rate - c_irregularFromHz) / c_irregularSpanHz)) : 0.0f;
+                    constexpr float root3 = 1.7320508f;
+                    const auto memory = static_cast<float> (c_slowMemory);
+                    st.slowWalk = memory * st.slowWalk + std::sqrt (1.0f - memory * memory) * root3 * uSlow;
+                    const float xi = std::clamp (static_cast<float> (c_slowShare) * st.slowWalk + static_cast<float> (c_whiteShare) * root3 * uWhite,
+                                                 -static_cast<float> (c_jitterClamp), static_cast<float> (c_jitterClamp));
+                    st.periodFactor = std::clamp (1.0f + static_cast<float> (c_periodJitter) * st.irr * xi,
+                                                  static_cast<float> (c_minPeriod), static_cast<float> (c_maxPeriod));
+                    const bool weak = 0.5f * (uWeak + 1.0f) < static_cast<float> (c_weakCycles) * st.irr;
+                    st.cycleDepth = weak ? static_cast<float> (c_weakDepth) : 1.0f;
+                }
             }
 
             // Shape value and gain.
@@ -434,16 +465,28 @@ namespace roar
             const float wGrind = st.osWeight * ((st.charTo == c_grind ? wc : 0.0f) + (st.charFrom == c_grind ? 1.0f - wc : 0.0f));
             float depthNow = st.depth * (1.0f + static_cast<float> (c_grindDepthScale - 1.0) * wGrind)
                                       * (1.0f + static_cast<float> (c_envDepthPush) * mEnv)
-                                      * (1.0f + static_cast<float> (c_humanizeDepth) * st.humanize)
+                                      * (1.0f + (static_cast<float> (c_humanizeDepth) + static_cast<float> (c_shimmer - c_humanizeDepth) * st.irr) * st.humanize)
+                                      * st.cycleDepth
                                       * (1.0f + (st.voicing - 1.0f) * wThroat);
             depthNow = std::clamp (depthNow, 0.0f, maxDepth);
             st.depthEff += m_depthEffCoeff * (depthNow - st.depthEff);
 
             const float g = 1.0f - st.depthEff * (1.0f - s);
-            st.gSquareSum += static_cast<double> (g) * static_cast<double> (g);
-            ++st.gSquareCount;
+            {
+                const double q = 1.0 - static_cast<double> (s);
+                st.q1Sum += q;
+                st.q2Sum += q * q;
+                ++st.cycleSamples;
+            }
 
-            st.makeupMeasured += m_makeupCoeff * (st.makeupTarget - st.makeupMeasured);
+            // Opto / Square: mean (g^2) = 1 - 2 D m1 + D^2 m2 for the shape's moments, at the depth of the moment.
+            st.m1 += m_makeupCoeff * (st.m1Target - st.m1);
+            st.m2 += m_makeupCoeff * (st.m2Target - st.m2);
+            {
+                const float d = st.depthEff;
+                const float meanSquare = 1.0f - 2.0f * d * st.m1 + d * d * st.m2;
+                st.makeupMeasured = std::clamp (1.0f / std::sqrt (std::max (meanSquare, 1.0e-6f)), 1.0f, makeupCap);
+            }
             if (m_diagnostics.makeup)
             {
                 const float wSine = (isSineShape (st.shapeTo) ? wTo : 0.0f) + (isSineShape (st.shapeFrom) ? wFrom : 0.0f);
