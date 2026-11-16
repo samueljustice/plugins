@@ -188,8 +188,16 @@ def find_shells(args) -> dict:
 
 
 def _version_key(path: Path):
-    nums = re.findall(r"\d+", path.name)
-    return [int(n) for n in nums]
+    """Shell version, from the bundle name ('WaveShell1-VST3 17.4.vst3' -> (17, 4)), else Info.plist."""
+    m = re.search(r"(\d+(?:\.\d+)+)", path.stem.split(" ", 1)[-1])
+    text = m.group(1) if m else str(bundle_version(path).get("CFBundleShortVersionString", "0"))
+    return tuple(int(n) for n in re.findall(r"\d+", text)) or (0,)
+
+
+def latest_shell(paths: list):
+    """Only the newest shell is ever loaded. Older WaveShells stay installed and are never
+    touched: loading two versions into one process clashes their Objective-C classes."""
+    return max(paths, key=_version_key) if paths else None
 
 
 def classify_rbass_names(names, args):
@@ -260,7 +268,9 @@ def step1(args, paths: Paths, quiet_ok=False):
         if not shells[fmt]:
             report["attempts"].append({"format": fmt, "error": "no WaveShell bundle found"})
             continue
-        for shell in sorted(shells[fmt], key=_version_key, reverse=True):
+        report.setdefault("shells_ignored", {})[fmt] = [
+            str(p) for p in shells[fmt] if p != latest_shell(shells[fmt])]
+        for shell in [latest_shell(shells[fmt])]:
             att = {"format": fmt, "shell": str(shell), "shell_version": bundle_version(shell)}
             report["attempts"].append(att)
             try:
