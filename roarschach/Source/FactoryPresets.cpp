@@ -275,10 +275,10 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 49.0f, 20.0f, reg::follow, sc::clean)
             .ov(on, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.3f)),
+            .match(5.1f)),
 
         // CREATURES -------------------------------------------------------------------------------
-        // A liquid alien monster, built the classic way: a voice pitched a little lower, contained
+        // A liquid alien monster, built the usual way: a voice pitched a little lower, contained
         // and de-essed, then many subtle layers - a frequency-shift wobble, a fine 27 Hz chop, a
         // phaser, warm tube drive on lows and highs, a near-mono chorus that makes the low end
         // liquid, top-band taming and a tight octave underneath, kept intelligible by the limiter.
@@ -292,15 +292,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 38.0f, 11.0f, sh::upDown)
-            .gr(on, 30.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 30.0f, 31.0f, shape::sine, chr::warm)
             .sw(on, 25.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 50.0f, 0.0f, vc::line)
-            .en(on, 28.0f, 22.0f, voices::six, emot::medium)
+            .en(on, 25.0f, 22.0f, voices::six, emot::medium)
             .ta(on, 15.0f)
             .su(on, 58.0f, 20.0f, reg::tight, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(6.9f)),
+            .match(6.1f)),
 
         // A rolling, wet beast with a wide liquid body: a slow swelling shimmer, a deep phaser and
         // a slow six-voice chorus.
@@ -314,15 +314,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 62.0f, 1.5f, sh::up)
-            .gr(on, 20.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 20.0f, 23.0f, shape::sine, chr::warm)
             .sw(on, 45.0f, 0.25f, circ::deep6, mot::lfoLevel)
             .ro(on, 40.0f, 0.0f, vc::line)
-            .en(on, 70.0f, 95.0f, voices::six, emot::slow)
+            .en(on, 67.0f, 95.0f, voices::six, emot::slow)
             .ta(on, 8.0f)
-            .su(on, 58.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 10.0f, 0.0f, pat::chest, om::add)
-            .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(8.7f)),
+            .su(on, 63.0f, 20.0f, reg::follow, sc::clean)
+            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
+            .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
+            .match(5.1f)),
 
         // A dry, rasping throat: vocoder gravel under a grinding chop, and gruff upper overtones.
         preset("Gravel Throat", "Creatures", Sound()
@@ -335,7 +335,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(on, 50.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 38.0f, 32.0f, shape::opto, chr::grind)
+            .gr(on, 43.0f, 32.0f, shape::opto, chr::grind)
             .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 50.0f, 10.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
@@ -343,7 +343,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 50.0f, 20.0f, reg::follow, sc::clean)
             .ov(on, 20.0f, 0.0f, pat::throat, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.1f)),
+            .match(2.6f)),
 
         // Slow and huge, with a low body, a deep octave, a heavy slow chop and a dark snarl, in a
         // concrete cave.
@@ -366,7 +366,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 15.0f, 0.0f, pat::beast, om::add)
             .ch(on, 30.0f, 50.0f, 10.0f, 40.0f, room::concreteRoom, spk::small, boom::off)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.9f)),
+            .match(5.1f)),
 
         // Building-sized, with a two-octave vocoder bed, hard containment and a dense output.
         preset("Kaiju", "Creatures", Sound()
@@ -379,15 +379,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(on, 35.0f, oct::down2)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 22.0f, 11.0f, sh::up)
-            .gr(on, 40.0f, 27.0f, shape::rattle, chr::warm)
+            .gr(on, 40.0f, 24.0f, shape::rattle, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 61.0f, -15.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 19.0f)
             .su(on, 75.0f, 65.0f, reg::follow, sc::resonant)
-            .ov(on, 10.0f, 0.0f, pat::beast, om::add)
+            .ov(on, 35.0f, 0.0f, pat::beast, om::add)
             .out(6.5f, -1.0f, 4.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.3f)),
+            .match(3.5f)),
 
         // Stony and bright, with a talking phaser and a square-edged chop, ringing in a hard
         // stone chamber.
@@ -407,10 +407,10 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 10.0f)
             .su(on, 50.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 40.0f, 0.0f, pat::chest, om::add)
             .ch(on, 25.0f, 45.0f, 15.0f, 50.0f, room::resonantChamber, spk::small, boom::off)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(7.4f)),
+            .match(6.0f)),
 
         // Snarling, with a fast rattle that speeds up when it barks, a gritty tube and a crunched
         // output.
@@ -424,15 +424,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 55.0f, 40.0f, shape::rattle, chr::grind)
+            .gr(on, 60.0f, 40.0f, shape::rattle, chr::grind)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 72.0f, 20.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 14.0f)
             .su(on, 49.0f, 70.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::throat, om::add)
+            .ov(on, 35.0f, 0.0f, pat::throat, om::add)
             .out(7.5f, -2.0f, 3.0f, 32.0f, 0.5f, 3.0f, off, 100.0f)
-            .match(6.1f)),
+            .match(3.8f)),
 
         // Mechanical and heavy, with stepped pitch, a slow square stomp and big detail: dry stone,
         // no motion.
@@ -452,9 +452,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 62.0f, 20.0f, reg::tight, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 40.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(2.1f)),
+            .match(2.3f)),
 
         // Underwater and swirling, with deep motion everywhere.
         preset("Kraken", "Creatures", Sound()
@@ -470,12 +470,12 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .gr(off, 9.0f, 27.0f, shape::sine, chr::warm)
             .sw(on, 45.0f, 0.25f, circ::deep6, mot::lfoLevel)
             .ro(on, 45.0f, 3.0f, vc::line)
-            .en(on, 80.0f, 110.0f, voices::six, emot::slow)
+            .en(on, 77.0f, 110.0f, voices::six, emot::slow)
             .ta(on, 6.0f)
-            .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .su(on, 60.0f, 20.0f, reg::follow, sc::clean)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(9.1f)),
+            .match(6.1f)),
 
         // An undertone growl heard as a second, lower pitch: the octave plus tracked overtones at
         // 1.5 and 2.5 times the voice give a period-doubled, two-pitch throat.
@@ -497,7 +497,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 62.0f, 20.0f, reg::tight, sc::clean)
             .ov(on, 25.0f, 0.0f, pat::tracked, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.6f)),
+            .match(4.4f)),
 
         // A dry, human horror throat: no pitch change and no space. A narrow radio band and a lean,
         // raised speaker resonance cut the voice down to its mid-range screech, quiet mouth clicks
@@ -514,7 +514,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 50.0f, 10.0f, shape::rattle, chr::grind)
+            .gr(on, 55.0f, 10.0f, shape::rattle, chr::grind)
             .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 40.0f, 90.0f, vc::mic)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
@@ -523,7 +523,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 70.0f, 1.0f, pat::speaker, om::lean)
             .ch(off, 50.0f, 40.0f, 30.0f, 35.0f, room::concreteRoom, spk::small, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.1f)),
+            .match(1.0f)),
 
         // Enormous but articulate: the voice eight semitones down with the throat lowered on its own,
         // so the consonants stay crisp, over a gravelly two-octave vocoder bed, a light rumble that
@@ -546,10 +546,10 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(off, 8.0f)
             .su(on, 30.0f, 20.0f, reg::tight, sc::clean)
-            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 30.0f, 0.0f, pat::chest, om::add)
             .ch(on, 55.0f, 75.0f, 0.0f, 100.0f, room::resonantChamber, spk::small, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(2.4f)),
+            .match(3.2f)),
 
         // Something big on the other side of the wall: a slow, low creature (nine semitones down
         // with a lower throat, a heavy opto chop, a dark snarl and a deep octave) heard mostly
@@ -574,7 +574,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 15.0f, 0.0f, pat::beast, om::add)
             .ch(on, 85.0f, 45.0f, 0.0f, 60.0f, room::partyWall, spk::small, boom::light)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(2.6f)),
+            .match(1.9f)),
 
         // A hissing stalker far down the hall: barely lower, the throat kept, breaths and mouth
         // noises lifted, a quick rattle, a dark slow phaser and a wide crowd of six voices, all
@@ -592,13 +592,13 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .gr(on, 18.0f, 32.0f, shape::rattle, chr::warm)
             .sw(on, 25.0f, 0.2f, circ::dark5, mot::lfo)
             .ro(on, 30.0f, -20.0f, vc::line)
-            .en(on, 30.0f, 70.0f, voices::six, emot::slow)
+            .en(on, 27.0f, 70.0f, voices::six, emot::slow)
             .ta(on, 10.0f)
             .su(on, 30.0f, 20.0f, reg::tight, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 50.0f, 80.0f, 0.0f, 100.0f, room::towerBlock, spk::small, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.8f)),
+            .match(4.6f)),
 
         // VOICES (intelligibility first) ----------------------------------------------------------
         // A huge but clear storyteller in a warm wooden room.
@@ -618,10 +618,10 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 8.0f)
             .su(on, 45.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 20.0f, 30.0f, 0.0f, 45.0f, room::woodChamber, spk::small, boom::light)
             .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(1.8f)),
+            .match(2.6f)),
 
         // Breath and spit lifted into a hissing presence that blooms around the listener.
         preset("Demon Whisper", "Voices", Sound()
@@ -634,16 +634,16 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 54.0f, 5.0f, sh::stereo)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 33.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 45.0f, 15.0f, vc::line)
-            .en(on, 31.0f, 90.0f, voices::three, emot::medium)
-            .ta(on, 6.0f)
+            .en(on, 28.0f, 90.0f, voices::three, emot::medium)
+            .ta(on, 14.0f)
             .su(on, 26.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 30.0f, 30.0f, 0.0f, 70.0f, room::softBloom, spk::small, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.3f)),
+            .match(5.0f)),
 
         // A plain big human: no chop and no swirl, just size, a little detail and the octave.
         preset("Giant", "Voices", Sound()
@@ -662,9 +662,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 18.0f, 0.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 62.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 10.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(2.6f)),
+            .match(3.0f)),
 
         // A monotone drone voice with a throaty subharmonic chop.
         preset("Possessed", "Voices", Sound()
@@ -683,9 +683,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(6.3f)),
+            .match(6.5f)),
 
         // A band-limited, overdriven creature over a small speaker.
         preset("Ogre Radio", "Voices", Sound()
@@ -698,15 +698,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 29.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 72.0f, 30.0f, vc::mic)
             .en(off, 31.0f, 14.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(off, 20.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.2f)),
+            .match(5.1f)),
 
         // A subtly bigger, wider voice with a touch of chamber and low-end weight: lowered a
         // semitone, lightly cleaned, then placed in a hard resonant room blended low under the
@@ -730,7 +730,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 30.0f, 30.0f, 15.0f, 70.0f, room::resonantChamber, spk::small, boom::medium)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.2f)),
+            .match(4.1f)),
 
         // A deep, creaking villain: the voice stays at its own pitch and in the centre (the throat
         // only slightly lower), is levelled in several light stages so no one stage works hard, and
@@ -757,7 +757,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 32.0f, 70.0f, 0.0f, 100.0f, room::concreteRoom, spk::small, boom::off)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(2.7f)),
+            .match(2.8f)),
 
         // A commanding voice from inside the listener: an octave down, then played through a
         // speaker into a small concrete room that rattles, with a heavy low-end thump and a light
@@ -776,13 +776,13 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .gr(on, 20.0f, 27.0f, shape::throat, chr::warm)
             .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 30.0f, -10.0f, vc::line)
-            .en(on, 40.0f, 50.0f, voices::six, emot::slow)
+            .en(on, 37.0f, 50.0f, voices::six, emot::slow)
             .ta(on, 40.0f)
             .su(on, 20.0f, 20.0f, reg::tight, sc::resonant)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 65.0f, 30.0f, 35.0f, 70.0f, room::concreteRoom, spk::small, boom::heavy)
-            .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 50.0f)
-            .match(3.4f)),
+            .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 50.0f)
+            .match(3.0f)),
 
         // MACHINES (ring-modulated voices) --------------------------------------------------------
         // A yelled voice pushed through a struggling machine larynx: tone-shaped, ring-modulated in a
@@ -797,15 +797,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(on, 45.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::box)
             .sh(off, 38.0f, 12.0f, sh::up)
-            .gr(on, 20.0f, 27.0f, shape::throat, chr::grind)
+            .gr(on, 25.0f, 27.0f, shape::throat, chr::grind)
             .sw(off, 25.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 45.0f, 9.0f, vc::mic)
             .en(off, 31.0f, 14.0f, voices::three, emot::medium)
-            .ta(on, 14.0f)
+            .ta(on, 22.0f)
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(8.0f, -2.5f, 3.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.6f)),
+            .match(4.8f)),
 
         // A wet, gargling machine breath: a carrier at half the voice's pitch gurgles in tune, a
         // small metal can resonates, and breaths and wheezes are lifted forward (and ring-modulated).
@@ -823,11 +823,11 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .sw(off, 25.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 35.0f, 2.0f, vc::line)
             .en(off, 31.0f, 14.0f, voices::three, emot::medium)
-            .ta(on, 8.0f)
+            .ta(on, 16.0f)
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.1f)),
+            .match(4.4f)),
 
         // A menacing, buzzing tin speaker: a square-wave ring a fifth above the voice, crushed
         // through a narrow radio band and an overdriven tube, clipped hard at the output.
@@ -841,7 +841,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(on, 55.0f, 150.0f, 1.5f, car::square, trk::follow, rmode::ring, body::box)
             .sh(off, 38.0f, 12.0f, sh::up)
-            .gr(on, 20.0f, 38.0f, shape::rattle, chr::grind)
+            .gr(on, 25.0f, 38.0f, shape::rattle, chr::grind)
             .sw(off, 25.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 61.0f, 17.0f, vc::mic)
             .en(off, 31.0f, 14.0f, voices::three, emot::medium)
@@ -849,7 +849,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(8.5f, -3.0f, 6.0f, 70.0f, 0.5f, 30.0f, off, 100.0f)
-            .match(3.8f)),
+            .match(3.2f)),
 
         // Stepped pitch, a metallic edge and a square stutter: a lumbering robot.
         preset("Robot Ogre", "Machines", Sound()
@@ -868,9 +868,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 10.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
             .out(7.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.6f)),
+            .match(3.8f)),
 
         // A villainous machine: a low, driven voice fed through a horn speaker into a steel box
         // (an amp into a cabinet), with metal modes ringing on every syllable, speaker grit and a
@@ -885,7 +885,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 20.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 20.0f, 25.0f, shape::sine, chr::warm)
             .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 50.0f, -15.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
@@ -893,7 +893,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 40.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 60.0f, 65.0f, 60.0f, 50.0f, room::steelBox, spk::horn, boom::heavy)
-            .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
+            .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
             .match(1.7f)),
 
         // Talking down a pipe: a radio band into a tiny speaker, ringing in a tin booth (the
@@ -917,7 +917,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 75.0f, 90.0f, 40.0f, 30.0f, room::tinBooth, spk::tiny, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(1.6f)),
+            .match(2.6f)),
 
         // A furious voice in a metal shell: a sine carrier at 28 Hz ring-modulates the whole voice,
         // chopping it into a staccato electronic stutter, with nothing else on it but light
@@ -943,7 +943,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(off, 50.0f, 40.0f, 30.0f, 35.0f, room::concreteRoom, spk::small, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.4f)),
+            .match(5.3f)),
 
         // A small, chirpy machine: the voice an octave up and stepped to semitones like a played
         // synth (the throat stays put, as a mouth shaping a tone would), a faint buzzing carrier
@@ -969,7 +969,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 40.0f, 0.5f, pat::speaker, om::lean)
             .ch(on, 75.0f, 10.0f, 15.0f, 0.0f, room::paddedCell, spk::tiny, boom::off)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(1.5f)),
+            .match(1.4f)),
 
         // SIGNAL FLOW (reordered chains; each shows off a placement) ------------------------------
         // Saturate first, then modulate: the notches and the shimmer cut through the grit instead
@@ -984,15 +984,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 30.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 36.0f, shape::sine, chr::warm)
             .sw(on, 55.0f, 0.8f, circ::talky4, mot::lfoLevel)
             .ro(on, 68.0f, 10.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 10.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.7f)),
+            .match(6.1f)),
 
         // Chorus into the tube, so each side distorts differently. Wide and smeared.
         preset("Molten Chorus", "Signal Flow", Sound()
@@ -1005,15 +1005,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 30.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 62.0f, 0.0f, vc::line)
-            .en(on, 67.0f, 100.0f, voices::three, emot::medium)
+            .en(on, 64.0f, 100.0f, voices::three, emot::medium)
             .ta(on, 8.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
-            .out(7.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.6f)),
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
+            .match(3.9f)),
 
         // The octave goes through the tube: a rumble with harmonics locked to the voice. In SU -> RO
         // order the sub's own Drive thickens and compresses the octave before the tube.
@@ -1027,15 +1027,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 22.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 62.0f, -25.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
-            .ta(on, 6.0f)
+            .ta(on, 14.0f)
             .su(on, 70.0f, 75.0f, reg::follow, sc::thick)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.4f)),
+            .match(4.2f)),
 
         // A barrel-chested roar: the octave, then its overtones, then into the tube, so the
         // distortion is built on the low harmonics.
@@ -1054,10 +1054,10 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ro(on, 65.0f, 20.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 8.0f)
-            .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 60.0f, -0.25f, pat::beast, om::add)
+            .su(on, 60.0f, 20.0f, reg::follow, sc::clean)
+            .ov(on, 52.0f, -0.25f, pat::beast, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(3.2f)),
+            .match(2.3f)),
 
         // Grit and chop on the human voice, then pitched down: everything thickens and slows (the
         // chop lands lower too).
@@ -1077,9 +1077,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 40.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.8f)),
+            .match(5.3f)),
 
         // Detail last: it lifts every modulation tail and breath into a claustrophobic halo.
         preset("Breathing Walls", "Signal Flow", Sound()
@@ -1092,15 +1092,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 24.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 26.0f, shape::sine, chr::warm)
             .sw(on, 30.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 45.0f, 3.0f, vc::line)
-            .en(on, 25.0f, 25.0f, voices::three, emot::medium)
+            .en(on, 22.0f, 25.0f, voices::three, emot::medium)
             .ta(on, 10.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(0.8f)),
+            .match(2.3f)),
 
         // A stereo shimmer, then a stuttering chop at the very end of the chain.
         preset("Chopped Space", "Signal Flow", Sound()
@@ -1119,7 +1119,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(7.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
             .match(5.5f)),
 
@@ -1135,15 +1135,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(on, 55.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 38.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 75.0f, 20.0f, vc::mic)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 25.0f)
             .su(on, 45.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.1f)),
+            .match(5.2f)),
 
         // A wide chorus ring-modulated into its own bell cluster per voice: a wide metallic crowd.
         preset("Clanking Choir", "Signal Flow", Sound()
@@ -1156,15 +1156,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(on, 50.0f, 300.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 42.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 45.0f, 3.0f, vc::line)
-            .en(on, 77.0f, 115.0f, voices::six, emot::medium)
-            .ta(on, 8.0f)
+            .en(on, 74.0f, 115.0f, voices::six, emot::medium)
+            .ta(on, 16.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(10.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.7f)),
+            .match(3.8f)),
 
         // VOCODER ----------------------------------------------------------------------------------
         // A wide pulse choir under the words.
@@ -1181,12 +1181,12 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .gr(off, 23.0f, 27.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 25.0f, 0.0f, vc::line)
-            .en(on, 77.0f, 115.0f, voices::six, emot::medium)
+            .en(on, 74.0f, 115.0f, voices::six, emot::medium)
             .ta(on, 8.0f)
             .su(on, 40.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.2f)),
+            .match(3.5f)),
 
         // The vocoder an octave lower again, with a dark tube and a deep, dominant sub.
         preset("Two Octaves Down", "Vocoder", Sound()
@@ -1207,7 +1207,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 65.0f, 20.0f, reg::deep, sc::clean)
             .ov(on, 20.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(4.3f)),
+            .match(4.0f)),
 
         // Maximum vocoder gravel with a grinding chop.
         preset("Gravel Pit", "Vocoder", Sound()
@@ -1220,15 +1220,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(on, 88.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(off, 18.0f, 11.0f, sh::up)
-            .gr(on, 45.0f, 20.0f, shape::sine, chr::grind)
+            .gr(on, 50.0f, 20.0f, shape::sine, chr::grind)
             .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 54.0f, 0.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 20.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.8f)),
+            .match(3.5f)),
 
         // A breathy, two-octave vocoder lung with a slow swirl.
         preset("Iron Lung", "Vocoder", Sound()
@@ -1241,15 +1241,15 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(on, 53.0f, oct::down2)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 77.0f, 2.0f, sh::upDown)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 34.0f, shape::sine, chr::warm)
             .sw(on, 37.0f, 0.35f, circ::deep12, mot::lfoLevel)
             .ro(on, 45.0f, 3.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 15.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(1.5f)),
+            .match(3.6f)),
 
         // UTILITY ----------------------------------------------------------------------------------
         // Just the detail lift on a natural voice.
@@ -1271,7 +1271,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(0.9f)),
+            .match(1.9f)),
 
         // A slightly bigger voice, with every flavour just audible.
         preset("Subtle Size", "Utility", Sound()
@@ -1290,7 +1290,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 20.0f, 20.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 40.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
             .match(4.5f)),
 
@@ -1314,7 +1314,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(off, 55.0f, 20.0f, reg::follow, sc::clean)
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(6.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(2.9f)),
+            .match(3.7f)),
 
         // Init pushed hard into the output for trailer-loud density: a soft clip takes the tips.
         preset("Loud & Contained", "Utility", Sound()
@@ -1333,9 +1333,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 19.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(10.0f, -1.0f, 4.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(6.8f)),
+            .match(6.5f)),
 
         // Init with a crunchy output: a fast release lets the limiter's gain follow the low end (a
         // light 1 dB clip only rounds the tips, so the release does the work), and a 90 % mix keeps
@@ -1356,9 +1356,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(8.5f, -1.0f, 1.0f, 32.0f, 0.5f, 3.0f, off, 90.0f)
-            .match(5.2f)),
+            .match(5.0f)),
 
         // Init smashed flat: deep push, a hard clip and the fastest limiter.
         preset("Smashed", "Utility", Sound()
@@ -1377,9 +1377,9 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .en(on, 10.0f, 10.0f, voices::three, emot::medium)
             .ta(on, 6.0f)
             .su(on, 55.0f, 20.0f, reg::follow, sc::clean)
-            .ov(on, 4.0f, 0.0f, pat::chest, om::add)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .out(12.0f, -1.0f, 9.0f, 100.0f, 0.2f, 1.0f, off, 100.0f)
-            .match(5.2f)),
+            .match(5.0f)),
 
         // A creature that must read on phones and laptops: the low end exists only as overtones,
         // so it is loud and clear on small speakers with no woofer load.
@@ -1393,7 +1393,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .vo(off, 41.0f, oct::down1)
             .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
             .sh(on, 18.0f, 11.0f, sh::up)
-            .gr(on, 25.0f, 27.0f, shape::sine, chr::warm)
+            .gr(on, 25.0f, 35.0f, shape::sine, chr::warm)
             .sw(on, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
             .ro(on, 45.0f, 3.0f, vc::line)
             .en(off, 10.0f, 10.0f, voices::three, emot::medium)
@@ -1401,7 +1401,7 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .su(on, 61.0f, 20.0f, reg::follow, sc::clean)
             .ov(on, 35.0f, 0.25f, pat::speaker, om::replace)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)
-            .match(5.7f)),
+            .match(5.6f)),
     };
 
     return presets;
