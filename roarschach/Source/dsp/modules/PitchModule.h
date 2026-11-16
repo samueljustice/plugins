@@ -11,6 +11,8 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <limits>
+#include <utility>
 #include <vector>
 
 namespace roar
@@ -133,6 +135,16 @@ namespace roar
         // Diagnostics for tests.
         std::uint64_t getVoicedGrainCount() const { return m_core.voicedGrains; }
         std::uint64_t getUnvoicedGrainCount() const { return m_core.unvoicedGrains; }
+        /** Onsets found since the last reset, and the last c_maxOnsets of them (oldest first; input
+            sample positions counted from the reset, end -1 while not known). */
+        std::uint64_t getOnsetCount() const { return m_core.onsetCount; }
+        int getNumOnsetsKept() const { return static_cast<int> (std::min<std::uint64_t> (m_core.onsetCount, c_maxOnsets)); }
+        std::pair<std::int64_t, std::int64_t> getOnset (int i) const
+        {
+            const int n = getNumOnsetsKept();
+            const auto& o = m_core.onsets[static_cast<size_t> ((m_core.onsetWrite - n + i + 2 * c_maxOnsets) % c_maxOnsets)];
+            return { o.pos, o.end };
+        }
         float getPitchRatio() const { return static_cast<float> (m_core.ratio); }
 
     private:
@@ -144,8 +156,17 @@ namespace roar
             double invHalfWidth = 1.0;
             double rate = 1.0;        // input samples read per output sample
             float gain = 1.0f;
+            float fade = 1.0f;        // falls to 0 at fadeStep per sample once the grain lets go
+            float fadeStep = 0.0f;
             bool voiced = true;
         };
+
+        /** An onset found at input time: [pos - 2 ms, end] is protected (end < 0: not known yet). */
+        struct Onset
+        {
+            std::int64_t pos = -1, end = -1;
+        };
+        static constexpr int c_maxOnsets = 16;
 
         struct Mark
         {
@@ -239,6 +260,22 @@ namespace roar
             float driveGain = 1.0f, driveOutGain = 1.0f, driveBiasScale = 0.0f;
             float driveHeat = 0.0f;
 
+            // Onset detector (input time, on the mid): tilted energy per hop, the hops before, the
+            // loudest recent hop, the pulse memory and the last c_maxOnsets onsets.
+            float onsetPrev = 0.0f;
+            double hopSum = 0.0;
+            int hopCount = 0;
+            std::array<double, 8> hopEnergy {};
+            int hopIndex = 0;
+            double onsetRef = 0.0;
+            bool onsetOpen = false;
+            double onsetEndLevel = 0.0;
+            std::int64_t pulsePos = std::numeric_limits<std::int64_t>::min() / 2;
+            double pulseEnergy = 0.0;
+            std::array<Onset, c_maxOnsets> onsets {};
+            int onsetWrite = 0;
+            std::uint64_t onsetCount = 0;
+
             std::uint64_t voicedGrains = 0, unvoicedGrains = 0;
         };
 
@@ -257,6 +294,11 @@ namespace roar
         double markCorrelation (std::int64_t mark, std::int64_t previous) const;
         double similarityLag (double anchor, double period, double before, double after, double centre, double range, bool& found) const;
         void pushMark (double position, float period);
+        void closeRun();
+        double bandPower (std::int64_t from, std::int64_t to) const;
+        bool liveAt (double syn, double markPos, double period) const;
+        bool protectedNear (double lo, double hi) const;
+        void detectOnsets (float mid);
         void pruneMarks (std::int64_t outPos);
         void scheduleGrains (std::int64_t outPos);
         void createGrain (std::int64_t outPos);
@@ -296,6 +338,10 @@ namespace roar
         double m_shareCoeff = 0.002;
         double m_tapeCorrCoeff = 0.002;
         float m_bandHpCoeff = 0.992f;
+        float m_onsetTilt = 0.9f;          // 0.9 ^ (48000 / fs)
+        int m_onsetHop = 96;               // 2 ms
+        double m_onsetRefFall = 0.998;
+        float m_letGoStep = 1.0f / 144.0f; // a let-go grain fades over 3 ms
         int m_throatSize = 220;
         std::array<float, c_windowSize + 2> m_cosTable {};
 

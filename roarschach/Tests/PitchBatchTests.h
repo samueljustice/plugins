@@ -525,5 +525,302 @@ namespace pitchbatch
             check(frames > 2000 && off == 0, juce::String(off) + " frames behind PITCH carry a ratio other than the one applied to their audio");
         }
     }
+    // ------------------------------------------------------------------------------------ PITCH alone
+    /** A pulse vowel: impulses one period apart (period jittered by `jitter`, seeded) through three
+        formant resonances and a gentle pre-emphasis, peak `amp`. */
+    inline Signal pulseVowel(double fs, double f0, double seconds, double jitter = 0.0, unsigned seed = 0, double amp = 0.25)
+    {
+        const int n = static_cast<int>(seconds * fs);
+        std::vector<double> x(static_cast<size_t>(n) + 2, 0.0);
+        std::mt19937 rng(seed);
+        std::normal_distribution<double> gauss(0.0, 1.0);
+        for (double t = 0.0; t < n - 1;)
+        {
+            const auto i = static_cast<size_t>(t);
+            const double fr = t - static_cast<double>(i);
+            x[i] += 1.0 - fr;
+            x[i + 1] += fr;
+            t += std::max(8.0, fs / f0 * (1.0 + jitter * gauss(rng)));
+        }
+        std::vector<double> y(static_cast<size_t>(n), 0.0);
+        const double formants[3][2] { { 700.0, 90.0 }, { 1200.0, 110.0 }, { 2600.0, 160.0 } };
+        for (const auto& f : formants)
+        {
+            const double r = std::exp(-c_pi * f[1] / fs), a1 = -2.0 * r * std::cos(2.0 * c_pi * f[0] / fs), a2 = r * r;
+            double y1 = 0.0, y2 = 0.0;
+            for (int i = 0; i < n; ++i)
+            {
+                const double v = (1.0 - r) * x[static_cast<size_t>(i)] - a1 * y1 - a2 * y2;
+                y2 = y1;
+                y1 = v;
+                y[static_cast<size_t>(i)] += v;
+            }
+        }
+        Signal s(static_cast<size_t>(n));
+        double px = 0.0, py = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double v = y[static_cast<size_t>(i)] - px + 0.995 * py;   // (1 - z^-1) / (1 - 0.995 z^-1)
+            px = y[static_cast<size_t>(i)];
+            py = v;
+            s[static_cast<size_t>(i)] = static_cast<float>(v);
+        }
+        normalisePeak(s, static_cast<float>(amp));
+        return s;
+    }
+
+    /** 22 noise bursts (12 ms, the last 3 ms a linear decay, 150..400 ms apart from 0.3 s, seeded):
+        the signal and the burst starts. */
+    inline std::pair<Signal, std::vector<int>> noiseBursts(double fs, double amp = 0.3, unsigned seed = 11)
+    {
+        Signal x(static_cast<size_t>(8.5 * fs), 0.0f);
+        std::mt19937 rng(seed);
+        std::normal_distribution<double> gauss(0.0, 1.0);
+        std::uniform_real_distribution<double> gap(0.15, 0.4);
+        std::vector<int> starts;
+        int t = static_cast<int>(0.3 * fs);
+        const int len = static_cast<int>(0.012 * fs), decay = static_cast<int>(0.003 * fs);
+        for (int k = 0; k < 22; ++k)
+        {
+            for (int i = 0; i < len; ++i)
+            {
+                const double env = i < len - decay ? 1.0 : static_cast<double>(len - i) / decay;
+                x[static_cast<size_t>(t + i)] += static_cast<float>(amp * gauss(rng) * env);
+            }
+            starts.push_back(t);
+            t += static_cast<int>(gap(rng) * fs);
+        }
+        return { x, starts };
+    }
+
+    struct PitchRun
+    {
+        Signal out;                                          // latency removed
+        std::vector<std::pair<std::int64_t, std::int64_t>> onsets;   // every onset found (input positions)
+        std::vector<bool> voiced;                            // isVoiced() after every 32-sample block
+    };
+
+    /** PITCH alone (mono), in 32-sample blocks, its latency removed. */
+    inline PitchRun runPitch(double fs, const Signal& in, roar::PitchSettings ps)
+    {
+        roar::PitchModule m;
+        m.setParams(ps);
+        m.prepare(fs, 32);
+        m.setParams(ps);
+        m.reset();
+        const int latency = m.getLatencySamples();
+        Signal x = in;
+        x.resize(in.size() + static_cast<size_t>(latency), 0.0f);
+        Signal r(32, 0.0f);
+        PitchRun run;
+        std::map<std::int64_t, std::int64_t> found;
+        for (int start = 0; start < static_cast<int>(x.size()); start += 32)
+        {
+            const int n = std::min(32, static_cast<int>(x.size()) - start);
+            m.process(x.data() + start, r.data(), n, false, roar::VoiceFrameView {});
+            run.voiced.push_back(m.isVoiced());
+            for (int i = 0; i < m.getNumOnsetsKept(); ++i)
+            {
+                const auto o = m.getOnset(i);
+                found[o.first] = o.second;
+            }
+        }
+        run.out.assign(x.begin() + latency, x.end());
+        for (const auto& o : found)
+            run.onsets.push_back(o);
+        return run;
+    }
+
+    inline roar::PitchSettings pitchSettings(float semitones, Params::PitchFormant formant, float size = 0.0f)
+    {
+        roar::PitchSettings ps;
+        ps.pitchSemitones = semitones;
+        ps.formant = formant;
+        ps.size = size;
+        ps.drive = 0.0f;
+        return ps;
+    }
+
+    inline double meanSquare(const Signal& x, int from, int to)
+    {
+        double s = 0.0;
+        from = std::max(0, from);
+        to = std::min(to, static_cast<int>(x.size()));
+        for (int i = from; i < to; ++i)
+            s += static_cast<double>(x[static_cast<size_t>(i)]) * x[static_cast<size_t>(i)];
+        return to > from ? s / (to - from) : 0.0;
+    }
+
+    // ------------------------------------------------------------------------------------ T3, T17
+    inline void testPitchTail()
+    {
+        std::printf("[pitch] the tail of a run of marks: no repeated last cycle after a dead stop; grains kept inside a rough voice\n");
+        const double fs = 48000.0;
+        constexpr auto keep = Params::PitchFormant::keep;
+        constexpr auto follow = Params::PitchFormant::follow;
+
+        // T3 (a): 10 to 20 ms after a dead stop, at least 40 dB under the voice.
+        for (const double f0 : { 70.0, 90.0, 140.0, 220.0 })
+        {
+            auto v = pulseVowel(fs, f0, 1.4);
+            const int stop = static_cast<int>(1.0 * fs);
+            std::fill(v.begin() + stop, v.end(), 0.0f);
+            const double voice = meanSquare(v, stop - static_cast<int>(0.2 * fs), stop);
+            std::printf("  %3.0f Hz, stopped dead, 10..20 ms after the stop:", f0);
+            for (const auto& [name, st, formant] : { std::tuple { "Keep -5", -5.0f, keep }, std::tuple { "Keep -12", -12.0f, keep }, std::tuple { "Follow -5", -5.0f, follow } })
+            {
+                const auto run = runPitch(fs, v, pitchSettings(st, formant));
+                const double after = meanSquare(run.out, stop + static_cast<int>(0.010 * fs), stop + static_cast<int>(0.020 * fs));
+                const double db = 10.0 * std::log10(std::max(after, 1e-30) / voice);
+                std::printf(" %s %.1f dB;", name, db);
+                check(db <= -40.0, juce::String(name) + " at " + juce::String(f0, 0) + " Hz: " + juce::String(db, 1) + " dB 10..20 ms after a dead stop (<= -40)");
+            }
+            // T3 (b), a ceiling the branch passes too: Follow -12 and -24, energy after the stop
+            // at most 1.25 x (0.75 + 1 / phi) periods' worth of the voice.
+            for (const float st : { -12.0f, -24.0f })
+            {
+                const auto run = runPitch(fs, v, pitchSettings(st, follow));
+                const double phi = std::exp2(st / 12.0), T = fs / f0;
+                const double periods = meanSquare(run.out, stop, stop + static_cast<int>(0.2 * fs)) * 0.2 * fs / (voice * T);
+                const double ceiling = 1.25 * (0.75 + 1.0 / phi);
+                std::printf(" Follow %.0f %.2f T (ceiling %.2f);", static_cast<double>(st), periods, ceiling);
+                check(periods <= ceiling, "Follow " + juce::String(st, 0) + " at " + juce::String(f0, 0) + " Hz: " + juce::String(periods, 2)
+                                              + " periods' worth after a dead stop (ceiling " + juce::String(ceiling, 2) + ", a guard the branch passes too)");
+            }
+            std::printf("\n");
+        }
+
+        // T17: grain time on jittered low voices, against the figures this same body gave on the
+        // shifter as it was before the tail rule (built from the tree before this batch): at least
+        // that minus 6 points (minus 10 at Keep -12).
+        {
+            struct Voice { double f0, jitter; unsigned seed; };
+            const std::array<Voice, 6> voices { { { 55, 0.04, 1 }, { 60, 0.08, 2 }, { 70, 0.04, 3 }, { 70, 0.10, 4 }, { 90, 0.08, 5 }, { 120, 0.10, 6 } } };
+            struct Setting { const char* name; float st; Params::PitchFormant formant; double margin; };
+            const std::array<Setting, 4> settings { { { "Keep -5", -5.0f, keep, 6.0 }, { "Follow -5", -5.0f, follow, 6.0 },
+                                                      { "Follow +7", 7.0f, follow, 6.0 }, { "Keep -12", -12.0f, keep, 10.0 } } };
+            // [voice][setting], per cent of 32-sample frames with isVoiced(), 0.5..2.8 s.
+            static constexpr double c_branch[6][4] { { 87.5, 47.3, 72.7, 91.7 }, { 83.7, 31.6, 73.7, 85.3 }, { 96.1, 83.8, 90.2, 95.7 },
+                                                     { 90.3, 37.8, 74.9, 90.3 }, { 58.9, 44.9, 53.6, 58.3 }, { 42.2, 23.8, 37.9, 41.1 } };
+            for (size_t vi = 0; vi < voices.size(); ++vi)
+            {
+                const auto& vc = voices[vi];
+                const auto v = pulseVowel(fs, vc.f0, 3.0, vc.jitter, vc.seed);
+                std::printf("  %3.0f Hz, jitter %2.0f %%, grain time (branch):", vc.f0, 100.0 * vc.jitter);
+                for (size_t si = 0; si < settings.size(); ++si)
+                {
+                    const auto& st = settings[si];
+                    const auto run = runPitch(fs, v, pitchSettings(st.st, st.formant));
+                    int on = 0, all = 0;
+                    const int latencyFrames = roar::PitchModule::latencyFor(fs) / 32;
+                    for (int k = static_cast<int>(0.5 * fs) / 32; k < static_cast<int>(2.8 * fs) / 32; ++k)
+                    {
+                        const auto at = static_cast<size_t>(k + latencyFrames);
+                        if (at < run.voiced.size())
+                        {
+                            on += run.voiced[at] ? 1 : 0;
+                            ++all;
+                        }
+                    }
+                    const double share = 100.0 * on / std::max(1, all);
+                    std::printf(" %s %.1f (%.1f);", st.name, share, c_branch[vi][si]);
+                    check(share >= c_branch[vi][si] - st.margin, juce::String(st.name) + " on " + juce::String(vc.f0, 0) + " Hz jitter " + juce::String(100.0 * vc.jitter, 0)
+                                                                 + " %: grain time " + juce::String(share, 1) + " % against the branch's " + juce::String(c_branch[vi][si], 1));
+                }
+                std::printf("\n");
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------ T8
+    inline void testOnsetDetector()
+    {
+        std::printf("[pitchsplice] onset detector at six rates: pulse trains, noise, bursts, the tilt\n");
+        const auto onsetsOf = [](double fs, const Signal& x) { return runPitch(fs, x, pitchSettings(-5.0f, Params::PitchFormant::follow)).onsets; };
+        int count48d = -1;
+        for (const double fs : { 48000.0, 44100.0, 88200.0, 96000.0, 176400.0, 192000.0 })
+        {
+            // (a) jittered pulse trains, 2 s after 0.1 s of silence.
+            juce::String trains;
+            for (const double f : { 20.0, 25.0, 30.0, 36.0, 40.0, 44.0, 48.0, 52.0, 55.0, 60.0, 70.0, 100.0, 200.0 })
+            {
+                Signal x(static_cast<size_t>(0.1 * fs), 0.0f);
+                const auto v = pulseVowel(fs, f, 2.0, 0.06, 3);
+                x.insert(x.end(), v.begin(), v.end());
+                const int n = static_cast<int>(onsetsOf(fs, x).size());
+                const int most = f < 58.0 ? 6 : 2;
+                trains << juce::String(f, 0) << ":" << n << " ";
+                check(n <= most, juce::String(fs / 1000.0, 1) + " kHz: a " + juce::String(f, 0) + " Hz pulse train gives " + juce::String(n) + " onsets (<= " + juce::String(most) + ")");
+            }
+            // (b) white noise at -20 dBFS rms: nothing after the first 10 ms.
+            int noiseOnsets = 0;
+            {
+                std::mt19937 rng(1);
+                std::normal_distribution<float> gauss(0.0f, 0.1f);
+                Signal x(static_cast<size_t>(5.0 * fs));
+                for (auto& v : x)
+                    v = gauss(rng);
+                for (const auto& o : onsetsOf(fs, x))
+                    noiseOnsets += o.first > static_cast<std::int64_t>(0.010 * fs) ? 1 : 0;
+                check(noiseOnsets == 0, juce::String(fs / 1000.0, 1) + " kHz: " + juce::String(noiseOnsets) + " onsets in steady white noise");
+            }
+            // (c) the 22 bursts at -10 and -60 dBFS: each found within 3 ms, ending 4 to 16 ms later.
+            juce::String burstText;
+            for (const double gain : { 1.0, std::pow(10.0, -50.0 / 20.0) })
+            {
+                auto [x, starts] = noiseBursts(fs, 0.3 * gain);
+                const auto found = onsetsOf(fs, x);
+                int hit = 0, goodEnd = 0;
+                for (const int t : starts)
+                    for (const auto& o : found)
+                        if (std::abs(static_cast<double>(o.first - t)) <= 0.003 * fs)
+                        {
+                            ++hit;
+                            const double len = (o.second - o.first) / fs;
+                            goodEnd += o.second >= 0 && len >= 0.004 - 1.0e-9 && len <= 0.016 + 0.002 ? 1 : 0;
+                            break;
+                        }
+                burstText << (gain == 1.0 ? "-10 dBFS " : "-60 dBFS ") << static_cast<int>(found.size()) << " found, " << hit << " within 3 ms; ";
+                check(static_cast<int>(found.size()) == 22 && hit == 22 && goodEnd == 22, juce::String(fs / 1000.0, 1) + " kHz bursts: " + juce::String(static_cast<int>(found.size()))
+                                                                                       + " onsets, " + juce::String(hit) + " within 3 ms, " + juce::String(goodEnd) + " ending 4..16 ms later");
+            }
+            // (d) the tilt: band-passed bursts (3..12 kHz) on a steady 120 Hz vowel.
+            int foundD = 0;
+            {
+                auto x = pulseVowel(fs, 120.0, 8.5, 0.0, 0, 0.2);
+                auto [noise, starts] = noiseBursts(fs, 1.0, 21);
+                roar::Biquad hp1, hp2, lp1, lp2;
+                hp1.setCoeffs(roar::Biquad::highpass(fs, 3000.0, roar::Biquad::c_bw4Q1));
+                hp2.setCoeffs(roar::Biquad::highpass(fs, 3000.0, roar::Biquad::c_bw4Q2));
+                lp1.setCoeffs(roar::Biquad::lowpass(fs, 12000.0, roar::Biquad::c_bw4Q1));
+                lp2.setCoeffs(roar::Biquad::lowpass(fs, 12000.0, roar::Biquad::c_bw4Q2));
+                Signal band(noise.size());
+                for (size_t i = 0; i < noise.size(); ++i)
+                    band[i] = static_cast<float>(lp2.process(lp1.process(hp2.process(hp1.process(static_cast<double>(noise[i]))))));
+                const int first3 = static_cast<int>(0.003 * fs);
+                for (const int t : starts)
+                {
+                    const double rms = std::sqrt(meanSquare(band, t, t + first3));
+                    const double g = rms > 0.0 ? 0.063 / rms : 0.0;
+                    for (int i = t; i < t + static_cast<int>(0.016 * fs) && i < static_cast<int>(x.size()); ++i)
+                        x[static_cast<size_t>(i)] += static_cast<float>(g * band[static_cast<size_t>(i)]);
+                }
+                const auto found = onsetsOf(fs, x);
+                for (const int t : starts)
+                    for (const auto& o : found)
+                        if (std::abs(static_cast<double>(o.first - t)) <= 0.004 * fs)
+                        {
+                            ++foundD;
+                            break;
+                        }
+                if (fs == 48000.0)
+                    count48d = foundD;
+            }
+            std::printf("  %5.1f kHz: trains %s| noise %d | bursts %s| tilt %d of 22\n", fs / 1000.0, trains.toRawUTF8(), noiseOnsets, burstText.toRawUTF8(), foundD);
+            if (count48d >= 0)
+                check(std::abs(foundD - count48d) <= 5, juce::String(fs / 1000.0, 1) + " kHz finds " + juce::String(foundD) + " band-limited bursts on a vowel against "
+                                                            + juce::String(count48d) + " at 48 kHz (within 5)");
+        }
+    }
 }
 

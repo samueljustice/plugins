@@ -9668,6 +9668,8 @@ int main(int argc, char* argv[])
         { "reset", pitchbatch::testResetEqualsFresh },
         { "in", pitchbatch::testInClamp },
         { "pitchstream", pitchbatch::testPitchStream },
+        { "pitch", pitchbatch::testPitchTail },
+        { "pitchsplice", pitchbatch::testOnsetDetector },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },

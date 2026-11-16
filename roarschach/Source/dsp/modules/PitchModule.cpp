@@ -88,6 +88,31 @@ namespace roar
         constexpr double c_strictWithinSt = 0.5, c_looseBeyondSt = 1.5;
         constexpr double c_minHz = 50.0, c_maxHz = 1000.0;
 
+        // The tail and head of a run of marks (a grain is voiced when its synthesis point lies, in
+        // periods T of its nearest mark, ...):
+        constexpr double c_markInside = 0.5;                  // ... within half a period
+        constexpr double c_bridgeSpan = 3.2;                  // ... towards an adjacent mark at most this far away,
+        constexpr double c_bridgeReach = 1.5;                 //     up to this far from its own
+        constexpr double c_borrowReach = 3.0;                 // ... past the newest mark of a run still open
+        constexpr double c_tailReach = 0.75;                  // ... a little past the last mark of a closed run
+        // ... or further (c_bridgeReach, c_borrowReach past the newest mark) only where the input
+        // still sounds there: the 60..900 Hz band over half a period around the point holds at
+        // least c_liveShare of the power of the mark's own cycle, and no onset lies between.
+        constexpr double c_liveShare = 0.1;
+        constexpr double c_letGoSeconds = 0.003;              // a grain past a run's end fades over this
+
+        // Onset detector (input time, on the mid tilted towards the band where bursts live).
+        constexpr double c_onsetHopSeconds = 0.002;
+        constexpr double c_onsetRise = 7.9432823472428150;    // 9 dB over the loudest of the 8 hops before (16 ms)
+        constexpr int c_onsetQuietHops = 8;
+        constexpr int c_pulseMemoryHops = 5;                  // pulse memory: 9 dB over the 5 hops before (10 ms)
+        constexpr double c_trainFromSeconds = 0.011, c_trainToSeconds = 0.060;
+        constexpr double c_trainLike = 7.9432823472428150;    // within 9 dB either way
+        constexpr double c_onsetAbsFloor = 1.0e-9, c_onsetRelFloor = 1.0e-5, c_onsetRefFloor = 1.0e-30;
+        constexpr double c_onsetEndShare = 0.063;             // -12 dB from its first hop
+        constexpr double c_onsetMinSeconds = 0.004, c_onsetMaxSeconds = 0.016;
+        constexpr double c_onsetLeadSeconds = 0.002;          // protection starts this far before an onset
+
         // Formant model.
         constexpr double c_sizeFormantSt = 6.0;
         constexpr double c_minRate = 0.25, c_maxRate = 1.41421356237309505;
@@ -291,6 +316,10 @@ namespace roar
 
         m_detector.prepare (m_fs);
         m_bandHpCoeff = static_cast<float> (std::exp (-dsp::c_twoPi * 60.0 / m_fs));
+        m_onsetTilt = static_cast<float> (std::pow (0.9, 48000.0 / m_fs));
+        m_onsetHop = std::max (8, static_cast<int> (std::lround (c_onsetHopSeconds * m_fs)));
+        m_letGoStep = static_cast<float> (1.0 / (c_letGoSeconds * m_fs));
+        m_onsetRefFall = std::exp (-static_cast<double> (m_onsetHop) / m_fs);   // 4.3 dB per second
 
         m_knobCoeff = dsp::onePoleCoeff (c_knobSmoothSeconds, m_fs);
         m_slewCoeff = dsp::onePoleCoeff (c_slewSeconds, m_fs);
@@ -595,6 +624,7 @@ namespace roar
         c.bandHpY1 = dsp::flushTiny (hp);
         m_band[at] = c.bandLp.process (hp);
 
+        detectOnsets (mid);
         m_detector.pushSample (mid);
         ++c.writePos;
         findMarks();
@@ -1015,6 +1045,140 @@ namespace roar
         ++c.markCount;
     }
 
+    void PitchModule::closeRun()
+    {
+        // The run of marks ends here. Grains already placed from its last mark further than
+        // c_tailReach periods past it would repeat the last cycle into whatever follows: they let
+        // go, unless the input still sounds where they play.
+        Core& c = m_core;
+        if (! c.haveLastMark)
+            return;
+        c.haveLastMark = false;
+        const double period = c.markPeriod > 0.0 ? c.markPeriod : static_cast<double> (m_maxPeriod);
+        const double limit = c.lastFine + c_tailReach * period;
+        for (int i = 0; i < c.grainCount; ++i)
+        {
+            Grain& g = c.grains[static_cast<size_t> (i)];
+            if (g.voiced && g.anaCentre >= c.lastFine - 0.5 && g.synCentre > limit
+                && ! (g.synCentre <= c.lastFine + c_borrowReach * period && liveAt (g.synCentre, c.lastFine, period)))
+                g.fadeStep = m_letGoStep;
+        }
+    }
+
+    double PitchModule::bandPower (std::int64_t from, std::int64_t to) const
+    {
+        // Mean square of the 60..900 Hz copy over [from, to].
+        if (to < from)
+            return 0.0;
+        double sum = 0.0;
+        for (std::int64_t t = from; t <= to; ++t)
+        {
+            const auto v = static_cast<double> (m_band[static_cast<size_t> (t & m_mask)]);
+            sum += v * v;
+        }
+        return sum / static_cast<double> (to - from + 1);
+    }
+
+    bool PitchModule::protectedNear (double lo, double hi) const
+    {
+        // Does the protected stretch of an onset ([pos - 2 ms, end], the end "everything after"
+        // until it is known) overlap [lo, hi]?
+        const double lead = c_onsetLeadSeconds * m_fs;
+        for (const Onset& o : m_core.onsets)
+            if (o.pos >= 0 && static_cast<double> (o.pos) - lead <= hi && (o.end < 0 || static_cast<double> (o.end) >= lo))
+                return true;
+        return false;
+    }
+
+    bool PitchModule::liveAt (double syn, double markPos, double period) const
+    {
+        // Is the input still sounding where a grain past the end of a run would play? Band power
+        // over half a period around that point against the mark's own cycle; never across an
+        // onset (what follows is another sound, not this voice).
+        const std::int64_t newest = m_core.writePos - 1;
+        const auto a = static_cast<std::int64_t> (std::floor (syn - 0.25 * period));
+        const auto b = std::min (newest, static_cast<std::int64_t> (std::floor (syn + 0.25 * period)));
+        if (static_cast<double> (b - a) < 0.25 * period)
+            return false;   // the input there has not arrived
+        if (protectedNear (std::min (syn, markPos) - 0.5 * period, std::max (syn, markPos) + 0.5 * period))
+            return false;
+        const auto m = static_cast<std::int64_t> (markPos);
+        const auto half = static_cast<std::int64_t> (0.5 * period);
+        return bandPower (a, b) >= c_liveShare * bandPower (m - half + 1, m + half);
+    }
+
+    void PitchModule::detectOnsets (float mid)
+    {
+        // Onsets for the splices and the tail rule, found at input time (spec: bursts once, not
+        // doubled or smeared). Energy of the tilted mid per 2 ms hop; an onset is a hop 9 dB over
+        // the loudest of the 16 ms before it, unless it is one pulse of a train (the last pulse
+        // remembered 11 to 60 ms back, within 9 dB): a slow train is one onset, its first pulse.
+        Core& c = m_core;
+        const std::int64_t n = c.writePos;   // this sample's index
+        const float d = mid - m_onsetTilt * c.onsetPrev;
+        c.onsetPrev = mid;
+        c.hopSum += static_cast<double> (d) * static_cast<double> (d);
+        if (++c.hopCount < m_onsetHop)
+            return;
+
+        const double e = c.hopSum / m_onsetHop;
+        c.hopSum = 0.0;
+        c.hopCount = 0;
+        const std::int64_t hopStart = n - m_onsetHop + 1;
+        const bool floors = e > c_onsetAbsFloor && e > c_onsetRelFloor * c.onsetRef;
+
+        if (c.onsetOpen)
+        {
+            Onset& o = c.onsets[static_cast<size_t> ((c.onsetWrite + c_maxOnsets - 1) % c_maxOnsets)];
+            const std::int64_t since = hopStart - o.pos;
+            if ((e < c.onsetEndLevel && since >= static_cast<std::int64_t> (c_onsetMinSeconds * m_fs))
+                || since >= static_cast<std::int64_t> (c_onsetMaxSeconds * m_fs))
+            {
+                o.end = hopStart;
+                c.onsetOpen = false;
+            }
+        }
+        else if (floors)
+        {
+            double before = 0.0;
+            for (double h : c.hopEnergy)
+                before = std::max (before, h);
+            if (e > c_onsetRise * before)
+            {
+                const std::int64_t since = hopStart - c.pulsePos;
+                const bool train = since >= static_cast<std::int64_t> (c_trainFromSeconds * m_fs)
+                                && since <= static_cast<std::int64_t> (c_trainToSeconds * m_fs)
+                                && e <= c_trainLike * c.pulseEnergy && e * c_trainLike >= c.pulseEnergy;
+                if (! train)
+                {
+                    Onset& o = c.onsets[static_cast<size_t> (c.onsetWrite)];
+                    o.pos = hopStart;
+                    o.end = -1;
+                    c.onsetWrite = (c.onsetWrite + 1) % c_maxOnsets;
+                    c.onsetEndLevel = e * c_onsetEndShare;
+                    c.onsetOpen = true;
+                    ++c.onsetCount;
+                }
+            }
+        }
+
+        // Pulse memory, on every hop: a hop 9 dB over the 10 ms before it.
+        if (floors)
+        {
+            double recent = 0.0;
+            for (int j = 1; j <= c_pulseMemoryHops; ++j)
+                recent = std::max (recent, c.hopEnergy[static_cast<size_t> ((c.hopIndex - j + 8) & 7)]);
+            if (e > c_onsetRise * recent)
+            {
+                c.pulsePos = hopStart;
+                c.pulseEnergy = e;
+            }
+        }
+        c.onsetRef = std::max ({ e, c.onsetRef * m_onsetRefFall, c_onsetRefFloor });
+        c.hopEnergy[static_cast<size_t> (c.hopIndex)] = e;
+        c.hopIndex = (c.hopIndex + 1) & 7;
+    }
+
     void PitchModule::pruneMarks (std::int64_t outPos)
     {
         // Forget marks no grain can use any more.
@@ -1033,7 +1197,7 @@ namespace roar
         const VoiceInfo& v = m_detector.getVoiceInfo();
         if (! v.voiced || v.f0Hz <= 0.0f)
         {
-            c.haveLastMark = false;
+            closeRun();
             return;
         }
 
@@ -1090,7 +1254,7 @@ namespace roar
                         c.shortTriedFor = c.lastMark;   // fall back to the rhythm for this mark
                         return;
                     }
-                    c.haveLastMark = false;
+                    closeRun();
                     return;
                 }
 
@@ -1289,10 +1453,32 @@ namespace roar
             mark = c.marks[static_cast<size_t> ((c.markHead + nearest) % c_maxMarks)];
             const double distance = syn - static_cast<double> (mark.pos);
             const bool newest = nearest == c.markCount - 1;
-            if (std::abs (distance) <= 1.5 * static_cast<double> (mark.period))
+            const double T = static_cast<double> (mark.period);
+            const auto posOf = [&] (int i) { return static_cast<double> (c.marks[static_cast<size_t> ((c.markHead + i) % c_maxMarks)].pos); };
+            if (std::abs (distance) <= c_markInside * T)
                 voiced = true;
-            else if (newest && distance > 0.0 && distance <= 3.0 * static_cast<double> (mark.period) && m_detector.getVoiceInfo().voiced)
-                voiced = true;   // marks lag behind at low pitch: borrow the latest one
+            else if (distance > 0.0)
+            {
+                // Past the mark: towards the next one (a missed cycle), the newest mark of a run
+                // still open (marks lag at low pitch), a little way past a run's end, or further
+                // only where the input still sounds there.
+                const bool bridge = ! newest && posOf (nearest + 1) - static_cast<double> (mark.pos) <= c_bridgeSpan * T;
+                if (bridge && distance <= c_bridgeReach * T)
+                    voiced = true;
+                else if (newest && c.haveLastMark && distance <= c_borrowReach * T)
+                    voiced = true;
+                else if (distance <= c_tailReach * T)
+                    voiced = true;
+                else if (distance <= (newest ? c_borrowReach : c_bridgeReach) * T && liveAt (syn, static_cast<double> (mark.pos), T))
+                    voiced = true;
+            }
+            else
+            {
+                // Before the mark: only towards an earlier mark close enough to bridge.
+                const bool bridge = nearest > 0 && static_cast<double> (mark.pos) - posOf (nearest - 1) <= c_bridgeSpan * T;
+                if (bridge && -distance <= c_bridgeReach * T)
+                    voiced = true;
+            }
         }
 
         if (voiced)
@@ -1416,7 +1602,7 @@ namespace roar
 
         for (int i = 0; i < c.grainCount;)
         {
-            const Grain& g = c.grains[static_cast<size_t> (i)];
+            Grain& g = c.grains[static_cast<size_t> (i)];
             const double d = now - g.synCentre;
 
             if (d >= g.halfWidth)
@@ -1432,12 +1618,17 @@ namespace roar
                 totalWeight += w;
                 if (g.voiced)
                 {
-                    const double pos = g.anaCentre + d * g.rate;
-                    const float gw = g.gain * w;
-                    float sr = 0.0f;
-                    yl += gw * readRings (pos, g.rate, sr, stereo);
-                    yr += gw * sr;
-                    voicedWeight += w;
+                    // A grain that lets go hands its weight to the resampling path over 3 ms.
+                    g.fade = std::max (0.0f, g.fade - g.fadeStep);
+                    const float gw = g.gain * w * g.fade;
+                    if (gw > 0.0f)
+                    {
+                        const double pos = g.anaCentre + d * g.rate;
+                        float sr = 0.0f;
+                        yl += gw * readRings (pos, g.rate, sr, stereo);
+                        yr += gw * sr;
+                    }
+                    voicedWeight += w * g.fade;
                 }
             }
 
