@@ -6,6 +6,8 @@
 #include "../common/TptSvf.h"
 
 #include <array>
+#include <cstdint>
+#include <vector>
 
 namespace roar
 {
@@ -96,6 +98,15 @@ namespace roar
      * tilts the weights, w_k += 6 oct log2 (k / 3) dB, instead of moving the centres. Fixed
      * patterns: every centre (and fx) x 2^oct, centres clamped to 32..500 Hz.
      *
+     * Fixed patterns follow the voice's octave: their centres (not fx) move up by whole octaves n
+     * (0..2), so a high voice still has something in the bands. The choice reads the median of
+     * the last second of usable pitch frames (a histogram of 1/24 octave bins, 30 Hz .. 1.5 kHz):
+     * a phrase picks its octave over its first 250 ms of pitch (n = ceil (median - top), with
+     * top = log2 (2 fA) + oct, + half an octave when there is a band B, so band B sits on the
+     * voice's octave); after that n only moves when the median has left the octave by 0.3 octave,
+     * with a 150 ms slide; 0.3 s without usable pitch forgets the window, so the next phrase picks
+     * afresh. A pattern change re-picks from the window. Tracked and the crossover do not move.
+     *
      * Pattern change: the generator ramps to 0 over 10 ms, the pattern is swapped (filter states
      * kept, centres glide), and it ramps back over 10 ms. Mode change: the dry variants crossfade
      * over 20 ms (smoothstep); the split idles in Add and restarts from clean state when a fade
@@ -115,6 +126,7 @@ namespace roar
         static constexpr double c_minCentreHz = 32.0, c_maxCentreHz = 500.0;
         static constexpr double c_bellHz = 280.0, c_bellQ = 0.9, c_bellDb = -4.0;
         static constexpr double c_initialF0Hz = 140.0;
+        static constexpr int c_octaveBins = 137;            // 1/24 octave from 30 Hz (to 1.5 kHz)
 
         void prepare (double fs, int maxBlock) override;
         void reset() override;
@@ -124,6 +136,17 @@ namespace roar
         void copyLeftStateToRight() override;
 
         void setParams (const OvertoneSettings& s);
+
+        /** Test-only overrides. */
+        struct Diagnostics
+        {
+            bool octaveFollow = true;   // false: the fixed patterns stay where the table puts them
+            bool cap = true;            // false: the layer is not capped against the input
+        };
+        void setDiagnostics (const Diagnostics& d) { m_diagnostics = d; }
+
+        /** The whole-octave shift n of the fixed patterns' centres (0..2), for tests. */
+        int getOctaveShift() const { return m_s.octaveShift; }
 
         // ---- Readouts (all scaled by the On fade where they are levels)
         /** Generated layer re the module input, 0..1 over -36..0 dB. */
@@ -207,13 +230,25 @@ namespace roar
 
             float inEnv = 0.0f, genEnv = 0.0f;
             std::array<float, c_numHarmonics> harmShape {};
+
+            // The fixed patterns' octave: a window of usable pitch frames (the ring is m_octRing).
+            std::array<std::uint16_t, c_octaveBins> octHist {};
+            int octCount = 0, octPos = 0;
+            int gapFrames = 1 << 30;             // control frames since the last usable one
+            double octMedian = 0.0;              // log2 Hz
+            int octaveShift = 0;                 // n
+            double shift = 0.0;                  // glided n
         };
 
         void resetGenerator();
         void restartFromOff();
+        void clearOctaveWindow();
         void runBand (Band& band, const float* x, float* sum, int count, int interpCount);
         void updateControls (const VoiceFrame& frame);
-        void updateTracker (const VoiceFrame& frame);
+        bool updateTracker (const VoiceFrame& frame);   // true when the frame's pitch is usable
+        void updateOctaveWindow (bool usable);
+        int octaveFor (double medianLog) const;          // ceil (median - top), 0..2
+        double octaveTop() const;
         void applyPatternStatics();
         void setFilters (bool force);
         void computeWeights (bool force);
@@ -222,8 +257,12 @@ namespace roar
         double targetLogFx() const;
 
         OvertoneSettings m_settings;
+        Diagnostics m_diagnostics;
         OnFade m_fade;
         State m_s;
+        std::vector<std::uint8_t> m_octRing;   // the window's bins, sized in prepare() (1 s of frames)
+        int m_octWindowFrames = 1500, m_octSnapFrames = 375, m_octRepickFrames = 450;
+        double m_shiftCoeff = 0.0;             // per frame, 150 ms
 
         double m_fs = 48000.0;
         double m_envAttackD = 0.0, m_envReleaseD = 0.0;  // per sample

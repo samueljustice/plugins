@@ -1386,6 +1386,243 @@ namespace stageb4
         }
     }
 
+    // ------------------------------------------------------------------------------ OVERTONE
+
+    roar::OvertoneSettings overtoneSettings(roar::OvertonePattern pattern, double amount, roar::OvertoneMode mode = roar::OvertoneMode::add)
+    {
+        roar::OvertoneSettings s;
+        s.on = true;
+        s.amount = static_cast<float>(amount);
+        s.pattern = pattern;
+        s.mode = mode;
+        return s;
+    }
+
+    std::unique_ptr<roar::OvertoneModule> makeOvertone(double sr, const roar::OvertoneSettings& s, bool follow = true, bool cap = true, int block = 32)
+    {
+        auto m = std::make_unique<roar::OvertoneModule>();
+        m->setParams(s);
+        roar::OvertoneModule::Diagnostics d;
+        d.octaveFollow = follow;
+        d.cap = cap;
+        m->setDiagnostics(d);
+        m->prepare(sr, block);
+        m->setParams(s);
+        m->reset();
+        return m;
+    }
+
+    struct OvRun
+    {
+        Signal out, layer;
+        std::vector<double> times;
+        std::vector<int> shift;
+        std::vector<float> bandA, bandB;
+    };
+
+    /** Runs OVERTONE over in (pitch from pitchAt, seconds -> Hz, <= 0 for no usable pitch), from t0 seconds. */
+    template <typename PitchAt>
+    OvRun runOvertone(roar::OvertoneModule& m, const Signal& in, double sr, PitchAt&& pitchAt, double t0 = 0.0, const std::vector<int>& blocks = { 32 })
+    {
+        OvRun r;
+        const auto frame = [&](int i)
+        {
+            const double f = pitchAt(t0 + i / sr);
+            return f > 0.0 ? voiced(f) : roar::VoiceFrame { 0.0f, 0.0f, false };
+        };
+        r.out = runModule(m, Stereo { in, {} }, false, blocks, frame, [&](int end)
+        {
+            r.times.push_back(t0 + end / sr);
+            r.shift.push_back(m.getOctaveShift());
+            r.bandA.push_back(m.getBandHz(0));
+            r.bandB.push_back(m.getBandHz(1));
+        }).l;
+        r.layer = minus(r.out, in);
+        return r;
+    }
+
+    Signal from(const Signal& x, double sr, double seconds)
+    {
+        return Signal(x.begin() + static_cast<long>(std::lround(seconds * sr)), x.end());
+    }
+
+    void testOvertoneOctave()
+    {
+        std::printf("[stageb4] OVERTONE: fixed patterns follow the voice's octave\n");
+        using P = roar::OvertonePattern;
+
+        // T-OV-1: a 570 Hz howl, Chest, Add, 50 %.
+        {
+            const auto in = howl(c_fs, 3.5, 570.0);
+            auto on = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            auto off = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), false, false);
+            const auto a = runOvertone(*on, in, c_fs, [](double) { return 570.0; });
+            const auto b = runOvertone(*off, in, c_fs, [](double) { return 570.0; });
+            const int from = static_cast<int>(3.0 * c_fs);
+            const double gain = rmsDb(a.layer, from) - rmsDb(b.layer, from);
+            std::printf("  T-OV-1 570 Hz howl, Chest: bands %.1f / %.1f Hz, n = %d; layer %+.1f dB re the fixed bands\n", a.bandA.back(), a.bandB.back(), a.shift.back(), gain);
+            check(std::abs(a.bandA.back() / 280.0 - 1.0) <= 0.01 && std::abs(a.bandB.back() / 560.0 - 1.0) <= 0.01,
+                  "T-OV-1 Chest's bands at " + juce::String(a.bandA.back(), 1) + " / " + juce::String(a.bandB.back(), 1) + " Hz (280 / 560 +-1 %)");
+            check(a.shift.back() == 2, "T-OV-1 n = " + juce::String(a.shift.back()) + " (2)");
+            check(gain >= 25.0, "T-OV-1 the layer is " + juce::String(gain, 1) + " dB above the fixed bands' (>= 25)");
+            const auto low = howl(c_fs, 2.0, 110.0);
+            auto on2 = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            auto off2 = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), false, false);
+            check(identical(runOvertone(*on2, low, c_fs, [](double) { return 110.0; }).out, runOvertone(*off2, low, c_fs, [](double) { return 110.0; }).out),
+                  "T-OV-1 a 110 Hz voice is not identical with the octave follow off");
+        }
+
+        const auto moves = [](const OvRun& r, double after)
+        {
+            std::vector<std::pair<double, int>> m;
+            for (size_t k = 1; k < r.shift.size(); ++k)
+                if (r.times[k] >= after && r.shift[k] != r.shift[k - 1])
+                    m.emplace_back(r.times[k], r.shift[k]);
+            return m;
+        };
+
+        // T-OV-2: the dead zone inside a phrase; one move up and one back.
+        std::map<double, std::vector<std::pair<double, int>>> moveTimes;
+        const auto stepPitch = [](double t) { return t < 2.0 ? 180.0 : (t < 6.0 ? 280.0 : 150.0); };
+        const auto stepRun = [&](double sr)
+        {
+            auto m = makeOvertone(sr, overtoneSettings(P::chest, 0.5), true, false);
+            return runOvertone(*m, glidingHowl(sr, 10.0, stepPitch), sr, stepPitch);
+        };
+        {
+            const auto glide = [](double t) { return t < 3.0 ? 180.0 + 50.0 * t / 3.0 : 230.0 - 50.0 * (t - 3.0) / 3.0; };
+            auto m = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            const auto r = runOvertone(*m, glidingHowl(c_fs, 6.0, glide), c_fs, glide);
+            const int maxN = *std::max_element(r.shift.begin(), r.shift.end());
+            check(maxN == 0, "T-OV-2 Chest moves on a 180-230-180 Hz phrase (n reached " + juce::String(maxN) + ")");
+
+            const auto rs = stepRun(c_fs);
+            const auto mv = moves(rs, 0.3);
+            moveTimes[c_fs] = mv;
+            juce::String line;
+            for (const auto& [t, n] : mv)
+                line << "n = " << n << " at " << juce::String(t, 2) << " s; ";
+            std::printf("  T-OV-2 180-230-180 Hz: n stays %d; 180 / 280 / 150 Hz: %s\n", maxN, line.toRawUTF8());
+            const bool shape = mv.size() == 2 && mv[0].second == 1 && mv[1].second == 0;
+            check(shape, "T-OV-2 180 / 280 / 150 Hz: " + juce::String(static_cast<int>(mv.size())) + " moves (one up, one back)");
+            if (shape)
+                check(mv[0].first - 2.0 >= 0.4 && mv[0].first - 2.0 <= 1.2, "T-OV-2 the move up came " + juce::String(mv[0].first - 2.0, 2) + " s after the pitch (0.4 .. 1.2)");
+
+            // T-OV-4: the move is a slide: the layer above 6 kHz near it against 1 s later.
+            if (! mv.empty())
+            {
+                const auto high = bandLimit(rs.layer, c_fs, 6000.0, 0.0);
+                const int at = static_cast<int>(mv[0].first * c_fs), w = static_cast<int>(0.1 * c_fs), later = static_cast<int>(1.0 * c_fs);
+                const double near = rmsDb(high, at - w, at + w), ref = rmsDb(high, at + later - w, at + later + w);
+                std::printf("  T-OV-4 above 6 kHz within 100 ms of the move: %+.1f dB re 1 s later\n", near - ref);
+                check(near - ref <= 6.0, "T-OV-4 the move steps: above 6 kHz " + juce::String(near - ref, 1) + " dB re 1 s later (<= +6)");
+            }
+        }
+
+        // T-OV-3: short jumps once a second do not move the octave.
+        {
+            const auto jumps = [](double t) { return std::fmod(t, 1.0) >= 0.5 && std::fmod(t, 1.0) < 0.65 ? 400.0 : 150.0; };
+            for (const auto pattern : { P::beast, P::chest })
+            {
+                auto m = makeOvertone(c_fs, overtoneSettings(pattern, 0.5), true, false);
+                const auto r = runOvertone(*m, glidingHowl(c_fs, 10.0, jumps), c_fs, jumps);
+                const auto mv = moves(r, 0.3);
+                check(mv.empty(), juce::String("T-OV-3 ") + (pattern == P::beast ? "Beast" : "Chest") + ": the octave moved " + juce::String(static_cast<int>(mv.size()))
+                                      + " times on 150 ms jumps (0)");
+            }
+        }
+
+        // T-OV-9: start points.
+        {
+            const auto blip = [](double t) { return t >= 0.5 && t < 0.54 ? 400.0 : 178.0; };
+            const auto in = glidingHowl(c_fs, 4.0, blip);
+            auto a = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            auto b = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            const auto ra = runOvertone(*a, in, c_fs, blip);
+            const auto rb = runOvertone(*b, from(in, c_fs, 0.5), c_fs, blip, 0.5);
+            bool zero = true;
+            for (size_t k = 0; k < ra.times.size(); ++k)
+                zero = zero && (ra.times[k] < 0.8 || ra.shift[k] == 0);
+            for (size_t k = 0; k < rb.times.size(); ++k)
+                zero = zero && (rb.times[k] < 0.8 || rb.shift[k] == 0);
+            check(zero, "T-OV-9 (a) a run that starts on a 40 ms 400 Hz blip leaves Chest's octave");
+
+            const auto pause = [](double t) { return t < 1.0 ? 150.0 : (t < 2.5 ? 230.0 : (t < 2.9 ? 0.0 : 230.0)); };
+            const auto in2 = glidingHowl(c_fs, 5.0, pause);
+            auto c = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            auto d = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, false);
+            const auto rc = runOvertone(*c, in2, c_fs, pause);
+            const auto rd = runOvertone(*d, from(in2, c_fs, 1.0), c_fs, pause, 1.0);
+            const auto at = [](const OvRun& r, double t)
+            {
+                for (size_t k = 0; k < r.times.size(); ++k)
+                    if (r.times[k] >= t)
+                        return r.shift[k];
+                return -1;
+            };
+            bool same = true;
+            for (size_t k = 0; k < rc.times.size(); ++k)
+                if (rc.times[k] > 2.9 + 1.0e-9)
+                    same = same && rc.shift[k] == 1 && at(rd, rc.times[k]) == 1;
+            std::printf("  T-OV-9 (b) at 2.0 s: run from 0 n = %d, run from 1.0 s n = %d; after the pause both 1: %s\n", at(rc, 2.0), at(rd, 2.0), same ? "yes" : "no");
+            check(same, "T-OV-9 (b) the two start points disagree after the pause");
+            check(at(rc, 2.0) == 0 && at(rd, 2.0) == 1, "T-OV-9 (b) at 2.0 s: " + juce::String(at(rc, 2.0)) + " / " + juce::String(at(rd, 2.0)) + " (0 / 1)");
+        }
+
+        // T-OV-5: Tracked unchanged; the crossover does not move; Amount 0; blocks; rates; reset; copy.
+        {
+            const auto in = howl(c_fs, 2.0, 570.0);
+            const auto f570 = [](double) { return 570.0; };
+            auto t1 = makeOvertone(c_fs, overtoneSettings(P::tracked, 0.5), true, true), t2 = makeOvertone(c_fs, overtoneSettings(P::tracked, 0.5), false, true);
+            check(identical(runOvertone(*t1, in, c_fs, f570).out, runOvertone(*t2, in, c_fs, f570).out), "T-OV-5 Tracked changes with the octave follow");
+            for (const auto mode : { roar::OvertoneMode::lean, roar::OvertoneMode::replace })
+            {
+                auto x1 = makeOvertone(c_fs, overtoneSettings(P::chest, 0.0, mode), true, true), x2 = makeOvertone(c_fs, overtoneSettings(P::chest, 0.0, mode), false, true);
+                check(identical(runOvertone(*x1, in, c_fs, f570).out, runOvertone(*x2, in, c_fs, f570).out), "T-OV-5 the Lean / Replace crossover moves with the octave");
+            }
+            auto z = makeOvertone(c_fs, overtoneSettings(P::chest, 0.0), true, true);
+            check(identical(runOvertone(*z, in, c_fs, f570).out, in), "T-OV-5 Amount 0 in Add is not a bit-exact null");
+
+            const auto stepIn = glidingHowl(c_fs, 10.0, stepPitch);
+            auto ref = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, true, 4096);
+            const auto a = runOvertone(*ref, stepIn, c_fs, stepPitch, 0.0, { 512 });
+            bool same = true;
+            for (const auto& blocks : { std::vector<int> { 16 }, std::vector<int> { 64 }, std::vector<int> { 4096 }, randomBlocks(3) })
+            {
+                auto m = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, true, 4096);
+                same = same && identical(a.out, runOvertone(*m, stepIn, c_fs, stepPitch, 0.0, blocks).out);
+            }
+            check(same, "T-OV-5 output depends on the block size");
+            ref->reset();
+            check(identical(a.out, runOvertone(*ref, stepIn, c_fs, stepPitch, 0.0, { 512 }).out), "T-OV-5 a reset does not start again exactly");
+            auto first = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, true, 4096), second = makeOvertone(c_fs, overtoneSettings(P::chest, 0.5), true, true, 4096);
+            const double half = 2.56;   // a multiple of 512 samples, inside the 280 Hz stretch
+            runOvertone(*first, Signal(stepIn.begin(), stepIn.begin() + static_cast<long>(half * c_fs)), c_fs, stepPitch, 0.0, { 512 });
+            second->copyStateFrom(*first);
+            const auto tail = runOvertone(*second, from(stepIn, c_fs, half), c_fs, stepPitch, half, { 512 });
+            check(identical(Signal(a.out.begin() + static_cast<long>(half * c_fs), a.out.end()), tail.out), "T-OV-5 copyStateFrom does not continue exactly");
+
+            double worst = 0.0;
+            for (const double rate : { 44100.0, 96000.0, 192000.0 })
+            {
+                const auto mv = moves(stepRun(rate), 0.3);
+                const auto& ref48 = moveTimes[c_fs];
+                if (mv.size() != ref48.size())
+                {
+                    worst = 1.0e9;
+                    continue;
+                }
+                for (size_t k = 0; k < mv.size(); ++k)
+                {
+                    const double base = k == 0 ? 2.0 : 6.0;
+                    worst = std::max(worst, std::abs((mv[k].first - base) / (ref48[k].first - base) - 1.0));
+                }
+            }
+            std::printf("  T-OV-5 move times at 44.1 / 96 / 192 kHz within %.1f %% of 48 kHz\n", worst * 100.0);
+            check(worst <= 0.10, "T-OV-5 move times differ across rates by " + juce::String(worst * 100.0, 1) + " % (<= 10 %)");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -1404,5 +1641,7 @@ namespace stageb4
             testSubRegisters();
         if (sectionWanted("sub2"))
             testSubVoiceCap();
+        if (sectionWanted("ov"))
+            testOvertoneOctave();
     }
 }

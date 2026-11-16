@@ -70,6 +70,13 @@ namespace roar
         constexpr double c_octaveTolerance = 0.125;
 
         constexpr double c_gainSeconds = 0.020;
+        constexpr double c_octaveWindowSeconds = 1.0;     // usable pitch whose median picks the fixed patterns' octave
+        constexpr double c_octaveSnapSeconds = 0.250;     // a phrase's octave is picked (stepped) over this much pitch
+        constexpr double c_octaveRepickSeconds = 0.300;   // this long without usable pitch forgets the window
+        constexpr double c_octaveHysteresis = 0.3;        // octaves past a boundary before the octave moves inside a phrase
+        constexpr int c_maxOctaveShift = 2;
+        constexpr double c_shiftSeconds = 0.150;          // the slide of a move inside a phrase
+        constexpr double c_octaveBinsFromHz = 30.0;
         constexpr double c_swapSeconds = 0.010;
         constexpr double c_modeFadeSeconds = 0.020;
         constexpr double c_readoutSeconds = 0.080;
@@ -164,6 +171,11 @@ namespace roar
         m_glideCoeff = 1.0 - std::exp (-frame / (c_glideSeconds * m_fs));
         m_octCoeff = 1.0 - std::exp (-frame / (c_octSeconds * m_fs));
         m_confCoeff = 1.0 - std::exp (-frame / (c_confidenceSeconds * m_fs));
+        m_shiftCoeff = 1.0 - std::exp (-frame / (c_shiftSeconds * m_fs));
+        m_octWindowFrames = std::max (1, static_cast<int> (std::lround (c_octaveWindowSeconds * m_fs / frame)));
+        m_octSnapFrames = static_cast<int> (std::lround (c_octaveSnapSeconds * m_fs / frame));
+        m_octRepickFrames = static_cast<int> (std::lround (c_octaveRepickSeconds * m_fs / frame));
+        m_octRing.assign (static_cast<size_t> (m_octWindowFrames), 0);
         m_gainCoeff = static_cast<float> (dsp::onePoleCoeff (c_gainSeconds, m_fs));
         m_readoutCoeff = static_cast<float> (dsp::onePoleCoeff (c_readoutSeconds, m_fs));
         m_swapStep = 1.0f / static_cast<float> (dsp::samplesFor (c_swapSeconds, m_fs, 1));
@@ -194,6 +206,7 @@ namespace roar
         m_s.controlsValid = false;
         m_s.interpLeft = 0;
         m_s.inEnv = m_s.genEnv = 0.0f;
+        clearOctaveWindow();
 
         for (auto* xo : { &m_s.xoL, &m_s.xoR })
             for (auto* f : { &xo->split, &xo->low, &xo->high })
@@ -238,6 +251,7 @@ namespace roar
         m_s.activePattern = m_settings.pattern;
         m_s.pendingSwap = false;
         m_s.swapGain = 1.0f;
+        clearOctaveWindow();
         applyPatternStatics();
         for (int b = 0; b < c_numBands; ++b)
             m_s.bands[static_cast<size_t> (b)].logHz = targetLogHz (b);
@@ -258,6 +272,17 @@ namespace roar
             for (auto* f : { &xo->split, &xo->low, &xo->high })
                 f->reset();
         m_s.inEnv = 0.0f;
+    }
+
+    void OvertoneModule::clearOctaveWindow()
+    {
+        m_s.octHist.fill (0);
+        m_s.octCount = 0;
+        m_s.octPos = 0;
+        m_s.gapFrames = 1 << 30;
+        m_s.octMedian = 0.0;
+        m_s.octaveShift = 0;
+        m_s.shift = 0.0;
     }
 
     void OvertoneModule::setParams (const OvertoneSettings& s)
@@ -283,12 +308,10 @@ namespace roar
     {
         const auto& p = patternSpec (m_s.activePattern);
         const auto& bs = band == 0 ? p.a : p.b;
-        double lg;
         if (p.tracked)
-            lg = m_s.f0Log + std::log2 (bs.hz);
-        else
-            lg = std::log2 (bs.hz) + m_s.oct;
-        return std::clamp (lg, std::log2 (c_minCentreHz), std::log2 (c_maxCentreHz));
+            return std::clamp (m_s.f0Log + std::log2 (bs.hz), std::log2 (c_minCentreHz), std::log2 (c_maxCentreHz));
+        // Fixed: the table's centre at Frequency, then the voice's whole octaves on top.
+        return std::clamp (std::log2 (bs.hz) + m_s.oct, std::log2 (c_minCentreHz), std::log2 (c_maxCentreHz)) + m_s.shift;
     }
 
     double OvertoneModule::targetLogFx() const
@@ -384,7 +407,7 @@ namespace roar
         }
     }
 
-    void OvertoneModule::updateTracker (const VoiceFrame& frame)
+    bool OvertoneModule::updateTracker (const VoiceFrame& frame)
     {
         const double f0 = static_cast<double> (frame.f0Hz);
         const bool usable = std::isfinite (f0) && f0 >= c_minF0Hz && f0 <= c_maxF0Hz
@@ -392,7 +415,7 @@ namespace roar
         if (! usable)
         {
             m_s.candidateSamples = 0;
-            return;
+            return false;
         }
 
         const double lg = std::log2 (f0);
@@ -401,7 +424,7 @@ namespace roar
             m_s.f0Log = lg;
             m_s.hasPitch = true;
             m_s.candidateSamples = 0;
-            return;
+            return true;
         }
 
         const double distance = std::abs (lg - m_s.f0Log);
@@ -409,7 +432,7 @@ namespace roar
         {
             m_s.f0Log = lg;
             m_s.candidateSamples = 0;
-            return;
+            return true;
         }
 
         // An octave jump must persist before it is followed (the same rule as SUB).
@@ -425,11 +448,95 @@ namespace roar
             m_s.f0Log = m_s.candidateLog;
             m_s.candidateSamples = 0;
         }
+        return true;
+    }
+
+    double OvertoneModule::octaveTop() const
+    {
+        // The voice's octave sits half an octave above band B (2 fA), or an octave above Broad's one band.
+        const auto& p = patternSpec (m_s.activePattern);
+        return std::log2 (2.0 * p.a.hz) + m_s.oct + (p.hasB ? 0.5 : 0.0);
+    }
+
+    int OvertoneModule::octaveFor (double medianLog) const
+    {
+        return std::clamp (static_cast<int> (std::ceil (medianLog - octaveTop())), 0, c_maxOctaveShift);
+    }
+
+    void OvertoneModule::updateOctaveWindow (bool usable)
+    {
+        const bool tracked = patternSpec (m_s.activePattern).tracked;
+        bool stepped = false;
+        if (usable)
+        {
+            // The window: the last second of usable frames, as a histogram of the followed pitch.
+            if (m_s.gapFrames >= m_octRepickFrames)
+            {
+                m_s.octHist.fill (0);
+                m_s.octCount = 0;
+                m_s.octPos = 0;
+            }
+            m_s.gapFrames = 0;
+            const int bin = std::clamp (static_cast<int> (std::lround ((m_s.f0Log - std::log2 (c_octaveBinsFromHz)) * 24.0)), 0, c_octaveBins - 1);
+            auto& slot = m_octRing[static_cast<size_t> (m_s.octPos)];
+            if (m_s.octCount == m_octWindowFrames)
+                --m_s.octHist[slot];
+            else
+                ++m_s.octCount;
+            slot = static_cast<std::uint8_t> (bin);
+            ++m_s.octHist[static_cast<size_t> (bin)];
+            m_s.octPos = (m_s.octPos + 1) % m_octWindowFrames;
+
+            int cumulative = 0, median = 0;
+            for (; median < c_octaveBins - 1; ++median)
+            {
+                cumulative += m_s.octHist[static_cast<size_t> (median)];
+                if (2 * cumulative >= m_s.octCount)
+                    break;
+            }
+            m_s.octMedian = std::log2 (c_octaveBinsFromHz) + median / 24.0;
+
+            if (! tracked && m_diagnostics.octaveFollow)
+            {
+                if (m_s.octCount <= m_octSnapFrames)
+                {
+                    // A phrase's first quarter second: picked from what it has so far, stepped.
+                    m_s.octaveShift = octaveFor (m_s.octMedian);
+                    m_s.shift = m_s.octaveShift;
+                    stepped = true;
+                }
+                else
+                {
+                    const double top = octaveTop();
+                    int n = m_s.octaveShift;
+                    while (n < c_maxOctaveShift && m_s.octMedian > top + n + c_octaveHysteresis)
+                        ++n;
+                    while (n > 0 && m_s.octMedian <= top + (n - 1) - c_octaveHysteresis)
+                        --n;
+                    m_s.octaveShift = n;
+                }
+            }
+        }
+        else
+            m_s.gapFrames = std::min (m_s.gapFrames + 1, 1 << 30);
+
+        if (tracked || ! m_diagnostics.octaveFollow)
+        {
+            m_s.octaveShift = 0;
+            m_s.shift = 0.0;
+        }
+        else if (! stepped)
+        {
+            const double target = static_cast<double> (m_s.octaveShift);
+            m_s.shift += m_shiftCoeff * (target - m_s.shift);
+            if (std::abs (target - m_s.shift) < 1.0e-6)
+                m_s.shift = target;
+        }
     }
 
     void OvertoneModule::updateControls (const VoiceFrame& frame)
     {
-        updateTracker (frame);
+        updateOctaveWindow (updateTracker (frame));
 
         const double conf = std::isfinite (frame.confidence) ? static_cast<double> (frame.confidence) : 0.0;
         const double voicedness = dsp::smoothstep01 ((conf - c_voicingLow) / (c_voicingHigh - c_voicingLow));
@@ -477,6 +584,16 @@ namespace roar
             m_s.activePattern = m_settings.pattern;
             m_s.pendingSwap = false;
             applyPatternStatics();
+            if (m_s.octCount > 0 && m_diagnostics.octaveFollow && ! patternSpec (m_s.activePattern).tracked)
+            {
+                m_s.octaveShift = octaveFor (m_s.octMedian);   // the new pattern's own octave, from the window
+                m_s.shift = m_s.octaveShift;
+            }
+            else if (patternSpec (m_s.activePattern).tracked)
+            {
+                m_s.octaveShift = 0;
+                m_s.shift = 0.0;
+            }
             if (m_s.bActive && ! hadB)
             {
                 auto& b = m_s.bands[1];
@@ -788,8 +905,11 @@ namespace roar
     {
         const auto& o = sameType<OvertoneModule> (other);
         m_settings = o.m_settings;
+        m_diagnostics = o.m_diagnostics;
         m_fade.copyStateFrom (o.m_fade);
         m_s = o.m_s;   // plain values: filters, Hilbert pairs, glides, envelopes, ramps (same rate, so same coefficients)
+        if (m_octRing.size() == o.m_octRing.size())
+            std::copy (o.m_octRing.begin(), o.m_octRing.end(), m_octRing.begin());   // same rate: same size, no allocation
     }
 
     void OvertoneModule::copyLeftStateToRight()
