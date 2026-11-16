@@ -34,7 +34,7 @@ Built 15 Nov 2026, 14:41 UTC. Older versions are on the <a href="https://github.
 | [Pitch Flattener](#pitch-flattener) | [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) |
 |:---:|:---:|:---:|:---:|
 | [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) |
-| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass</sub> |
 
 </div>
 
@@ -170,13 +170,7 @@ Audio passes straight through it, so it can sit on a mix bus, or run as an app o
 **App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](soundadvice/README.md)
 
-## Work in progress
-
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
-This one works, but I'm still changing it, so expect differences between releases.
-
-### Subbertone
+## Subbertone
 
 <p align="center">
   <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">

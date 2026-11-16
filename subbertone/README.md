@@ -1,7 +1,5 @@
 # SammyJs Subbertone
 
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
 A VST3/AU subharmonic generator by **Samuel Justice**, made mostly for cars and other engines. Subbertone tracks the pitch of an engine or exhaust, synthesises a clean sub one octave below it, and lets you build its harmonics bar by bar, so a thin recording gets weight that follows the revs. Engines are hard to track as they play, so LEARN works the pitch out from one pass of a loop, with hindsight, and the sub then follows that. It also works on voices, creature sounds, drones and bass, from a pure sub reinforcement, to the small-speaker "hear the bass on a phone" trick, to a growling, talking octave-down bass. A mastering stage (Inflate and a brickwall limiter) finishes the output. See [Known limitations](#known-limitations) for what it does not do well yet.
 
 It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
