@@ -252,7 +252,7 @@ void Locator::prepare(const float* mono, std::int64_t numSamples, double sampleR
     }
 }
 
-double Locator::residualAt(const float* probe, int length, std::int64_t position, double* gainStart, double* gainEnd) const noexcept
+double Locator::residualAt(const float* probe, int length, std::int64_t position, double* gainStart, double* gainEnd, bool withFilter, double* plain) const noexcept
 {
     if (gainStart != nullptr)
         *gainStart = 0.0;
@@ -292,10 +292,31 @@ double Locator::residualAt(const float* probe, int length, std::int64_t position
     if (gainEnd != nullptr)
         *gainEnd = last;
     // An inverted copy (a falling below zero anywhere) is not the learned recording.
-    if (! (first > 0.0) || ! (last > 0.0))
-        return 1.0;
-    const double left = (xx - (a * xy + b * txy)) / xx;
-    return left > 0.0 ? std::min(1.0, left) : 0.0;
+    double ramp = 1.0;
+    if (first > 0.0 && last > 0.0)
+    {
+        const double left = (xx - (a * xy + b * txy)) / xx;
+        ramp = left > 0.0 ? std::min(1.0, left) : 0.0;
+    }
+    // The same recording through a short filter (a host's interpolation: see matching::). Only
+    // where it can matter: not when the plain fit is already exact, nor when it is hopeless.
+    if (plain != nullptr)
+        *plain = ramp;
+    if (! withFilter || ramp <= kIdentical || ramp > 0.5)
+        return ramp;
+    const std::int64_t end = m_length + m_probeLength;
+    const auto fit = matching::fitRecording([probe](int t) { return static_cast<double>(probe[t]); },
+                                            [&](int t) { const auto k = position + t; return k >= 0 && k < end ? static_cast<double>(m_samples[static_cast<std::size_t>(k)]) : 0.0; },
+                                            length);
+    if (fit.filtered && fit.residual < ramp)
+    {
+        if (gainStart != nullptr)
+            *gainStart = fit.gain;
+        if (gainEnd != nullptr)
+            *gainEnd = fit.gain;
+        return fit.residual;
+    }
+    return ramp;
 }
 
 Locator::Match Locator::locate(const float* probe, std::int64_t preferFrom, const std::function<bool()>& cancelled) const
@@ -324,6 +345,9 @@ Locator::Match Locator::locate(const float* probe, std::int64_t preferFrom, cons
         match.correlation = std::sqrt(std::max(0.0, 1.0 - c.residual));
         match.gain = c.gain;
         match.gainEnd = c.gainEnd;
+        match.bestPosition = c.position;
+        match.accepted = std::max(match.accepted, 1);
+        residualAt(probe, P, c.position, nullptr, nullptr, false, &match.plainResidual);
         return match;
     };
 
@@ -346,7 +370,7 @@ Locator::Match Locator::locate(const float* probe, std::int64_t preferFrom, cons
             if (s < 0 || s >= m_length)
                 continue;
             double g = 0.0, ge = 0.0;
-            const double r = residualAt(probe, P, s, &g, &ge);
+            const double r = residualAt(probe, P, s, &g, &ge, false);
             ++match.candidates;
             if (r < bestResidual)
             {
@@ -354,6 +378,20 @@ Locator::Match Locator::locate(const float* probe, std::int64_t preferFrom, cons
                 bestGain = g;
                 bestGainEnd = ge;
                 bestPosition = s;
+            }
+        }
+        // The filter fit (see matching::) on the best of them only: it costs more, and the
+        // neighbours of the right place are only worse versions of it.
+        if (bestResidual > kIdentical)
+        {
+            double g = 0.0, ge = 0.0;
+            const double r = residualAt(probe, P, bestPosition, &g, &ge, true);
+            ++match.candidates;
+            if (r < bestResidual)
+            {
+                bestResidual = r;
+                bestGain = g;
+                bestGainEnd = ge;
             }
         }
         c.position = bestPosition;
@@ -439,6 +477,8 @@ Locator::Match Locator::locate(const float* probe, std::int64_t preferFrom, cons
     {
         auto& c = candidates[order[i]];
         exact(c);
+        if (c.residual < best)
+            match.bestPosition = c.position;
         best = std::min(best, c.residual);
         if (c.residual <= matching::kAcceptResidual
             && std::none_of(acceptedPositions.begin(), acceptedPositions.end(), [&](std::int64_t p) { return std::abs(p - c.position) <= D; }))
@@ -448,6 +488,9 @@ Locator::Match Locator::locate(const float* probe, std::int64_t preferFrom, cons
         }
     }
     match.residual = best;
+    match.accepted = accepted;
+    if (match.bestPosition >= 0)
+        residualAt(probe, P, match.bestPosition, nullptr, nullptr, false, &match.plainResidual);
     match.correlation = std::sqrt(std::max(0.0, 1.0 - std::min(1.0, best)));
     if (best > matching::kAcceptResidual)
         return match;

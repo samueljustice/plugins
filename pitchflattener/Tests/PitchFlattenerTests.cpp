@@ -1534,10 +1534,59 @@ void testDiagnosticLog (const juce::File& logFile)
     for (const char* line : { "instance created in", "prepareToPlay:", "learn: capture started", "learn: capture ended (a second of silence)",
                               "analysed learned sound", "compressed for the state", "rendered: target", "getStateInformation:", "setStateInformation:",
                               "registry hit", "registry miss", "restoring sound", "analysed restored sound", "FASTER THAN REAL TIME", "waited",
-                              "run 1 started", "ended:", "input after the learned sound's end", "instance destroyed", "setNonRealtime(true)", "id only", "first match at input 0.000 s", "covers the latency", "waited" })
+                              "run 1 started", "ended:", "input after the learned sound's end", "instance destroyed", "setNonRealtime(true)", "id only", "first match at input 0.000 s", "covers the latency", "waited", "search: probe at input", "match extended back", "reset x" })
         check (text.contains (line), std::string ("logged: ") + line);
     std::printf ("    -> %s (%d lines)\n", logFile.getFullPathName().toRawUTF8(), juce::StringArray::fromLines (text).size());
 }
+void testCaptures (const juce::File& logFile)
+{
+    beginCase ("processor: a near miss in a render is compared in the log and captured to disk (input and learned)");
+    const double rate = 48000.0;
+    const auto sound = recording (rate, 2, 2.5, 0.3);
+    juce::MemoryBlock state;
+    std::uint64_t id = 0;
+    Processor a;
+    prepare (a, rate, 512);
+    a.setNonRealtime (true);
+    check (learnThrough (a, sound), "learned");
+    id = a.getEngine().learnedId();
+    a.getStateInformation (state);
+
+    // The render path plays it through a linear interpolator at unity rate (0.37 of a sample late).
+    juce::AudioBuffer<float> shifted (2, sound.getNumSamples());
+    for (int c = 0; c < 2; ++c)
+        for (int t = 0; t < sound.getNumSamples(); ++t)
+            shifted.setSample (c, t, 0.63f * sound.getSample (c, t) + 0.37f * sound.getSample (c, std::min (t + 1, sound.getNumSamples() - 1)));
+    Processor b;
+    b.setStateInformation (state.getData(), (int) state.getSize());
+    prepare (b, rate, 512);
+    play (b, shifted, 0.5, 1.5, 512);
+    b.releaseResources();   // the run ends: the capture is written with what arrived
+
+    const auto folder = Processor::captureFolder();
+    const auto idText = juce::String::toHexString ((juce::int64) id).paddedLeft ('0', 16);
+    juce::Array<juce::File> files;
+    for (int k = 0; k < 200 && files.size() < 2; ++k)
+    {
+        juce::Thread::sleep (25);
+        files = folder.findChildFiles (juce::File::findFiles, false, "*" + idText + "*.wav");
+    }
+    check (files.size() == 2, "two files captured (" + folder.getFullPathName().toStdString() + ")");
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    for (const auto& f : files)
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
+        check (reader != nullptr && reader->numChannels == 2 && reader->bitsPerSample == 32 && reader->usesFloatingPointData
+                   && reader->lengthInSamples >= (juce::int64) (2.0 * rate) && reader->lengthInSamples <= (juce::int64) (3.0 * rate) + 1,
+               "readable, 32-bit float stereo, up to 3 s: " + f.getFileName().toStdString());
+    }
+    pitchflattener::DiagnosticLog::instance().flush();
+    const auto text = logFile.loadFileAsString();
+    check (text.contains ("compare (near miss)") && text.contains ("captured: ") && text.contains ("through a short filter"),
+           "the comparison and the capture are in the log");
+}
+
 } // namespace
 
 int main (int argc, char* argv[])
@@ -1577,6 +1626,7 @@ int main (int argc, char* argv[])
     testEndAndTail (pngFolder);
     testStateTravels();
     testRenderInstance();
+    testCaptures (logFile);
     testDiagnosticLog (logFile);
     pitchflattener::DiagnosticLog::instance().release();
 

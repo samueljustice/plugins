@@ -131,12 +131,15 @@ public:
 
     /** This instance's number in the log. */
     std::uint32_t getInstanceNumber() const noexcept { return m_instance; }
+    /** Where near-miss captures go: "PitchFlattener captures" beside the log. */
+    static juce::File captureFolder();
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void timerCallback() override;
     int lineFor (const pitchflattener::core::Analysis& analysis) const;
     void noteBypass (bool bypassed) noexcept;
+    void saveCapture (const std::string& name, const pitchflattener::core::Channels& audio, double rate);
     static void engineSink (void* context, const pitchflattener::EngineEvent& event) noexcept;
 
     const std::uint32_t m_instance;

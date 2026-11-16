@@ -40,6 +40,8 @@
 //
 // Plain C++20, no JUCE. prepare() and locate() allocate: for a background thread.
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -72,6 +74,133 @@ inline double residual(double xx, double yy, double xy) noexcept
     const double r = 1.0 - (xy / xx) * (xy / yy);
     return r > 0.0 ? r : 0.0;
 }
+
+// The same recording through a short linear filter. A host can play a file through an
+// interpolating engine, or with a fraction of a sample of offset, even at its own rate: the result
+// is the learned recording through a filter a few samples long, which a single gain cannot fit
+// (the error grows with frequency: a bright sound misses by more). So the input x is also fitted,
+// by least squares, as the learned sound y through 9 taps at offsets -4..+4:
+//     x[t] = sum_k h[k] y[t + k]
+// and the residual after that fit counts too, but only for a filter that is a delay with a gain:
+// its gain at DC (the sum of the taps) positive, so an inverted copy stays refused, and at least
+// kDelayLikeShare of its energy in 3 adjacent taps, so that no filter can stand in for a different
+// recording. A different take, another pitch or speed, a layer or a hum are no closer through such
+// a filter: what differs is not linear and time-invariant over a few samples.
+inline constexpr int kFilterReach = 4;                     // taps at -4..+4
+inline constexpr int kFilterTaps = 2 * kFilterReach + 1;
+inline constexpr double kDelayLikeShare = 0.7;
+
+struct Fit
+{
+    double residual = 1.0;   // the smaller of a plain gain's and (if delay-like) the filter's
+    double gain = 0.0;       // the level: the plain gain, or the filter's gain at DC
+    double plainResidual = 1.0;
+    double filterResidual = 1.0;
+    double delayShare = 0.0; // the filter's energy in its 3 strongest adjacent taps
+    bool filtered = false;   // the filter gave the residual
+};
+
+/**
+ * Fits x (n samples, x(t) for t in [0, n)) as y through a short filter (y(t) is read for t in
+ * [-kFilterReach, n + kFilterReach); return 0 outside the sound). Fixed size: no allocation, about
+ * 20 multiply-adds per sample. Safe on the audio thread.
+ */
+template <typename X, typename Y>
+Fit fitRecording(const X& x, const Y& y, int n) noexcept
+{
+    constexpr int H = kFilterReach, K = kFilterTaps;
+    Fit fit;
+    if (n <= 0)
+        return fit;
+    // A[d] = sum over t of y(t + s) y(t + s + d) for the current s, slid from s = -H to +H.
+    double A[K] {};
+    for (int t = 0; t < n; ++t)
+    {
+        const double base = y(t - H);
+        for (int d = 0; d < K; ++d)
+            A[d] += base * y(t - H + d);
+    }
+    double R[K][K] {};
+    for (int s = -H; s <= H; ++s)
+    {
+        for (int d = 0; s + d <= H; ++d)
+        {
+            R[s + H][s + d + H] = A[d];
+            R[s + d + H][s + H] = A[d];
+        }
+        if (s < H)
+            for (int d = 0; d < K; ++d)
+                A[d] += y(s + n) * y(s + n + d) - y(s) * y(s + d);
+    }
+    double r[K] {}, xx = 0.0;
+    for (int t = 0; t < n; ++t)
+    {
+        const double v = x(t);
+        xx += v * v;
+        for (int k = 0; k < K; ++k)
+            r[k] += v * y(t + k - H);
+    }
+    fit.plainResidual = residual(xx, R[H][H], r[H]);
+    fit.residual = fit.plainResidual;
+    fit.gain = R[H][H] > 0.0 ? r[H] / R[H][H] : 0.0;
+    if (! (xx > 0.0) || ! (R[H][H] > 0.0))
+        return fit;
+
+    // Least squares with a little ridge (a near-silent stretch cannot blow up), by Cholesky.
+    double trace = 0.0;
+    for (int k = 0; k < K; ++k)
+        trace += R[k][k];
+    const double ridge = 1.0e-6 * trace / K + 1.0e-30;
+    double Lm[K][K] {};
+    for (int i = 0; i < K; ++i)
+        for (int j = 0; j <= i; ++j)
+        {
+            double sum = R[i][j] + (i == j ? ridge : 0.0);
+            for (int k = 0; k < j; ++k)
+                sum -= Lm[i][k] * Lm[j][k];
+            if (i == j)
+            {
+                if (! (sum > 0.0))
+                    return fit;
+                Lm[i][i] = std::sqrt(sum);
+            }
+            else
+                Lm[i][j] = sum / Lm[j][j];
+        }
+    double z[K] {}, h[K] {};
+    for (int i = 0; i < K; ++i)
+    {
+        double sum = r[i];
+        for (int k = 0; k < i; ++k)
+            sum -= Lm[i][k] * z[k];
+        z[i] = sum / Lm[i][i];
+    }
+    for (int i = K - 1; i >= 0; --i)
+    {
+        double sum = z[i];
+        for (int k = i + 1; k < K; ++k)
+            sum -= Lm[k][i] * h[k];
+        h[i] = sum / Lm[i][i];
+    }
+    double explained = 0.0, gain = 0.0, energy = 0.0, best = 0.0;
+    for (int k = 0; k < K; ++k)
+    {
+        explained += h[k] * r[k];
+        gain += h[k];
+        energy += h[k] * h[k];
+    }
+    for (int k = 0; k + 2 < K; ++k)
+        best = std::max(best, h[k] * h[k] + h[k + 1] * h[k + 1] + h[k + 2] * h[k + 2]);
+    fit.filterResidual = std::clamp((xx - explained) / xx, 0.0, 1.0);
+    fit.delayShare = energy > 0.0 ? best / energy : 0.0;
+    if (gain > 0.0 && fit.delayShare >= kDelayLikeShare && fit.filterResidual < fit.residual)
+    {
+        fit.residual = fit.filterResidual;
+        fit.gain = gain;
+        fit.filtered = true;
+    }
+    return fit;
+}
 } // namespace matching
 
 class Locator
@@ -91,6 +220,9 @@ public:
         bool searchedAll = false;        // false: stopped early on an exact match
         bool ambiguous = false;          // it matched at several places
         bool tooQuiet = false;           // ...and was refused for being too quiet to tell (see the header)
+        std::int64_t bestPosition = -1;  // the best candidate's place (found or not; -1: no candidate at all)
+        int accepted = 0;                // distinct places that passed the accept figure
+        double plainResidual = 1.0;      // at the best place, with a plain level only (no filter: see matching::)
     };
 
     /** Takes a copy of the learned sound (one channel: the mix). */
@@ -118,7 +250,8 @@ public:
      * level that may change in a straight line across the probe (a fade on the player), and that
      * level at the probe's start and end.
      */
-    double residualAt(const float* probe, int length, std::int64_t position, double* gainStart = nullptr, double* gainEnd = nullptr) const noexcept;
+    double residualAt(const float* probe, int length, std::int64_t position, double* gainStart = nullptr, double* gainEnd = nullptr,
+                      bool withFilter = true, double* plain = nullptr) const noexcept;
 
 private:
     std::vector<float> m_samples;

@@ -46,6 +46,8 @@ namespace
         return l >= 0 && l < 3 ? names[l] : "none";
     }
 
+    void formatDiagnosticEvents (const LogEvent& e, char* out, std::size_t size);
+
     void formatEngineEvent (const LogEvent& e, char* out, std::size_t size)
     {
         using Kind = EngineEvent::Kind;
@@ -128,6 +130,73 @@ namespace
                                (long long) e.i[13], e.d[2], (flags & 4) != 0 ? "; A WAIT GAVE UP" : "");
                 return;
             }
+            case Kind::Searched:
+            case Kind::Extended:
+            case Kind::MatchFailed:
+            case Kind::Reset:
+            case Kind::Diagnosed:
+                formatDiagnosticEvents (e, out, size);
+                return;
+        }
+        std::snprintf (out, size, "engine event %u", (unsigned) e.flags);
+    }
+
+    void formatDiagnosticEvents (const LogEvent& e, char* out, std::size_t size)
+    {
+        using Kind = EngineEvent::Kind;
+        const double rate = e.d[1] > 0.0 ? e.d[1] : 48000.0;
+        const auto kind = (Kind) e.flags;
+        if (kind == Kind::Searched)
+        {
+            static const char* const outcome[] = { "MATCHED", "matches in several places but too quiet to tell: refused", "residual too high: not the learned recording here", "nothing like it" };
+            char next[96] = "";
+            if (e.i[4] >= 0)
+                std::snprintf (next, sizeof (next), "; next try %.0f ms later%s", 1000.0 * (double) e.i[4] / rate, e.i[5] != 0 ? " (quick retry at the sound's start)" : "");
+            std::snprintf (out, size, "search: probe at input %.3f s; best place learned %.3f s, residual %.1f dB, %lld place(s) passed: %s; %.1f ms%s",
+                           (double) e.i[0] / rate, e.i[1] >= 0 ? (double) e.i[1] / rate : -1.0, e.d[0], (long long) e.i[2],
+                           outcome[juce::jlimit (0, 3, (int) e.i[3])], e.d[2], next);
+            return;
+        }
+        else if (kind == Kind::Extended)
+        {
+            const double sr = e.d[0] > 0.0 ? e.d[0] : 48000.0;
+            static const char* const why[] = { "nothing before it to take", "reached the sound's start", "reached the sound's start (a difference in its first 30 ms accepted)",
+                                               "stopped: other material before it", "stopped at a reset or the learned sound's start" };
+            std::snprintf (out, size, "match extended back from input %.3f s to %.3f s (%.1f ms): %s", (double) e.i[0] / sr, (double) e.i[1] / sr,
+                           1000.0 * (double) (e.i[0] - e.i[1]) / sr, why[juce::jlimit (0, 4, (int) e.i[2])]);
+            return;
+        }
+        else if (kind == Kind::MatchFailed)
+        {
+            const double sr = e.d[1] > 0.0 ? e.d[1] : 48000.0;
+            static const char* const why[] = { "not the learned recording", "the input went silent where the sound is not", "other audio where the sound is silent" };
+            std::snprintf (out, size, "match %s at input %.3f s: %s (window residual %.1f dB)", e.i[1] != 0 ? "CANCELLED before it was heard" : "let go",
+                           (double) e.i[0] / sr, why[juce::jlimit (0, 2, (int) e.i[2])], e.d[0]);
+            return;
+        }
+        else if (kind == Kind::Reset)
+        {
+            if (e.i[1] < 0)
+                std::snprintf (out, size, "reset x%lld (before prepareToPlay)", (long long) e.i[0]);
+            else
+                std::snprintf (out, size, "reset x%lld at input %.3f s, %s", (long long) e.i[0], (double) e.i[1] / (e.d[0] > 0.0 ? e.d[0] : 48000.0),
+                               e.i[2] != 0 ? "after audio had arrived in this run" : "before any audio in this run");
+            return;
+        }
+        else if (kind == Kind::Diagnosed)
+        {
+            const double sr = e.d[0] > 0.0 ? e.d[0] : 48000.0;
+            const auto db = [&e] (int k) { return (double) e.i[k] / 100.0; };
+            std::snprintf (out, size,
+                           "compare (%s) at input %.3f s = learned %.3f s, input %s, learned %s, residual dB, level free: "
+                           "L/L %.1f, R/R %.1f, L/R %.1f, R/L %.1f, L/mix %.1f, R/mix %.1f, sum/sum %.1f, diff/diff %.1f; "
+                           "L-R level input %+.2f dB, learned %+.2f dB; input L-R correlation %.3f; "
+                           "best offset %+.3f samples (input later when +): mix residual %.1f dB there, %.1f dB at 0; "
+                       "through a short filter %.1f dB (%.0f%% in 3 adjacent taps)",
+                           e.i[2] != 0 ? "let go" : "near miss", (double) e.i[0] / sr, (double) e.i[1] / sr, e.i[3] != 0 ? "stereo" : "mono (or L = R)",
+                           e.i[4] != 0 ? "stereo" : "mono", db (5), db (6), db (7), db (8), db (9), db (10), db (11), db (12), db (13), db (14),
+                           (double) e.i[15] / 1000.0, e.d[1], e.d[2], e.d[3], e.d[4], 100.0 * e.d[5]);
+            return;
         }
         std::snprintf (out, size, "engine event %u", (unsigned) e.flags);
     }
@@ -145,7 +214,9 @@ namespace
     ThreadKind threadOf (EngineEvent::Kind kind)
     {
         using Kind = EngineEvent::Kind;
-        return kind == Kind::RunStarted || kind == Kind::PaceChanged || kind == Kind::Wait || kind == Kind::CaptureStarted ? ThreadKind::Audio : ThreadKind::Other;
+        return kind == Kind::RunStarted || kind == Kind::PaceChanged || kind == Kind::Wait || kind == Kind::CaptureStarted || kind == Kind::MatchFailed
+                       || kind == Kind::Reset
+                   ? ThreadKind::Audio : ThreadKind::Other;
     }
 
     /** "A4", "C#3", or a plain number: the MIDI note it names (with cents after it, "A4 +12"). */
@@ -193,6 +264,7 @@ PitchFlattenerAudioProcessor::PitchFlattenerAudioProcessor()
     hooks.encode = [] (const core::Channels& sound, double rate) { return pitchflattener::codec::encode (sound, rate); };
     hooks.decode = [] (const std::vector<char>& bytes, core::Channels& sound, double& rate) { return pitchflattener::codec::decode (bytes, sound, rate); };
     hooks.optionsFor = [this] (const pitchflattener::Learned& learned) { return optionsFor (&learned); };
+    hooks.saveCapture = [this] (const std::string& name, const core::Channels& audio, double rate) { saveCapture (name, audio, rate); };
     m_engine.setHooks (std::move (hooks));
     m_engine.setLogSink (&PitchFlattenerAudioProcessor::engineSink, this);
 
@@ -279,6 +351,46 @@ void PitchFlattenerAudioProcessor::setDisplayView (int view)
 }
 
 //==============================================================================
+juce::File PitchFlattenerAudioProcessor::captureFolder()
+{
+    return juce::File (juce::String::fromUTF8 (DiagnosticLog::instance().filePath().c_str())).getParentDirectory().getChildFile ("PitchFlattener captures");
+}
+
+void PitchFlattenerAudioProcessor::saveCapture (const std::string& name, const core::Channels& audio, double rate)
+{
+    // The engine's house thread. At most 3 captures (input and learned) per process run, and the
+    // folder keeps the newest 3; nothing happens if the folder cannot be written.
+    static std::atomic<int> s_files { 0 };
+    if (audio.empty() || audio[0].empty() || s_files.fetch_add (1) >= 6)
+        return;
+    auto folder = captureFolder();
+    if (! folder.createDirectory())
+        return;
+    const auto stamp = juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M%S");
+    const auto file = folder.getChildFile (stamp + " inst " + juce::String (m_instance) + " " + juce::String::fromUTF8 (name.c_str()) + ".wav");
+    file.deleteFile();
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::OutputStream> stream (file.createOutputStream());
+    if (stream == nullptr)
+        return;
+    std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream.get(), rate, (unsigned int) audio.size(), 32, {}, 0));
+    if (writer == nullptr)
+        return;
+    stream.release();   // the writer owns it now
+    juce::AudioBuffer<float> buffer ((int) audio.size(), (int) audio[0].size());
+    for (int c = 0; c < (int) audio.size(); ++c)
+        buffer.copyFrom (c, 0, audio[(size_t) c].data(), (int) audio[(size_t) c].size());
+    const bool ok = writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+    writer.reset();
+    DiagnosticLog::instance().post (m_instance, ThreadKind::Other, "%s: %s (%.2f s, %d ch, 32-bit float)", ok ? "captured" : "could not capture",
+                                    file.getFullPathName().toRawUTF8(), (double) audio[0].size() / rate, (int) audio.size());
+    // Keep the newest 3 captures (6 files) in the folder.
+    auto files = folder.findChildFiles (juce::File::findFiles, false, "*.wav");
+    std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b) { return a.getLastModificationTime() > b.getLastModificationTime(); });
+    for (int i = 6; i < files.size(); ++i)
+        files.getReference (i).deleteFile();
+}
+
 int PitchFlattenerAudioProcessor::lineFor (const core::Analysis& analysis) const
 {
     const int source = juce::jlimit (0, core::kNumTrackers, (int) parameters.getRawParameterValue (sourceId)->load()) - 1;
@@ -417,11 +529,7 @@ void PitchFlattenerAudioProcessor::reset()
 {
     // Some hosts call this from the message thread (an AU's bypass does): only a request here,
     // which the audio thread carries out at its next block.
-    m_engine.requestReset();
-    LogEvent e;   // no text formatted here: it may be the audio thread
-    e.instance = m_instance;
-    e.format = [] (const LogEvent&, char* out, std::size_t size) { std::snprintf (out, size, "reset"); };
-    DiagnosticLog::instance().postEvent (e);
+    m_engine.requestReset();   // the engine logs it (a burst of them as one line)
 }
 
 void PitchFlattenerAudioProcessor::setNonRealtime (bool isNonRealtime) noexcept

@@ -89,6 +89,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -149,7 +150,22 @@ struct EngineEvent
         Wait,             // i0 for (0 search, 1 render, 2 analysis); i1 gave up; d0 ms
         PaceChanged,      // i0 faster than real time now; d0 ratio
         RunStarted,       // i0 run; i1 first block; i2 channels; i3 host says offline; i4 bypassed; d0 rate
-        RunEnded          // see Engine::RunSummary
+        RunEnded,         // see Engine::RunSummary
+        Searched,         // i0 probe input; i1 best learned position (-1 none); i2 places that passed; i3 outcome (0 matched,
+                          // 1 ambiguous and too quiet, 2 residual too high, 3 nothing like it); i4 next try in samples (-1 none);
+                          // i5 quick retry at the sound's start; d0 best residual dB; d1 rate; d2 ms
+        Extended,         // i0 matched at input; i1 starts at input; i2 why it stopped (0 nothing before it, 1 the sound's start,
+                          // 2 a difference in its first 30 ms, accepted, 3 other material, 4 a reset or the learned sound's start); d0 rate
+        MatchFailed,      // i0 input; i1 cancelled before heard; i2 why (0 residual, 1 silence, 2 other audio where the sound is silent); d0 residual dB; d1 rate
+        Reset,            // i0 requests since the last; i1 input position; i2 audio had arrived in this run; d0 rate
+        // Input against learned at a near miss or a let-go, each level free (see Engine::diagnose).
+        // i0 input; i1 learned; i2 0 near miss, 1 let go; i3 input stereo; i4 learned stereo; then
+        // residuals in hundredths of a dB: i5 L/L, i6 R/R, i7 L/R, i8 R/L, i9 L/mix, i10 R/mix,
+        // i11 sum/sum, i12 difference/difference; i13 input L/R level, i14 learned L/R level
+        // (hundredths of a dB); i15 correlation of input L with input R (thousandths);
+        // d0 rate; d1 best fractional offset (samples); d2 mix residual there (dB); d3 mix residual at 0 (dB);
+        // d4 mix residual through the best short filter (dB); d5 that filter's share in 3 adjacent taps
+        Diagnosed
     };
     Kind kind = Kind::Cleared;
     std::int64_t i[16] {};
@@ -169,6 +185,9 @@ public:
         // The options for a sound about to be rendered for the first time (its hand corrections
         // belong to its reading, which only now exists).
         std::function<core::Options(const Learned& learned)> optionsFor;
+        // Saves audio for a near miss (input and learned, for listening to later): called on the
+        // house thread, with a name to use; the host side picks the folder and logs where.
+        std::function<void(const std::string& name, const core::Channels& audio, double sampleRate)> saveCapture;
     };
 
     // A run of audio (blocks with no gap of half a second), summarised when it ends.
@@ -221,7 +240,11 @@ public:
     int latencySamples() const noexcept { return m_latency; }
     double sampleRate() const noexcept { return m_rate.load(); }
     /** Asks the audio thread to empty its delay line and stop playing (safe from any thread). */
-    void requestReset() noexcept { m_resetRequested.store(true, std::memory_order_release); }
+    void requestReset() noexcept
+    {
+        m_resetRequests.fetch_add(1, std::memory_order_relaxed);
+        m_resetRequested.store(true, std::memory_order_release);
+    }
     /** Offline (non-realtime) the audio thread waits for the search and renders instead of running ahead of them. */
     void setNonRealtime(bool nonRealtime) noexcept { m_nonRealtime.store(nonRealtime, std::memory_order_relaxed); }
 
@@ -354,7 +377,7 @@ private:
     void stopMatching(std::int64_t outNext) noexcept;
     bool readAnswer(const Result& r, std::int64_t outNext) noexcept;
     void verify(const Result& r, std::int64_t tEnd, std::int64_t outNext) noexcept;
-    void failMatch(std::int64_t at, std::int64_t outNext) noexcept;
+    void failMatch(std::int64_t at, std::int64_t outNext, int why = 0, double residual = 1.0) noexcept;
     void watchTail(std::int64_t tEnd, std::int64_t outNext) noexcept;
     void pushGain(std::int64_t at, double gain) noexcept;
     void followGain(std::int64_t windowStart, double gain) noexcept;
@@ -366,6 +389,8 @@ private:
     void beginRun(int numSamples, int numChannels, bool bypassed) noexcept;
     void endRun() noexcept;   // any thread; posts the summary once
     void log(const EngineEvent& event) const noexcept;
+    void diagnose(const Learned& learned, std::int64_t input, std::int64_t source, int length, int kind);
+    void captureStep();   // house thread: writes a pending capture once its input has arrived
     void letGoLocked();   // m_mutex held: the registry keeps what this instance drops a while
     void pushEvent(const Event& e) noexcept;
     void renderOutput(float* const* channels, int numChannels, int numSamples, std::int64_t t0) noexcept;
@@ -388,11 +413,14 @@ private:
     // ---- host settings ----
     std::atomic<double> m_rate { 0.0 };   // read by the house thread too
     int m_latency = 0;
+    std::atomic<int> m_latencyShared { 0 };   // the same, for the house thread
+    std::atomic<int> m_verifyWindowShared { 1024 };
     int m_fadeLength = 1;
     int m_verifyWindow = 1024;
     std::atomic<bool> m_prepared { false };
     std::atomic<bool> m_nonRealtime { false };
     std::atomic<bool> m_resetRequested { false };
+    std::atomic<int> m_resetRequests { 0 };   // counted, so the log shows one line for a burst of them
 
     // ---- control (guarded by m_mutex) ----
     mutable std::mutex m_mutex;
@@ -461,6 +489,7 @@ private:
     std::atomic<std::uint64_t> m_answerLearned { 0 };
     std::atomic<std::int64_t> m_answerInput { 0 }, m_answerSource { 0 };
     std::atomic<int> m_answerLength { 0 };
+    std::atomic<std::int64_t> m_answerVerifyFrom { 0 };   // checked already up to here (the probe's end)
     std::atomic<double> m_answerGain { 1.0 }, m_answerGainEnd { 1.0 };
     // What the house thread needs before it can do more for an epoch, and the input position before
     // which nothing more can be found (offline waits on these).
@@ -477,7 +506,21 @@ private:
     std::int64_t m_wGate = 0;          // no attempt starts before this input position (the back-off)
     std::int64_t m_wBackoff = 0;       // the next back-off, in samples
     std::int64_t m_wSilentRun = 0;
+    // The start of the sound now playing in the input (the first sound after silence, a reset or a
+    // new search), and the quick retries it has had: a miss there costs 20 ms, not the back-off.
+    std::int64_t m_wSoundStart = -1;
+    std::int64_t m_wFrom = 0;          // where this search began: a match never reaches back before it
+    int m_wQuickRetries = 0;
     std::uint64_t m_wFailuresSeen = 0, m_wHoldsSeen = 0;
+
+    // Diagnostics (house thread): a let-go asked for by the audio thread, and a capture waiting
+    // for its input to arrive.
+    std::atomic<std::uint32_t> m_diagnoseRequest { 0 };
+    std::atomic<std::int64_t> m_diagnoseInput { 0 }, m_diagnoseSource { 0 };
+    std::uint32_t m_diagnoseSeen = 0;
+    bool m_captured = false;              // once per instance
+    std::int64_t m_captureInputFrom = -1, m_captureSourceFrom = 0;
+    std::shared_ptr<const Learned> m_captureLearned;
 
     // ---- audio thread only ----
     std::array<std::vector<float>, kMaxChannels> m_delay;
