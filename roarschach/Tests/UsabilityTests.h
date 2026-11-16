@@ -684,4 +684,107 @@ namespace usability
 
         check(swirlOn != nullptr && open->strip().getOnButton(swirl)->getTooltip().contains("Alt-click"), "solo: the On switch's tooltip explains Alt-click");
     }
+
+    //==========================================================================
+    // U10: a host sees each parameter with its module in front; IDs and order stay; short names where
+    // the host asks for them.
+    void testHostNames()
+    {
+        std::printf("[params] host names: the module first, short forms for short fields\n");
+        auto p = makeProcessor(48000.0, 512);
+        const auto& params = p->getParameters();
+        std::map<std::string, std::string> owner;   // parameter ID -> the module's name as the tile shows it
+        for (const auto& m : Params::modules)
+        {
+            owner[m.onId] = m.uiName;
+            owner[m.posId] = m.uiName;
+            for (const char* id : m.knobIds)
+                if (id != nullptr)
+                    owner[id] = m.uiName;
+            for (const char* id : m.chipIds)
+                if (id != nullptr)
+                    owner[id] = m.uiName;
+        }
+        for (const char* id : Params::inIds)
+            owner[id] = "IN";
+        for (const char* id : Params::outputIds)
+            owner[id] = "OUTPUT";
+        owner[Params::outMatch] = "OUTPUT";
+
+        int wrongModule = 0, tooLong = 0, idsMoved = 0;
+        std::set<std::string> at8, at4, full;
+        int collisions8 = 0, collisions4 = 0, collisionsFull = 0;
+        for (int i = 0; i < params.size(); ++i)
+        {
+            auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(params[i]);
+            const auto id = withId != nullptr ? withId->getParameterID() : juce::String();
+            idsMoved += id != Params::all[static_cast<size_t>(i)].id ? 1 : 0;
+            const auto name = params[i]->getName(1024);
+            const auto it = owner.find(id.toStdString());
+            if (it == owner.end() || !name.startsWith(juce::String(it->second) + " ") || name.length() <= static_cast<int>(it->second.size()) + 1)
+            {
+                ++wrongModule;
+                std::printf("    %s: \"%s\"\n", id.toRawUTF8(), name.toRawUTF8());
+            }
+            for (const int n : { 4, 6, 8, 12, 16, 31, 128 })
+                tooLong += params[i]->getName(n).length() > n || params[i]->getName(n).isEmpty() ? 1 : 0;
+            tooLong += params[i]->getName(31) != name ? 1 : 0;
+            collisions8 += at8.insert(params[i]->getName(8).toStdString()).second ? 0 : 1;
+            collisions4 += at4.insert(params[i]->getName(4).toStdString()).second ? 0 : 1;
+            collisionsFull += full.insert(name.toStdString()).second ? 0 : 1;
+        }
+        const auto show = [&](const char* id)
+        {
+            auto* q = params[Params::indexOf(id)];
+            return q->getName(1024) + " / " + q->getName(8) + " / " + q->getName(4);
+        };
+        std::printf("  e.g. %s; %s; %s; %s\n", show(Params::pitchSize).toRawUTF8(), show(Params::roar).toRawUTF8(), show(Params::ensembleWidth).toRawUTF8(),
+                    show(Params::outClipShape).toRawUTF8());
+        std::printf("  same name twice: %d in full, %d at 8 characters, %d at 4\n", collisionsFull, collisions8, collisions4);
+        check(idsMoved == 0, "host names: parameter IDs and their order are as ever");
+        check(wrongModule == 0, "host names: every name starts with its module as the tile names it (IN and OUTPUT included), then the control");
+        check(tooLong == 0, "host names: every name fits the length a host asks for (4 to 128 characters; 31, AAX's, is the full name)");
+        check(collisionsFull == 0 && collisions8 == 0, "host names: no two parameters share a name in full or at 8 characters (VST3's short title)");
+        check(params[Params::indexOf(Params::pitchSize)]->getName(1024) == "PITCH Size" && params[Params::indexOf(Params::roar)]->getName(1024) == "ROAR Drive"
+                  && params[Params::indexOf(Params::ensembleWidth)]->getName(1024) == "ENSEMBLE Width",
+              "host names: PITCH Size, ROAR Drive, ENSEMBLE Width");
+
+        // A session saved before the names changed (by its IDs alone) loads every value.
+        // (a state as this build writes it, every PARAM given a value by its ID alone)
+        auto q = makeProcessor(48000.0, 512);
+        juce::MemoryBlock saved;
+        q->getStateInformation(saved);
+        const auto parsed = juce::AudioProcessor::getXmlFromBinary(saved.getData(), static_cast<int>(saved.getSize()));
+        auto state = *parsed;
+        state.deleteAllChildElementsWithTagName("PARAM");
+        for (const auto& spec : Params::all)
+        {
+            auto* child = state.createNewChildElement("PARAM");
+            child->setAttribute("id", spec.id);
+            const float v = spec.kind == Params::Kind::toggle ? 1.0f - spec.defaultValue
+                          : spec.kind == Params::Kind::choice || spec.kind == Params::Kind::position ? spec.maxValue
+                          : spec.minValue + 0.25f * (spec.maxValue - spec.minValue);
+            child->setAttribute("value", v);
+        }
+        juce::MemoryBlock block;
+        juce::AudioProcessor::copyXmlToBinary(state, block);
+        q->setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+        int differ = 0;
+        for (const auto& spec : Params::all)
+        {
+            if (spec.kind == Params::Kind::position)
+                continue;   // (positions resolve to a whole order: other tests)
+            const float want = spec.kind == Params::Kind::toggle ? 1.0f - spec.defaultValue
+                             : spec.kind == Params::Kind::choice ? spec.maxValue
+                             : spec.minValue + 0.25f * (spec.maxValue - spec.minValue);
+            differ += std::abs(getParam(*q, spec.id) - want) > 0.02f * std::max(1.0f, std::abs(want)) ? 1 : 0;
+        }
+        check(differ == 0, "host names: a state with the same IDs loads every value (" + juce::String(differ) + " differ)");
+
+        // The tooltips that name a parameter as the host shows it use the names a host now shows.
+        check(SignalFlowStrip::tooltipFor(Params::chamber).contains(juce::String(Params::hostName(Params::chamber)))
+                  && SignalFlowStrip::tooltipFor(Params::chamberResonance).contains(juce::String(Params::hostName(Params::chamberResonance)))
+                  && SignalFlowStrip::tooltipFor(Params::chamberWidth).contains(juce::String(Params::hostName(Params::chamberWidth))),
+              "host names: CHAMBER's tooltips name AMT, TAIL and WIDE as the host shows them");
+    }
 }

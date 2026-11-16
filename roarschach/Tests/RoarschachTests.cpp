@@ -9697,6 +9697,7 @@ int main(int argc, char* argv[])
 
     const std::vector<std::pair<const char*, void (*)()>> tests {
         { "params", testParameters },
+        { "params", usability::testHostNames },
         { "laws", testKnobLaws },
         { "latency", testLatency },
         { "null", testNulls },
@@ -9736,6 +9737,7 @@ int main(int argc, char* argv[])
         { "editor", usability::testRollHolds },
         { "editor", usability::testKnobs },
         { "editor", usability::testSolo },
+        { "editor", usability::testHostNames },
         { "ui", testUi },
         { "dice", testDice },
         { "creature", testCreature },

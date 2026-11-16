@@ -550,6 +550,30 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
     return l;
 }
 
+namespace
+{
+    /** A parameter that gives a host its name with the module in front ("PITCH Size"), and a shorter
+        one where the host asks for a name of limited length (Params::hostName). */
+    template <typename Base>
+    class HostNamed final : public Base
+    {
+    public:
+        template <typename... Args>
+        explicit HostNamed(const Params::Spec& spec, Args&&... args)
+            : Base(juce::ParameterID(spec.id, spec.version), juce::String(Params::hostName(spec.id)), std::forward<Args>(args)...), m_id(spec.id)
+        {
+        }
+
+        juce::String getName(int maximumStringLength) const override
+        {
+            return juce::String(Params::hostName(m_id, maximumStringLength));
+        }
+
+    private:
+        const char* m_id;
+    };
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::createParameterLayout()
 {
     // The order of Params::all is the AU index order: it never changes once released, so saved
@@ -560,15 +584,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
 
     for (const auto& spec : Params::all)
     {
-        const juce::ParameterID id(spec.id, spec.version);
         switch (spec.kind)
         {
             case Params::Kind::toggle:
-                layout.add(std::make_unique<juce::AudioParameterBool>(id, spec.name, spec.defaultValue >= 0.5f));
+                layout.add(std::make_unique<HostNamed<juce::AudioParameterBool>>(spec, spec.defaultValue >= 0.5f));
                 break;
 
             case Params::Kind::choice:
-                layout.add(std::make_unique<juce::AudioParameterChoice>(id, spec.name, choiceNames(spec),
+                layout.add(std::make_unique<HostNamed<juce::AudioParameterChoice>>(spec, choiceNames(spec),
                                                                         juce::roundToInt(spec.defaultValue)));
                 break;
 
@@ -577,8 +600,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                 {
                     // CHAMBER's insertion slot: how many of the other 14 modules come before it
                     // (their positions count those 14 only, as in 1.0).
-                    layout.add(std::make_unique<juce::AudioParameterInt>(
-                        id, spec.name, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
+                    layout.add(std::make_unique<HostNamed<juce::AudioParameterInt>>(
+                        spec, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
                         juce::AudioParameterIntAttributes()
                             .withStringFromValueFunction([](int p, int)
                             {
@@ -593,8 +616,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                             })));
                     break;
                 }
-                layout.add(std::make_unique<juce::AudioParameterInt>(
-                    id, spec.name, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
+                layout.add(std::make_unique<HostNamed<juce::AudioParameterInt>>(
+                    spec, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
                     juce::AudioParameterIntAttributes()
                         .withStringFromValueFunction([](int p, int)
                         {
@@ -637,8 +660,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                 {
                     range.setSkewForCentre(spec.centre);
                 }
-                layout.add(std::make_unique<juce::AudioParameterFloat>(
-                    id, spec.name, range, spec.defaultValue,
+                layout.add(std::make_unique<HostNamed<juce::AudioParameterFloat>>(
+                    spec, range, spec.defaultValue,
                     juce::AudioParameterFloatAttributes()
                         .withStringFromValueFunction([s](float value, int) { return textFor(*s, value); })
                         .withValueFromStringFunction([s](const juce::String& text) { return valueFor(*s, text); })));
