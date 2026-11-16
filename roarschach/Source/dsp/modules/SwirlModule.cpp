@@ -113,6 +113,11 @@ namespace roar
         return std::min (k, c_maxK);
     }
 
+    double SwirlModule::modernMakeupFor (double signedK)
+    {
+        return 1.0 / std::sqrt (1.0 - std::clamp (signedK, c_modernMinK, c_modernMaxK));
+    }
+
     double SwirlModule::makeupFor (double k)
     {
         const double kk = std::min (std::abs (k), c_makeupKCap);
@@ -158,6 +163,10 @@ namespace roar
             ch.os.prepare();
             ch.drive.prepare (2.0 * m_fs);
             ch.drive.setCurve (CharacterSaturator::Curve::warm);
+            ch.makeupLow.prepare (m_fs);
+            ch.makeupLow.setCutoff (c_makeupLowHz);
+            ch.makeupHigh.prepare (m_fs);
+            ch.makeupHigh.setCutoff (c_makeupHighHz);
         }
 
         m_fade.prepare (m_fs, m_maxBlock, getLatencySamples());
@@ -182,6 +191,11 @@ namespace roar
 
     void SwirlModule::resetMotion()
     {
+        for (auto& ch : m_channels)
+        {
+            ch.makeupLow.reset();
+            ch.makeupHigh.reset();
+        }
         m_state = State {};
         m_lamp.reset (0.0f);
         snapToTargets();
@@ -268,7 +282,16 @@ namespace roar
     {
         const double k = m_diagnostics.k >= 0.0 ? std::min (m_diagnostics.k, 0.99)
                                                 : kFor (e.circuit.k, static_cast<double> (amount));
-        return static_cast<float> (k * (e.circuit.resPolarity < 0.0 ? -1.0 : 1.0));
+        const bool positive = ! (e.circuit.resPolarity < 0.0);
+        const double held = (e.circuit.modern && positive && m_diagnostics.k < 0.0) ? std::min (k, c_modernMaxK) : k;
+        return static_cast<float> (positive ? held : -held);
+    }
+
+    float SwirlModule::makeupForEngine (const Engine& e, float k) const
+    {
+        if (! m_diagnostics.makeup)
+            return 1.0f;
+        return static_cast<float> (e.circuit.modern ? modernMakeupFor (static_cast<double> (k)) : makeupFor (static_cast<double> (k)));
     }
 
     void SwirlModule::updateCoeffs (Engine& e, double q, double envOct)
@@ -401,7 +424,7 @@ namespace roar
 
             updateCoeffs (eTo, q, envOct);
             const float kTo = kForEngine (eTo, st.amount);
-            const float makeupTo = (m_diagnostics.makeup && ! eTo.circuit.modern) ? static_cast<float> (makeupFor (static_cast<double> (kTo))) : 1.0f;
+            const float makeupTo = makeupForEngine (eTo, kTo);
             const float polTo = eTo.circuit.polarity < 0.0 ? -1.0f : 1.0f;
 
             float kFrom = 0.0f, makeupFrom = 1.0f, polFrom = 1.0f;
@@ -409,7 +432,7 @@ namespace roar
             {
                 updateCoeffs (eFrom, q, envOct);
                 kFrom = kForEngine (eFrom, st.amount);
-                makeupFrom = (m_diagnostics.makeup && ! eFrom.circuit.modern) ? static_cast<float> (makeupFor (static_cast<double> (kFrom))) : 1.0f;
+                makeupFrom = makeupForEngine (eFrom, kFrom);
                 polFrom = eFrom.circuit.polarity < 0.0 ? -1.0f : 1.0f;
             }
 
@@ -426,13 +449,18 @@ namespace roar
                 const float xIn = ch.os.downsample (a, b);
 
                 const float yTo = eTo.chains[ci].process (xIn, eTo.coeffs, kTo, eTo.circuit.modern);
-                float p = 0.5f * (xIn + polTo * yTo) * makeupTo;
+                float p = 0.5f * (xIn + polTo * yTo) * (eTo.circuit.modern ? std::min (makeupTo, 1.0f) : makeupTo);
+                float over = eTo.circuit.modern ? std::max (makeupTo - 1.0f, 0.0f) : 0.0f;
                 if (fading)
                 {
                     const float yFrom = eFrom.chains[ci].process (xIn, eFrom.coeffs, kFrom, eFrom.circuit.modern);
-                    const float pFrom = 0.5f * (xIn + polFrom * yFrom) * makeupFrom;
+                    const float pFrom = 0.5f * (xIn + polFrom * yFrom) * (eFrom.circuit.modern ? std::min (makeupFrom, 1.0f) : makeupFrom);
+                    const float overFrom = eFrom.circuit.modern ? std::max (makeupFrom - 1.0f, 0.0f) : 0.0f;
                     p = pFrom + wTo * (p - pFrom);
+                    over = overFrom + wTo * (over - overFrom);
                 }
+                // The makeup above unity, between 100 Hz and 8 kHz only (the filters always run).
+                p += over * ch.makeupHigh.processLowpass (ch.makeupLow.processHighpass (p));
                 p = safety (p);
 
                 const float d = dry[c][i];
@@ -470,6 +498,8 @@ namespace roar
         {
             m_channels[c].os.copyStateFrom (o.m_channels[c].os);
             m_channels[c].drive.copyStateFrom (o.m_channels[c].drive);
+            m_channels[c].makeupLow.reset (o.m_channels[c].makeupLow.getState());
+            m_channels[c].makeupHigh.reset (o.m_channels[c].makeupHigh.getState());
         }
         m_lamp.setRate (m_state.lampRate);
         m_lamp.copyStateFrom (o.m_lamp);
@@ -482,6 +512,8 @@ namespace roar
             e.chains[1].copyStateFrom (e.chains[0]);
         m_channels[1].os.copyStateFrom (m_channels[0].os);
         m_channels[1].drive.copyStateFrom (m_channels[0].drive);
+        m_channels[1].makeupLow.reset (m_channels[0].makeupLow.getState());
+        m_channels[1].makeupHigh.reset (m_channels[0].makeupHigh.getState());
         m_fade.copyLeftStateToRight();
     }
 

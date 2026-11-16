@@ -5,6 +5,7 @@
 #include "../common/LampLfo.h"
 #include "../common/Module.h"
 #include "../common/Oversampler2x.h"
+#include "../common/TptOnePole.h"
 
 #include <array>
 #include <cstdint>
@@ -36,7 +37,12 @@ namespace roar
      *   The stages then run on u. Res polarity - uses -k.
      *
      *   P   = 1/2 (x_in + pol y) makeup,   makeup = (1/2 (1 + 1 / (1 - |k|)))^-1/2 for Classic, with
-     *         |k| capped at 0.6 (at most -2.4 dB); Modern needs none (|P| <= |x_in|)
+     *         |k| capped at 0.6 (at most -2.4 dB)
+     *   Modern: over the band the stages sweep the wet averages (1 - k) / 2 of the input's power
+     *         (k signed), so makeup = 1 / sqrt (1 - k), k in [-0.95, 0.75] (positive k is held at
+     *         0.75: +6 dB at most). The part under unity scales P; the part above unity acts only
+     *         between 100 Hz and 8 kHz (first-order high-pass then low-pass of P, added back), so
+     *         the ends of the spectrum, where the lattice takes nothing, are not lifted
      *   P   -> soft safety knee: linear up to R + 14 dB (-6 dBFS), then tanh towards -3 dBFS
      *   out = (1 - a) dry + a P
      *
@@ -85,6 +91,10 @@ namespace roar
         static constexpr double c_defaultAmount = 0.35;
         static constexpr double c_maxK = 0.95;
         static constexpr double c_makeupKCap = 0.6;
+        static constexpr double c_modernMaxK = 0.75;      // Modern, positive resonance: the makeup stops at +6 dB
+        static constexpr double c_modernMinK = -0.95;
+        static constexpr double c_makeupLowHz = 100.0;    // the band the Modern makeup above unity acts in
+        static constexpr double c_makeupHighHz = 8000.0;
         static constexpr double c_safetyKneeDb = c_referenceDb + 14.0;
         static constexpr double c_safetyCeilingDb = -3.0;
         static constexpr double c_minStageHz = 20.0;
@@ -169,6 +179,9 @@ namespace roar
         /** Classic resonance makeup for |k|. */
         static double makeupFor (double k);
 
+        /** Modern (lattice) makeup for the signed k: 1 / sqrt (1 - k). */
+        static double modernMakeupFor (double signedK);
+
     private:
         struct Engine
         {
@@ -185,6 +198,7 @@ namespace roar
         {
             Oversampler2x os;
             CharacterSaturator drive;   // Warm, at 2 fs
+            TptOnePole makeupLow, makeupHigh;   // the Modern makeup's band (high-pass, then low-pass)
         };
 
         struct State
@@ -214,6 +228,7 @@ namespace roar
         Circuit requestedCircuit() const;
         void updateCoeffs (Engine& e, double q, double envOct);
         float kForEngine (const Engine& e, float amount) const;
+        float makeupForEngine (const Engine& e, float k) const;
         float nextUnit();
         float safety (float p) const;
 

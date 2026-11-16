@@ -8478,6 +8478,9 @@ namespace
     // Levels and repeatability (IN's take gain, OUTPUT's match, Mix, the kept state).
 #include "LevelTests.h"
 
+    // Stage B, batch 4: SUB, OVERTONE, SWIRL, GROWL and ENSEMBLE on their own.
+#include "StageB4Tests.h"
+
     // Offline render mode.
 
     struct RenderOptions
@@ -9657,6 +9660,7 @@ int main(int argc, char* argv[])
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },
         { "levelsrep", testLevelsRep },
+        { "stageb4", stageb4::run },
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
         { "voicedsp", testVoiceModules },
