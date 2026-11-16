@@ -68,9 +68,19 @@ namespace roar
      * the magnitude its bilinear form has at 96 kHz, so 15-18 kHz at 44.1 / 48 kHz sit within
      * about 0.5 dB of a 96 kHz session (1 dB at 18 kHz at 44.1 kHz).
      *
-     * Level: there is no output-measuring level follower. A static makeup gain (a function of
-     * Drive and Tone only) keeps the loudness of a voice at the reference level within +-1.5 dB
-     * across Drive, so louder input still comes out louder and denser.
+     * Level: a static makeup (a table over Drive and Tone, plus a voice trim over Drive) and on top
+     * of it one learnt correction per setting, on the pattern of IN's take level and OUTPUT's
+     * match. The correction is the ratio of the cumulative loudness-weighted power going in (80 Hz
+     * high-pass, +4 dB above 1.5 kHz) to the power coming out with the static makeup, over 0.1 s
+     * frames of everything that has sounded at this setting (above -70 dBFS and within 30 dB of the
+     * mean so far): the loud end decides. It moves only while it learns, on a schedule tied to the
+     * evidence (effective seconds, (sum p dt)^2 / (sum p^2 dt)): nothing below 0.15 s, then 6, 1.5
+     * and 0.5 dB/s to 0.5, 2 and 6 s, then held, bounded to +-6 dB. Sound louder than anything
+     * heard lowers the evidence and so re-opens the learn; quieter sound never does. It is kept
+     * across reset(), switch-off and prepare(), so a second pass over the same material renders
+     * the same wherever it starts. A Drive (2 %), Tone (4 %) or Voicing move of the targets from
+     * where the learn began starts a new learn from the held value; while a knob glides nothing
+     * is learnt. Louder input still comes out louder and denser inside a take.
      *
      * Latency: Oversampler2x::c_latency (23) at every rate and every setting. The two ADAA steps
      * add half a 2x-rate sample each (half a base-rate sample in all), which sits inside the group
@@ -115,6 +125,61 @@ namespace roar
         static double drive1For (double a);
         static double drive2For (double a);
 
+        /**
+         * Test hook, process-wide: the knob law. 0 = A (the shipping law); 1 = B, an audition law
+         * (stage-1 drive 34 a^0.58 dB, so the odd harmonics arrive by mid travel; treble boost
+         * 7 a (1 - 0.8 a) dB; output low-pass 18 kHz x 0.45^a; a +3 a^2 dB bell at 1 kHz, Q 0.6;
+         * its own voice trim). Read in prepare() and once per control block. Nothing in the
+         * plug-in selects B.
+         */
+        static void setLawForTests (int law);
+        static int getLawForTests();
+
+        // ---- The learnt makeup
+        /** What the level correction has learnt (power x seconds sums, so it holds across rates). */
+        struct LevelLearning
+        {
+            double corrDb = 0.0;                       // the held correction, dB
+            double s1 = 0.0, s2 = 0.0, so = 0.0;       // sum p dt, sum p^2 dt (in), sum p dt (out, static makeup)
+            double seconds = 0.0, evidence = 0.0;      // sounding seconds; effective seconds
+            double anchorA = 0.0, anchorTone = 0.0, anchorMic = 0.0;
+            bool anchored = false;
+
+            /** As plain numbers, for the session state and the hand-over between threads (anchored as 0 / 1). */
+            static constexpr int numValues = 10;
+            std::array<double, numValues> toValues() const
+            {
+                return { corrDb, s1, s2, so, seconds, evidence, anchorA, anchorTone, anchorMic, anchored ? 1.0 : 0.0 };
+            }
+            static LevelLearning fromValues (const std::array<double, numValues>& v)
+            {
+                LevelLearning l;
+                l.corrDb = v[0]; l.s1 = v[1]; l.s2 = v[2]; l.so = v[3]; l.seconds = v[4]; l.evidence = v[5];
+                l.anchorA = v[6]; l.anchorTone = v[7]; l.anchorMic = v[8]; l.anchored = v[9] >= 0.5;
+                return l;
+            }
+        };
+
+        /** For the session. */
+        LevelLearning getLearning() const { return m_learn; }
+        /** Sets what was learnt; clears the pass state. */
+        void restoreLearning (const LevelLearning& l);
+        /** What feeds ROAR has changed: learn again from the held correction. */
+        void relearnLevel();
+        /** Correction 0, as new. */
+        void forgetLevel();
+        /**
+         * IN's total gain (linear, per sample) for the chunk about to be processed, or nullptr: the
+         * makeup was learnt on input at the gain it had then, so when the gain moves more than
+         * c_feedMoveDb from where the learn began, ROAR learns again (checked at each control block,
+         * on ROAR's own sample clock). Valid for the next process() only.
+         */
+        void setFeedGainTrace (const float* gain, int n) { m_feedTrace = gain; m_feedTraceLength = n; }
+        /** Test hook: false forces the correction to 0 and learns nothing (default true). */
+        void setLevelFollowForTests (bool on) { m_follow = on; }
+        /** The correction applied now (dB; 0 while the follower is off). */
+        float getCorrectionDb() const { return static_cast<float> (m_follow ? m_learn.corrDb : 0.0); }
+
     private:
         struct Channel
         {
@@ -129,6 +194,7 @@ namespace roar
             Biquad fixedTop;         // fixed top lift
             Biquad droop;            // below 88.2 kHz: high shelf at the 2x rate for the ADAA droop
             Biquad outLp;            // output transformer: matched one-pole low-pass
+            Biquad midHold;          // law B only: a broad lift around 1 kHz that grows with Drive
             Biquad outHp;
             double bypass1 = 0.0, bypass2 = 0.0;   // previous Miller bypass samples (2-tap average)
         };
@@ -140,6 +206,9 @@ namespace roar
         };
 
         void resetWet();
+        void clearPass();
+        void relearn();
+        double learnLevel (double staticDb);
         void updateControl();
         void designFilters();
         void updateHeat();
@@ -156,6 +225,7 @@ namespace roar
         double m_targetA = 0.35, m_targetTone = 0.0, m_targetMic = 0.0;
         double m_a = 0.35, m_tone = 0.0, m_mic = 0.0;
         double m_designedA = -1.0, m_designedTone = -9.0, m_designedMic = -1.0;
+        int m_law = 0;
         double m_smoothCoeff = 1.0;
         bool m_snap = true;
 
@@ -172,5 +242,23 @@ namespace roar
         double m_vu1 = 0.0, m_vu2 = 0.0, m_vuCoeff = 0.0;
         float m_heat = 0.0f;
         float m_blockingDb = 0.0f;
+
+        // The learnt makeup: loudness-weighted power in and out (before the makeup) per control
+        // block, 0.1 s frames of it, and what has been learnt.
+        std::array<Biquad, 2> m_inHp, m_inShelf, m_outHp, m_outShelf;
+        double m_blockIn = 0.0, m_blockOut = 0.0, m_staticDbPrev = 0.0;
+        double m_frameIn = 0.0, m_frameOut = 0.0, m_frameT = 0.0;
+        int m_frameBlocks = 0, m_frameLength = 150;
+        double m_blockSeconds = static_cast<double> (c_controlBlock) / 48000.0;
+        double m_raw = 0.0;
+        bool m_haveRaw = false;
+        bool m_follow = true;
+        // IN's gain as the learn began (dB); m_feedSeen false: the next value read is taken as it.
+        const float* m_feedTrace = nullptr;
+        int m_feedTraceLength = 0;
+        double m_feedRefDb = 0.0;
+        bool m_feedSeen = false;
+        void followFeed (int sample);
+        LevelLearning m_learn;
     };
 }

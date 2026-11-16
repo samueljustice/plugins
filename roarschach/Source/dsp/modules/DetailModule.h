@@ -25,6 +25,10 @@ namespace roar
      *     \-> a = max |L|,|R| --> sliding max over D+1 --> fast env (instant attack, 0.7 ms)
      *         --> dB --> slow env (charge 95 ms, release 500 ms Natural / 80 ms Snappy)
      *         --> level = max (fast, slow)
+     *   On confident pitched sound (the stream at this module: voiced, confidence above 0.6) the
+     *   fast envelope holds each peak for 1.1 periods of f0 (f0 floored at 40 Hz), re-armed by a
+     *   peak within 1 % of the held one, so a low note's gain does not follow each cycle; with no
+     *   confident pitch it is the plain 0.7 ms release.
      *
      *   Low (upward)    G_low  = L / (1 + exp ((level - (c + 3.01)) / w)),  L = 34 uLow^1.2,
      *                   c = -34 + 0.52 L, w = 8.5 + 0.08 L
@@ -81,6 +85,8 @@ namespace roar
         float getGainDb() const { return m_s.gainReadDb * m_fade.getValue(); }
         float getFloorDb() const { return static_cast<float> (m_s.floorDb); }
         double getTrimDb() const { return m_curve.trim; }
+        /** How long the fast envelope holds a peak now (samples; 0 without a confident pitch). */
+        int getHoldSamples() const { return m_s.holdSamples; }
 
         /** The low and high section depths in dB for knob positions u (laws::detailDepthDb, 34 u^1.2). */
         static double depthForKnob (double u);
@@ -137,6 +143,8 @@ namespace roar
             bool snapParams = true;
 
             double fast = 0.0;                 // linear peak envelope
+            int fastHoldLeft = 0;              // samples the fast envelope still holds its peak
+            int holdSamples = 0;               // 1.1 periods of a confident pitch, else 0
             double slowDb = -120.0;
             double highSlow = 0.0;             // slow stage of the high section's reduction, dB
             double gainDb = 0.0;               // smoothed total gain

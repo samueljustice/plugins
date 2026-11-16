@@ -5,6 +5,7 @@
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace roar
@@ -68,6 +69,37 @@ namespace roar
         constexpr double c_droopShelfRatio = 0.36, c_droopShelfDb = 4.5;
         constexpr double c_micBellHz = 70.0, c_micBellQ = 0.35, c_micBellDb = -3.8;
         constexpr double c_micShelfHz = 15000.0, c_micShelfDb = -2.0;
+
+        // The learnt makeup.
+        constexpr double c_weightHpHz = 80.0, c_weightShelfHz = 1500.0, c_weightShelfDb = 4.0;
+        constexpr double c_frameSeconds = 0.1;
+        constexpr double c_soundingFloor = 1.0e-7;              // block power above -70 dBFS
+        constexpr double c_soundingWindow = 1.0e-3;             // and within 30 dB of the mean so far
+        constexpr double c_learnStartSeconds = 0.15;            // the second frame at the earliest
+        constexpr double c_learnFastSeconds = 0.5, c_learnMidSeconds = 2.0, c_learnEndSeconds = 6.0;
+        constexpr double c_rateFastDbPerSecond = 6.0, c_rateMidDbPerSecond = 1.5, c_rateSlowDbPerSecond = 0.5;
+        constexpr double c_correctionBoundDb = 6.0;
+        constexpr double c_relearnDrive = 0.02, c_relearnTone = 0.04;
+        constexpr double c_glidingDrive = 0.005, c_glidingTone = 0.01, c_glidingMic = 0.01;
+        // Centres the static makeup on voice (the table was fitted on noise-shaped signals): the
+        // median over the test voices of what the table left, dB at Drive 0, 0.1 .. 1.
+        constexpr double c_voiceTrimDb[11] = { -0.38, -0.29, -0.20, -0.12, 0.06, 0.43, 0.71, 1.06, 1.48, 1.48, 1.24 };
+
+        // The audition law B (setLawForTests): its stage-1 drive, treble, output low-pass, mid bell and trim.
+        constexpr double c_lawBDrive1MaxDb = 34.0, c_lawBDrive1Exponent = 0.58;
+        constexpr double c_lawBTrebleFall = 0.8;
+        constexpr double c_lawBOutLpPerDrive = 0.45;
+        constexpr double c_lawBMidHz = 1000.0, c_lawBMidQ = 0.6, c_lawBMidMaxDb = 3.0;
+        constexpr double c_lawBVoiceTrimDb[11] = { -0.38, 0.27, 1.28, 2.44, 3.76, 5.00, 6.03, 6.65, 6.57, 5.45, 3.25 };
+
+        std::atomic<int> s_law { 0 };
+
+        bool lawB() { return s_law.load (std::memory_order_relaxed) == 1; }
+
+        double drive1Db (double a, bool b)
+        {
+            return b ? c_lawBDrive1MaxDb * std::pow (std::clamp (a, 0.0, 1.0), c_lawBDrive1Exponent) : laws::roarDrive1Db (a);
+        }
 
         constexpr double c_smoothSeconds = 0.030;
         constexpr double c_vuSeconds = 0.065;   // two cascaded poles: about 300 ms to settle
@@ -168,7 +200,10 @@ namespace roar
         return t;
     }
 
-    double RoarModule::drive1For (double a) { return c_drive1Cal * dsp::dbToGain (laws::roarDrive1Db (a)); }
+    double RoarModule::drive1For (double a) { return c_drive1Cal * dsp::dbToGain (drive1Db (a, lawB())); }
+
+    void RoarModule::setLawForTests (int law) { s_law.store (law == 1 ? 1 : 0, std::memory_order_relaxed); }
+    int RoarModule::getLawForTests() { return s_law.load (std::memory_order_relaxed); }
     double RoarModule::drive2For (double a) { return c_drive2Cal * dsp::dbToGain (c_drive2RangeDb * a); }
 
     double RoarModule::makeupDb (double a, double t)
@@ -180,13 +215,16 @@ namespace roar
         const double fx = x - static_cast<double> (i), fy = y - static_cast<double> (j);
         const double lo = c_makeupTable[j][i] + fx * (c_makeupTable[j][i + 1] - c_makeupTable[j][i]);
         const double hi = c_makeupTable[j + 1][i] + fx * (c_makeupTable[j + 1][i + 1] - c_makeupTable[j + 1][i]);
-        return lo + fy * (hi - lo);
+        const double* trimTable = lawB() ? c_lawBVoiceTrimDb : c_voiceTrimDb;
+        const double trim = trimTable[i] + fx * (trimTable[i + 1] - trimTable[i]);
+        return lo + fy * (hi - lo) + trim;
     }
 
     void RoarModule::prepare (double fs, int maxBlock)
     {
         m_fs = dsp::safeSampleRate (fs);
         m_fs2 = 2.0 * m_fs;
+        m_law = getLawForTests();
         (void) table();   // build the shared curve table here, never on the audio thread
 
         m_fade.prepare (m_fs, maxBlock, getLatencySamples());
@@ -200,6 +238,18 @@ namespace roar
         const double controlRate = m_fs / static_cast<double> (c_controlBlock);
         m_smoothCoeff = dsp::onePoleCoeff (c_smoothSeconds, controlRate);
         m_vuCoeff = dsp::onePoleCoeff (c_vuSeconds, controlRate);
+
+        // The learnt makeup's weighting and frame; what was learnt is kept (power x seconds).
+        m_blockSeconds = static_cast<double> (c_controlBlock) / m_fs;
+        m_frameLength = std::max (1, static_cast<int> (std::lround (c_frameSeconds * controlRate)));
+        for (size_t c = 0; c < 2; ++c)
+        {
+            for (auto* hp : { &m_inHp[c], &m_outHp[c] })
+                hp->setCoeffs (Biquad::highpass (m_fs, c_weightHpHz, Biquad::c_butterworthQ));
+            for (auto* shelf : { &m_inShelf[c], &m_outShelf[c] })
+                shelf->setCoeffs (Biquad::highShelf (m_fs, c_weightShelfHz, Biquad::c_butterworthQ, c_weightShelfDb));
+        }
+        m_haveRaw = false;
 
         for (auto& c : m_ch)
         {
@@ -245,6 +295,7 @@ namespace roar
             c.fixedTop.reset();
             c.droop.reset();
             c.outLp.reset();
+            c.midHold.reset();
             c.outHp.reset();
             c.bypass1 = c.bypass2 = 0.0;
         }
@@ -253,6 +304,146 @@ namespace roar
         m_vu1 = m_vu2 = 0.0;
         m_heat = 0.0f;
         m_blockingDb = 0.0f;
+        clearPass();
+    }
+
+    void RoarModule::clearPass()
+    {
+        // The pass state only: what was learnt (m_learn, m_raw) is kept.
+        for (size_t c = 0; c < 2; ++c)
+        {
+            m_inHp[c].reset();
+            m_inShelf[c].reset();
+            m_outHp[c].reset();
+            m_outShelf[c].reset();
+        }
+        m_blockIn = m_blockOut = 0.0;
+        m_staticDbPrev = 0.0;
+        m_frameIn = m_frameOut = m_frameT = 0.0;
+        m_frameBlocks = 0;
+    }
+
+    void RoarModule::relearn()
+    {
+        m_learn.s1 = m_learn.s2 = m_learn.so = 0.0;
+        m_learn.seconds = m_learn.evidence = 0.0;
+        m_frameIn = m_frameOut = m_frameT = 0.0;
+        m_frameBlocks = 0;
+        m_haveRaw = false;
+    }
+
+    void RoarModule::restoreLearning (const LevelLearning& l)
+    {
+        const bool finite = std::isfinite (l.corrDb) && std::isfinite (l.s1) && std::isfinite (l.s2) && std::isfinite (l.so)
+                         && std::isfinite (l.seconds) && std::isfinite (l.evidence) && std::isfinite (l.anchorA)
+                         && std::isfinite (l.anchorTone) && std::isfinite (l.anchorMic);
+        m_learn = finite ? l : LevelLearning {};
+        m_learn.corrDb = std::clamp (m_learn.corrDb, -c_correctionBoundDb, c_correctionBoundDb);
+        clearPass();
+        // The ratio the sums hold, as the instance that learnt them had it (so a restored instance
+        // carries on exactly where that one would).
+        m_haveRaw = m_learn.so > 1.0e-14 && m_learn.s1 >= 0.0;
+        m_raw = m_haveRaw ? std::clamp (10.0 * std::log10 (std::max (m_learn.s1, 1.0e-30) / m_learn.so), -c_correctionBoundDb, c_correctionBoundDb)
+                          : 0.0;
+        m_feedSeen = false;   // the feed now is the one it was learnt on
+    }
+
+    void RoarModule::followFeed (int sample)
+    {
+        // Spec 4.9.1 (IN's half): 1 dB, half OUTPUT's rule, because at high Drive the stage's
+        // level depends on the level it is fed: a learn made while IN was still levelling the take
+        // would hold the wrong makeup for the rest of it.
+        constexpr double c_feedMoveDb = 1.0;
+        if (m_feedTrace == nullptr || sample >= m_feedTraceLength)
+            return;
+        const double g = static_cast<double> (m_feedTrace[sample]);
+        if (! std::isfinite (g) || g <= 0.0)
+            return;
+        const double db = 20.0 * std::log10 (g);
+        if (! m_feedSeen)
+        {
+            m_feedSeen = true;
+            m_feedRefDb = db;
+        }
+        else if (std::abs (db - m_feedRefDb) > c_feedMoveDb)
+        {
+            m_feedRefDb = db;
+            relearn();
+        }
+    }
+
+    void RoarModule::relearnLevel() { relearn(); }
+
+    void RoarModule::forgetLevel()
+    {
+        m_learn = LevelLearning {};
+        m_raw = 0.0;
+        relearn();
+    }
+
+    double RoarModule::learnLevel (double staticDb)
+    {
+        constexpr double invN = 1.0 / static_cast<double> (c_controlBlock);
+        const double bin = m_blockIn * invN;
+        const double bout = m_blockOut * invN * std::pow (10.0, m_staticDbPrev / 10.0);   // as the static makeup left it
+        m_blockIn = m_blockOut = 0.0;
+        m_staticDbPrev = staticDb;
+        auto& L = m_learn;
+
+        // A knob move (of the targets) starts a new learn from the held correction.
+        if (! L.anchored || std::abs (m_targetA - L.anchorA) > c_relearnDrive || std::abs (m_targetTone - L.anchorTone) > c_relearnTone
+            || m_targetMic != L.anchorMic)
+        {
+            L.anchorA = m_targetA;
+            L.anchorTone = m_targetTone;
+            L.anchorMic = m_targetMic;
+            L.anchored = true;
+            relearn();
+        }
+
+        const bool gliding = std::abs (m_a - m_targetA) > c_glidingDrive || std::abs (m_tone - m_targetTone) > c_glidingTone
+                          || std::abs (m_mic - m_targetMic) > c_glidingMic;
+        const bool sounding = m_follow && ! gliding && bin > c_soundingFloor
+                           && (L.seconds <= 0.0 || bin * L.seconds > c_soundingWindow * L.s1);
+
+        // 0.1 s frames of sounding power.
+        if (sounding)
+        {
+            m_frameIn += bin * m_blockSeconds;
+            m_frameOut += bout * m_blockSeconds;
+            m_frameT += m_blockSeconds;
+        }
+        if (++m_frameBlocks >= m_frameLength)
+        {
+            if (m_frameT > 0.0)
+            {
+                L.s1 += m_frameIn;
+                L.s2 += m_frameIn * m_frameIn / m_frameT;
+                L.so += m_frameOut;
+                L.seconds += m_frameT;
+                L.evidence = L.s2 > 0.0 ? L.s1 * L.s1 / L.s2 : 0.0;
+                if (L.so > 1.0e-14)
+                {
+                    m_raw = std::clamp (10.0 * std::log10 (L.s1 / L.so), -c_correctionBoundDb, c_correctionBoundDb);
+                    m_haveRaw = true;
+                }
+            }
+            m_frameIn = m_frameOut = m_frameT = 0.0;
+            m_frameBlocks = 0;
+        }
+
+        // Move the correction while learning, on the schedule of the evidence.
+        if (sounding && m_haveRaw && L.evidence >= c_learnStartSeconds && L.evidence < c_learnEndSeconds)
+        {
+            const double rate = (L.evidence < c_learnFastSeconds ? c_rateFastDbPerSecond
+                                 : L.evidence < c_learnMidSeconds ? c_rateMidDbPerSecond : c_rateSlowDbPerSecond) * m_blockSeconds;
+            L.corrDb += std::clamp (m_raw - L.corrDb, -rate, rate);
+        }
+
+        if (! std::isfinite (L.s1) || ! std::isfinite (L.s2) || ! std::isfinite (L.so) || ! std::isfinite (L.corrDb) || ! std::isfinite (m_raw))
+            forgetLevel();
+
+        return m_follow ? L.corrDb : 0.0;
     }
 
     void RoarModule::setParams (const RoarSettings& s)
@@ -271,7 +462,8 @@ namespace roar
         {
             const double tilt = laws::roarToneStrength (a) * t;
             const double bassDb = c_bassMaxDb * (a - tilt);
-            const double trebleDb = c_trebleMaxDb * (a + tilt);
+            const bool b = m_law == 1;
+            const double trebleDb = (b ? c_trebleMaxDb * a * (1.0 - c_lawBTrebleFall * a) : c_trebleMaxDb * a) + c_trebleMaxDb * tilt;
             const double scoopDb = laws::roarScoopDb (a);
 
             const auto couplingTreble = cascade1 (Biquad::highpass1 (m_fs2, c_couplingHz),
@@ -281,7 +473,8 @@ namespace roar
             const auto scoop = Biquad::peaking (m_fs2, c_scoopHz, c_scoopQ, scoopDb);
             const auto trebleTop = Biquad::highShelf (m_fs2, c_trebleHighHz, Biquad::c_butterworthQ, (1.0 - c_trebleLowShare) * trebleDb);
             const double miller1Hz = c_miller1Hz * std::pow (0.5, a);
-            const auto outLp = outputLowpass (m_fs, c_outLpHz * std::pow (c_outLpPerDrive, a));
+            const auto outLp = outputLowpass (m_fs, c_outLpHz * std::pow (b ? c_lawBOutLpPerDrive : c_outLpPerDrive, a));
+            const auto midHold = Biquad::peaking (m_fs, c_lawBMidHz, c_lawBMidQ, b ? c_lawBMidMaxDb * a * a : 0.0);
 
             for (auto& c : m_ch)
             {
@@ -291,6 +484,7 @@ namespace roar
                 c.trebleTop.setCoeffs (trebleTop);
                 c.miller1.setCutoff (miller1Hz);
                 c.outLp.setCoeffs (outLp);
+                c.midHold.setCoeffs (midHold);
             }
             m_designedA = a;
             m_designedTone = t;
@@ -311,6 +505,11 @@ namespace roar
 
     void RoarModule::updateControl()
     {
+        if (const int law = getLawForTests(); law != m_law)
+        {
+            m_law = law;
+            m_designedA = -1.0;   // redesign the stage filters for the other law
+        }
         if (m_snap)
         {
             m_a = m_targetA;
@@ -333,10 +532,13 @@ namespace roar
         designFilters();
         m_kb1 = c_kb1Low + (c_kb1High - c_kb1Low) * m_a;
 
+        const double staticDb = makeupDb (m_a, m_tone);
+        const double correctionDb = learnLevel (staticDb);
+
         Control next;
         next.drive1 = drive1For (m_a);
         next.drive2 = drive2For (m_a);
-        next.makeup = dsp::dbToGain (makeupDb (m_a, m_tone));
+        next.makeup = dsp::dbToGain (staticDb + correctionDb);
         next.bypass2 = 1.0 - c_bypass2PerDrive * m_a;
         m_from = m_snap ? next : m_to;
         m_to = next;
@@ -372,6 +574,8 @@ namespace roar
     void RoarModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& /*voice*/)
     {
         m_fade.captureDry (l, r, n, stereo);
+        const float* feed = m_feedTrace;   // this chunk's only
+        m_feedTrace = nullptr;
         if (! m_fade.isActive())
         {
             m_fade.outputDry (l, r, n, stereo);
@@ -379,6 +583,7 @@ namespace roar
             m_blockingDb = 0.0f;
             return;
         }
+        m_feedTrace = feed;
         if (m_fade.consumeRestart())
         {
             // The wet starts again from clean state, on a fresh control grid with the settings
@@ -392,12 +597,16 @@ namespace roar
         const int numCh = stereo ? 2 : 1;
         float* io[2] = { l, r };
         constexpr double invBlock = 1.0 / static_cast<double> (c_controlBlock);
+        const double invCh = 1.0 / static_cast<double> (numCh);
         bool broken = false;
 
         for (int i = 0; i < n; ++i)
         {
             if (m_ctlPos == 0)
+            {
+                followFeed (i);
                 updateControl();
+            }
 
             const double w = static_cast<double> (m_ctlPos + 1) * invBlock;
             const double d1 = m_from.drive1 + w * (m_to.drive1 - m_from.drive1);
@@ -413,6 +622,8 @@ namespace roar
             {
                 auto& ch = m_ch[static_cast<size_t> (c)];
                 double x = std::clamp (dsp::finiteOrZero (static_cast<double> (io[c][i])), -c_inputLimit, c_inputLimit);
+                const double wIn = m_inShelf[static_cast<size_t> (c)].process (m_inHp[static_cast<size_t> (c)].process (x));
+                m_blockIn += wIn * wIn * invCh;
                 x = ch.micShelf.process (ch.micBell.process (x));
                 ch.os.upsample (static_cast<float> (x), up[c][0], up[c][1]);
             }
@@ -479,7 +690,11 @@ namespace roar
             {
                 auto& ch = m_ch[static_cast<size_t> (c)];
                 float y = ch.os.downsample (up[c][0], up[c][1]);
-                const double out = ch.outHp.process (ch.outLp.process (static_cast<double> (y))) * makeup;
+                const double down = m_law == 1 ? ch.midHold.process (static_cast<double> (y)) : static_cast<double> (y);
+                const double pre = ch.outHp.process (ch.outLp.process (down));
+                const double wOut = m_outShelf[static_cast<size_t> (c)].process (m_outHp[static_cast<size_t> (c)].process (pre));
+                m_blockOut += wOut * wOut * invCh;
+                const double out = pre * makeup;
                 if (! std::isfinite (out))
                     broken = true;
                 io[c][i] = static_cast<float> (out);
@@ -492,7 +707,7 @@ namespace roar
             }
         }
 
-        if (broken || ! std::isfinite (m_env1) || ! std::isfinite (m_env2))
+        if (broken || ! std::isfinite (m_env1) || ! std::isfinite (m_env2) || ! std::isfinite (m_blockIn) || ! std::isfinite (m_blockOut))
         {
             // Never let a non-finite state leak: restart the wet path, output the silence it gives.
             resetWet();
@@ -501,6 +716,7 @@ namespace roar
         }
 
         m_fade.apply (l, r, n, stereo);
+        m_feedTrace = nullptr;
     }
 
     void RoarModule::copyStateFrom (const Module& other)
@@ -517,6 +733,7 @@ namespace roar
         m_mic = o.m_mic;
         m_designedA = o.m_designedA;
         m_designedTone = o.m_designedTone;
+        m_law = o.m_law;
         m_designedMic = o.m_designedMic;
         m_snap = o.m_snap;
         m_from = o.m_from;
@@ -530,11 +747,34 @@ namespace roar
         m_vu2 = o.m_vu2;
         m_heat = o.m_heat;
         m_blockingDb = o.m_blockingDb;
+        m_inHp = o.m_inHp;
+        m_inShelf = o.m_inShelf;
+        m_outHp = o.m_outHp;
+        m_outShelf = o.m_outShelf;
+        m_blockIn = o.m_blockIn;
+        m_blockOut = o.m_blockOut;
+        m_staticDbPrev = o.m_staticDbPrev;
+        m_frameIn = o.m_frameIn;
+        m_frameOut = o.m_frameOut;
+        m_frameT = o.m_frameT;
+        m_frameBlocks = o.m_frameBlocks;
+        m_frameLength = o.m_frameLength;
+        m_blockSeconds = o.m_blockSeconds;
+        m_raw = o.m_raw;
+        m_haveRaw = o.m_haveRaw;
+        m_follow = o.m_follow;
+        m_learn = o.m_learn;
+        m_feedRefDb = o.m_feedRefDb;
+        m_feedSeen = o.m_feedSeen;
     }
 
     void RoarModule::copyLeftStateToRight()
     {
         m_ch[1] = m_ch[0];
+        m_inHp[1] = m_inHp[0];
+        m_inShelf[1] = m_inShelf[0];
+        m_outHp[1] = m_outHp[0];
+        m_outShelf[1] = m_outShelf[0];
         m_fade.copyLeftStateToRight();
     }
 

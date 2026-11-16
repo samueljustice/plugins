@@ -1258,9 +1258,12 @@ namespace
         // phase of a pure tone, and the 5 ms frames of these runs compare against fresh renders
         // that are not phase-locked to the render: those runs are reported, not gated. The fade's
         // level on them is gated below, against the exact continuation of the previous order.
+        // ROAR is left out of the gated chain too: its learnt makeup starts a new learn whenever the
+        // modules before it change, so a chain reordered every 200 ms holds the level that the fresh
+        // renders it is compared with learn away from (a level stage, not the crossfade).
         const Values steady { { Params::growlOn, 0.0f }, { Params::shimmerOn, 0.0f }, { Params::swirlOn, 0.0f },
                               { Params::pitchOn, 0.0f }, { Params::ensembleOn, 0.0f }, { Params::subOn, 0.0f },
-                              { Params::overtoneOn, 0.0f } };
+                              { Params::overtoneOn, 0.0f }, { Params::roarOn, 0.0f } };
 
         struct Run { const char* name; bool sine; bool gated; Values values; };
         const std::vector<Run> runs {
@@ -2549,6 +2552,7 @@ namespace
                 roar::RoarModule roarModule;
                 roarModule.prepare(rate, 256);
                 roarModule.setParams(roar::RoarSettings {});
+                roarModule.setLevelFollowForTests(false);   // the static response (the learnt makeup would level each tone)
                 roarModule.reset();
                 const auto out = runModuleMono(roarModule, makeSine(rate, 0.5, hz, 0.003), 256, [](int) { return roar::VoiceFrame {}; }, [](int) {});
                 return toDb(toneAmplitude(out, rate, hz, static_cast<int>(0.25 * rate), static_cast<int>(0.5 * rate)) / 0.003);
@@ -6545,9 +6549,11 @@ namespace
                     check(addedGr[static_cast<size_t>(r)] <= c_chamberMaxAddedGrDb,
                           juce::String(sourceName) + " " + roomName(r) + ": CHAMBER at its worst corner adds "
                               + juce::String(addedGr[static_cast<size_t>(r)], 1) + " dB of limiting (<= " + juce::String(c_chamberMaxAddedGrDb, 1) + ")");
-                // The recorded rooms may cost up to 1 dB more than the worst designed room: these
-                // p95 figures move by 0.2 to 0.3 dB with any change ahead of CHAMBER (PITCH is on
-                // in Init), in opposite directions for different rooms.
+                // The recorded rooms may cost up to 1 dB more than the worst designed room. A relative
+                // margin moves with what runs before CHAMBER in Init, not only with the rooms: these p95
+                // figures move by 0.2 to 0.3 dB with any change ahead of CHAMBER (PITCH on in Init;
+                // DE-ESS and TAME keeping more top; ROAR's learnt level on a first pass), in opposite
+                // directions for different rooms.
                 for (int r = numFirstRooms; r < ChamberBank::numRooms; ++r)
                     check(addedGr[static_cast<size_t>(r)] <= firstEight + 1.0,
                           juce::String(sourceName) + " " + roomName(r) + " costs the limiter no more than the first eight rooms");
@@ -8492,6 +8498,7 @@ namespace
     //==========================================================================
     // Levels and repeatability (IN's take gain, OUTPUT's match, Mix, the kept state).
 #include "LevelTests.h"
+#include "StageB3Tests.h"
 
     //==========================================================================
     // PITCH, the voice stream and the fixes that ride along with them.
@@ -9152,7 +9159,7 @@ namespace
             { "gate depth", [](double u) { return -laws::gateDepthDb(u); }, 0.0, 30.0 },
             { "gate ratio", laws::gateRatio, 1.5, 5.0 },
             { "de-ess range", [](double u) { return -laws::deessRangeDb(u); }, 0.0, 24.0 },
-            { "de-ess threshold shift", laws::deessThresholdShiftDb, 0.0, 12.0 },
+            { "de-ess threshold shift", laws::deessThresholdShiftDb, 0.0, 4.0 },
             { "detail depth", laws::detailDepthDb, 0.0, 34.0 },
             { "gravel", laws::gravelAmount, 0.0, 1.0 },
             { "ring AM", laws::ringAmAmount, 0.0, 1.0 },
@@ -9261,14 +9268,16 @@ namespace
                 }
                 // Gate: the room-tone cut matches up to the 15 dB the previous law could reach.
                 near(laws::gateDepthDb(cv::gate(old) / 100.0), -std::min(-laws::v1::gateDepthDb(u), 15.0), 1e-6, "gate", old);
-                // De-ess: the previous range (with the ROAR link) where the laws agree (up to 6 dB, 40 %);
-                // beyond, a measured map that never goes past the previous reduction's ceiling.
+                // De-ess: the previous range (with the ROAR link) as a position on the split-band law
+                // (-r / 15 where the laws agree, up to 6 dB, 40 %; beyond, a measured map that never goes
+                // past the previous reduction's ceiling), then the measured map onto the shelf law.
                 for (const double drive : { 0.0, 50.0, 100.0 })
                 {
                     const double r = laws::v1::deessRangeDb(u, true, drive / 100.0), v = cv::deess(old, true, drive);
+                    near(v, cv::deessBaseToShelf(cv::deessBasePositionForOldRange(r)), 1e-9, "de-ess", old);
                     if (r >= -6.0)
-                        near(laws::deessRangeDb(v / 100.0), r, 1e-6, "de-ess", old);
-                    else if (! (v > 40.0 && v <= 55.61))
+                        near(cv::deessBasePositionForOldRange(r), -r / 15.0 * 100.0, 1e-6, "de-ess (base position)", old);
+                    else if (! (v > cv::deessBaseToShelf(40.0) && v <= cv::deessBaseToShelf(55.61)))
                         near(v, 48.0, 7.6, "de-ess (measured map)", old);
                 }
                 // Roar: the first stage's drive matches (up to the previous top).
@@ -9371,7 +9380,8 @@ namespace
                 };
                 expect(Params::cleanContain, cv::contain(o[0]));
                 expect(Params::cleanGate, cv::gate(o[1]));
-                expect(Params::deess, cv::deess(o[2], old.roarOn, o[11]));
+                // (De-ess: still the position on the split-band law; the preset pass moves it onto the shelf law.)
+                expect(Params::deess, cv::deessBasePositionForOldRange(laws::v1::deessRangeDb(o[2] / 100.0, old.roarOn, o[11] / 100.0)));
                 expect(Params::detailLow, cv::detail(o[3]));
                 expect(Params::detailHigh, cv::detail(o[4]));
                 expect(Params::gravel, cv::gravel(o[5]));
@@ -9693,6 +9703,7 @@ int main(int argc, char* argv[])
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },
         { "levelsrep", testLevelsRep },
+        { "stageb3", testStageB3 },
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
         { "voicedsp", testVoiceModules },

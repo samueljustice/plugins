@@ -80,6 +80,42 @@ namespace roar
         std::atomic<double> levelOutGainRefDb { 0.0 };  // IN's gain when the data began
         std::atomic<int> levelOutHaveKey { 0 };
         std::atomic<std::uint64_t> levelOutKey { 0 };   // the settings key the data belongs to
+        // ROAR's learnt makeup (RoarModule::LevelLearning::toValues), published as one consistent
+        // set: levelRoarSeq is odd while the audio thread writes it (readLevelRoar retries).
+        static constexpr int numLevelRoar = 10;
+        std::atomic<std::uint32_t> levelRoarSeq { 0 };
+        std::array<std::atomic<double>, numLevelRoar> levelRoar {};
+
+        /** Audio thread (the only writer). */
+        void publishLevelRoar (const std::array<double, numLevelRoar>& v)
+        {
+            const auto s = levelRoarSeq.load (std::memory_order_relaxed);
+            levelRoarSeq.store (s + 1, std::memory_order_relaxed);
+            std::atomic_thread_fence (std::memory_order_release);
+            for (size_t k = 0; k < v.size(); ++k)
+                levelRoar[k].store (v[k], std::memory_order_relaxed);
+            levelRoarSeq.store (s + 2, std::memory_order_release);
+        }
+
+        /** Any other thread: false when no consistent set could be read (nothing published yet, or
+            the writer kept overlapping the read). */
+        bool readLevelRoar (std::array<double, numLevelRoar>& v) const
+        {
+            for (int attempt = 0; attempt < 64; ++attempt)
+            {
+                const auto s1 = levelRoarSeq.load (std::memory_order_acquire);
+                if (s1 == 0)
+                    return false;
+                if ((s1 & 1u) != 0)
+                    continue;
+                for (size_t k = 0; k < v.size(); ++k)
+                    v[k] = levelRoar[k].load (std::memory_order_relaxed);
+                std::atomic_thread_fence (std::memory_order_acquire);
+                if (levelRoarSeq.load (std::memory_order_relaxed) == s1)
+                    return true;
+            }
+            return false;
+        }
 
         // Hits in the output (HitDetector; the picture's ripples). hits is the count so far (wraps
         // at hitCountMask); hitLog keeps the last few hits, each packed with its own count, so a
