@@ -181,6 +181,10 @@ namespace roar
         m_activeTrace.assign (traceSize, 0.0f);
 
         m_detector.prepare (m_fs);
+        // The detector answers for the stretch it has just analysed, about 40 ms back: the stream
+        // says so, and the delays behind a module with latency (PITCH's 30 ms) use that up
+        // instead of adding to it.
+        m_stream.setLateness (m_detector.getReactionSamples());
         m_stream.prepare (maxBlock);
         reset();
     }

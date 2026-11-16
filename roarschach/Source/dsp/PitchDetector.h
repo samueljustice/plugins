@@ -58,6 +58,9 @@ namespace roar
 
         /** How far back (full-rate samples) the centre of the analysed window lies. */
         int getAnalysisDelaySamples() const { return m_analysisDelay; }
+        /** The whole analysed stretch (full-rate samples): how long after an onset the tracker can
+            answer, so how late its answers are against the audio. About 40.4 ms at every rate. */
+        int getReactionSamples() const { return (m_window + m_tauMax) * m_decimation; }
 
         static constexpr float c_minFrequency = 50.0f;
         static constexpr float c_maxFrequency = 1000.0f;

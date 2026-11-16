@@ -116,6 +116,10 @@ namespace roar
 
         void fill (const VoiceFrame& f);
 
+        /** How late the producer's frames are against its audio (samples): every chunk starts with
+            this skew, so the delays downstream use it up before they add any (a constant of the rate). */
+        void setLateness (int samples) { m_lateness = samples > 0 ? samples : 0; }
+
         /** True when chunk sample i is the first sample of a frame on the global grid. */
         bool isFrameStart (int sample) const { return ((m_startOffset + sample) & (c_voiceFrameSize - 1)) == 0; }
 
@@ -128,6 +132,7 @@ namespace roar
         std::int64_t m_firstFrame = 0;
         std::int64_t m_clock = 0;
         int m_skew = 0;
+        int m_lateness = 0;
     };
 
     /**

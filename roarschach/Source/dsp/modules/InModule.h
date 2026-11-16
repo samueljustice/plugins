@@ -57,8 +57,9 @@ namespace roar
      * the pass state (histogram, floor, windows) starts again at every beginPass() and reset().
      *
      * The detector runs on IN's output and fills the VoiceStream (one frame per 32 samples on the
-     * sample clock); getVoiceView() hands it to the first module after process(). Its estimate
-     * lags the audio by the detector's analysis delay (about 10 ms).
+     * sample clock); getVoiceView() hands it to the first module after process(). Its answers
+     * come once the detector has seen the whole stretch it analyses (about 40 ms), and the stream
+     * says that much skew, so a module behind PITCH reads the pitch at most about 10 ms late.
      *
      * process(): `stereo` says whether the host input is stereo (r is read, never written); the
      * mono result is written to l. Latency 0. No allocation after prepare(), NaN-safe.

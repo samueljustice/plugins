@@ -9667,6 +9667,7 @@ int main(int argc, char* argv[])
         { "silence", pitchbatch::testSilence },
         { "reset", pitchbatch::testResetEqualsFresh },
         { "in", pitchbatch::testInClamp },
+        { "pitchstream", pitchbatch::testPitchStream },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },
