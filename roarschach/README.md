@@ -58,7 +58,7 @@ The order is saved with the session and with presets, and the host can automate 
 
 <img src="docs/strip-dragging.png" alt="GROWL lifted out of the second row and carried into the first, with the space it will drop into outlined and the other tiles moved aside" width="1744">
 
-<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu under a RING MODES heading: Carrier (Sine), Track (Fixed), Mode (Ring) and Body (Box), each opening its own list" width="280">
+<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu, one list under four headings: RING CARRIER with Sine (ticked), Triangle and Square; RING TRACK with Fixed (ticked) and Follow; RING MODE with Ring (ticked) and AM; RING BODY with Off, Box (ticked) and Can" width="280">
 
 ### The output stage
 
@@ -106,7 +106,7 @@ Right-click a knob for **Reset to Default** (it shows the default, and is greyed
 
 **Names in the host.** Each parameter's name in the host starts with its module: PITCH Size, ROAR Drive, ENSEMBLE Width, OUTPUT Clip Shape, IN Gain. A host that shows short names gets the longest form that fits, such as PI Size.
 
-<img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks." width="583">
+<img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks. Shift-drag for fine control. The mouse wheel moves it in small steps, with Shift in finer ones. Right-click to reset it or type a value; double-click also resets it." width="618">
 
 ### The dice
 
@@ -114,9 +114,9 @@ Three kinds of die roll new settings: one beside the preset name, one after the 
 
 <img src="docs/dice-preset-tooltip.png" alt="The preset bar showing Kaiju, with the pointer on the die after the next-preset arrow and its tooltip: Loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="456">
 
-<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, so the level stays safe." width="546">
+<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. Shift-click to roll only the modules that are on: every On switch stays as it is. A module held from its die's right-click menu is left as it is. The module order, IN and OUTPUT stay as they are, so the level stays safe. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="537">
 
-<img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are." width="556">
+<img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are. Right-click it and choose Hold in Randomise All to keep PITCH as it is when Randomise All rolls the rest. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="556">
 
 Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. A preset loaded from the preset bar (the list, the arrows or the preset die) is a step in the same history (see [Presets](#presets)); a preset or session loaded any other way, from the host's program list or a session recall, even the same one again, ends it. The host sees every control a roll changes, so it records the roll and its automation follows.
 
@@ -125,13 +125,15 @@ Each roll is one step you can take back: right-click any die for **Undo** and **
 - **A module's die** (beside its mode chip): new settings for that module's knobs and modes only. Its On switch and its place in the chain stay as they are.
 - **Hold in Randomise All**: right-click a module's die and choose it to keep that module (its On switch and its settings) as it is when Randomise All rolls the rest. A held die carries a small ink pin on its corner. Held modules that are on count towards the three to seven. The holds are saved with the session and stay through preset loads; they are not parameters, so the host does not record them.
 
+<img src="docs/dice-held.png" alt="PITCH held: its die carries a small ink pin on its top corner, beside CHAMBER's plain die, and the die's right-click menu shows Undo Roll, Redo Roll and Hold in Randomise All (ticked)" width="331">
+
 <img src="docs/dice-undo-menu.png" alt="The menu from right-clicking RANDOMISE ALL straight after a roll: Undo Roll All, and Redo Roll greyed out" width="200">
 
-One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE are on; after, CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are, every module has new settings, a dot follows the preset name, and the ink blot has taken a new shape and the window a new colour. The module order, IN and OUTPUT are as they were.
+One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB are on; after, CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are, every module has new settings, a dot follows the preset name, and the ink blot has taken a new shape and the window a new colour. The module order, IN and OUTPUT are as they were.
 
-<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE switched on, a dark mirrored ink blot with two heavy wings hanging low in pale blue-grey cloud, and the sheet and controls in the same cool grey" width="880">
+<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB switched on, a dark mirrored ink blot with two heavy legs hanging low and thin tendrils curling out to the sides, in pale blue-grey cloud with a warm blush, and the sheet and controls in the same cool grey" width="880">
 
-<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: a dot follows the name Big Bad Narrator, and CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are on with new settings while the other modules are off; the cloud has drifted to a clear blue lit with straw-yellow light, the sheet and the controls' accent have turned blue with it, and the blot has gathered into a broad mass with wide, smoky wings" width="880">
+<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: a dot follows the name Big Bad Narrator, and CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are on with new settings while the other modules are off; the cloud has drifted to a clear blue lit with straw-yellow light, the sheet and the controls' accent have turned blue with it, and the blot has gathered into two broad, smoky wings either side of a small dark head" width="880">
 
 A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
 
@@ -178,7 +180,7 @@ The gate closes on room tone that sits at least 30 dB under the loud part of the
 
 ### DE-ESS
 
-<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 51% in Split" width="151">
+<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 54% in Split" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -240,7 +242,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### GROWL
 
-<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 27 Hz, Rattle and Warm" width="151">
+<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 24 Hz, Rattle and Warm" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -314,7 +316,7 @@ The readout shows the layer's frequency. Each phrase after a pause (about 150 ms
 
 ### OVERTONE
 
-<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 10% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="151">
+<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 35% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -345,11 +347,11 @@ The names in brackets are the ones the host shows. The mode chip shows the room;
 
 <img src="docs/chamber-off.png" alt="CHAMBER Off, as in Init: a hollow light, open knobs at AMT 50%, TAIL 40%, EDGE 30% and WIDE 35%, the chip reading CONCRETE and the footer OFF" width="151"> <img src="docs/chamber-simple-size.png" alt="CHAMBER in Simple Size: AMT 30%, TAIL 30%, EDGE 15%, WIDE 70%, the chip reading RESONANT (Resonant Chamber, with the Small speaker and Medium Boom in its menu), the footer showing the room ringing for 0.62 s and the ST tag" width="151"> <img src="docs/chamber-tin-can-drone.png" alt="CHAMBER in Tin Can Drone: AMT 75%, TAIL 90%, EDGE 40%, WIDE 30%, the chip reading TIN BOOTH (with the Tiny speaker and Boom Off), the footer showing 0.82 s and the ST tag" width="151"> <img src="docs/panel-chamber.png" alt="CHAMBER in Iron Tyrant, sixth in the chain: AMT 60%, TAIL 65%, EDGE 60%, WIDE 50%, the chip reading STEEL BOX (with the Horn speaker and Heavy Boom), the footer showing the room's decay and the ST tag" width="151">
 
-<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its ROOM list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; the main menu, under CHAMBER MODES, lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
+<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu, one list under three headings: CHAMBER ROOM with Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; CHAMBER SPEAKER with Tiny, Small (ticked) and Horn; CHAMBER BOOM with Off, Light, Medium (ticked) and Heavy" width="441">
 
-<img src="docs/chamber-menu-speaker.png" alt="CHAMBER's SPEAKER list: Tiny, Small (ticked) and Horn" width="387"> <img src="docs/chamber-menu-boom.png" alt="CHAMBER's BOOM list: Off, Light, Medium (ticked) and Heavy" width="376">
+<img src="docs/chamber-menu-speaker.png" alt="The CHAMBER SPEAKER section of the same list: Tiny, Small (ticked) and Horn" width="224"> <img src="docs/chamber-menu-boom.png" alt="The CHAMBER BOOM section at the foot of the same list, above the mode chip: Off, Light, Medium (ticked) and Heavy" width="224">
 
-<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's EDGE knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more." width="591"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="353">
+<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's EDGE knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more. Shift-drag for fine control. The mouse wheel moves it in small steps, with Shift in finer ones. Right-click to reset it or type a value; double-click also resets it." width="601"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="353">
 
 | Room | Character | Decay (about) |
 |---|---|---|
@@ -375,7 +377,7 @@ Every room has headroom at every setting: each was measured at the extremes of e
 
 ### OUTPUT
 
-<img src="docs/panel-out.png" alt="The OUTPUT tile with Push +10.5 dB, Ceiling -2.5 dB, Clip 3 dB, Shape Soft, Attack 2 ms, Release 60 ms, Auto on and Mix 100%, with the output, gain reduction and clip meters" width="292">
+<img src="docs/panel-out.png" alt="The OUTPUT tile with the MATCH switch on in its header, Push +8.0 dB, Ceiling -2.5 dB, Clip 3 dB, Shape Soft, Attack 2 ms, Release 60 ms, Auto on and Mix 100%, with the output, gain reduction and clip meters" width="292">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
