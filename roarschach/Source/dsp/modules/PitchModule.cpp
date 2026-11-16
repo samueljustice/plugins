@@ -110,6 +110,20 @@ namespace roar
         constexpr double c_airLevelFloor = 1.0e-10;
         constexpr double c_airFadeSeconds = 0.008;
 
+        // The reader (single-head resampling path). A splice crossfades (sin^2) from the previous place
+        // to the new over c_spliceSeconds. Nominal travel: c_readerBound x min (1, |1 - rate| / 0.1)
+        // either side of the output time. Splices are steered so the head reaches the next onset
+        // c_spliceGoalSeconds after the output time does, never move a head across a protected
+        // stretch, are not made shorter than c_minJumpSeconds, and are forced only past the hard
+        // limits (c_hardBehind behind the output time, c_hardAhead ahead of it).
+        constexpr double c_spliceSeconds = 0.004;
+        constexpr double c_readerBound = 0.010;
+        constexpr double c_spliceGoalSeconds = 0.001;
+        constexpr double c_steerTolerance = 0.001;
+        constexpr double c_lastChanceSeconds = 0.001;
+        constexpr double c_minJumpSeconds = 0.002;
+        constexpr double c_hardBehind = 0.020, c_hardAhead = 0.016;
+
         // Onset detector (input time, on the mid tilted towards the band where bursts live).
         constexpr double c_onsetHopSeconds = 0.002;
         constexpr double c_onsetRise = 7.9432823472428150;    // 9 dB over the loudest of the 8 hops before (16 ms)
@@ -595,6 +609,11 @@ namespace roar
         c.prevVoiced = false;
         c.voicedShare = 0.0;
         c.airMix = airTarget (c.writePos - 1 - m_psolaLatency);   // no fade from a stale value
+        for (auto& rd : c.readers)
+        {
+            rd.started = false;   // each reader starts again on the output time
+            rd.xfLeft = 0;
+        }
 
         for (auto& ch : m_body)
             for (auto& b : ch)
@@ -1673,8 +1692,8 @@ namespace roar
         c.airMix = target > c.airMix ? std::min (target, c.airMix + m_airStep) : std::max (target, c.airMix - m_airStep);
         const bool needed = tapeWeight > 0.0f;
         float vl = 0.0f, vr = 0.0f, al = 0.0f, ar = 0.0f;
-        readTape (c.tapes[0], followRate(), now, needed && c.airMix < 1.0f, vl, vr, stereo);
-        readTape (c.tapes[1], c.rate, now, needed && c.airMix > 0.0f, al, ar, stereo);
+        readResampled (0, followRate(), now, needed && c.airMix < 1.0f, vl, vr, stereo);
+        readResampled (1, c.rate, now, needed && c.airMix > 0.0f, al, ar, stereo);
         const float tl = vl + c.airMix * (al - vl);
         const float tr = vr + c.airMix * (ar - vr);
         yl += tapeWeight * tl;
@@ -1763,8 +1782,10 @@ namespace roar
         return l * norm;
     }
 
-    double PitchModule::alignTapeHead (double other, double nominal, double share, bool stereo) const
+    double PitchModule::alignTapeHead (double other, double nominal, double share, bool stereo, double* matchOut) const
     {
+        if (matchOut != nullptr)
+            *matchOut = 0.0;
         // The offset from `nominal` (samples, fractional) at which the band-limited input around
         // the wrapping head best matches the input around `other`, the position of the head that
         // is at full weight; 0 where nothing matches. Coarse grid, then single samples, then the
@@ -1829,6 +1850,8 @@ namespace roar
 
         if (bestMatch < c_tapeAlignMatch)
             return 0.0;
+        if (matchOut != nullptr)
+            *matchOut = bestMatch;
 
         double offset = static_cast<double> (best);
         if (best > lo && best < hi)
@@ -1933,6 +1956,202 @@ namespace roar
         const float norm = 1.0f + static_cast<float> (share) * (1.0f / std::sqrt (std::max (power, 0.25f)) - 1.0f);
         left = (w[0] * hl[0] + w[1] * hl[1]) * norm;
         right = (w[0] * hr[0] + w[1] * hr[1]) * norm;
+    }
+
+    void PitchModule::readResampled (int which, double rate, double now, bool needed, float& left, float& right, bool stereo)
+    {
+        Core& c = m_core;
+       #if ROARSCHACH_PITCH_READER
+        readReader (c.readers[static_cast<size_t> (which)], rate, now, needed, left, right, stereo);
+       #else
+        readTape (c.tapes[static_cast<size_t> (which)], rate, now, needed, left, right, stereo);
+       #endif
+    }
+
+    void PitchModule::decideSplice (Reader& t, double rate, double now, bool stereo)
+    {
+        // Two rules decide every splice (only while no crossfade runs): 1. arrive at the next onset
+        // on time; 2. stay within the nominal travel without reading a protected stretch twice or
+        // skipping one, waiting (up to the hard limits) where a jump would.
+        Core& c = m_core;
+        const double fs = m_fs;
+        const int xf = std::max (8, static_cast<int> (std::lround (c_spliceSeconds * fs)));
+        const double span = rate * xf;                       // input one crossfade covers
+        const double lead = c_onsetLeadSeconds * fs;
+        const double newest = static_cast<double> (c.writePos - 1);
+        const double share = std::min (1.0, std::abs (1.0 - rate) / c_tapeFullDeviation);
+        const double bound = c_readerBound * fs * share;
+        const double lag = now - t.pos;
+        const auto protEnd = [&] (const Onset& o) { return o.end >= 0 ? static_cast<double> (o.end) : newest + 1.0e9; };
+        const auto start = [&] (double target, float join)
+        {
+            t.oldPos = t.pos;
+            t.pos = target;
+            t.xfLen = t.xfLeft = xf;
+            t.join = join;
+            ++c.splices;
+        };
+
+        // 1. Arrive at the next onset on time: the place from which a head moving at `rate`
+        // reaches it 1 ms after the output time does.
+        const Onset* next = nullptr;
+        double prevEnd = -1.0e18;
+        for (const Onset& o : c.onsets)
+        {
+            if (o.pos < 0)
+                continue;
+            if (static_cast<double> (o.pos) - lead > t.pos)
+            {
+                if (next == nullptr || o.pos < next->pos)
+                    next = &o;
+            }
+            else
+                prevEnd = std::max (prevEnd, protEnd (o));
+        }
+        if (next != nullptr)
+        {
+            const double edge = static_cast<double> (next->pos) - lead;
+            const double toOnset = static_cast<double> (next->pos) - now;
+            const double goal = c_spliceGoalSeconds * fs;
+            double target = toOnset + goal > 0.0 ? static_cast<double> (next->pos) - rate * (toOnset + goal) : edge - span - 2.0;
+            target = std::min (target, edge - span - 1.0);
+            if (std::abs (t.pos - target) <= c_steerTolerance * fs)
+                return;   // on its way to the onset: nothing may move it now
+            const bool outside = lag > bound + 0.5 || lag < -bound - 0.5;
+            if (next->pos != t.handledOnset
+                && (outside || std::min (edge - t.pos, edge - target) - span <= rate * (xf + c_lastChanceSeconds * fs)))
+            {
+                t.handledOnset = next->pos;
+                if (t.pos >= prevEnd && target >= prevEnd && edge - t.pos - span >= 0.0 && target + span + c_readAhead < newest)
+                {
+                    start (target, 0.0f);
+                    ++c.steered;
+                    return;
+                }
+            }
+        }
+
+        // 2. Stay in bounds.
+        const bool behind = lag > bound + 0.5, ahead = lag < -bound - 0.5;
+        if (! behind && ! ahead)
+            return;
+        double target = behind ? now + bound : now - bound;
+        const bool hard = lag > c_hardBehind * fs || lag < -c_hardAhead * fs;
+        bool blocked = false;
+        if (target > t.pos)
+        {
+            // Forward: nothing protected may be skipped or cut by a crossfade.
+            const Onset* first = nullptr;
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0 && protEnd (o) > t.pos && static_cast<double> (o.pos) - lead < target + span)
+                    if (first == nullptr || o.pos < first->pos)
+                        first = &o;
+            if (first != nullptr)
+            {
+                const double edge = static_cast<double> (first->pos) - lead;
+                if (t.pos + span >= edge)
+                    blocked = true;
+                else
+                    target = std::min (target, edge - span - 1.0);
+            }
+        }
+        else
+        {
+            // Back: nothing protected may be read twice.
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0 && static_cast<double> (o.pos) - lead <= t.pos + span && protEnd (o) >= target)
+                {
+                    if (protEnd (o) >= t.pos)
+                        blocked = true;
+                    else
+                        target = std::max (target, protEnd (o) + 1.0);
+                }
+        }
+        // A jump shorter than 2 ms is not made (where the travel itself is longer than 1 ms:
+        // near rate 1 every jump is short).
+        if (std::abs (target - t.pos) < c_minJumpSeconds * fs && bound > 0.001 * fs)
+            blocked = true;
+        if (blocked)
+        {
+            if (! hard)
+                return;
+            target = behind ? now + bound : now - bound;
+            ++c.forced;
+        }
+        target = std::min (target, newest - span - c_readAhead - 1.0);
+
+        // Where the waveform matches, the head lands there, carrying its fraction of a sample
+        // (the match is found between whole samples), so periodic sound stays periodic.
+        double match = 0.0;
+        const double offset = alignTapeHead (t.pos, target, share, stereo, &match);
+        double landing = target;
+        if (offset != 0.0 && ! blocked)
+        {
+            landing = std::round (target) + offset + (t.pos - std::round (t.pos));
+            bool ok = landing + span + c_readAhead < newest;
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0)
+                {
+                    const double lo = static_cast<double> (o.pos) - lead, hi = protEnd (o);
+                    if (std::min (t.pos, landing) < hi && std::max (t.pos, landing) + span > lo)
+                        ok = false;
+                }
+            if (! ok)
+            {
+                landing = target;
+                match = 0.0;
+            }
+        }
+        else
+            match = 0.0;
+        start (landing, match > 0.0 ? 1.0f : 0.0f);
+    }
+
+    void PitchModule::readReader (Reader& t, double rate, double now, bool needed, float& left, float& right, bool stereo)
+    {
+        // The resampling path as one read head at `rate` (see decideSplice for where it jumps).
+        // At rate 1 the travel is 0 and the head sits on the output time: the aligned input.
+        Core& c = m_core;
+        if (! t.started)
+        {
+            t.pos = now;
+            t.started = true;
+        }
+        if (t.xfLeft == 0)
+            decideSplice (t, rate, now, stereo);
+
+        if (needed)
+        {
+            const double newest = static_cast<double> (c.writePos - 1);
+            if (std::max (t.pos, t.xfLeft > 0 ? t.oldPos : t.pos) + c_readAhead > newest + 1.0e-6)
+                ++c.readsPastNewest;
+            float r1 = 0.0f;
+            const float l1 = readRings (t.pos, rate, r1, stereo);
+            if (t.xfLeft > 0)
+            {
+                float r0 = 0.0f;
+                const float l0 = readRings (t.oldPos, rate, r0, stereo);
+                const double u = 1.0 - static_cast<double> (t.xfLeft) / static_cast<double> (t.xfLen);
+                const float w1 = 1.0f - window (u);   // sin^2 (pi u / 2)
+                const float w0 = 1.0f - w1;
+                // Like joined to like: a plain crossfade; unrelated sound keeps its power.
+                const float power = w0 * w0 + w1 * w1 + 2.0f * t.join * w0 * w1;
+                const float norm = 1.0f / std::sqrt (std::max (power, 0.25f));
+                left = (w0 * l0 + w1 * l1) * norm;
+                right = (w0 * r0 + w1 * r1) * norm;
+            }
+            else
+            {
+                left = l1;
+                right = r1;
+            }
+        }
+        t.pos += rate;
+        if (t.xfLeft > 0)
+        {
+            t.oldPos += rate;
+            --t.xfLeft;
+        }
     }
 
     float PitchModule::window (double u) const

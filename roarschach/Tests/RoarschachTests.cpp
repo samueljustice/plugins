@@ -2096,10 +2096,16 @@ namespace
             // The resampling path alone: the same vowel far below the level at which marks are made,
             // so every grain is unvoiced. Its two read heads are joined where the waveform matches,
             // so periodic sound does not comb (heads at unrelated places: 8 dB at -5 st, 14 dB at +3).
+            // With the single-head reader (ROARSCHACH_PITCH_READER), whose splices land where the
+            // waveform matches and carry the head's fraction of a sample, the path stays as
+            // periodic as the input: 60 dB at -5 and -12 st, 40 dB at +3 st.
             {
                 constexpr int upPeriod = 367;
                 const double upF0 = fs / (upPeriod * std::exp2(3.0 / 12.0));
-                const struct { float semitones; double f0; int period; } cases[] { { -5.0f, downF0, downPeriod }, { 3.0f, upF0, upPeriod } };
+                const double deepF0 = fs / (downPeriod * std::exp2(-12.0 / 12.0));
+                const bool reader = roar::PitchModule::usesReader();
+                const struct { float semitones; double f0; int period; double limit; } cases[] {
+                    { -5.0f, downF0, downPeriod, reader ? 60.0 : 30.0 }, { 3.0f, upF0, upPeriod, reader ? 40.0 : 30.0 }, { -12.0f, deepF0, downPeriod, reader ? 60.0 : 30.0 } };
                 for (const auto& c : cases)
                 {
                     const auto quiet = makeVowel(c.f0, 2.6, 2.0e-6);
@@ -2108,7 +2114,7 @@ namespace
                     const double hnr = harmonicsToNoise(out, from, to, c.period);
                     std::printf("  resampling path alone, %+.0f st Follow: harmonics-to-noise %.1f dB\n", static_cast<double>(c.semitones), hnr);
                     check(grains == 0, "the quiet vowel makes no voiced grains");
-                    check(hnr >= 30.0, "resampling path on a steady vowel, harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= 30)");
+                    check(hnr >= c.limit, "resampling path on a steady vowel, harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= " + juce::String(c.limit, 0) + ")");
                 }
             }
 
@@ -9675,6 +9681,7 @@ int main(int argc, char* argv[])
         { "pitch", pitchbatch::testPitchTail },
         { "pitch", pitchbatch::testKeepHandOver },
         { "pitchsplice", pitchbatch::testOnsetDetector },
+        { "pitchsplice", pitchbatch::testSplices },
         { "levelsin", testLevelsIn },
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },

@@ -15,6 +15,12 @@
 #include <utility>
 #include <vector>
 
+// The single-head reader for the resampling path (consonant-safe splices). 0 keeps the two-head
+// path (A / B renders from one tree); the switch goes once the reader is accepted by ear.
+#ifndef ROARSCHACH_PITCH_READER
+ #define ROARSCHACH_PITCH_READER 0
+#endif
+
 namespace roar
 {
     /** PITCH settings, filled once per chunk by the processor (spec §5.2, §7). */
@@ -143,6 +149,13 @@ namespace roar
         /** Onsets found since the last reset, and the last c_maxOnsets of them (oldest first; input
             sample positions counted from the reset, end -1 while not known). */
         std::uint64_t getOnsetCount() const { return m_core.onsetCount; }
+        /** The reader's splices, those steered to an onset, those forced by the hard limits, and
+            reads that would have passed the newest input (must stay 0). */
+        std::uint64_t getSplices() const { return m_core.splices; }
+        std::uint64_t getSteeredSplices() const { return m_core.steered; }
+        std::uint64_t getForcedSplices() const { return m_core.forced; }
+        std::uint64_t getReadsPastNewest() const { return m_core.readsPastNewest; }
+        static constexpr bool usesReader() { return ROARSCHACH_PITCH_READER != 0; }
         /** Test hook: -1 the air decision as measured, 0 never air, 1 always air. */
         void setAirForTests (int mode) { m_airForTests = mode; }
         int getNumOnsetsKept() const { return static_cast<int> (std::min<std::uint64_t> (m_core.onsetCount, c_maxOnsets)); }
@@ -176,6 +189,17 @@ namespace roar
             std::array<double, 2> offset {};                 // per head: samples from its nominal place, set at its wrap
             std::array<double, 2> offsetShare {};            // the sweep share that offset was chosen at
             double xy = 0.0, xx = 0.0, yy = 0.0;             // running head correlation
+        };
+
+        /** The single-head form of the resampling path (readReader): one head reading at a rate,
+            moved by splices (4 ms crossfades) placed so onsets come out once and on time. */
+        struct Reader
+        {
+            double pos = 0.0, oldPos = 0.0;   // the head, and the one fading out during a splice
+            int xfLeft = 0, xfLen = 1;
+            float join = 0.0f;                // 1: the splice joins matched waveform (plain crossfade)
+            std::int64_t handledOnset = -1;   // the onset steering has acted on (or given up on)
+            bool started = false;
         };
 
         /** An onset found at input time: [pos - 2 ms, end] is protected (end < 0: not known yet). */
@@ -237,6 +261,7 @@ namespace roar
             // ratio and Size), [1] the air read at phi. airMix (0..1) crossfades from the first to
             // the second; it is 1 where the two rates are equal (one path) or the input is air.
             std::array<Tape, 2> tapes {};
+            std::array<Reader, 2> readers {};
             float airMix = 1.0f;
 
             // Air: sound whose power sits above 2.5 kHz (sibilants, fricatives), decided at input
@@ -302,6 +327,7 @@ namespace roar
             std::uint64_t onsetCount = 0;
 
             std::uint64_t voicedGrains = 0, unvoicedGrains = 0;
+            std::uint64_t splices = 0, steered = 0, forced = 0, readsPastNewest = 0;
         };
 
         // Per-sample pieces.
@@ -336,9 +362,12 @@ namespace roar
         float window (double u) const;
         double markThreshold() const;
         void readTape (Tape& t, double rate, double now, bool needed, float& left, float& right, bool stereo);
+        void readReader (Reader& t, double rate, double now, bool needed, float& left, float& right, bool stereo);
+        void decideSplice (Reader& t, double rate, double now, bool stereo);
+        void readResampled (int which, double rate, double now, bool needed, float& left, float& right, bool stereo);
         double followRate() const;
         float airTarget (std::int64_t outPos) const;
-        double alignTapeHead (double other, double nominal, double share, bool stereo) const;
+        double alignTapeHead (double other, double nominal, double share, bool stereo, double* matchOut = nullptr) const;
 
         void updateBodyCoeffs();
         void updateDriveCoeffs();

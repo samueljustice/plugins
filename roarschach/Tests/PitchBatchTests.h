@@ -528,7 +528,7 @@ namespace pitchbatch
     // ------------------------------------------------------------------------------------ PITCH alone
     /** A pulse vowel: impulses one period apart (period jittered by `jitter`, seeded) through three
         formant resonances and a gentle pre-emphasis, peak `amp`. */
-    inline Signal pulseVowel(double fs, double f0, double seconds, double jitter = 0.0, unsigned seed = 0, double amp = 0.25)
+    inline Signal pulseVowel(double fs, double f0, double seconds, double jitter = 0.0, unsigned seed = 0, double amp = 0.25, bool broad = false)
     {
         const int n = static_cast<int>(seconds * fs);
         std::vector<double> x(static_cast<size_t>(n) + 2, 0.0);
@@ -543,8 +543,9 @@ namespace pitchbatch
             t += std::max(8.0, fs / f0 * (1.0 + jitter * gauss(rng)));
         }
         std::vector<double> y(static_cast<size_t>(n), 0.0);
-        const double formants[3][2] { { 700.0, 90.0 }, { 1200.0, 110.0 }, { 2600.0, 160.0 } };
-        for (const auto& f : formants)
+        const double narrow[3][2] { { 700.0, 90.0 }, { 1200.0, 110.0 }, { 2600.0, 160.0 } };
+        const double wide[3][2] { { 600.0, 150.0 }, { 1400.0, 200.0 }, { 2800.0, 300.0 } };   // a short pulse (slow trains)
+        for (const auto& f : broad ? wide : narrow)
         {
             const double r = std::exp(-c_pi * f[1] / fs), a1 = -2.0 * r * std::cos(2.0 * c_pi * f[0] / fs), a2 = r * r;
             double y1 = 0.0, y2 = 0.0;
@@ -1020,6 +1021,259 @@ namespace pitchbatch
                 check(err == 0.0, "Follow " + juce::String(c.st, 0) + " st, Size " + juce::String(100 * c.size, 0) + " %: the air decision changes the output by " + juce::String(toDb(err), 1) + " dBFS");
             }
             std::printf("  Follow, ten settings: %d change with the air decision\n", differ);
+        }
+    }
+    // ------------------------------------------------------------------------------------ splices
+    /** Level (dB) in 2 ms frames, 1 ms apart, of x above `cornerHz` (fourth order), [from, to). */
+    inline std::vector<double> bandLevels(const Signal& x, double fs, double cornerHz, int from, int to)
+    {
+        const auto hi = filtered(Signal(x.begin() + std::max(0, from - static_cast<int>(0.02 * fs)), x.begin() + std::min(static_cast<int>(x.size()), to)), fs, cornerHz, 0.0);
+        const int offset = from - std::max(0, from - static_cast<int>(0.02 * fs));
+        std::vector<double> lv;
+        const int frame = static_cast<int>(0.002 * fs), hop = static_cast<int>(0.001 * fs);
+        for (int a = offset; a + frame <= static_cast<int>(hi.size()); a += hop)
+            lv.push_back(10.0 * std::log10(meanSquare(hi, a, a + frame) + 1e-20));
+        return lv;
+    }
+
+    /** Rises through peak - 8 dB after having been under peak - 16 dB. */
+    inline int countRises(const std::vector<double>& lv)
+    {
+        if (lv.empty())
+            return 0;
+        const double peak = *std::max_element(lv.begin(), lv.end());
+        int rises = 0;
+        bool armed = false;
+        for (double v : lv)
+        {
+            if (v < peak - 16.0)
+                armed = true;
+            else if (armed && v > peak - 8.0)
+            {
+                ++rises;
+                armed = false;
+            }
+        }
+        return rises;
+    }
+
+    struct BurstScore { int doubled = 0, dropped = 0; };
+
+    /** Doubled and dropped bursts (spec 8.3) of `out` against `in` at the known starts. */
+    inline BurstScore scoreBursts(const Signal& in, const Signal& out, const std::vector<int>& starts, double fs, double rate)
+    {
+        BurstScore score;
+        for (const int t : starts)
+        {
+            const int a = t - static_cast<int>(0.025 * fs), b = t + static_cast<int>(0.040 * fs);
+            const auto li = bandLevels(in, fs, 2000.0, a, b);
+            const auto lo = bandLevels(out, fs, 2000.0 * std::min(1.0, rate), a, b);
+            if (countRises(lo) > countRises(li))
+                ++score.doubled;
+            double ei = 0.0, eo = 0.0;
+            for (double v : li) ei += std::pow(10.0, v / 10.0);
+            for (double v : lo) eo += std::pow(10.0, v / 10.0);
+            if (10.0 * std::log10((eo + 1e-30) / (ei + 1e-30)) < -10.0)
+                ++score.dropped;
+        }
+        return score;
+    }
+
+    /** Pulse rate (spec 8.3): band 300 Hz..6 kHz, rms in 1 ms blocks, peaks at least 0.25 of the
+        99th percentile, 4 ms apart, prominence 0.15 of it; per second over [from, from + 2.4 s). */
+    inline double pulseRate(const Signal& x, double fs, int from)
+    {
+        roar::Biquad hp, lp;
+        hp.setCoeffs(roar::Biquad::highpass(fs, 300.0, roar::Biquad::c_butterworthQ));
+        lp.setCoeffs(roar::Biquad::lowpass(fs, 6000.0, roar::Biquad::c_butterworthQ));
+        const int block = static_cast<int>(0.001 * fs), n = static_cast<int>(2.4 * fs) / block;
+        std::vector<double> e(static_cast<size_t>(n), 0.0);
+        for (int i = 0; i < from; ++i)
+            (void) lp.process(hp.process(static_cast<double>(x[static_cast<size_t>(i)])));
+        for (int k = 0; k < n; ++k)
+        {
+            double sq = 0.0;
+            for (int j = 0; j < block; ++j)
+            {
+                const double v = lp.process(hp.process(static_cast<double>(x[static_cast<size_t>(from + k * block + j)])));
+                sq += v * v;
+            }
+            e[static_cast<size_t>(k)] = std::sqrt(sq / block);
+        }
+        auto sorted = e;
+        std::sort(sorted.begin(), sorted.end());
+        const double p99 = sorted[static_cast<size_t>(0.99 * (n - 1))];
+        std::vector<int> peaks;
+        for (int k = 1; k + 1 < n; ++k)
+        {
+            if (! (e[static_cast<size_t>(k)] > e[static_cast<size_t>(k - 1)] && e[static_cast<size_t>(k)] >= e[static_cast<size_t>(k + 1)]) || e[static_cast<size_t>(k)] < 0.25 * p99)
+                continue;
+            // Prominence: down to the higher of the lowest points on either side before a higher peak.
+            double leftMin = e[static_cast<size_t>(k)], rightMin = e[static_cast<size_t>(k)];
+            for (int j = k - 1; j >= 0 && e[static_cast<size_t>(j)] <= e[static_cast<size_t>(k)]; --j)
+                leftMin = std::min(leftMin, e[static_cast<size_t>(j)]);
+            for (int j = k + 1; j < n && e[static_cast<size_t>(j)] <= e[static_cast<size_t>(k)]; ++j)
+                rightMin = std::min(rightMin, e[static_cast<size_t>(j)]);
+            if (e[static_cast<size_t>(k)] - std::max(leftMin, rightMin) >= 0.15 * p99)
+                peaks.push_back(k);
+        }
+        // At least 4 ms apart: the higher of two closer peaks stays.
+        std::vector<int> kept;
+        std::vector<int> byHeight = peaks;
+        std::sort(byHeight.begin(), byHeight.end(), [&](int a, int b) { return e[static_cast<size_t>(a)] > e[static_cast<size_t>(b)]; });
+        for (int k : byHeight)
+            if (std::none_of(kept.begin(), kept.end(), [&](int q) { return std::abs(q - k) < 4; }))
+                kept.push_back(k);
+        return kept.size() / 2.4;
+    }
+
+    struct SpliceSetting { const char* name; float st; float size; Params::PitchFormant formant; double burstRate; };
+
+    inline std::vector<SpliceSetting> spliceSettings()
+    {
+        constexpr auto keep = Params::PitchFormant::keep;
+        constexpr auto follow = Params::PitchFormant::follow;
+        const auto r = [](double st) { return std::clamp(std::exp2(st / 12.0), 0.25, 1.41421356); };
+        // Synthetic white bursts are air (their power sits above 2.5 kHz): in Keep they are read at phi = 1.
+        return { { "Follow +12", 12, 0, follow, r(12) }, { "Follow +7", 7, 0, follow, r(7) }, { "Follow +3", 3, 0, follow, r(3) },
+                 { "Follow -2", -2, 0, follow, r(-2) }, { "Follow -5", -5, 0, follow, r(-5) }, { "Follow -12", -12, 0, follow, r(-12) },
+                 { "Follow -24", -24, 0, follow, r(-24) }, { "Size 25 %", 0, 0.25f, follow, r(-1.5) }, { "Size 50 %", 0, 0.5f, follow, r(-3) },
+                 { "Size 100 %", 0, 1.0f, follow, r(-6) }, { "Keep -5", -5, 0, keep, 1.0 }, { "Keep -12", -12, 0, keep, 1.0 },
+                 { "Keep -24", -24, 0, keep, 1.0 } };
+    }
+
+    /** PITCH alone, 512-sample blocks, latency removed, with the reader's counters. */
+    struct SpliceRun { Signal out; std::uint64_t splices = 0, steered = 0, forced = 0, pastNewest = 0; };
+    inline SpliceRun runSplices(double fs, const Signal& in, roar::PitchSettings ps)
+    {
+        roar::PitchModule m;
+        m.setParams(ps);
+        m.prepare(fs, 512);
+        m.setParams(ps);
+        m.reset();
+        const int latency = m.getLatencySamples();
+        Signal x = in;
+        x.resize(in.size() + static_cast<size_t>(latency), 0.0f);
+        Signal r(512, 0.0f);
+        for (int start = 0; start < static_cast<int>(x.size()); start += 512)
+            m.process(x.data() + start, r.data(), std::min(512, static_cast<int>(x.size()) - start), false, roar::VoiceFrameView {});
+        return { Signal(x.begin() + latency, x.end()), m.getSplices(), m.getSteeredSplices(), m.getForcedSplices(), m.getReadsPastNewest() };
+    }
+
+    // ------------------------------------------------------------------------------------ T4, T9, T16
+    inline void testSplices()
+    {
+        std::printf("[pitchsplice] the reader: bursts once, nothing before a hard onset, slow trains at the shifted rate, no read past the input\n");
+        if (! roar::PitchModule::usesReader())
+        {
+            std::printf("  the two-head path is built (ROARSCHACH_PITCH_READER 0): the reader's checks are not run\n");
+            return;
+        }
+        const double fs = 48000.0;
+        auto [bursts, starts] = noiseBursts(fs);
+
+        // Eight vowels with hard onsets (and stops), 0.25 s of silence before each.
+        Signal vowels;
+        std::vector<int> onsets;
+        for (int k = 0; k < 8; ++k)
+        {
+            vowels.resize(vowels.size() + static_cast<size_t>(0.25 * fs), 0.0f);
+            onsets.push_back(static_cast<int>(vowels.size()));
+            const auto v = pulseVowel(fs, 100.0 + 20.0 * k, 0.35, 0.01, 30u + static_cast<unsigned>(k));
+            vowels.insert(vowels.end(), v.begin(), v.end());
+        }
+        vowels.resize(vowels.size() + static_cast<size_t>(0.3 * fs), 0.0f);
+
+        // The onset's half-energy point: where the 1 ms energy first reaches half of its mean over
+        // 20..40 ms after the onset.
+        const auto halfEnergyAt = [&](const Signal& y, int t)
+        {
+            const int ms = static_cast<int>(0.001 * fs);
+            const double plateau = meanSquare(y, t + static_cast<int>(0.020 * fs), t + static_cast<int>(0.040 * fs));
+            for (int i = t - static_cast<int>(0.015 * fs); i < t + static_cast<int>(0.040 * fs); i += ms / 4)
+                if (meanSquare(y, i, i + ms) >= 0.5 * plateau)
+                    return i;
+            return t + static_cast<int>(0.040 * fs);
+        };
+
+        std::uint64_t past = 0;
+        for (const auto& st : spliceSettings())
+        {
+            const auto ps = pitchSettings(st.st, st.formant, st.size);
+            const auto br = runSplices(fs, bursts, ps);
+            const auto score = scoreBursts(bursts, br.out, starts, fs, st.burstRate);
+            const auto vr = runSplices(fs, vowels, ps);
+            double worstPre = -300.0, worstShift = 0.0;
+            for (const int t : onsets)
+            {
+                const double pre = meanSquare(vr.out, t - static_cast<int>(0.015 * fs), t - static_cast<int>(0.001 * fs));
+                const double post = meanSquare(vr.out, t, t + static_cast<int>(0.020 * fs));
+                worstPre = std::max(worstPre, 10.0 * std::log10(pre / std::max(post, 1e-30) + 1e-30));
+                worstShift = std::max(worstShift, std::abs(1000.0 * (halfEnergyAt(vr.out, t) - halfEnergyAt(vowels, t)) / fs));
+            }
+            past += br.pastNewest + vr.pastNewest;
+            std::printf("  %-11s bursts: %d doubled, %d dropped (%llu splices, %llu steered, %llu forced); vowel onsets: before them %.0f dB, half-energy point moved %.1f ms\n",
+                        st.name, score.doubled, score.dropped, static_cast<unsigned long long>(br.splices), static_cast<unsigned long long>(br.steered),
+                        static_cast<unsigned long long>(br.forced), worstPre, worstShift);
+            check(score.doubled == 0 && score.dropped == 0, juce::String(st.name) + ": " + juce::String(score.doubled) + " bursts doubled, " + juce::String(score.dropped) + " dropped");
+            check(worstPre <= -40.0, juce::String(st.name) + ": energy before a hard vowel onset " + juce::String(worstPre, 1) + " dB (<= -40)");
+            const bool timed = st.formant == Params::PitchFormant::follow && st.size == 0.0f && st.st <= 7.0f && st.st >= -12.0f;
+            if (timed)
+                check(worstShift <= 2.0, juce::String(st.name) + ": a vowel onset's half-energy point moves " + juce::String(worstShift, 1) + " ms (<= 2)");
+        }
+
+        // T9: noise bursts every 6 ms at +12 and -24 st, 44.1 and 192 kHz: no read past the newest
+        // input, output finite.
+        for (const double rate : { 44100.0, 192000.0 })
+        {
+            Signal x(static_cast<size_t>(3.0 * rate), 0.0f);
+            std::mt19937 rng(5);
+            std::normal_distribution<float> gauss(0.0f, 0.2f);
+            const int every = static_cast<int>(0.006 * rate), len = static_cast<int>(0.002 * rate);
+            for (int t = static_cast<int>(0.2 * rate); t + len < static_cast<int>(x.size()); t += every)
+                for (int i = 0; i < len; ++i)
+                    x[static_cast<size_t>(t + i)] = gauss(rng);
+            for (const float st : { 12.0f, -24.0f })
+            {
+                const auto r = runSplices(rate, x, pitchSettings(st, Params::PitchFormant::follow));
+                bool finite = true;
+                for (float v : r.out)
+                    finite = finite && std::isfinite(v);
+                past += r.pastNewest;
+                check(finite, "bursts every 6 ms at " + juce::String(st, 0) + " st, " + juce::String(rate / 1000.0, 1) + " kHz: non-finite output");
+            }
+        }
+        std::printf("  reads past the newest input: %llu\n", static_cast<unsigned long long>(past));
+        check(past == 0, juce::String(static_cast<int>(past)) + " reads of the resampling path pass the newest input");
+
+        // T16: slow pulse trains move at the shifted rate.
+        {
+            int bad = 0;
+            double worstRate = 0.0, worstLevel = 0.0;
+            for (const double f0 : { 40.0, 44.0, 48.0 })
+                for (unsigned seed = 1; seed <= 3; ++seed)
+                {
+                    const auto x = pulseVowel(fs, f0, 3.0, 0.06, seed, 0.25, true);
+                    const double inRate = pulseRate(x, fs, static_cast<int>(0.3 * fs));
+                    for (const float st : { -12.0f, -5.0f, 7.0f })
+                    {
+                        const auto r = runSplices(fs, x, pitchSettings(st, Params::PitchFormant::follow));
+                        const double want = inRate * std::min(std::exp2(st / 12.0), 1.41421356);
+                        const double got = pulseRate(r.out, fs, static_cast<int>(0.3 * fs));
+                        const double off = std::abs(got / want - 1.0);
+                        const double level = 10.0 * std::log10(meanSquare(r.out, static_cast<int>(0.3 * fs), static_cast<int>(2.7 * fs)) / meanSquare(x, static_cast<int>(0.3 * fs), static_cast<int>(2.7 * fs)));
+                        worstRate = std::max(worstRate, off);
+                        worstLevel = std::max(worstLevel, std::abs(level));
+                        if (off > 0.20 || std::abs(level) > 1.5)
+                        {
+                            ++bad;
+                            std::printf("    %2.0f Hz seed %u, %+.0f st: pulse rate %.1f per second against %.1f wanted (%.0f %% off), level %+.1f dB\n",
+                                        f0, seed, static_cast<double>(st), got, want, 100.0 * off, level);
+                        }
+                    }
+                }
+            std::printf("  slow pulse trains (40 to 48 Hz, three seeds, -12 / -5 / +7 st): worst %.0f %% off the wanted rate, level within %.1f dB\n", 100.0 * worstRate, worstLevel);
+            check(bad == 0, juce::String(bad) + " slow pulse trains come out off the shifted rate (> 20 %) or level (> 1.5 dB)");
         }
     }
 }
