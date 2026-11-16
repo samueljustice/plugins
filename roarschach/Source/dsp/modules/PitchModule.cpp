@@ -776,6 +776,10 @@ namespace roar
         m_core.driveEnv = 0.0f;
         m_core.driveHeat = 0.0f;
         updateDriveCoeffs();
+        // The curve rests at its bias (envelope 0): its smoothing memory starts there, so the
+        // curve's output is exactly 0 on silence from the first sample.
+        for (auto& ch : m_driveCh)
+            ch.previous = static_cast<double> (c_biasStatic * m_core.driveBiasScale);
     }
 
     void PitchModule::applyDrive (float& yl, float& yr, bool stereo)
