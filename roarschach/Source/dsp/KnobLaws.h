@@ -43,11 +43,11 @@ namespace roar::laws
         const double x = std::max (0.0, clamp01 (u) - 0.4) / 0.6;
         return x * std::sqrt (x);
     }
-    /** The most gain reduction (dB, <= 0): -15 u, and 9 dB more over the top part (-24 dB at 100 %). */
-    inline double deessRangeDb (double u) { return -15.0 * clamp01 (u) - 9.0 * deessTop (u); }
-    /** How far the detector threshold moves down (dB): none up to 40 %, 12 dB at 100 %, so the top of
+    /** The most gain reduction (dB, <= 0): -20 u, and 4 dB more over the top part (-24 dB at 100 %). */
+    inline double deessRangeDb (double u) { return -20.0 * clamp01 (u) - 4.0 * deessTop (u); }
+    /** How far the detector threshold moves down (dB): none up to 40 %, 4 dB at 100 %, so the top of
         the travel keeps taking more instead of stopping at the detector's slope. */
-    inline double deessThresholdShiftDb (double u) { return 12.0 * deessTop (u); }
+    inline double deessThresholdShiftDb (double u) { return 4.0 * deessTop (u); }
 
     // ---------------------------------------------------------------------------------- DETAIL
     /** Depth (dB) of the Low and High sections. */
@@ -251,13 +251,14 @@ namespace roar::laws
         /** The room-tone cut matches (the previous depth beyond about 15 dB was never reached). */
         inline double gate (double old) { return pct (std::min (40.0 * clamp01 (old / 100.0), 15.0) / 30.0); }
         /**
-         * The same high-band reduction. A range r (dB, <= 0) on the previous detector (fixed threshold)
-         * is the setting -r / 15 up to 40 % (-6 dB), where the laws agree. Beyond that the previous
+         * The same high-band reduction, as a position on the split-band law that preceded the
+         * dynamic shelf (deessBaseToShelf takes it on). A range r (dB, <= 0) on the previous
+         * detector (fixed threshold) is the setting -r / 15 up to 40 % (-6 dB), where the laws agree. Beyond that the previous
          * reduction stopped growing at the detector's slope (the previous -15 dB gave about what the new
          * 56 % gives); this part is the mean of measurements on three voice recordings (the 5 to
          * 12.6 kHz bands, within 1 dB on each).
          */
-        inline double deessForOldRange (double rangeDb)
+        inline double deessBasePositionForOldRange (double rangeDb)
         {
             const double c = std::min (-rangeDb / 15.0, 1.0) * 100.0;
             if (c <= 40.0)
@@ -266,6 +267,23 @@ namespace roar::laws
             const double x = (c - 40.0) / 5.0;
             const int i = std::min (static_cast<int> (x), 11);
             return table[i] + (x - i) * (table[i + 1] - table[i]);
+        }
+        /**
+         * A position under the split-band law that came before the dynamic shelf -> the position
+         * under the shelf law with the same reduction of real esses (5-8 kHz on the sibilant frames
+         * of three voice recordings). Linear between measured points every 5 %; 0 maps to 0.
+         */
+        inline double deessBaseToShelf (double basePct)
+        {
+            static constexpr double table[] = { 0.0, 5.0, 9.3, 14.1, 18.9, 23.8, 28.9, 34.0, 39.2, 45.5, 52.2, 59.1, 65.5 };   // 0, 5, .. 60
+            const double x = std::clamp (basePct, 0.0, 60.0) / 5.0;
+            const int i = std::min (static_cast<int> (x), 11);
+            return table[i] + (x - i) * (table[i + 1] - table[i]);
+        }
+        /** The De-ess position for a first-release range (dB, <= 0). */
+        inline double deessForOldRange (double rangeDb)
+        {
+            return deessBaseToShelf (deessBasePositionForOldRange (rangeDb));
         }
         inline double deess (double old, bool roarOn, double roarDrivePct)
         {

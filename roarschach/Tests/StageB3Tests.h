@@ -27,7 +27,7 @@ namespace stageb3
         double s = 0.0;
         for (double v : x)
             s += v * v;
-        const double g = std::pow(10.0, db / 20.0) / std::sqrt(s / std::max<size_t>(1, x.size()) + 1.0e-30);
+        const double g = std::pow(10.0, db / 20.0) / std::sqrt(s / static_cast<double>(std::max<size_t>(1, x.size())) + 1.0e-30);
         for (auto& v : x)
             v *= g;
     }
@@ -266,6 +266,381 @@ namespace stageb3
 
     juce::String db1(double v) { return juce::String(v, 2) + " dB"; }
 
+    // ============================================================================== DE-ESS (D5)
+
+    struct DeessRun
+    {
+        Signal y;
+        std::vector<float> gr;   // getGrDb () after each sample (when traced)
+    };
+
+    /** A fresh DE-ESS over x; amount may move per block through `knob` (block start sample -> settings). */
+    DeessRun runDeess(const Signal& x, double u, Params::DeessMode mode, double sr = c_fs, int block = 512, bool trace = false,
+                      std::function<void(roar::DeessModule&, int)> perBlock = {})
+    {
+        roar::DeessModule m;
+        m.prepare(sr, block);
+        roar::DeessSettings s;
+        s.amount = static_cast<float>(u);
+        s.mode = mode;
+        m.setParams(s);
+        m.reset();
+        DeessRun r;
+        r.y = x;
+        Signal right(static_cast<size_t>(block), 0.0f);
+        if (trace)
+            r.gr.resize(x.size());
+        const roar::VoiceFrameView none;
+        for (int pos = 0; pos < static_cast<int>(x.size()); pos += block)
+        {
+            const int n = std::min(block, static_cast<int>(x.size()) - pos);
+            if (perBlock)
+                perBlock(m, pos);
+            if (trace)
+                for (int i = 0; i < n; ++i)
+                {
+                    m.process(r.y.data() + pos + i, right.data(), 1, false, none);
+                    r.gr[static_cast<size_t>(pos + i)] = m.getGrDb();
+                }
+            else
+                m.process(r.y.data() + pos, right.data(), n, false, none);
+        }
+        return r;
+    }
+
+    /** The measuring windows of esses (1-based list), 30 ms in to 10 ms before the end. */
+    std::vector<std::pair<int, int>> essWindows(const Marked& m, std::initializer_list<int> which, double sr, int offset = 0)
+    {
+        std::vector<std::pair<int, int>> w;
+        for (int k : which)
+        {
+            const auto& e = m.esses[static_cast<size_t>(k - 1)];
+            w.emplace_back(offset + e.first + static_cast<int>(0.030 * sr), offset + e.second - static_cast<int>(0.010 * sr));
+        }
+        return w;
+    }
+
+    double essDepth(const Marked& m, const Signal& y, double sr, std::initializer_list<int> which = { 3, 4, 5, 6, 7, 8 })
+    {
+        return bandChangeDb(m.x, y, sr, essWindows(m, which, sr), 5000.0, 8000.0);
+    }
+
+    double essDepthOne(const Signal& in, const Signal& y, const Marked& m, int k, double sr, int offset)
+    {
+        return bandChangeDb(in, y, sr, essWindows(m, { k }, sr, offset), 5000.0, 8000.0);
+    }
+
+    double toneLevelDb(const Signal& in, const Signal& out, double sr, double hz, int from, int to)
+    {
+        return toDb(toneAmplitude(out, sr, hz, from, to) / std::max(1.0e-30, toneAmplitude(in, sr, hz, from, to)));
+    }
+
+    void testDeess()
+    {
+        using Mode = Params::DeessMode;
+        const double sr = c_fs;
+        const auto speech = speechLike(sr);
+
+        // ---- S1: depth, recovery, the vowel after each ess
+        double s1 = 0.0;
+        {
+            const auto r49 = runDeess(speech.x, 0.49, Mode::split, sr, 512, true);
+            s1 = essDepth(speech, r49.y, sr);
+            const double d25 = essDepth(speech, runDeess(speech.x, 0.25, Mode::split).y, sr);
+            const double d75 = essDepth(speech, runDeess(speech.x, 0.75, Mode::split).y, sr);
+            const double d100 = essDepth(speech, runDeess(speech.x, 1.0, Mode::split).y, sr);
+            std::vector<double> recovery;
+            for (const auto& e : speech.esses)
+            {
+                int k = e.second;
+                while (k < static_cast<int>(r49.gr.size()) && r49.gr[static_cast<size_t>(k)] <= -1.0f)
+                    ++k;
+                recovery.push_back(1000.0 * (k - e.second) / sr);
+            }
+            std::sort(recovery.begin(), recovery.end());
+            const double recMedian = recovery[recovery.size() / 2];
+            double vowelWorst = 0.0;
+            for (size_t k = 0; k + 1 < speech.esses.size(); ++k)
+            {
+                const int a = speech.esses[k].second + static_cast<int>(0.050 * sr), b = speech.esses[k].second + static_cast<int>(0.250 * sr);
+                const double d = rmsDbOf(r49.y, a, b) - rmsDbOf(speech.x, a, b);
+                if (std::abs(d) > std::abs(vowelWorst))
+                    vowelWorst = d;
+            }
+            std::printf("  S1 DE-ESS esses 5-8 kHz: 25 %% %.2f, 49 %% %.2f, 75 %% %.2f, 100 %% %.2f dB; recovery %.1f ms (median); vowel after %.3f dB\n",
+                        d25, s1, d75, d100, recMedian, vowelWorst);
+            check(s1 <= -8.5 && s1 >= -10.5, "S1: esses at 49 % reduced by " + db1(s1) + " (expected -8.5 .. -10.5)");
+            check(d25 <= -4.0 && d25 >= -5.5, "S1: esses at 25 % reduced by " + db1(d25) + " (expected -4.0 .. -5.5)");
+            check(d100 <= d75 - 3.0, "S1: 100 % takes " + db1(d100) + ", not 3 dB more than 75 % (" + db1(d75) + ")");
+            check(recMedian <= 25.0, "S1: recovery to -1 dB after an ess takes " + juce::String(recMedian, 1) + " ms at 49 %");
+            check(std::abs(vowelWorst) <= 0.1, "S1: the vowel after an ess moves by " + db1(vowelWorst));
+        }
+
+        // ---- S2: steady rasp (the balanced recipe)
+        {
+            const auto rasp = raspLike(sr);
+            const int from = static_cast<int>(2.0 * sr), end = static_cast<int>(rasp.size()), half = static_cast<int>(0.5 * sr);
+            juce::String line;
+            for (const int pct : { 25, 49, 75, 100 })
+                for (const auto mode : { Mode::split, Mode::wide })
+                {
+                    const double u = pct / 100.0;
+                    const auto y = runDeess(rasp, u, mode).y;
+                    const double d = bandChangeDb(rasp, y, sr, from, end, 5000.0, 16000.0);
+                    const double first = bandChangeDb(rasp, y, sr, 0, half, 5000.0, 16000.0);
+                    line << juce::String(u * 100.0, 0) << (mode == Mode::split ? " % Split " : " % Wide ") << juce::String(d, 2) << " (first 0.5 s "
+                         << juce::String(first, 2) << ")  ";
+                    const juce::String what = "S2: rasp at " + juce::String(u * 100.0, 0) + (mode == Mode::split ? " % Split" : " % Wide");
+                    if (pct == 49)
+                    {
+                        check(d > -1.0, what + " loses " + db1(d) + " at 5-16 kHz");
+                        check(first > -1.5, what + " loses " + db1(first) + " over its first 0.5 s");
+                        if (mode == Mode::wide)
+                        {
+                            const double body = bandChangeDb(rasp, y, sr, from, end, 300.0, 2000.0);
+                            line << "(300 Hz-2 kHz " << juce::String(body, 2) << ")  ";
+                            check(body > -1.0, what + " ducks 300 Hz-2 kHz by " + db1(body));
+                        }
+                    }
+                    if (pct == 75)
+                        check(d > -3.0, what + " loses " + db1(d));
+                    if (pct == 100 && mode == Mode::split)
+                        check(d <= -5.0 && d >= -12.0, what + ": " + db1(d) + " (expected -5 .. -12: the knob reaches a rasp)");
+                }
+            std::printf("  S2 rasp-like 5-16 kHz: %s\n", line.toRawUTF8());
+        }
+
+        // ---- S2b: speech, then the rasp, no reset
+        {
+            const auto rasp = raspLike(sr);
+            const auto x = join({ speech.x, rasp });
+            const int at = static_cast<int>(speech.x.size());
+            const auto r = runDeess(x, 0.49, Mode::split, sr, 512, true);
+            const auto grAt = [&](double t) { return static_cast<double>(r.gr[static_cast<size_t>(at + static_cast<int>(t * sr))]); };
+            const double g6 = grAt(0.6), g75 = grAt(0.75), g10 = grAt(1.0);
+            const double first = bandChangeDb(x, r.y, sr, at, at + static_cast<int>(0.5 * sr), 5000.0, 16000.0);
+            const double later = bandChangeDb(x, r.y, sr, at + static_cast<int>(0.75 * sr), static_cast<int>(x.size()), 5000.0, 16000.0);
+            std::printf("  S2b rasp after speech: GR %.2f / %.2f / %.2f dB at 0.6 / 0.75 / 1.0 s; 5-16 kHz first 0.5 s %.2f, from 0.75 s %.2f dB\n",
+                        g6, g75, g10, first, later);
+            check(g6 >= -1.0 && g75 >= -1.0 && g10 >= -1.0, "S2b: a rasp after speech is still reduced at 0.6-1 s");
+            check(later > -1.0, "S2b: the rasp after speech loses " + db1(later) + " from 0.75 s");
+            check(first > -4.0, "S2b: the rasp after speech loses " + db1(first) + " over its first 0.5 s");
+        }
+
+        // ---- S2c: an ess after a rasp (bright and balanced), no reset
+        for (const bool bright : { true, false })
+        {
+            const auto rasp = bright ? brightRaspLike(sr) : raspLike(sr);
+            const auto x = join({ rasp, speech.x });
+            const int at = static_cast<int>(rasp.size());
+            const auto y = runDeess(x, 0.49, Mode::split).y;
+            juce::String line;
+            double worst = -100.0, eight = 0.0;
+            for (const int k : { 1, 2, 3, 4, 8 })
+            {
+                const double d = essDepthOne(x, y, speech, k, sr, at);
+                line << "ess " << k << " " << juce::String(d, 2) << "  ";
+                worst = std::max(worst, d);
+                if (k == 8)
+                    eight = d;
+            }
+            std::printf("  S2c esses after the %s rasp-like: %s\n", bright ? "bright" : "balanced", line.toRawUTF8());
+            check(worst <= -6.5, juce::String("S2c: an ess after the ") + (bright ? "bright" : "balanced") + " rasp is reduced by only " + db1(worst));
+            check(std::abs(eight - s1) <= 2.0, "S2c: ess 8 after a rasp " + db1(eight) + " against " + db1(s1));
+        }
+
+        // ---- S2d: the ceiling
+        {
+            const auto bright = brightRaspLike(sr);
+            const double d = bandChangeDb(bright, runDeess(bright, 0.49, Mode::split).y, sr, static_cast<int>(2.0 * sr), static_cast<int>(bright.size()), 5000.0, 16000.0);
+            const auto hiss = noiseBand(sr, 4.0, 4000.0, 9000.0, -26.0, 5u);
+            const double h = bandChangeDb(hiss, runDeess(hiss, 0.49, Mode::split).y, sr, static_cast<int>(2.0 * sr), static_cast<int>(hiss.size()), 5000.0, 8000.0);
+            std::printf("  S2d ceiling: bright rasp-like 5-16 kHz %.2f dB; ess noise alone 5-8 kHz %.2f dB\n", d, h);
+            check(d <= -4.5 && d >= -8.0, "S2d: the bright rasp-like at 49 % " + db1(d) + " (expected -4.5 .. -8)");
+            check(h <= -6.0 && h >= -9.0, "S2d: steady ess noise at 49 % " + db1(h) + " (expected -6 .. -9)");
+        }
+
+        // ---- S3: Wide's hold and depth
+        {
+            const auto v = faded(vowel(sr, 1.0), sr);
+            const auto hiss = faded(noiseBand(sr, 3.0, 4000.0, 9000.0, -26.0, 5u), sr);
+            const auto x = join({ v, hiss });
+            const int at = static_cast<int>(v.size());
+            const auto r = runDeess(x, 0.49, Mode::wide, sr, 512, true);
+            const double g01 = r.gr[static_cast<size_t>(at + static_cast<int>(0.1 * sr))];
+            double after = -100.0;
+            for (int i = at + static_cast<int>(1.0 * sr); i < static_cast<int>(x.size()); ++i)
+                after = std::max(after, -static_cast<double>(r.gr[static_cast<size_t>(i)]));
+            after = -after;   // the deepest GR from 1 s on
+            const auto w = runDeess(speech.x, 0.49, Mode::wide).y;
+            double pi = 0.0, po = 0.0;
+            for (const auto& [a, b] : essWindows(speech, { 3, 4, 5, 6, 7, 8 }, sr))
+            {
+                pi += std::pow(rmsOf(speech.x, a, b), 2.0) * (b - a);
+                po += std::pow(rmsOf(w, a, b), 2.0) * (b - a);
+            }
+            const double depth = 10.0 * std::log10(po / pi);
+            std::printf("  S3 Wide: GR %.2f dB 0.1 s into a hiss, at most %.2f dB from 1 s on; esses broadband %.2f dB\n", g01, after, depth);
+            check(g01 <= -7.0, "S3: Wide at 0.1 s into a hiss " + db1(g01));
+            check(after >= -2.0, "S3: Wide still holds " + db1(after) + " 1 s into a hiss");
+            check(depth <= -7.0 && depth >= -9.0, "S3: Wide takes " + db1(depth) + " off the esses (expected -7 .. -9)");
+        }
+
+        // ---- S4: null; S4b: the shelf's response
+        {
+            const auto sine = makeSine(sr, 1.0, 200.0, std::pow(10.0, -12.0 / 20.0));
+            bool exact = true;
+            for (const double u : { 0.49, 1.0 })
+                for (const auto mode : { Mode::split, Mode::wide })
+                    exact = exact && runDeess(sine, u, mode).y == sine;
+            check(exact, "S4: a 200 Hz sine is not passed bit for bit at 49 % / 100 %");
+            check(runDeess(speech.x, 0.0, Mode::split).y == speech.x, "S4: De-ess 0 % is not bit-exact on speech");
+        }
+        const auto shelfCheck = [](double rate, const juce::String& tag)
+        {
+            const double topHz = rate < 46000.0 ? 14000.0 : 16000.0;
+            const std::vector<double> tones { 200.0, 500.0, 1000.0, 2800.0, 5000.0, 10000.0, topHz };
+            const auto forced = [rate](const Signal& x, Params::DeessMode mode, double db)
+            {
+                return runDeess(x, 0.49, mode, rate, 512, false, [db](roar::DeessModule& m, int) { m.setForcedGainForTest(true, db); }).y;
+            };
+            juce::String line;
+            double prev = 1.0;
+            bool ok = true, monotonic = true, wideOk = true, zeroExact = true;
+            for (size_t j = 0; j < tones.size(); ++j)
+            {
+                const double hz = tones[j];
+                const auto x = makeSine(rate, 0.5, hz, 0.1);
+                const int a = static_cast<int>(0.2 * rate), b = static_cast<int>(0.5 * rate);
+                const double d = toneLevelDb(x, forced(x, Params::DeessMode::split, -12.0), rate, hz, a, b);
+                const double dw = toneLevelDb(x, forced(x, Params::DeessMode::wide, -12.0), rate, hz, a, b);
+                zeroExact = zeroExact && forced(x, Params::DeessMode::split, 0.0) == x;
+                line << juce::String(hz / 1000.0, 1) << "k " << juce::String(d, 2) << "  ";
+                monotonic = monotonic && d <= prev + 0.01;
+                prev = d;
+                wideOk = wideOk && std::abs(dw + 9.6) <= 0.1;
+                if (j <= 1)
+                    ok = ok && std::abs(d) <= 0.1;
+                else if (j == 2)
+                    ok = ok && std::abs(d) <= 0.3;
+                else if (j == 3)
+                    ok = ok && std::abs(d + 4.1) <= 0.5;
+                else if (j == 4)
+                    ok = ok && d <= -9.0 && d >= -11.0;
+                else
+                    ok = ok && std::abs(d + 12.0) <= 0.5;
+            }
+            std::printf("  S4b shelf at -12 dB, %s: %s\n", tag.toRawUTF8(), line.toRawUTF8());
+            check(ok, "S4b: the shelf's response at " + tag + " is outside its bounds");
+            check(monotonic, "S4b: the shelf's response rises with frequency at " + tag);
+            check(wideOk, "S4b: Wide forced to -12 dB is not -9.6 dB at every frequency at " + tag);
+            check(zeroExact, "S4b: forced 0 dB is not bit-exact at " + tag);
+        };
+        shelfCheck(sr, "48 kHz");
+
+        // ---- S5: a vowel at the top of the travel
+        {
+            const auto v = vowel(sr, 3.0);
+            for (const double u : { 0.49, 1.0 })
+            {
+                const auto y = runDeess(v, u, Mode::split).y;
+                const double diff = maxAbsDiff(v, y), lev = rmsDbOf(y) - rmsDbOf(v);
+                std::printf("  S5 vowel at %.0f %%: max |y - x| %.4f, level %+.3f dB\n", u * 100.0, diff, lev);
+                check(diff <= 0.02 && std::abs(lev) <= 0.05, "S5: the vowel at " + juce::String(u * 100.0, 0) + " % moves by " + juce::String(diff, 4));
+            }
+        }
+
+        // ---- S6: rates and blocks
+        for (const double rate : { 44100.0, 96000.0, 192000.0 })
+        {
+            const auto sp = speechLike(rate);
+            const double d = essDepth(sp, runDeess(sp.x, 0.49, Mode::split, rate).y, rate);
+            std::printf("  S6 esses at %.1f kHz: %.2f dB\n", rate / 1000.0, d);
+            check(std::abs(d - s1) <= 0.5, "S6: ess depth at " + juce::String(rate / 1000.0, 1) + " kHz " + db1(d) + " against " + db1(s1));
+            shelfCheck(rate, juce::String(rate / 1000.0, 1) + " kHz");
+        }
+        {
+            const auto ref = runDeess(speech.x, 0.49, Mode::split, sr, 512).y;
+            double worst = 0.0;
+            for (const int block : { 16, 480, 4096 })
+                worst = std::max(worst, maxAbsDiff(ref, runDeess(speech.x, 0.49, Mode::split, sr, block).y));
+            check(worst <= 1.0e-6, "S6: DE-ESS depends on the block size (" + juce::String(worst) + ")");
+        }
+
+        // ---- S7: the first ess after a reset
+        {
+            const auto first = speechLike(sr, 8, false);
+            const auto y = runDeess(first.x, 0.49, Mode::split).y;
+            const double e1 = essDepthOne(first.x, y, first, 1, sr, 0), e2 = essDepthOne(first.x, y, first, 2, sr, 0), e3 = essDepthOne(first.x, y, first, 3, sr, 0);
+            std::printf("  S7 starting on an ess: %.2f / %.2f / %.2f dB\n", e1, e2, e3);
+            check(e1 <= -6.5, "S7: the first ess after a reset is reduced by only " + db1(e1));
+            check(std::abs(e2 - s1) <= 1.5, "S7: the second ess " + db1(e2) + " against " + db1(s1));
+        }
+
+        // ---- S8: room tone between lines
+        {
+            const auto gapped = speechLike(sr, 8, true, 1.0, -70.0);
+            const double d = essDepth(gapped, runDeess(gapped.x, 0.49, Mode::split).y, sr);
+            std::printf("  S8 with -70 dBFS room between repeats: %.2f dB\n", d);
+            check(std::abs(d - s1) <= 0.5, "S8: room tone between lines moves the ess depth to " + db1(d));
+        }
+
+        // ---- S9: knob moves
+        {
+            const auto rasp = raspLike(sr);
+            const int from = static_cast<int>(2.0 * sr), len = static_cast<int>(0.5 * sr);
+            const auto y = runDeess(rasp, 0.0, Mode::split, sr, 32, false, [&](roar::DeessModule& m, int pos)
+            {
+                const double t = std::clamp(static_cast<double>(pos - from) / len, 0.0, 1.0);
+                roar::DeessSettings s;
+                s.amount = static_cast<float>(t < 0.5 ? 2.0 * t : 2.0 - 2.0 * t);
+                m.setParams(s);
+            }).y;
+            const double out = maxStep(y, from, from + len + static_cast<int>(0.1 * sr)), in = maxStep(rasp, from, from + len + static_cast<int>(0.1 * sr));
+            const int switchAt = speech.esses[3].first + static_cast<int>(0.07 * sr);
+            const auto ys = runDeess(speech.x, 0.49, Mode::split, sr, 32, false, [&](roar::DeessModule& m, int pos)
+            {
+                roar::DeessSettings s;
+                s.amount = 0.49f;
+                s.mode = (pos >= switchAt && pos < switchAt + static_cast<int>(0.03 * sr)) ? Mode::wide : Mode::split;
+                m.setParams(s);
+            }).y;
+            const int a = speech.esses[3].first, b = speech.esses[3].second + static_cast<int>(0.05 * sr);
+            const double outS = maxStep(ys, a, b), inS = maxStep(speech.x, a, b);
+            std::printf("  S9 knob moves: De-ess 0-100-0 %% largest step %.4f (input %.4f); Split-Wide-Split in an ess %.4f (input %.4f)\n", out, in, outS, inS);
+            check(out <= in * 1.05, "S9: a De-ess sweep makes a step of " + juce::String(out, 4) + " against the rasp's " + juce::String(in, 4));
+            check(outS <= inS * 1.05, "S9: a mode switch in an ess makes a step of " + juce::String(outS, 4) + " against " + juce::String(inS, 4));
+        }
+
+        // ---- S9b: the conversion of first-release ranges
+        {
+            namespace cv = roar::laws::convert;
+            const auto lerpTable = [](const std::vector<double>& xs, const std::vector<double>& ys, double x)
+            {
+                x = std::clamp(x, xs.front(), xs.back());
+                size_t i = 0;
+                while (i + 2 < xs.size() && x > xs[i + 1])
+                    ++i;
+                return ys[i] + (x - xs[i]) / (xs[i + 1] - xs[i]) * (ys[i + 1] - ys[i]);
+            };
+            const std::vector<double> basePct { 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 };
+            const std::vector<double> shelfPct { 0, 5.0, 9.3, 14.1, 18.9, 23.8, 28.9, 34.0, 39.2, 45.5, 52.2, 59.1, 65.5 };
+            bool ok = true, monotonic = true;
+            double prev = -1.0;
+            juce::String line;
+            for (const double r : { -3.0, -6.0, -9.0, -12.0, -15.0 })
+            {
+                const double v = cv::deessForOldRange(r), want = lerpTable(basePct, shelfPct, cv::deessBasePositionForOldRange(r));
+                ok = ok && std::abs(v - want) <= 0.05;
+                monotonic = monotonic && v > prev;
+                prev = v;
+                line << juce::String(r, 0) << " dB -> " << juce::String(v, 1) << " %  ";
+            }
+            std::printf("  S9b first-release ranges: %s\n", line.toRawUTF8());
+            check(ok && monotonic, "S9b: the De-ess conversion is not the measured table over the base position, or not monotonic");
+        }
+    }
+
     // ============================================================================== CLEAN (D20)
 
     void testCleanGate()
@@ -332,5 +707,6 @@ namespace stageb3
 void testStageB3()
 {
     std::printf("[stageb3] DE-ESS, TAME, VOCODER, ROAR level, DETAIL hold, CLEAN gate\n");
+    stageb3::testDeess();
     stageb3::testCleanGate();
 }

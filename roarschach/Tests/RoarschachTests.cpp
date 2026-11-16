@@ -9131,7 +9131,7 @@ namespace
             { "gate depth", [](double u) { return -laws::gateDepthDb(u); }, 0.0, 30.0 },
             { "gate ratio", laws::gateRatio, 1.5, 5.0 },
             { "de-ess range", [](double u) { return -laws::deessRangeDb(u); }, 0.0, 24.0 },
-            { "de-ess threshold shift", laws::deessThresholdShiftDb, 0.0, 12.0 },
+            { "de-ess threshold shift", laws::deessThresholdShiftDb, 0.0, 4.0 },
             { "detail depth", laws::detailDepthDb, 0.0, 34.0 },
             { "gravel", laws::gravelAmount, 0.0, 1.0 },
             { "ring AM", laws::ringAmAmount, 0.0, 1.0 },
@@ -9240,14 +9240,16 @@ namespace
                 }
                 // Gate: the room-tone cut matches up to the 15 dB the previous law could reach.
                 near(laws::gateDepthDb(cv::gate(old) / 100.0), -std::min(-laws::v1::gateDepthDb(u), 15.0), 1e-6, "gate", old);
-                // De-ess: the previous range (with the ROAR link) where the laws agree (up to 6 dB, 40 %);
-                // beyond, a measured map that never goes past the previous reduction's ceiling.
+                // De-ess: the previous range (with the ROAR link) as a position on the split-band law
+                // (-r / 15 where the laws agree, up to 6 dB, 40 %; beyond, a measured map that never goes
+                // past the previous reduction's ceiling), then the measured map onto the shelf law.
                 for (const double drive : { 0.0, 50.0, 100.0 })
                 {
                     const double r = laws::v1::deessRangeDb(u, true, drive / 100.0), v = cv::deess(old, true, drive);
+                    near(v, cv::deessBaseToShelf(cv::deessBasePositionForOldRange(r)), 1e-9, "de-ess", old);
                     if (r >= -6.0)
-                        near(laws::deessRangeDb(v / 100.0), r, 1e-6, "de-ess", old);
-                    else if (! (v > 40.0 && v <= 55.61))
+                        near(cv::deessBasePositionForOldRange(r), -r / 15.0 * 100.0, 1e-6, "de-ess (base position)", old);
+                    else if (! (v > cv::deessBaseToShelf(40.0) && v <= cv::deessBaseToShelf(55.61)))
                         near(v, 48.0, 7.6, "de-ess (measured map)", old);
                 }
                 // Roar: the first stage's drive matches (up to the previous top).
@@ -9350,7 +9352,8 @@ namespace
                 };
                 expect(Params::cleanContain, cv::contain(o[0]));
                 expect(Params::cleanGate, cv::gate(o[1]));
-                expect(Params::deess, cv::deess(o[2], old.roarOn, o[11]));
+                // (De-ess: still the position on the split-band law; the preset pass moves it onto the shelf law.)
+                expect(Params::deess, cv::deessBasePositionForOldRange(laws::v1::deessRangeDb(o[2] / 100.0, old.roarOn, o[11] / 100.0)));
                 expect(Params::detailLow, cv::detail(o[3]));
                 expect(Params::detailHigh, cv::detail(o[4]));
                 expect(Params::gravel, cv::gravel(o[5]));
