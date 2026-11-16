@@ -572,6 +572,72 @@ namespace usability
             }
         check(withLine == knobs && pitchKnob->getTooltip().contains("a semitone at a time, with Shift a cent"),
               "knobs: every knob's tooltip explains Shift-drag, the wheel and the right-click menu (" + juce::String(withLine) + " of " + juce::String(knobs) + ")");
+
+        // Every knob walks end to end with the wheel, plain and with Shift, up and down: each notch moves
+        // it the wheel's way until it reaches the end (RING Ratio has a value step finer than its travel's).
+        {
+            int walks = 0, stuck = 0, wrongWay = 0, unfinished = 0;
+            juce::String firstBad;
+            for (auto* tile : tiles)
+                for (const auto& [slider, id] : strip.getKnobs(tile))
+                {
+                    const auto& spec = Params::spec(id);
+                    slider->setEnabled(true);   // some knobs wait on a mode; the wheel itself is under test
+                    for (const bool shift : { false, true })
+                        for (const int dir : { 1, -1 })
+                        {
+                            ++walks;
+                            const float start = dir > 0 ? spec.minValue : spec.maxValue, end = dir > 0 ? spec.maxValue : spec.minValue;
+                            setParam(*p, id, start);
+                            float v = getParam(*p, id);
+                            bool ok = true;
+                            int n = 0;
+                            for (; n < 20000 && std::abs(v - end) > 1.0e-4f * std::max(1.0f, std::abs(end)); ++n)
+                            {
+                                const juce::ModifierKeys mods(shift ? juce::ModifierKeys::shiftModifier : 0);
+                                slider->mouseWheelMove(wheelEventFor(*slider, mods), wheelOf(dir > 0 ? 0.1f : -0.1f, false));
+                                const float next = getParam(*p, id);
+                                if (juce::exactlyEqual(next, v))
+                                {
+                                    ++stuck;
+                                    ok = false;
+                                }
+                                else if ((next - v) * static_cast<float>(dir) < 0.0f)
+                                {
+                                    ++wrongWay;
+                                    ok = false;
+                                }
+                                v = next;
+                                if (!ok)
+                                    break;
+                            }
+                            if (ok && std::abs(v - end) > 1.0e-4f * std::max(1.0f, std::abs(end)))
+                            {
+                                ++unfinished;
+                                ok = false;
+                            }
+                            if (!ok && firstBad.isEmpty())
+                                firstBad = juce::String(Params::hostName(id)) + (shift ? " Shift" : "") + (dir > 0 ? " up" : " down") + " at " + juce::String(v, 3);
+                        }
+                }
+            std::printf("  wheel walks end to end: %d walks, %d stuck, %d the wrong way, %d short of the end%s%s\n", walks, stuck, wrongWay, unfinished,
+                        firstBad.isEmpty() ? "" : "; first: ", firstBad.toRawUTF8());
+            check(walks == 4 * knobs && stuck == 0 && wrongWay == 0 && unfinished == 0,
+                  "knobs: a wheel walk sticks, turns back or stops short (" + firstBad + ")");
+            // RING Ratio from 1.00 with Shift: one value step a notch.
+            if (auto* ratio = strip.getKnobFor(Params::ringRatio))
+            {
+                setParam(*p, Params::ringRatio, 1.0f);
+                ratio->mouseWheelMove(wheelEventFor(*ratio, juce::ModifierKeys(juce::ModifierKeys::shiftModifier)), wheelOf(0.1f, false));
+                const float up = getParam(*p, Params::ringRatio);
+                ratio->mouseWheelMove(wheelEventFor(*ratio), wheelOf(-0.1f, false));
+                const float down = getParam(*p, Params::ringRatio);
+                std::printf("  RING Ratio 1.00: Shift-wheel up -> %.2f, then wheel down -> %.2f\n", static_cast<double>(up), static_cast<double>(down));
+                check(near(up, 1.01f) && down < up, "knobs: RING Ratio's Shift-wheel moves one 0.01 step from 1.00");
+            }
+            else
+                check(false, "knobs: RING Ratio's knob is found");
+        }
     }
 
     //==========================================================================

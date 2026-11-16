@@ -419,7 +419,14 @@ public:
             case Params::Kind::toggle:
             case Params::Kind::position:     break;
         }
-        return m_parameter->convertFrom0to1(m_parameter->convertTo0to1(juce::jlimit(s.minValue, s.maxValue, target)));
+        const auto legal = [&](float v) { return m_parameter->convertFrom0to1(m_parameter->convertTo0to1(juce::jlimit(s.minValue, s.maxValue, v))); };
+        float result = legal(target);
+        // A log knob with a value step (RING Ratio, 0.01): where a step of the travel is smaller than the
+        // value step, the snap lands back on the start. Move by whole value steps instead, so every notch
+        // goes on until the end of the travel.
+        if (s.step > 0.0f && (dir > 0.0f ? result <= value : result >= value))
+            result = legal(value + dir * s.step * static_cast<float>(std::abs(steps)));
+        return result;
     }
 
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
