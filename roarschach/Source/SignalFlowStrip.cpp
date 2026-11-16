@@ -850,7 +850,8 @@ public:
         const juce::String name(m_spec.uiName);
 
         m_onButton.setTooltip("Turns " + name + " on or off. Off passes the voice through unchanged. Alt-click to hear " + name
-                              + " alone: every other module goes off. Alt-click it again to turn back on the modules that were on.");
+                              + " alone: every other module goes off. Alt-click it again to turn back on the modules that were on, "
+                                "until another preset or the session is loaded.");
         m_onButton.onAltClick = [this] { if (m_owner.onSolo) m_owner.onSolo(m_module); };
         m_onButton.setTitle(name + " On");
         addAndMakeVisible(m_onButton);

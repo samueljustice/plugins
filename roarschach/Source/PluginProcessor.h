@@ -74,11 +74,14 @@ public:
     void setRollHolds(const std::array<bool, Params::numModules>& holds);
 
     /** Solo (Alt-click on a module's On switch, message thread). Soloing a module turns it on and
-        every other module off, and remembers which were on; soloing it again while that still holds
-        turns back on exactly what was on. Soloing another module meanwhile moves the solo and keeps the
-        same memory. The memory is let go when the switches no longer show the solo (a hand, a roll or
-        the host changed them) and on any preset or session load. Every switch that changes is written
-        in one gesture (begun together, set, ended together). */
+        every other module off, and remembers which were on; soloing it again while the switches show
+        that module alone turns back on exactly what was on. Soloing another module meanwhile moves the
+        solo and keeps the same memory. While a hand, a roll or the host has changed the switches there
+        is no solo to come back from (Alt-click starts a new one), but the memory is kept: when the
+        switches show the soloed module alone again (by hand, or by undoing a roll), Alt-click comes
+        back to it. It lives in this instance only: a preset or session load lets it go (it is not
+        saved with the session). Every switch that changes is written in one gesture (begun together,
+        set, ended together). */
     void toggleSolo(int module);
     /** The soloed module, or -1 when there is no solo to come back from. */
     int getSoloModule() const;

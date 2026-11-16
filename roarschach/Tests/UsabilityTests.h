@@ -777,6 +777,33 @@ namespace usability
         altClick(*open->strip().getOnButton(swirl));
         check(handForgets && onSet(*p) == byHand, "solo: switches changed by hand during a solo end it; the next solo remembers them as they are");
 
+        // The memory is kept while the solo does not show: when the switches show the soloed module alone
+        // again, Alt-click comes back to what was on before the solo. A session load lets it go.
+        {
+            const auto before = onSet(*p);
+            altClick(*open->strip().getOnButton(swirl));
+            for (const auto& m : Params::modules)
+                setParam(*p, m.onId, 1.0f);
+            const bool noSoloWhileAllOn = p->getSoloModule() < 0;
+            for (const auto& m : Params::modules)
+                setParam(*p, m.onId, 0.0f);
+            setParam(*p, Params::swirlOn, 1.0f);
+            const bool shownAgain = p->getSoloModule() == swirl;
+            altClick(*open->strip().getOnButton(swirl));
+            check(noSoloWhileAllOn && shownAgain && onSet(*p) == before,
+                  "solo: with the switches showing the soloed module alone again, Alt-click does not come back to the set before the solo");
+
+            altClick(*open->strip().getOnButton(swirl));
+            juce::MemoryBlock state;
+            p->getStateInformation(state);
+            p->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+            check(onSet(*p) == only(swirl) && p->getSoloModule() < 0, "solo: a session load keeps the remembered set");
+            altClick(*open->strip().getOnButton(swirl));
+            check(onSet(*p) == only(swirl), "solo: after a session load, Alt-click does not start a new solo of what is on");
+        }
+        check(open->strip().getOnButton(swirl)->getTooltip().contains("until another preset or the session is loaded"),
+              "solo: the On switch's tooltip does not say the memory ends with a preset or session load");
+
         check(swirlOn != nullptr && open->strip().getOnButton(swirl)->getTooltip().contains("Alt-click"), "solo: the On switch's tooltip explains Alt-click");
     }
 
