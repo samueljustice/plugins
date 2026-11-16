@@ -1504,6 +1504,29 @@ namespace stageb4
             std::printf("  T-SUB-5 Deep, 300 Hz, 300 ms without pitch, 240 Hz: the second phrase's layer %.1f Hz\n", second);
             check(std::abs(second / 120.0 - 1.0) <= 0.01, "T-SUB-5 the second phrase's layer is " + juce::String(second, 1) + " Hz (120)");
             check(identical(ra.out, rb.out), "T-SUB-5 two runs from reset differ");
+
+            // The stream's first usable frames after the gap can still carry the last phrase's pitch
+            // (its analysis window reaches back into the first phrase): 300 Hz for 8 ms, then 240 Hz.
+            const auto stale = [](double t) { return t < 1.0 ? 300.0 : (t < 1.3 ? 0.0 : (t < 1.308 ? 300.0 : 240.0)); };
+            auto c = makeSub(c_fs, subSettings(deep), 32);
+            const auto rc = runSub(*c, in, c_fs, stale, { 32 });
+            const double staleSecond = peakFrequency(rc.layer, c_fs, 40.0, 160.0, static_cast<int>(1.6 * c_fs), static_cast<int>(2.5 * c_fs));
+            std::printf("  T-SUB-5 the same with 8 ms of the previous phrase's pitch after the gap: the second phrase's layer %.1f Hz\n", staleSecond);
+            check(std::abs(staleSecond / 120.0 - 1.0) <= 0.01, "T-SUB-5 stale first frames: the second phrase's layer is " + juce::String(staleSecond, 1) + " Hz (120)");
+
+            // Across a breath the stream is not voiced but keeps the last pitch with fair confidence.
+            auto d = makeSub(c_fs, subSettings(deep), 32);
+            std::vector<int> bl { 32 };
+            const auto breath = runModule(*d, Stereo { in, {} }, false, bl, [](int i)
+            {
+                const double t = i / c_fs;
+                if (t >= 1.0 && t < 1.3)
+                    return roar::VoiceFrame { 300.5f, 0.55f, false };
+                return voiced(t < 1.0 ? 300.0 : 240.0);
+            }, [](int) {}).l;
+            const double breathSecond = peakFrequency(minus(breath, in), c_fs, 40.0, 160.0, static_cast<int>(1.6 * c_fs), static_cast<int>(2.5 * c_fs));
+            std::printf("  T-SUB-5 the same with an unvoiced, confident earlier pitch in the gap: the second phrase's layer %.1f Hz\n", breathSecond);
+            check(std::abs(breathSecond / 120.0 - 1.0) <= 0.01, "T-SUB-5 unvoiced gap: the second phrase's layer is " + juce::String(breathSecond, 1) + " Hz (120)");
         }
 
         // T-SUB-6: blocks, copy, rates.

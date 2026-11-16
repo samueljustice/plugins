@@ -43,10 +43,11 @@ namespace roar
      *           under 131 Hz; one division is given back when the layer an octave up would sit
      *           under 92 Hz. In steady state the layer lies in (46, 131] Hz for any voice above
      *           92 Hz: a true sub under a howl or a screech. Below that as Follow, with a 32 Hz floor.
-     * Register floors have 3 semitones of hysteresis (x 1.19) each side. A pitch that returns
-     * after 150 ms or more without one picks afresh, so a phrase starts from the nominal choice
-     * wherever playback started. A change of division waits for the next toggle of divider 1
-     * (where both waveforms are at zero), 40 ms at most. fIn and fsub glide in log2 over 30 ms.
+     * Register floors have 3 semitones of hysteresis (x 1.19) each side. A voiced pitch that
+     * returns after 150 ms or more without one picks afresh, and keeps picking afresh over its
+     * first 40 ms (the stream's first frames after a gap can still carry the last phrase's pitch),
+     * so a phrase starts from the nominal choice wherever playback started. A change of division
+     * waits for the next toggle of divider 1 (where both waveforms are at zero), 40 ms at most. fIn and fsub glide in log2 over 30 ms.
      * When the stream is not confident, fsub (the output filters) follows the dividers' own
      * toggle rate.
      *
@@ -204,8 +205,10 @@ namespace roar
         int m_divisions = 1;           // in use (changes at a toggle of divider 1, or after the wait)
         int m_divisionWait = 0;        // samples a pending change has waited
         int m_divisionWaitMax = 1920;
-        int m_untrackedSamples = 1 << 30;   // samples since the last usable pitch frame
+        int m_untrackedSamples = 1 << 30;   // samples since the last usable voiced pitch frame
         int m_repickSamples = 7200;
+        int m_repickSettleLeft = 0;    // samples of usable frames left in which the register is still picked afresh
+        int m_repickSettleSamples = 1920;
         double m_voicePower = 0.0;     // mean square of the module's mono input (8 ms)
         double m_voiceCoeff = 0.0;
         float m_capGain = 1.0f;        // the voice reference's scale on the gain

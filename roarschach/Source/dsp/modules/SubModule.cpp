@@ -31,6 +31,9 @@ namespace roar
         constexpr double c_deepReturnBelowHz = 92.0;    // ... one fewer when the layer an octave up would sit below this
         constexpr int c_maxDivisions = 4;               // f0 / 16: a 1500 Hz voice lands at 94 Hz
         constexpr double c_repickSeconds = 0.150;       // a pitch that returns after this long picks afresh
+        constexpr double c_repickSettleSeconds = 0.040; // ... and keeps picking afresh for this long of usable frames,
+                                                        // because the stream's first frames after a gap can still
+                                                        // carry the previous phrase's pitch
         constexpr double c_divisionWaitSeconds = 0.040; // a pending change of division waits this long for a toggle
         constexpr double c_voiceSeconds = 0.008;        // mean-square time of the voice reference
         constexpr double c_voiceCapDb = -4.4;           // the divided harmonic counts as at most this much of the whole voice
@@ -175,6 +178,7 @@ namespace roar
         }
         m_divisionWaitMax = dsp::samplesFor (c_divisionWaitSeconds, m_fs, 1);
         m_repickSamples = dsp::samplesFor (c_repickSeconds, m_fs, 1);
+        m_repickSettleSamples = dsp::samplesFor (c_repickSettleSeconds, m_fs, 1);
         m_voiceCoeff = dsp::onePoleCoeff (c_voiceSeconds, m_fs);
 
         for (int bi = 0; bi < 2; ++bi)
@@ -283,6 +287,7 @@ namespace roar
         m_divisionsWanted = m_divisions = 1;
         m_divisionWait = 0;
         m_untrackedSamples = 1 << 30;
+        m_repickSettleLeft = 0;
         m_inLog = m_f0Log;
         m_subLog = m_f0Log - 1.0;
         m_estimateLog = m_inLog;
@@ -384,10 +389,21 @@ namespace roar
                             && static_cast<double> (frame.confidence) >= c_minConfidence;
         m_tracked = usable;
 
+        // A voiced pitch returning after a gap starts a settle window in which every usable frame
+        // is taken as it is and the register is picked afresh (the first frames can be stale).
+        // The gap counts frames the stream does not call voiced: across a breath or noise it keeps
+        // reporting the last phrase's pitch, sometimes with fair confidence.
+        const bool voicedPitch = usable && frame.voiced;
+        if (voicedPitch && m_untrackedSamples >= m_repickSamples)
+            m_repickSettleLeft = m_repickSettleSamples;
+        const bool settling = usable && m_repickSettleLeft > 0;
+        if (settling)
+            m_repickSettleLeft = std::max (m_repickSettleLeft - c_voiceFrameSize, 0);
+
         if (usable)
         {
             const double lg = std::log2 (f0);
-            if (! m_hasPitch)
+            if (! m_hasPitch || settling)
             {
                 m_f0Log = lg;
                 m_hasPitch = true;
@@ -441,8 +457,8 @@ namespace roar
         const auto subFor = [f0Followed] (int multiplier, int divisions) { return f0Followed * multiplier / static_cast<double> (1 << divisions); };
         // No hold on a change: it acts on the frame the pitch crosses (a pitch-stream octave error
         // is then absorbed by the register and the layer stays put).
-        const bool fresh = ! m_controlsValid || m_multiplier > maxMultiplier || (usable && m_untrackedSamples >= m_repickSamples);
-        m_untrackedSamples = usable ? 0 : std::min (m_untrackedSamples + c_voiceFrameSize, 1 << 30);
+        const bool fresh = ! m_controlsValid || m_multiplier > maxMultiplier || settling;
+        m_untrackedSamples = voicedPitch ? 0 : std::min (m_untrackedSamples + c_voiceFrameSize, 1 << 30);
         if (fresh)
         {
             m_multiplier = 1;
@@ -745,6 +761,7 @@ namespace roar
         m_divisions = o.m_divisions;
         m_divisionWait = o.m_divisionWait;
         m_untrackedSamples = o.m_untrackedSamples;
+        m_repickSettleLeft = o.m_repickSettleLeft;
         m_voicePower = o.m_voicePower;
         m_capGain = o.m_capGain;
         m_inLog = o.m_inLog;
