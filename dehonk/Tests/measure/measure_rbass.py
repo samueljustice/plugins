@@ -54,6 +54,10 @@ SUMMARY_RANGES = [
     ("500_1000", 500.0, 1000.0),
 ]
 
+# RBass clips its output at 0 dBFS. Samples at or above this are counted per render,
+# because harmonics measured on a clipped render include the clipping's own distortion.
+CEILING = 0.999
+
 SINE_FREQS = [30, 40, 50, 60, 80, 100]
 TEST_LEVELS_DBFS = [-18, -6]
 TEST_SECONDS = 5.0
@@ -854,6 +858,7 @@ def render(args, comps, paths: Paths):
                 "sample_rate": sr, "channels": wet.shape[0], "frames": wet.shape[1],
                 "latency_comp_samples": lag,
                 "peak_dbfs": round(pk, 3), "over_0dbfs": pk > 0.0,
+                "samples_at_ceiling": int(np.sum(np.abs(wet) >= CEILING)),
                 "peak_processed_part_dbfs": "" if part_peak is None else round(part_peak, 3),
                 **{f"p_{k}": v for k, v in snap.items()},
             }
@@ -1007,6 +1012,8 @@ def analyse(args, paths: Paths):
                         **{f"diff_{c}": round(float(w - d), 2) for c, d, w in zip(bands_cols, lt_d, lt_w)}})
         rl_w = range_levels(wet, sr)
         sr_row = dict(meta)
+        sr_row["wet_peak_dbfs"] = round(peak_dbfs(wet), 3)
+        sr_row["samples_at_ceiling"] = int(np.sum(np.abs(wet) >= CEILING))
         for name, _, _ in SUMMARY_RANGES:
             sr_row[f"dry_{name}_db"] = round(rl_d[name], 2)
             sr_row[f"wet_{name}_db"] = round(rl_w[name], 2)
@@ -1017,7 +1024,8 @@ def analyse(args, paths: Paths):
             f0 = float(m.group(1))
             hd = harmonic_levels(dry, sr, f0)
             hw = harmonic_levels(wet, sr, f0)
-            hr = {**meta, "f0_hz": f0, "input_dbfs": int(m.group(2))}
+            hr = {**meta, "f0_hz": f0, "input_dbfs": int(m.group(2)),
+              "samples_at_ceiling": sr_row["samples_at_ceiling"]}
             for k in range(10):
                 hr[f"h{k + 1}_hz"] = f0 * (k + 1)
                 hr[f"h{k + 1}_dry_dbfs"] = round(hd[k], 2)
