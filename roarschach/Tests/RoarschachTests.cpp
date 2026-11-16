@@ -5609,6 +5609,44 @@ namespace
             save(editorPicture(2.0f), "12-editor-min-scale@2x.png");
         }
 
+        // 7. The smallest window again (65 %), with room below it for menus: held dice, the flat mode
+        //    menus, a knob's menu and a die's menu.
+        {
+            const int w = juce::roundToInt(baseW * RoarschachAudioProcessorEditor::c_minScale), h = juce::roundToInt(baseH * RoarschachAudioProcessorEditor::c_minScale);
+            editor.setSize(w, h);
+            stage.setSize(w, h + 420);
+            const int swirl = static_cast<int>(Params::ModuleId::swirl), chamber = static_cast<int>(Params::ModuleId::chamber);
+            std::array<bool, Params::numModules> holds {};
+            holds[static_cast<size_t>(swirl)] = holds[static_cast<size_t>(chamber)] = true;
+            p->setRollHolds(holds);
+            RoarschachEditorInspector::tick(editor);
+            play(0.3);
+            strip.finishAnimations();
+            {
+                auto area = stage.getLocalArea(strip.getModuleTile(swirl), strip.getModuleTile(swirl)->getLocalBounds())
+                                .getUnion(stage.getLocalArea(strip.getModuleTile(chamber), strip.getModuleTile(chamber)->getLocalBounds()));
+                save(stage.createComponentSnapshot(area.expanded(6).constrainedWithin(stage.getLocalBounds()), true, 2.0f), "16-held-dice-min-scale@2x.png");
+                auto& die = *strip.getModuleDice(swirl);
+                save(stage.createComponentSnapshot(stage.getLocalArea(&die, die.getLocalBounds()).expanded(14), true, 6.0f), "16a-held-die-min-scale@6x.png");
+            }
+            runLoop(400);   // (the resized stage settles before the first menu opens in it)
+            strip.showModeMenu(swirl);
+            menuPicture(*strip.getModeChip(swirl), "18-swirl-mode-menu-min-scale@2x.png", 360, 400);
+            strip.showModeMenu(chamber);
+            menuPicture(*strip.getModeChip(chamber), "17-chamber-mode-menu-min-scale@2x.png", 360, 600);
+            strip.showModeMenu(static_cast<int>(Params::ModuleId::ring));
+            menuPicture(*strip.getModeChip(static_cast<int>(Params::ModuleId::ring)), "18a-ring-mode-menu-min-scale@2x.png", 360, 500);
+            strip.showKnobMenu(Params::pitch);
+            menuPicture(*strip.getKnobFor(Params::pitch), "19-knob-menu-min-scale@2x.png", 360, 200);
+            {
+                auto& die = *strip.getModuleDice(swirl);
+                RoarschachEditorInspector::diceMenu(editor, die).showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(die).withParentComponent(&stage));
+                menuPicture(die, "20-die-menu-min-scale@2x.png", 360, 200);
+            }
+            p->setRollHolds({});
+            RoarschachEditorInspector::tick(editor);
+        }
+
         strip.setMenuParentForSnapshots(nullptr);
         stage.removeFromDesktop();
         stage.removeChildComponent(&editor);
