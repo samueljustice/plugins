@@ -1417,4 +1417,125 @@ namespace pitchbatch
             std::printf("  %-14s against 48 kHz (to 8 kHz / to 16 kHz):%s\n", c.name, line.toRawUTF8());
         }
     }
+    // ------------------------------------------------------------------------------------ D6 lattice
+    /** One tracker on a signal, one record per hop: voiced and f0. */
+    struct DetectorRun { std::vector<char> voiced; std::vector<float> f0; double hopSeconds = 0.0; };
+    inline DetectorRun runDetector(double fs, const Signal& x, bool lattice, float guard)
+    {
+        roar::PitchDetector d;
+        d.setLatticeForTests(lattice, guard);
+        d.prepare(fs);
+        DetectorRun r;
+        r.hopSeconds = d.getHopSize() / fs;
+        for (const float v : x)
+            if (d.pushSample(v))
+            {
+                r.voiced.push_back(d.getVoiceInfo().voiced ? 1 : 0);
+                r.f0.push_back(d.getVoiceInfo().f0Hz);
+            }
+        return r;
+    }
+
+    /** Prototype report (audit D6), no pass mark: the shipped tracker against the lattice, with and
+        without its sub-multiple guard, on the synthetic rows of the plan's table. The lattice is
+        compiled in every build and switched per instance; ROARSCHACH_DETECTOR_LATTICE only sets
+        what a new detector starts with. */
+    inline void testDetectorLattice()
+    {
+        std::printf("[detector] the lattice tracker (prototype, off) against the shipped tracker: a report\n");
+        struct Tracker { const char* name; bool lattice; float guard; };
+        const Tracker trackers[] { { "shipped", false, 0.0f }, { "lattice", true, 0.10f }, { "lattice, no guard", true, 0.0f } };
+
+        // Octave (and twelfth) errors on jittered pulse vowels: voiced hops 10 st or more off the truth.
+        for (const auto& t : trackers)
+        {
+            juce::String line;
+            for (const double jitter : { 0.01, 0.02, 0.03 })
+            {
+                long voiced = 0, wrong = 0, hops = 0;
+                for (const double f0 : { 98.0, 131.0, 175.0, 233.0 })
+                    for (unsigned seed = 1; seed <= 3; ++seed)
+                    {
+                        const auto x = pulseVowel(48000.0, f0, 3.0, jitter, seed);
+                        const auto r = runDetector(48000.0, x, t.lattice, t.guard);
+                        for (size_t k = 0; k < r.voiced.size(); ++k)
+                        {
+                            if (k * r.hopSeconds < 0.2)
+                                continue;
+                            ++hops;
+                            if (! r.voiced[k])
+                                continue;
+                            ++voiced;
+                            if (std::abs(12.0 * std::log2(r.f0[k] / f0)) >= 10.0)
+                                ++wrong;
+                        }
+                    }
+                line << juce::String(100.0 * wrong / std::max(1L, voiced), 1) << " % (voiced " << juce::String(100.0 * voiced / std::max(1L, hops), 1) << " %)  ";
+            }
+            std::printf("  %-18s octave errors at 1 / 2 / 3 %% jitter: %s\n", t.name, line.toRawUTF8());
+        }
+
+        // Tones of 1.2 to 3 kHz: every hop after 100 ms unvoiced or within 3 % (all are above the
+        // detector's range, so voiced at all is a sub-multiple).
+        for (const auto& t : trackers)
+        {
+            juce::String line;
+            for (const double fs : c_allRates)
+            {
+                int badTones = 0;
+                double worstShare = 0.0;
+                for (int hz = 1200; hz <= 3000; hz += 100)
+                {
+                    Signal x(static_cast<size_t>(fs));
+                    for (size_t i = 0; i < x.size(); ++i)
+                        x[i] = 0.25f * static_cast<float>(std::sin(2.0 * c_pi * hz * static_cast<double>(i) / fs));
+                    const auto r = runDetector(fs, x, t.lattice, t.guard);
+                    int bad = 0, n = 0;
+                    for (size_t k = 0; k < r.voiced.size(); ++k)
+                    {
+                        if (k * r.hopSeconds < 0.1)
+                            continue;
+                        ++n;
+                        if (r.voiced[k] && std::abs(r.f0[k] / hz - 1.0) > 0.03)
+                            ++bad;
+                    }
+                    badTones += bad > 0 ? 1 : 0;
+                    worstShare = std::max(worstShare, static_cast<double>(bad) / std::max(1, n));
+                }
+                line << juce::String(fs / 1000.0, 1) << " kHz " << badTones << " (" << juce::String(100.0 * worstShare, 0) << " %); ";
+            }
+            std::printf("  %-18s tones 1.2..3 kHz voiced at a sub-multiple, tones of 19 (worst share of hops): %s\n", t.name, line.toRawUTF8());
+        }
+
+        // CPU: the detector alone on a jittered voice in 64-sample buffers at 96 and 192 kHz.
+        for (const double fs : { 96000.0, 192000.0 })
+        {
+            const auto x = pulseVowel(fs, 120.0, 10.0, 0.03, 4);
+            juce::String line;
+            for (const auto& t : trackers)
+            {
+                double meanPct = 1.0e9, worstPct = 1.0e9;
+                for (int pass = 0; pass < 3; ++pass)
+                {
+                    roar::PitchDetector d;
+                    d.setLatticeForTests(t.lattice, t.guard);
+                    d.prepare(fs);
+                    double total = 0.0, worst = 0.0;
+                    for (size_t start = 0; start + 64 <= x.size(); start += 64)
+                    {
+                        const auto t0 = std::chrono::steady_clock::now();
+                        d.process(x.data() + start, 64);
+                        const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+                        total += sec;
+                        worst = std::max(worst, sec);
+                    }
+                    meanPct = std::min(meanPct, 100.0 * total / (static_cast<double>(x.size()) / fs));
+                    worstPct = std::min(worstPct, 100.0 * worst / (64.0 / fs));
+                }
+                line << t.name << " mean " << juce::String(meanPct, 3) << " %, worst buffer " << juce::String(worstPct, 1) << " %; ";
+            }
+            std::printf("  CPU at %.0f kHz, 64-sample buffers: %s\n", fs / 1000.0, line.toRawUTF8());
+        }
+    }
 }
+

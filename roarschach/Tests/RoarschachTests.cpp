@@ -9679,6 +9679,7 @@ int main(int argc, char* argv[])
         { "reset", pitchbatch::testResetEqualsFresh },
         { "in", pitchbatch::testInClamp },
         { "shimmer", pitchbatch::testShimmerRates },
+        { "detector", pitchbatch::testDetectorLattice },
         { "pitchstream", pitchbatch::testPitchStream },
         { "pitch", pitchbatch::testPitchTail },
         { "pitch", pitchbatch::testKeepHandOver },
