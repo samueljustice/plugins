@@ -9,6 +9,14 @@ namespace stageb3
 {
     constexpr double c_fs = 48000.0;
 
+    // ROARSCHACH_ROAR_LAW=B selects ROAR's audition law for this process (renders through --render).
+    [[maybe_unused]] const bool c_roarLawFromEnvironment = []
+    {
+        const char* v = std::getenv("ROARSCHACH_ROAR_LAW");
+        roar::RoarModule::setLawForTests(v != nullptr && (v[0] == 'B' || v[0] == 'b') ? 1 : 0);
+        return true;
+    }();
+
     // ------------------------------------------------------------------------------ signals
 
     double rmsOf(const Signal& x, int from = 0, int to = -1)
@@ -1240,6 +1248,152 @@ namespace stageb3
         }
     }
 
+    // ============================================================================== ROAR law B (finding 14)
+
+    double harmonicDbc(const Signal& y, double sr, double f0, int k, int from, int to)
+    {
+        return toDb(toneAmplitude(y, sr, k * f0, from, to) / std::max(1.0e-30, toneAmplitude(y, sr, f0, from, to)));
+    }
+
+    double thdDbOf(const Signal& y, double sr, double f0, int from, int to)
+    {
+        double h = 0.0;
+        for (int k = 2; k <= 10 && k * f0 < 0.45 * sr; ++k)
+            h += std::pow(toneAmplitude(y, sr, k * f0, from, to), 2.0);
+        return 10.0 * std::log10(h / std::pow(std::max(1.0e-30, toneAmplitude(y, sr, f0, from, to)), 2.0) + 1.0e-30);
+    }
+
+    /** Energy (dB re the whole) of bins further than 30 Hz from every harmonic of f0, up to 20 kHz. */
+    double inharmonicDb(const Signal& y, double sr, double f0, int from)
+    {
+        constexpr int order = 15;
+        const auto p = spectrum(y, from, order);
+        const double binHz = sr / (1 << order);
+        double all = 0.0, off = 0.0;
+        for (size_t k = 1; k < p.size(); ++k)
+        {
+            const double f = static_cast<double>(k) * binHz;
+            if (f > 20000.0)
+                break;
+            all += p[k];
+            const double nearest = std::round(f / f0) * f0;
+            if (std::abs(f - nearest) > 30.0)
+                off += p[k];
+        }
+        return 10.0 * std::log10((off + 1.0e-30) / (all + 1.0e-30));
+    }
+
+    void testRoarLaw()
+    {
+        const double sr = c_fs;
+        const int previous = roar::RoarModule::getLawForTests();
+        const auto toneRun = [&](int law, double drive, double hz, double rmsDb, double seconds = 1.0)
+        {
+            roar::RoarModule::setLawForTests(law);
+            RoarRig rig(sr, 512, drive, 0.0, false);
+            return rig.run(makeSine(sr, seconds, hz, std::sqrt(2.0) * std::pow(10.0, rmsDb / 20.0)));
+        };
+        const int a = static_cast<int>(0.5 * sr), b = static_cast<int>(1.0 * sr);
+
+        // H3 at 1 kHz, -20 dBFS RMS
+        {
+            juce::String line;
+            const std::vector<std::tuple<int, double, double>> bounds { { 30, -45.0, -32.0 }, { 50, -27.0, -18.0 }, { 80, -20.0, -12.0 } };
+            for (const auto& [pct, lo, hi] : bounds)
+            {
+                const double h3b = harmonicDbc(toneRun(1, pct / 100.0, 1000.0, -20.0), sr, 1000.0, 3, a, b);
+                const double h3a = harmonicDbc(toneRun(0, pct / 100.0, 1000.0, -20.0), sr, 1000.0, 3, a, b);
+                line << pct << " % B " << juce::String(h3b, 1) << " (A " << juce::String(h3a, 1) << ")  ";
+                check(h3b >= lo && h3b <= hi, "law B: H3 at " + juce::String(pct) + " % is " + juce::String(h3b, 1) + " dBc");
+            }
+            std::printf("  law B H3 at 1 kHz, -20 dBFS RMS: %s\n", line.toRawUTF8());
+        }
+        // THD rises with Drive (law B)
+        for (const double hz : { 200.0, 1000.0 })
+        {
+            double prev = -400.0, peak = -400.0;
+            bool rising = true, risingTo80 = true;
+            juce::String line;
+            for (int pct = 0; pct <= 100; pct += 10)
+            {
+                const double t = thdDbOf(toneRun(1, pct / 100.0, hz, -20.0), sr, hz, a, b);
+                rising = rising && t > prev;
+                if (pct <= 80)
+                    risingTo80 = rising;
+                peak = std::max(peak, t);
+                prev = t;
+                line << juce::String(t, 1) << " ";
+            }
+            std::printf("  law B THD at %.0f Hz, Drive 0..100 %%: %s\n", hz, line.toRawUTF8());
+            // (At 1 kHz the THD of law B as specified peaks near 80 % and falls about 0.5 dB to 100 %:
+            // the output low-pass closes on the upper harmonics. Rising to 80 % and within 1 dB above.)
+            if (hz < 500.0)
+                check(rising, "law B: THD at " + juce::String(hz, 0) + " Hz does not rise with Drive over the whole travel");
+            else
+                check(risingTo80 && prev >= peak - 1.0, "law B: THD at " + juce::String(hz, 0) + " Hz does not rise to 80 % and hold within 1 dB");
+        }
+        // Aliasing: 2.7 kHz at -6 dBFS RMS
+        {
+            juce::String line;
+            double b100 = 0.0, a100 = 0.0;
+            for (const int pct : { 45, 80, 100 })
+            {
+                const double ib = inharmonicDb(toneRun(1, pct / 100.0, 2700.0, -6.0), sr, 2700.0, a / 2);
+                const double ia = inharmonicDb(toneRun(0, pct / 100.0, 2700.0, -6.0), sr, 2700.0, a / 2);
+                line << pct << " % B " << juce::String(ib, 1) << " (A " << juce::String(ia, 1) << ")  ";
+                if (pct < 100)
+                    check(ib < -50.0, "law B: energy off the harmonics of a hot 2.7 kHz tone at " + juce::String(pct) + " % is " + juce::String(ib, 1) + " dB");
+                else
+                {
+                    b100 = ib;
+                    a100 = ia;
+                }
+            }
+            std::printf("  inharmonic energy, 2.7 kHz at -6 dBFS RMS: %s\n", line.toRawUTF8());
+            check(b100 <= a100 + 1.0, "law B: more aliasing than law A at Drive 100 % (" + juce::String(b100, 1) + " against " + juce::String(a100, 1) + " dB)");
+        }
+        // A full-scale input at the top of B's travel stays bounded
+        {
+            const auto y = toneRun(1, 1.0, 200.0, -3.0);
+            double peak = 0.0;
+            bool finite = true;
+            for (float v : y)
+            {
+                finite = finite && std::isfinite(v);
+                peak = std::max(peak, static_cast<double>(std::abs(v)));
+            }
+            std::printf("  law B, 0 dBFS peak 200 Hz at Drive 100 %%: output peak %.2f\n", peak);
+            check(finite && peak < 4.0, "law B: a full-scale input at Drive 100 % gives a peak of " + juce::String(peak, 2));
+        }
+        // S15a / S15b with law B
+        {
+            roar::RoarModule::setLawForTests(1);
+            const auto noise = voiceNoise(sr, 8.0);
+            const std::vector<int> drives { 0, 20, 45, 62, 80, 100 };
+            const std::vector<double> firstRun { -0.14, 0.80, 1.34, 1.43, 1.21, 0.56 };   // recorded from the first run (pins B's table and trim)
+            juce::String line;
+            double worst = 0.0;
+            for (size_t k = 0; k < drives.size(); ++k)
+            {
+                const int drive = drives[k];
+                RoarRig off(sr, 512, drive / 100.0, 0.0, false);
+                const auto y = off.run(noise);
+                const double d = rmsDbOf(y, static_cast<int>(3.0 * sr), static_cast<int>(8.0 * sr)) - rmsDbOf(noise, static_cast<int>(3.0 * sr), static_cast<int>(8.0 * sr));
+                line << drive << " % " << juce::String(d, 2) << "  ";
+                check(std::abs(d - firstRun[k]) <= 0.3, "law B S15a: the static makeup at Drive " + juce::String(drive) + " % leaves " + db1(d));
+                for (const double tone : { -1.0, 0.0, 1.0 })
+                {
+                    RoarRig on(sr, 512, drive / 100.0, tone);
+                    const double w = weightedChangeDb(noise, on.run(noise), 3.0, 8.0, sr);
+                    worst = std::abs(w) > std::abs(worst) ? w : worst;
+                    check(std::abs(w) <= 0.5, "law B S15b: learnt level at Drive " + juce::String(drive) + " %, Tone " + juce::String(tone * 100.0, 0) + " is " + db1(w));
+                }
+            }
+            std::printf("  law B S15a static makeup (follower off): %s; S15b learnt, worst %+.3f dB\n", line.toRawUTF8(), worst);
+        }
+        roar::RoarModule::setLawForTests(previous);
+    }
+
     // ============================================================================== CLEAN (D20)
 
     void testCleanGate()
@@ -1310,5 +1464,6 @@ void testStageB3()
     stageb3::testTame();
     stageb3::testVocoder();
     stageb3::testRoarLevel();
+    stageb3::testRoarLaw();
     stageb3::testCleanGate();
 }

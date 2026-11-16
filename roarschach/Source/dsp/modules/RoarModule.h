@@ -125,6 +125,16 @@ namespace roar
         static double drive1For (double a);
         static double drive2For (double a);
 
+        /**
+         * Test hook, process-wide: the knob law. 0 = A (the shipping law); 1 = B, an audition law
+         * (stage-1 drive 34 a^0.58 dB, so the odd harmonics arrive by mid travel; treble boost
+         * 7 a (1 - 0.8 a) dB; output low-pass 18 kHz x 0.45^a; a +3 a^2 dB bell at 1 kHz, Q 0.6;
+         * its own voice trim). Read in prepare() and once per control block. Nothing in the
+         * plug-in selects B.
+         */
+        static void setLawForTests (int law);
+        static int getLawForTests();
+
         // ---- The learnt makeup
         /** What the level correction has learnt (power x seconds sums, so it holds across rates). */
         struct LevelLearning
@@ -163,6 +173,7 @@ namespace roar
             Biquad fixedTop;         // fixed top lift
             Biquad droop;            // below 88.2 kHz: high shelf at the 2x rate for the ADAA droop
             Biquad outLp;            // output transformer: matched one-pole low-pass
+            Biquad midHold;          // law B only: a broad lift around 1 kHz that grows with Drive
             Biquad outHp;
             double bypass1 = 0.0, bypass2 = 0.0;   // previous Miller bypass samples (2-tap average)
         };
@@ -193,6 +204,7 @@ namespace roar
         double m_targetA = 0.35, m_targetTone = 0.0, m_targetMic = 0.0;
         double m_a = 0.35, m_tone = 0.0, m_mic = 0.0;
         double m_designedA = -1.0, m_designedTone = -9.0, m_designedMic = -1.0;
+        int m_law = 0;
         double m_smoothCoeff = 1.0;
         bool m_snap = true;
 

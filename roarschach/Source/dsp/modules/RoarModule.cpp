@@ -5,6 +5,7 @@
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace roar
@@ -83,6 +84,22 @@ namespace roar
         // Centres the static makeup on voice (the table was fitted on noise-shaped signals): the
         // median over the test voices of what the table left, dB at Drive 0, 0.1 .. 1.
         constexpr double c_voiceTrimDb[11] = { -0.38, -0.29, -0.20, -0.12, 0.06, 0.43, 0.71, 1.06, 1.48, 1.48, 1.24 };
+
+        // The audition law B (setLawForTests): its stage-1 drive, treble, output low-pass, mid bell and trim.
+        constexpr double c_lawBDrive1MaxDb = 34.0, c_lawBDrive1Exponent = 0.58;
+        constexpr double c_lawBTrebleFall = 0.8;
+        constexpr double c_lawBOutLpPerDrive = 0.45;
+        constexpr double c_lawBMidHz = 1000.0, c_lawBMidQ = 0.6, c_lawBMidMaxDb = 3.0;
+        constexpr double c_lawBVoiceTrimDb[11] = { -0.38, 0.27, 1.28, 2.44, 3.76, 5.00, 6.03, 6.65, 6.57, 5.45, 3.25 };
+
+        std::atomic<int> s_law { 0 };
+
+        bool lawB() { return s_law.load (std::memory_order_relaxed) == 1; }
+
+        double drive1Db (double a, bool b)
+        {
+            return b ? c_lawBDrive1MaxDb * std::pow (std::clamp (a, 0.0, 1.0), c_lawBDrive1Exponent) : laws::roarDrive1Db (a);
+        }
 
         constexpr double c_smoothSeconds = 0.030;
         constexpr double c_vuSeconds = 0.065;   // two cascaded poles: about 300 ms to settle
@@ -183,7 +200,10 @@ namespace roar
         return t;
     }
 
-    double RoarModule::drive1For (double a) { return c_drive1Cal * dsp::dbToGain (laws::roarDrive1Db (a)); }
+    double RoarModule::drive1For (double a) { return c_drive1Cal * dsp::dbToGain (drive1Db (a, lawB())); }
+
+    void RoarModule::setLawForTests (int law) { s_law.store (law == 1 ? 1 : 0, std::memory_order_relaxed); }
+    int RoarModule::getLawForTests() { return s_law.load (std::memory_order_relaxed); }
     double RoarModule::drive2For (double a) { return c_drive2Cal * dsp::dbToGain (c_drive2RangeDb * a); }
 
     double RoarModule::makeupDb (double a, double t)
@@ -195,7 +215,8 @@ namespace roar
         const double fx = x - static_cast<double> (i), fy = y - static_cast<double> (j);
         const double lo = c_makeupTable[j][i] + fx * (c_makeupTable[j][i + 1] - c_makeupTable[j][i]);
         const double hi = c_makeupTable[j + 1][i] + fx * (c_makeupTable[j + 1][i + 1] - c_makeupTable[j + 1][i]);
-        const double trim = c_voiceTrimDb[i] + fx * (c_voiceTrimDb[i + 1] - c_voiceTrimDb[i]);
+        const double* trimTable = lawB() ? c_lawBVoiceTrimDb : c_voiceTrimDb;
+        const double trim = trimTable[i] + fx * (trimTable[i + 1] - trimTable[i]);
         return lo + fy * (hi - lo) + trim;
     }
 
@@ -203,6 +224,7 @@ namespace roar
     {
         m_fs = dsp::safeSampleRate (fs);
         m_fs2 = 2.0 * m_fs;
+        m_law = getLawForTests();
         (void) table();   // build the shared curve table here, never on the audio thread
 
         m_fade.prepare (m_fs, maxBlock, getLatencySamples());
@@ -273,6 +295,7 @@ namespace roar
             c.fixedTop.reset();
             c.droop.reset();
             c.outLp.reset();
+            c.midHold.reset();
             c.outHp.reset();
             c.bypass1 = c.bypass2 = 0.0;
         }
@@ -410,7 +433,8 @@ namespace roar
         {
             const double tilt = laws::roarToneStrength (a) * t;
             const double bassDb = c_bassMaxDb * (a - tilt);
-            const double trebleDb = c_trebleMaxDb * (a + tilt);
+            const bool b = m_law == 1;
+            const double trebleDb = (b ? c_trebleMaxDb * a * (1.0 - c_lawBTrebleFall * a) : c_trebleMaxDb * a) + c_trebleMaxDb * tilt;
             const double scoopDb = laws::roarScoopDb (a);
 
             const auto couplingTreble = cascade1 (Biquad::highpass1 (m_fs2, c_couplingHz),
@@ -420,7 +444,8 @@ namespace roar
             const auto scoop = Biquad::peaking (m_fs2, c_scoopHz, c_scoopQ, scoopDb);
             const auto trebleTop = Biquad::highShelf (m_fs2, c_trebleHighHz, Biquad::c_butterworthQ, (1.0 - c_trebleLowShare) * trebleDb);
             const double miller1Hz = c_miller1Hz * std::pow (0.5, a);
-            const auto outLp = outputLowpass (m_fs, c_outLpHz * std::pow (c_outLpPerDrive, a));
+            const auto outLp = outputLowpass (m_fs, c_outLpHz * std::pow (b ? c_lawBOutLpPerDrive : c_outLpPerDrive, a));
+            const auto midHold = Biquad::peaking (m_fs, c_lawBMidHz, c_lawBMidQ, b ? c_lawBMidMaxDb * a * a : 0.0);
 
             for (auto& c : m_ch)
             {
@@ -430,6 +455,7 @@ namespace roar
                 c.trebleTop.setCoeffs (trebleTop);
                 c.miller1.setCutoff (miller1Hz);
                 c.outLp.setCoeffs (outLp);
+                c.midHold.setCoeffs (midHold);
             }
             m_designedA = a;
             m_designedTone = t;
@@ -450,6 +476,11 @@ namespace roar
 
     void RoarModule::updateControl()
     {
+        if (const int law = getLawForTests(); law != m_law)
+        {
+            m_law = law;
+            m_designedA = -1.0;   // redesign the stage filters for the other law
+        }
         if (m_snap)
         {
             m_a = m_targetA;
@@ -624,7 +655,8 @@ namespace roar
             {
                 auto& ch = m_ch[static_cast<size_t> (c)];
                 float y = ch.os.downsample (up[c][0], up[c][1]);
-                const double pre = ch.outHp.process (ch.outLp.process (static_cast<double> (y)));
+                const double down = m_law == 1 ? ch.midHold.process (static_cast<double> (y)) : static_cast<double> (y);
+                const double pre = ch.outHp.process (ch.outLp.process (down));
                 const double wOut = m_outShelf[static_cast<size_t> (c)].process (m_outHp[static_cast<size_t> (c)].process (pre));
                 m_blockOut += wOut * wOut * invCh;
                 const double out = pre * makeup;
@@ -665,6 +697,7 @@ namespace roar
         m_mic = o.m_mic;
         m_designedA = o.m_designedA;
         m_designedTone = o.m_designedTone;
+        m_law = o.m_law;
         m_designedMic = o.m_designedMic;
         m_snap = o.m_snap;
         m_from = o.m_from;
