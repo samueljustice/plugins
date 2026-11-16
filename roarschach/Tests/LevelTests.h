@@ -1920,6 +1920,39 @@ void testLevelsRep()
         check(worst <= 0.1, "A10c: a restored young match renders differently from the instance that saved it (" + juce::String(worst, 3) + " dB)");
     }
 
+    // A10d: a save while the audio thread is in the middle of publishing ROAR's learnt makeup keeps
+    // the makeup read last instead of saving none (which would start a new learn on reload).
+    {
+        roar::MonsterFeatures fresh;
+        std::array<double, roar::MonsterFeatures::numLevelRoar> v {};
+        const bool nothingFirst = fresh.readLevelRoar(v) == roar::MonsterFeatures::LevelRoarRead::nothing;
+        fresh.publishLevelRoar(v);
+        const bool readAfter = fresh.readLevelRoar(v) == roar::MonsterFeatures::LevelRoarRead::read;
+        fresh.levelRoarSeq.fetch_add(1);   // a write begun and not finished
+        const bool busyMidWrite = fresh.readLevelRoar(v, std::chrono::milliseconds(2)) == roar::MonsterFeatures::LevelRoarRead::busy;
+        std::thread finisher([&fresh] { std::this_thread::sleep_for(std::chrono::milliseconds(3)); fresh.levelRoarSeq.fetch_add(1); });
+        const bool waitsForIt = fresh.readLevelRoar(v, std::chrono::milliseconds(500)) == roar::MonsterFeatures::LevelRoarRead::read;
+        finisher.join();
+
+        auto p = chain(Chain::init);
+        (void) pass(*p, voice(3.0, -26.0, 512));
+        const auto attr = [](const juce::MemoryBlock& b)
+        {
+            const auto xml = juce::AudioProcessor::getXmlFromBinary(b.getData(), static_cast<int>(b.getSize()));
+            return xml != nullptr ? xml->getStringAttribute("levelRoar") : juce::String();
+        };
+        const auto settled = attr(saveState(*p));
+        auto& f = const_cast<roar::MonsterFeatures&>(p->getMonsterFeatures());
+        const auto seq = f.levelRoarSeq.load();
+        f.levelRoarSeq.store(seq + 1);   // the audio thread descheduled inside publishLevelRoar
+        const auto midWrite = attr(saveState(*p));
+        f.levelRoarSeq.store(seq);
+        std::printf("  A10d ROAR's makeup: nothing / read / busy / waited for: %d %d %d %d; saved mid-write: %s\n", nothingFirst ? 1 : 0, readAfter ? 1 : 0,
+                    busyMidWrite ? 1 : 0, waitsForIt ? 1 : 0, midWrite.isEmpty() ? "none" : (midWrite == settled ? "the last read" : "other"));
+        check(nothingFirst && readAfter && busyMidWrite && waitsForIt, "A10d: readLevelRoar does not tell nothing, a read and a busy writer apart, or does not wait for the writer");
+        check(settled.isNotEmpty() && midWrite == settled, "A10d: a save in the middle of ROAR's publish loses its learnt makeup");
+    }
+
     // A11: states without level attributes, or with non-finite ones, load as a new instance.
     {
         auto p = chain(Chain::init);

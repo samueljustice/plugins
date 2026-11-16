@@ -353,6 +353,7 @@ void RoarschachAudioProcessor::postLevelHint(double matchDb)
 void RoarschachAudioProcessor::postLevelRestore(const roar::LevelState& l)
 {
     const juce::ScopedLock sl(m_levelRequestLock);
+    m_haveLastLevelRoar = false;   // what was read last belongs to the levels this restore replaces
     const auto n = ++m_levelRequestCounter;
     auto& r = m_levelRestore;
     r.seq.store(0, std::memory_order_release);   // being written
@@ -513,7 +514,21 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
         l.out.priorDb = f.levelOutPriorDb.load();
         l.out.priorWeight = f.levelOutPriorWeight.load();
         std::array<double, roar::RoarModule::LevelLearning::numValues> v {};
-        l.haveRoar = f.readLevelRoar(v);
+        switch (f.readLevelRoar(v))
+        {
+            case roar::MonsterFeatures::LevelRoarRead::read:
+                m_lastLevelRoar = v;
+                m_haveLastLevelRoar = true;
+                break;
+            case roar::MonsterFeatures::LevelRoarRead::busy:
+                // The writer is in the middle of a write: what was read last, not "nothing learnt".
+                v = m_lastLevelRoar;
+                break;
+            case roar::MonsterFeatures::LevelRoarRead::nothing:
+                m_haveLastLevelRoar = false;
+                break;
+        }
+        l.haveRoar = m_haveLastLevelRoar;
         if (l.haveRoar)
             l.roar = roar::RoarModule::LevelLearning::fromValues(v);
     }

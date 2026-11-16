@@ -253,6 +253,10 @@ private:
     };
     juce::CriticalSection m_levelRequestLock;
     juce::uint32 m_levelRequestCounter = 0;                 // under m_levelRequestLock
+    // ROAR's learnt makeup as levelsForSave last read it (under m_levelRequestLock): kept when the
+    // audio thread is in the middle of publishing a new one.
+    std::array<double, roar::RoarModule::LevelLearning::numValues> m_lastLevelRoar {};
+    bool m_haveLastLevelRoar = false;
     LevelRestoreSlot m_levelRestore;
     LevelHintSlot m_levelHint;
     juce::uint32 m_levelApplied = 0;                        // audio thread: the last request applied

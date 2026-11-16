@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <thread>
 
 namespace roar
 {
@@ -99,24 +101,34 @@ namespace roar
             levelRoarSeq.store (s + 2, std::memory_order_release);
         }
 
-        /** Any other thread: false when no consistent set could be read (nothing published yet, or
-            the writer kept overlapping the read). */
-        bool readLevelRoar (std::array<double, numLevelRoar>& v) const
+        enum class LevelRoarRead { nothing, read, busy };
+        /** Any other thread (never the audio thread: it may wait). nothing: nothing published yet;
+            busy: the writer kept overlapping the read for `patience` (it was descheduled in the
+            middle of a write), so the caller should keep what it read last. */
+        LevelRoarRead readLevelRoar (std::array<double, numLevelRoar>& v,
+                                     std::chrono::milliseconds patience = std::chrono::milliseconds (20)) const
         {
-            for (int attempt = 0; attempt < 64; ++attempt)
+            const auto until = std::chrono::steady_clock::now() + patience;
+            for (int attempt = 0;; ++attempt)
             {
                 const auto s1 = levelRoarSeq.load (std::memory_order_acquire);
                 if (s1 == 0)
-                    return false;
-                if ((s1 & 1u) != 0)
-                    continue;
-                for (size_t k = 0; k < v.size(); ++k)
-                    v[k] = levelRoar[k].load (std::memory_order_relaxed);
-                std::atomic_thread_fence (std::memory_order_acquire);
-                if (levelRoarSeq.load (std::memory_order_relaxed) == s1)
-                    return true;
+                    return LevelRoarRead::nothing;
+                if ((s1 & 1u) == 0)
+                {
+                    for (size_t k = 0; k < v.size(); ++k)
+                        v[k] = levelRoar[k].load (std::memory_order_relaxed);
+                    std::atomic_thread_fence (std::memory_order_acquire);
+                    if (levelRoarSeq.load (std::memory_order_relaxed) == s1)
+                        return LevelRoarRead::read;
+                }
+                if (attempt >= 64)
+                {
+                    if (std::chrono::steady_clock::now() >= until)
+                        return LevelRoarRead::busy;
+                    std::this_thread::yield();
+                }
             }
-            return false;
         }
 
         // Hits in the output (HitDetector; the picture's ripples). hits is the count so far (wraps
