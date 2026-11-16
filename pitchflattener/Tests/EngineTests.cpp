@@ -228,8 +228,14 @@ struct Rig
                 onBlock();
             if (realtimePacing > 0.0)
             {
+                // Paced like an audio device: one block per block's worth of time. A device never
+                // sends blocks early to make up for a late one, so neither does this: after an
+                // oversleep (a busy machine) the next block is due a block's time from now. Catching
+                // up instead would send bursts faster than real time, which the engine rightly
+                // takes for a render.
                 clock += std::chrono::microseconds(static_cast<std::int64_t>(1.0e6 * block / rate));
                 std::this_thread::sleep_until(clock);
+                clock = std::max(clock, std::chrono::steady_clock::now());
             }
         }
         played += static_cast<std::int64_t>(n);
