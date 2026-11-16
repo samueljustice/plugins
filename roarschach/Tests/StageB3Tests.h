@@ -641,6 +641,150 @@ namespace stageb3
         }
     }
 
+    // ============================================================================== TAME (finding 12)
+
+    Signal runTame(const Signal& x, double u, double sr = c_fs, int block = 512, bool guard = true, bool forcedZero = false)
+    {
+        roar::TameModule m;
+        m.prepare(sr, block);
+        roar::TameSettings s;
+        s.amount = static_cast<float>(u);
+        m.setParams(s);
+        m.setGuardForTests(guard);
+        if (forcedZero)
+            m.setForcedGainsForTest(true, 0.0, 0.0);
+        m.reset();
+        return runModuleMono(m, x, block, unvoicedFrame, [](int) {});
+    }
+
+    /** 8 s of the bright rasp-like with +10 dB for 0.4 s at 2, 3, .. 7 s (the step through a 10 ms pole). */
+    struct Swells
+    {
+        Signal x;
+        std::vector<std::pair<int, int>> in, between;
+    };
+
+    Swells makeSwells(double sr)
+    {
+        Swells w;
+        w.x = brightRaspLike(sr, 8.0);
+        const double k = 1.0 - std::exp(-1.0 / (0.010 * sr));
+        double g = 0.0;
+        int start = -1;
+        for (int i = 0; i < static_cast<int>(w.x.size()); ++i)
+        {
+            const double t = i / sr;
+            const double target = (t >= 2.0 && t < 7.4 && std::fmod(t - 2.0, 1.0) < 0.4) ? 10.0 : 0.0;
+            g += k * (target - g);
+            w.x[static_cast<size_t>(i)] *= static_cast<float>(std::pow(10.0, g / 20.0));
+            if (g > 8.0 && start < 0)
+                start = i;
+            if (g <= 8.0 && start >= 0)
+            {
+                w.in.emplace_back(start, i);
+                start = -1;
+            }
+        }
+        for (int s0 = 2; s0 <= 7; ++s0)
+            w.between.emplace_back(static_cast<int>((s0 + 0.5) * sr), static_cast<int>((s0 + 1.0) * sr));
+        return w;
+    }
+
+    void testTame()
+    {
+        const double sr = c_fs;
+
+        // ---- S10: the bright rasp-like across the knob
+        {
+            const auto rasp = brightRaspLike(sr);
+            const int from = static_cast<int>(2.0 * sr), end = static_cast<int>(rasp.size());
+            juce::String line;
+            double prev = 1.0;
+            bool deeper = true;
+            std::map<int, double> at;
+            for (const int pct : { 6, 12, 25, 50, 100 })
+            {
+                const auto y = runTame(rasp, pct / 100.0);
+                const double d = bandChangeDb(rasp, y, sr, from, end, 5000.0, 16000.0);
+                at[pct] = d;
+                deeper = deeper && d < prev;
+                prev = d;
+                line << pct << " % " << juce::String(d, 2) << "  ";
+                if (pct == 6)
+                {
+                    const double first = bandChangeDb(rasp, y, sr, 0, static_cast<int>(0.5 * sr), 5000.0, 16000.0);
+                    line << "(first 0.5 s " << juce::String(first, 2) << ")  ";
+                    check(first > -1.5, "S10: TAME 6 % takes " + db1(first) + " off the first 0.5 s of a bright rasp");
+                }
+            }
+            std::printf("  S10 TAME on the bright rasp-like, 5-16 kHz: %s\n", line.toRawUTF8());
+            check(at[6] > -1.0, "S10: TAME 6 % takes " + db1(at[6]) + " off a bright rasp");
+            check(at[12] > -2.5, "S10: TAME 12 % takes " + db1(at[12]));
+            check(at[25] <= -3.0 && at[25] >= -7.0, "S10: TAME 25 % takes " + db1(at[25]) + " (expected 3 .. 7 dB)");
+            check(deeper, "S10: TAME does not take more at every step of the knob");
+        }
+
+        // ---- S10b / S12b: swells
+        std::map<int, double> swell48;
+        const auto swellRun = [](double rate, double u, double& inSwells, double& between)
+        {
+            const auto w = makeSwells(rate);
+            const auto y = runTame(w.x, u, rate);
+            inSwells = bandChangeDb(w.x, y, rate, w.in, 5000.0, 16000.0);
+            between = bandChangeDb(w.x, y, rate, w.between, 5000.0, 16000.0);
+        };
+        {
+            juce::String line;
+            for (const int pct : { 6, 12, 25, 50 })
+            {
+                double a = 0.0, b = 0.0;
+                swellRun(sr, pct / 100.0, a, b);
+                swell48[pct] = a;
+                line << pct << " % " << juce::String(a, 2) << " / " << juce::String(b, 2) << "  ";
+                if (pct == 6)
+                    check(a > -1.5 && b > -1.5, "S10b: TAME 6 % takes " + db1(a) + " / " + db1(b) + " off a bright voice's swells / between them");
+                if (pct == 25)
+                    check(a <= b - 3.5 && a <= -6.0, "S10b: TAME 25 % in the swells " + db1(a) + ", between " + db1(b));
+                if (pct == 50)
+                    check(a <= b - 4.0, "S10b: TAME 50 % in the swells " + db1(a) + ", between " + db1(b));
+            }
+            std::printf("  S10b swells, 5-16 kHz in / between: %s\n", line.toRawUTF8());
+        }
+        for (const double rate : { 44100.0, 96000.0, 192000.0 })
+        {
+            double a = 0.0, b = 0.0;
+            swellRun(rate, 0.25, a, b);
+            std::printf("  S12b swells at %.1f kHz, Tame 25 %%: %.2f / %.2f dB\n", rate / 1000.0, a, b);
+            check(std::abs(a - swell48[25]) <= 0.5, "S12b: swells at " + juce::String(rate / 1000.0, 1) + " kHz " + db1(a) + " against " + db1(swell48[25]));
+        }
+
+        // ---- S11: esses with and without the guard
+        {
+            const auto speech = speechLike(sr);
+            juce::String line;
+            for (const int pct : { 6, 25, 50, 100 })
+            {
+                const double on = essDepth(speech, runTame(speech.x, pct / 100.0), sr);
+                const double off = essDepth(speech, runTame(speech.x, pct / 100.0, sr, 512, false), sr);
+                line << pct << " % " << juce::String(on, 2) << " (fixed " << juce::String(off, 2) << ")  ";
+                check(std::abs(on - off) <= 0.5, "S11: TAME " + juce::String(pct) + " % on esses " + db1(on) + " against the fixed threshold's " + db1(off));
+            }
+            std::printf("  S11 esses 5-8 kHz: %s\n", line.toRawUTF8());
+        }
+
+        // ---- S12: null and blocks
+        {
+            const auto speech = speechLike(sr);
+            const double nullDiff = maxAbsDiff(runTame(speech.x, 0.0), runTame(speech.x, 0.25, sr, 512, true, true));
+            const auto rasp = brightRaspLike(sr, 3.0);
+            const auto ref = runTame(rasp, 0.25);
+            const double blocks = std::max(maxAbsDiff(ref, runTame(rasp, 0.25, sr, 16)), maxAbsDiff(ref, runTame(rasp, 0.25, sr, 4096)));
+            std::printf("  S12 Tame 0 %% against forced 0 dB: %.2g; blocks 16 / 4096 against 512: %.2g\n", nullDiff, blocks);
+            check(nullDiff <= 1.0e-6, "S12: Tame 0 % is not the allpass (" + juce::String(nullDiff) + ")");
+            check(blocks <= 1.0e-6, "S12: TAME depends on the block size (" + juce::String(blocks) + ")");
+        }
+    }
+
     // ============================================================================== CLEAN (D20)
 
     void testCleanGate()
@@ -708,5 +852,6 @@ void testStageB3()
 {
     std::printf("[stageb3] DE-ESS, TAME, VOCODER, ROAR level, DETAIL hold, CLEAN gate\n");
     stageb3::testDeess();
+    stageb3::testTame();
     stageb3::testCleanGate();
 }
