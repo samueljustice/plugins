@@ -8477,6 +8477,7 @@ namespace
     //==========================================================================
     // Levels and repeatability (IN's take gain, OUTPUT's match, Mix, the kept state).
 #include "LevelTests.h"
+#include "StageB3Tests.h"
 
     // Offline render mode.
 
@@ -9657,6 +9658,7 @@ int main(int argc, char* argv[])
         { "levelsout", testLevelsOut },
         { "levelsmix", testLevelsMix },
         { "levelsrep", testLevelsRep },
+        { "stageb3", testStageB3 },
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
         { "voicedsp", testVoiceModules },
