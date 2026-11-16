@@ -105,9 +105,7 @@ namespace roar
     void VocoderModule::reset()
     {
         m_fade.reset();
-        m_engine.clearState();
-        m_engine.resetPitchGate();
-        m_engine.resetMotion();
+        m_engine.resetToStart();
     }
 
     void VocoderModule::setParams (const VocoderSettings& s)
@@ -326,22 +324,31 @@ namespace roar
         m_characterCoeff = 1.0f - (float) std::exp (-(double) c_subBlock / (static_cast<double> (c_characterSeconds) * fs));
         m_makeup = c_makeup;
         m_pitchGate.prepare (fs, c_subBlock);
-        m_gatePeak = 0.0f;
         m_prepared = true;
+        resetToStart();
+    }
 
+    void VocoderModule::Engine::resetToStart()
+    {
+        // Exactly what prepare() leaves: idle, wet 0, the character and formant shift on their
+        // targets, filters and followers flushed, the pitch gate and the carrier motion at their
+        // start values. The next active chunk then starts the engine as a new instance does
+        // (activate(): the same first gate tick, the same wet fade).
         m_active = false;
         m_wet = 0.0f;
         m_characterTarget = m_targetGravel;
         m_gravel = m_targetGravel;
         updateCharacter();
         m_shift = m_targetShift;
+        resetPitchGate();
+        resetMotion();
         clearState();
     }
 
     void VocoderModule::Engine::clearState()
     {
-        // Flushes the filters and followers; the wet fade and the active state carry on, so a
-        // host reset mid-stream does not jump the dry/wet balance.
+        // Flushes the filters and followers; the wet fade and the active state carry on (a
+        // non-finite recovery must not jump the dry/wet balance; a host reset uses resetToStart).
         m_analysis.clear();
         m_synth.clear();
         m_env.fill (0.0f);

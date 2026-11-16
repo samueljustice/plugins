@@ -104,8 +104,10 @@ namespace roar
             void clearState();
             /** Forgets the level history of the carrier-pitch gate (a transport restart). */
             void resetPitchGate() { m_pitchGate.reset(); m_gatePeak = 0.0f; }
-            /** Back to the start values of the free-running carrier motion and the held pitch (a host reset). */
+            /** Back to the start values of the free-running carrier motion and the held pitch. */
             void resetMotion();
+            /** Back to the state prepare() leaves (a host reset): the next chunk starts as a new instance's does. */
+            void resetToStart();
             void setParams (float gravel01, int octaveIndex, float formantShiftBands);   // gravel01: g (after the law)
 
             /** Restart from cleared state with the wet already at its target (the OnFade fades it). */

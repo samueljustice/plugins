@@ -200,7 +200,24 @@ namespace pitchbatch
         const auto voice = makeVoice(sr, 4.0);
         const int cut = static_cast<int>(2.0 * sr);
         const Stereo first { Signal(voice.begin(), voice.begin() + cut), Signal(voice.begin(), voice.begin() + cut) };
-        const Stereo second { Signal(voice.begin() + cut, voice.end()), Signal(voice.begin() + cut, voice.end()) };
+        // After the reset: six seconds of phrases at four pitches with quiet gaps (noise at about
+        // -75 dBFS) between them, so the carrier gate's pauses, rest pitch and phrase starts all
+        // come round several times (a fault in their phase shows only there).
+        Signal phrased;
+        {
+            std::mt19937 rng(23);
+            std::uniform_real_distribution<float> hiss(-2.0e-4f, 2.0e-4f);
+            const double pitches[4] { 110.0, 147.0, 98.0, 131.0 };
+            for (int k = 0; phrased.size() < static_cast<size_t>(6.0 * sr); ++k)
+            {
+                const auto phrase = makeVoice(sr, 0.55 + 0.1 * (k % 3), pitches[k % 4], 7u + static_cast<unsigned>(k));
+                for (float v : phrase)
+                    phrased.push_back(v + hiss(rng));
+                for (int i = 0; i < static_cast<int>((0.25 + 0.1 * (k % 4)) * sr); ++i)
+                    phrased.push_back(hiss(rng));
+            }
+        }
+        const Stereo second { phrased, phrased };
 
         struct Case { const char* name; Values values; const char* order; };
         const std::vector<Case> cases {
