@@ -368,6 +368,18 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>
         SWOOSH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Source") # the hard-edge check reads the sources
     target_link_libraries(SwooshbucklerUi PRIVATE Swooshbuckler)
+
+    # The tests keep whole engines (RigEngine and its fixed buffers) as locals. A Windows program's main thread
+    # gets 1 MB of stack against macOS's 8 MB, and MSVC gives every local its own place, so there they ask for plenty (it is only reserved, not used). (The plug-in and the
+    # app keep the engine inside the processor, which is never on a stack.)
+    if(MSVC)
+        foreach(test Cargo Rig Classify Pitch Morph Master Session Keep Render Routing Stowaway Room Surround Hits
+                     Wide SpaceLfe Output Files Export App FirstRun Ui)
+            if(TARGET Swooshbuckler${test})
+                target_link_options(Swooshbuckler${test} PRIVATE "/STACK:67108864")
+            endif()
+        endforeach()
+    endif()
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.
