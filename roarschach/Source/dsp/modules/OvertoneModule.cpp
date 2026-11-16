@@ -77,6 +77,8 @@ namespace roar
         constexpr int c_maxOctaveShift = 2;
         constexpr double c_shiftSeconds = 0.150;          // the slide of a move inside a phrase
         constexpr double c_octaveBinsFromHz = 30.0;
+        constexpr double c_powerSeconds = 0.050;          // the cap's mean squares
+        constexpr double c_capDbAtZero = -8.0, c_capDbPerUnit = 8.0;   // the layer re the input: -4 dB at 50 %, 0 dB at 100 %
         constexpr double c_swapSeconds = 0.010;
         constexpr double c_modeFadeSeconds = 0.020;
         constexpr double c_readoutSeconds = 0.080;
@@ -172,6 +174,7 @@ namespace roar
         m_octCoeff = 1.0 - std::exp (-frame / (c_octSeconds * m_fs));
         m_confCoeff = 1.0 - std::exp (-frame / (c_confidenceSeconds * m_fs));
         m_shiftCoeff = 1.0 - std::exp (-frame / (c_shiftSeconds * m_fs));
+        m_powerCoeff = dsp::onePoleCoeff (c_powerSeconds, m_fs);
         m_octWindowFrames = std::max (1, static_cast<int> (std::lround (c_octaveWindowSeconds * m_fs / frame)));
         m_octSnapFrames = static_cast<int> (std::lround (c_octaveSnapSeconds * m_fs / frame));
         m_octRepickFrames = static_cast<int> (std::lround (c_octaveRepickSeconds * m_fs / frame));
@@ -206,6 +209,7 @@ namespace roar
         m_s.controlsValid = false;
         m_s.interpLeft = 0;
         m_s.inEnv = m_s.genEnv = 0.0f;
+        m_s.inPower = m_s.genPower = 0.0;
         clearOctaveWindow();
 
         for (auto* xo : { &m_s.xoL, &m_s.xoR })
@@ -241,6 +245,7 @@ namespace roar
         m_s.bell.reset();
         m_s.interpLeft = 0;
         m_s.genEnv = 0.0f;
+        m_s.genPower = 0.0;
     }
 
     void OvertoneModule::restartFromOff()
@@ -301,7 +306,13 @@ namespace roar
 
     float OvertoneModule::gainTargetFor() const
     {
-        return static_cast<float> (amountGain (static_cast<double> (m_settings.amount), m_settings.mode));
+        const double law = amountGain (static_cast<double> (m_settings.amount), m_settings.mode);
+        if (! m_diagnostics.cap || ! (m_s.genPower > 1.0e-18))
+            return static_cast<float> (law);
+        // The layer is held at or under -8 + 8 u dB re the module's input.
+        const double capDb = c_capDbAtZero + c_capDbPerUnit * static_cast<double> (m_settings.amount);
+        const double cap = dsp::dbToGain (capDb) * std::sqrt (m_s.inPower / m_s.genPower);
+        return static_cast<float> (std::min (law, cap));
     }
 
     double OvertoneModule::targetLogHz (int band) const
@@ -784,7 +795,9 @@ namespace roar
             for (int k = 0; k < count; ++k)
             {
                 const float xl = l[i + k];
-                x[static_cast<size_t> (k)] = stereo ? sanitizeInput (0.5f * (xl + r[i + k])) : sanitizeInput (xl);
+                const float xm = stereo ? sanitizeInput (0.5f * (xl + r[i + k])) : sanitizeInput (xl);
+                x[static_cast<size_t> (k)] = xm;
+                m_s.inPower = dsp::flushTiny (m_s.inPower + m_powerCoeff * (static_cast<double> (xm) * static_cast<double> (xm) - m_s.inPower));
             }
 
             // ---- Generator
@@ -820,7 +833,10 @@ namespace roar
                         m_s.gain = m_s.gainTarget;
 
                     const auto kk = static_cast<size_t> (k);
-                    h[kk] = dsp::flushTiny (m_s.bell.process (sum[kk]) * m_s.gain * m_s.swapGain);
+                    const float bellOut = m_s.bell.process (sum[kk]);
+                    const double unit = static_cast<double> (bellOut) * static_cast<double> (m_s.swapGain);   // the layer at unit Amount gain
+                    m_s.genPower = dsp::flushTiny (m_s.genPower + m_powerCoeff * (unit * unit - m_s.genPower));
+                    h[kk] = dsp::flushTiny (bellOut * m_s.gain * m_s.swapGain);
                 }
             }
 
@@ -887,13 +903,14 @@ namespace roar
             i = end;
         }
 
-        bool bad = ! std::isfinite (m_s.genEnv) || ! std::isfinite (m_s.inEnv);
+        bool bad = ! std::isfinite (m_s.genEnv) || ! std::isfinite (m_s.inEnv) || ! std::isfinite (m_s.genPower) || ! std::isfinite (m_s.inPower);
         for (const auto& b : m_s.bands)
             bad = bad || ! std::isfinite (b.env) || ! std::isfinite (b.factor) || ! std::isfinite (b.outEnv);
         if (bad)
         {
             resetGenerator();
             m_s.inEnv = 0.0f;
+            m_s.inPower = 0.0;
         }
 
         m_fade.apply (l, r, n, stereo);

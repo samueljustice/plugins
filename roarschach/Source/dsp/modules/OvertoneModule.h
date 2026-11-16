@@ -93,6 +93,11 @@ namespace roar
      * linearly to nothing below u = 0.02, plus +1.5 dB (Lean) or +3 dB (Replace): there the dry
      * lows make room, so the layer is heard at lower levels. Smoothed over 20 ms.
      *
+     * Cap: the layer never exceeds -8 + 8 u dB re the module's input (-4 dB at 50 %, 0 dB at
+     * 100 %), in every mode: the input's and the layer's (at unit Amount gain) mean squares over
+     * 50 ms, and the gain target is min (law, 10^(cap / 20) sqrt (in / layer)). A layer under the
+     * cap is untouched; the 20 ms gain smoothing carries it.
+     *
      * Tracked: A at f0 / 2, B at f0 from the VoiceStream (confidence >= 0.4, otherwise held;
      * 140 Hz before any pitch; octave jumps must persist 40 ms; 30 ms log glide). Frequency then
      * tilts the weights, w_k += 6 oct log2 (k / 3) dB, instead of moving the centres. Fixed
@@ -238,6 +243,9 @@ namespace roar
             double octMedian = 0.0;              // log2 Hz
             int octaveShift = 0;                 // n
             double shift = 0.0;                  // glided n
+
+            // The cap against the input.
+            double inPower = 0.0, genPower = 0.0;   // 50 ms mean squares: the mono input, the layer at unit gain
         };
 
         void resetGenerator();
@@ -263,6 +271,7 @@ namespace roar
         std::vector<std::uint8_t> m_octRing;   // the window's bins, sized in prepare() (1 s of frames)
         int m_octWindowFrames = 1500, m_octSnapFrames = 375, m_octRepickFrames = 450;
         double m_shiftCoeff = 0.0;             // per frame, 150 ms
+        double m_powerCoeff = 0.0;             // per sample, 50 ms
 
         double m_fs = 48000.0;
         double m_envAttackD = 0.0, m_envReleaseD = 0.0;  // per sample

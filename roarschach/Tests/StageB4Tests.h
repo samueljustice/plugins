@@ -1623,6 +1623,79 @@ namespace stageb4
         }
     }
 
+    void testOvertoneCap()
+    {
+        std::printf("[stageb4] OVERTONE: the layer capped against the input\n");
+        using P = roar::OvertonePattern;
+        const auto f110 = [](double) { return 110.0; };
+        // T-OV-6: a 110 Hz sine, Tracked, Add.
+        for (const double level : { -20.0, -40.0 })
+        {
+            auto in = makeSine(c_fs, 2.0, 110.0, 1.0);
+            scaleToRmsDb(in, level);
+            const int from = static_cast<int>(1.0 * c_fs);
+            const double inDb = rmsDb(in, from);
+            juce::String line;
+            for (const auto& [amount, capDb] : { std::pair<double, double> { 0.5, -4.0 }, std::pair<double, double> { 1.0, 0.0 } })
+            {
+                auto m = makeOvertone(c_fs, overtoneSettings(P::tracked, amount), true, true);
+                auto mf = makeOvertone(c_fs, overtoneSettings(P::tracked, amount), true, false);
+                const double db = rmsDb(runOvertone(*m, in, c_fs, f110).layer, from) - inDb;
+                const double freeDb = rmsDb(runOvertone(*mf, in, c_fs, f110).layer, from) - inDb;
+                // The cap is a ceiling: where the generator's own level is already under it (a quiet
+                // input, where the generator makes less), the layer is the uncapped one.
+                const double expected = std::min(capDb, freeDb);
+                line << juce::String(amount * 100.0, 0) << " %: " << juce::String(db, 2) << " dB (cap off " << juce::String(freeDb, 2) << "); ";
+                check(std::abs(db - expected) <= 0.7 && db <= capDb + 0.7,
+                      "T-OV-6 Tracked " + juce::String(amount * 100.0, 0) + " % at " + juce::String(level, 0) + " dBFS: layer " + juce::String(db, 2)
+                          + " dB re input (min (cap " + juce::String(capDb, 0) + ", cap off " + juce::String(freeDb, 2) + ") +-0.7)");
+            }
+            auto a = makeOvertone(c_fs, overtoneSettings(P::tracked, 0.1), true, true), b = makeOvertone(c_fs, overtoneSettings(P::tracked, 0.1), true, false);
+            const double capped = rmsDb(runOvertone(*a, in, c_fs, f110).layer, from), free = rmsDb(runOvertone(*b, in, c_fs, f110).layer, from);
+            line << "10 %: " << juce::String(capped - inDb, 2) << " dB (cap off " << juce::String(free - inDb, 2) << ")";
+            check(std::abs(capped - free) <= 0.2, "T-OV-6 Tracked 10 % at " + juce::String(level, 0) + " dBFS: the cap moves the layer by " + juce::String(capped - free, 2) + " dB (<= 0.2)");
+            std::printf("  T-OV-6 110 Hz sine at %.0f dBFS, Tracked, Add: %s\n", level, line.toRawUTF8());
+        }
+        // T-OV-7: Amount 0 in Add is a bit-exact null.
+        {
+            const auto in = howl(c_fs, 1.0, 220.0);
+            bool exact = true;
+            for (const auto pattern : { P::chest, P::throat, P::beast, P::speaker, P::broad, P::tracked })
+            {
+                auto m = makeOvertone(c_fs, overtoneSettings(pattern, 0.0), true, true);
+                exact = exact && identical(runOvertone(*m, in, c_fs, [](double) { return 220.0; }).out, in);
+            }
+            check(exact, "T-OV-7 Amount 0 in Add is not a bit-exact null");
+        }
+        // T-OV-8: the sine gated on: overshoot above the capped level.
+        {
+            Signal in(static_cast<size_t>(2.0 * c_fs), 0.0f);
+            auto tone = makeSine(c_fs, 2.0, 110.0, 1.0);
+            scaleToRmsDb(tone, -20.0);
+            const int onset = static_cast<int>(0.5 * c_fs);
+            for (size_t i = static_cast<size_t>(onset); i < in.size(); ++i)
+                in[i] = tone[i];
+            auto m = makeOvertone(c_fs, overtoneSettings(P::tracked, 0.5), true, true);
+            const auto r = runOvertone(*m, in, c_fs, [](double t) { return t < 0.5 ? 0.0 : 110.0; });
+            const double steady = rmsDb(r.layer, onset + static_cast<int>(0.8 * c_fs), onset + static_cast<int>(1.4 * c_fs));
+            // Windows of two periods of the layer's lowest line (f0 / 2 = 55 Hz), so a window's level
+            // does not ripple with where it falls on the wave; 5 ms steps.
+            const int win = static_cast<int>(std::lround(2.0 * c_fs / 55.0));
+            const int step = static_cast<int>(0.005 * c_fs);
+            double over = -100.0, lastOver = 0.0;
+            for (int i = onset; i + win < onset + static_cast<int>(0.6 * c_fs); i += step)
+            {
+                const double db = rmsDb(r.layer, i, i + win) - steady;
+                over = std::max(over, db);
+                if (db > 1.0)
+                    lastOver = 1000.0 * (i + win / 2 - onset) / c_fs;   // the window's centre
+            }
+            std::printf("  T-OV-8 gated 110 Hz sine at -20 dBFS, Tracked 50 %%: overshoot %.1f dB, over +1 dB until %.0f ms\n", over, lastOver);
+            check(over < 6.0, "T-OV-8 the cap overshoots by " + juce::String(over, 1) + " dB (< 6)");
+            check(lastOver < 80.0, "T-OV-8 the overshoot lasts " + juce::String(lastOver, 0) + " ms (< 80)");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -1643,5 +1716,7 @@ namespace stageb4
             testSubVoiceCap();
         if (sectionWanted("ov"))
             testOvertoneOctave();
+        if (sectionWanted("ov2"))
+            testOvertoneCap();
     }
 }
