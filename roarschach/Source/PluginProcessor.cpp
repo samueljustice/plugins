@@ -1216,13 +1216,20 @@ void RoarschachAudioProcessor::setRollHolds(const std::array<bool, Params::numMo
         if (holds[static_cast<size_t>(m)])
             codes.add(Params::modules[static_cast<size_t>(m)].code);
 
-    // Like the creature's growth: kept with the session whenever the host saves, never reported as a
-    // change (holding a module changes no sound).
-    const juce::ScopedLock sl(m_viewLock);
-    if (codes.isEmpty())
-        m_viewOptions.remove(c_rollHolds);
-    else
-        m_viewOptions.set(c_rollHolds, codes.joinIntoString(" "));
+    // Saved with the session and set by hand, like the other view options: the host is told the
+    // session changed (only when the holds do), so it saves them or asks before closing.
+    {
+        const juce::ScopedLock sl(m_viewLock);
+        const auto text = codes.joinIntoString(" ");
+        const auto* existing = m_viewOptions.getVarPointer(c_rollHolds);
+        if ((existing == nullptr ? juce::String() : existing->toString()) == text)
+            return;
+        if (codes.isEmpty())
+            m_viewOptions.remove(c_rollHolds);
+        else
+            m_viewOptions.set(c_rollHolds, text);
+    }
+    m_hostDisplay.post(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true));
 }
 
 std::array<bool, Params::numModules> RoarschachAudioProcessor::modulesOn() const

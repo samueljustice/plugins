@@ -191,8 +191,8 @@ namespace usability
     }
 
     //==========================================================================
-    // U6: Randomise All holds modules (a die's right-click menu: view state, not a parameter, never
-    // marking the session changed) and, Shift-clicked, rolls only the modules that are on.
+    // U6: Randomise All holds modules (a die's right-click menu: view state, not a parameter, marking
+    // the session changed like the other view options) and, Shift-clicked, rolls only the modules that are on.
     struct HostChanges final : juce::AudioProcessorListener
     {
         int stateChanges = 0, parameterChanges = 0;
@@ -258,9 +258,15 @@ namespace usability
             check(!onAll.has_value() && !onPreset.has_value(), "dice: Randomise All's and the preset die's menus have no hold item");
             check(die.getTooltip().startsWith("Held:") && strip.getModuleDice(pitch)->getTooltip().contains("Hold in Randomise All"),
                   "dice: a held die's tooltip says it is held; every module die's tooltip names the hold");
-            check(changes.stateChanges == 0 && changes.parameterChanges == 0,
-                  "dice: holding a module tells the host nothing (" + juce::String(changes.stateChanges) + " state changes, "
+            check(changes.stateChanges == 1 && changes.parameterChanges == 0,
+                  "dice: holding a module marks the session changed once and writes no parameter (" + juce::String(changes.stateChanges) + " state changes, "
                       + juce::String(changes.parameterChanges) + " parameter changes)");
+            {
+                const int stateBefore = changes.stateChanges;
+                p->setRollHolds(p->getRollHolds());   // the same holds again: nothing to tell
+                runLoop(20);
+                check(changes.stateChanges == stateBefore, "dice: setting the same holds again marks the session changed");
+            }
 
             // Saved with the session, read back by a new instance; a state without holds has none; a
             // preset load keeps them (they are not part of a sound).
