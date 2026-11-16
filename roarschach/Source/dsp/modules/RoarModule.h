@@ -144,6 +144,20 @@ namespace roar
             double seconds = 0.0, evidence = 0.0;      // sounding seconds; effective seconds
             double anchorA = 0.0, anchorTone = 0.0, anchorMic = 0.0;
             bool anchored = false;
+
+            /** As plain numbers, for the session state and the hand-over between threads (anchored as 0 / 1). */
+            static constexpr int numValues = 10;
+            std::array<double, numValues> toValues() const
+            {
+                return { corrDb, s1, s2, so, seconds, evidence, anchorA, anchorTone, anchorMic, anchored ? 1.0 : 0.0 };
+            }
+            static LevelLearning fromValues (const std::array<double, numValues>& v)
+            {
+                LevelLearning l;
+                l.corrDb = v[0]; l.s1 = v[1]; l.s2 = v[2]; l.so = v[3]; l.seconds = v[4]; l.evidence = v[5];
+                l.anchorA = v[6]; l.anchorTone = v[7]; l.anchorMic = v[8]; l.anchored = v[9] >= 0.5;
+                return l;
+            }
         };
 
         /** For the session. */
@@ -154,6 +168,13 @@ namespace roar
         void relearnLevel();
         /** Correction 0, as new. */
         void forgetLevel();
+        /**
+         * IN's total gain (linear, per sample) for the chunk about to be processed, or nullptr: the
+         * makeup was learnt on input at the gain it had then, so when the gain moves more than
+         * c_feedMoveDb from where the learn began, ROAR learns again (checked at each control block,
+         * on ROAR's own sample clock). Valid for the next process() only.
+         */
+        void setFeedGainTrace (const float* gain, int n) { m_feedTrace = gain; m_feedTraceLength = n; }
         /** Test hook: false forces the correction to 0 and learns nothing (default true). */
         void setLevelFollowForTests (bool on) { m_follow = on; }
         /** The correction applied now (dB; 0 while the follower is off). */
@@ -232,6 +253,12 @@ namespace roar
         double m_raw = 0.0;
         bool m_haveRaw = false;
         bool m_follow = true;
+        // IN's gain as the learn began (dB); m_feedSeen false: the next value read is taken as it.
+        const float* m_feedTrace = nullptr;
+        int m_feedTraceLength = 0;
+        double m_feedRefDb = 0.0;
+        bool m_feedSeen = false;
+        void followFeed (int sample);
         LevelLearning m_learn;
     };
 }

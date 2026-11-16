@@ -340,7 +340,36 @@ namespace roar
         m_learn = finite ? l : LevelLearning {};
         m_learn.corrDb = std::clamp (m_learn.corrDb, -c_correctionBoundDb, c_correctionBoundDb);
         clearPass();
-        m_haveRaw = false;
+        // The ratio the sums hold, as the instance that learnt them had it (so a restored instance
+        // carries on exactly where that one would).
+        m_haveRaw = m_learn.so > 1.0e-14 && m_learn.s1 >= 0.0;
+        m_raw = m_haveRaw ? std::clamp (10.0 * std::log10 (std::max (m_learn.s1, 1.0e-30) / m_learn.so), -c_correctionBoundDb, c_correctionBoundDb)
+                          : 0.0;
+        m_feedSeen = false;   // the feed now is the one it was learnt on
+    }
+
+    void RoarModule::followFeed (int sample)
+    {
+        // Spec 4.9.1 (IN's half): 1 dB, half OUTPUT's rule, because at high Drive the stage's
+        // level depends on the level it is fed: a learn made while IN was still levelling the take
+        // would hold the wrong makeup for the rest of it.
+        constexpr double c_feedMoveDb = 1.0;
+        if (m_feedTrace == nullptr || sample >= m_feedTraceLength)
+            return;
+        const double g = static_cast<double> (m_feedTrace[sample]);
+        if (! std::isfinite (g) || g <= 0.0)
+            return;
+        const double db = 20.0 * std::log10 (g);
+        if (! m_feedSeen)
+        {
+            m_feedSeen = true;
+            m_feedRefDb = db;
+        }
+        else if (std::abs (db - m_feedRefDb) > c_feedMoveDb)
+        {
+            m_feedRefDb = db;
+            relearn();
+        }
     }
 
     void RoarModule::relearnLevel() { relearn(); }
@@ -545,6 +574,8 @@ namespace roar
     void RoarModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& /*voice*/)
     {
         m_fade.captureDry (l, r, n, stereo);
+        const float* feed = m_feedTrace;   // this chunk's only
+        m_feedTrace = nullptr;
         if (! m_fade.isActive())
         {
             m_fade.outputDry (l, r, n, stereo);
@@ -552,6 +583,7 @@ namespace roar
             m_blockingDb = 0.0f;
             return;
         }
+        m_feedTrace = feed;
         if (m_fade.consumeRestart())
         {
             // The wet starts again from clean state, on a fresh control grid with the settings
@@ -571,7 +603,10 @@ namespace roar
         for (int i = 0; i < n; ++i)
         {
             if (m_ctlPos == 0)
+            {
+                followFeed (i);
                 updateControl();
+            }
 
             const double w = static_cast<double> (m_ctlPos + 1) * invBlock;
             const double d1 = m_from.drive1 + w * (m_to.drive1 - m_from.drive1);
@@ -681,6 +716,7 @@ namespace roar
         }
 
         m_fade.apply (l, r, n, stereo);
+        m_feedTrace = nullptr;
     }
 
     void RoarModule::copyStateFrom (const Module& other)
@@ -728,6 +764,8 @@ namespace roar
         m_haveRaw = o.m_haveRaw;
         m_follow = o.m_follow;
         m_learn = o.m_learn;
+        m_feedRefDb = o.m_feedRefDb;
+        m_feedSeen = o.m_feedSeen;
     }
 
     void RoarModule::copyLeftStateToRight()

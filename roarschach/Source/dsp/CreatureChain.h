@@ -69,6 +69,9 @@ namespace roar
             state that carries no match: the preset's hint already in force stays). */
         enum class OutKind { learnt, hint, keep };
         OutKind outKind = OutKind::learnt;
+        /** ROAR's learnt makeup. Without it (a state that does not carry one) a restore starts a new learn. */
+        bool haveRoar = false;
+        RoarModule::LevelLearning roar;
     };
 
     /** The resolved order and the stereo split slot (numModules: the whole chain is mono). */
@@ -230,6 +233,8 @@ namespace roar
 
             Module& module (int m) { return *m_modules[static_cast<size_t> (m)]; }
             const Module& module (int m) const { return *m_modules[static_cast<size_t> (m)]; }
+            RoarModule& roar() { return m_roar; }
+            const RoarModule& roar() const { return m_roar; }
 
         private:
             /** Settings that depend on the order (VOCODER's formant offset follows PITCH Size only after PITCH). */
@@ -301,6 +306,15 @@ namespace roar
         DelayLine m_gainDelay, m_activeDelay;
         std::vector<float> m_gainD, m_activeD;
         bool m_adoptKeyNext = false;   // a hint was applied: its chunk's key is the one in force
+
+        // What feeds ROAR (its learnt makeup holds for that): a key over IN's settings and the On
+        // modules before ROAR, as last seen; a new key makes ROAR learn again. IN's gain goes to
+        // ROAR as a trace each chunk (ROAR follows it on its own sample clock).
+        /** settingsKey over IN and the On modules before stopModule in the order (-1: all of them). */
+        static std::uint64_t settingsKeyBefore (const ChainSettings& settings, int stopModule);
+        void followRoarFeed (const ChainSettings& settings, const float* inGain, int n);
+        std::uint64_t m_roarFeedKey = 0;
+        bool m_roarFeedSeen = false;   // false: the next chunk's key is taken as the reference (after a restore)
 
         std::vector<float> m_dryL, m_dryR, m_monoIn, m_aL, m_aR, m_bL, m_bR, m_scratchR;
 

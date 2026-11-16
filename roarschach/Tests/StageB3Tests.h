@@ -1493,13 +1493,13 @@ namespace stageb3
         struct Setting { double low, high; const char* name; };
         const std::vector<Setting> settings { { 0.60, 0.30, "Low 60 / High 30" }, { 0.25, 0.19, "defaults" } };
 
-        // ---- S21a / S21b / S21c: steady tones
+        // ---- S20d / S20e / S20f: steady tones
         struct Case { double hz, sr, vibrato; double bound; bool relative; const char* tag; };
         const std::vector<Case> cases {
-            { 61.7, 48000.0, 0.0, -100.0, true, "S21a" }, { 97.3, 48000.0, 0.0, -100.0, true, "S21a" }, { 143.7, 48000.0, 0.0, -100.0, true, "S21a" },
-            { 200.0, 44100.0, 0.0, -100.0, true, "S21a" },
-            { 60.0, 48000.0, 0.0, -120.0, false, "S21b" }, { 100.0, 48000.0, 0.0, -120.0, false, "S21b" },
-            { 100.0, 48000.0, 0.03, -100.0, false, "S21c" },
+            { 61.7, 48000.0, 0.0, -100.0, true, "S20d" }, { 97.3, 48000.0, 0.0, -100.0, true, "S20d" }, { 143.7, 48000.0, 0.0, -100.0, true, "S20d" },
+            { 200.0, 44100.0, 0.0, -100.0, true, "S20d" },
+            { 60.0, 48000.0, 0.0, -120.0, false, "S20e" }, { 100.0, 48000.0, 0.0, -120.0, false, "S20e" },
+            { 100.0, 48000.0, 0.03, -100.0, false, "S20f" },
         };
         for (const auto& st : settings)
         {
@@ -1670,10 +1670,123 @@ namespace stageb3
         check(gapMax <= -12.0, "S26: the gate leaves a -50 dBFS room at " + db1(gapMax));
         check(burstMin >= -0.5, "S26: the gate cuts the bursts by " + db1(burstMin));
 
+        // S27 pins the gate's ceiling at the default: a room 12 dB louder than S26's sits above
+        // what Gate 47 % reaches and stays (nearly) open, while the -50 dBFS room of the same
+        // signal is gated deep. Both halves in one check, so it cannot pass with a gate that does
+        // nothing.
         gateRun(-38.0, gaps, bursts);
         const double gapMean = std::accumulate(gaps.begin(), gaps.end(), 0.0) / static_cast<double>(gaps.size());
-        std::printf("  S27 CLEAN gate 47 %%, room -38 dBFS: gaps %.2f dB (mean)\n", gapMean);
-        check(gapMean >= -4.0 && gapMean <= 0.0, "S27: a -38 dBFS room is gated by " + db1(gapMean) + " (expected -4 .. 0)");
+        std::printf("  S27 CLEAN gate 47 %%, room -38 dBFS: gaps %.2f dB (mean); room -50 dBFS: gaps at most %.2f dB\n", gapMean, gapMax);
+        check(gapMean >= -2.0 && gapMean <= 0.0 && gapMax <= -12.0,
+              "S27: the gate's ceiling moved: a -38 dBFS room is gated by " + db1(gapMean) + " (expected -2 .. 0) with a -50 dBFS room at "
+                  + db1(gapMax) + " (expected <= -12)");
+    }
+
+    void testRoarFeed()
+    {
+        // S20d-f: ROAR's learnt makeup in the whole plug-in (spec 4.9): it learns again when what
+        // feeds it changes, and it travels with the session.
+        const double sr = 48000.0;
+        const int block = 512;
+        Signal quiet = makeVoice(sr, 6.0);
+        for (auto& v : quiet)
+            v *= 0.25f;   // -12 dB: IN's Auto Level climbs at the start of the take
+        const auto setup = [&](bool autoLevel, float trimDb)
+        {
+            auto p = makeProcessor(sr, block);
+            setAllModules(*p, false);
+            setParam(*p, Params::roarOn, 1.0f);
+            setParam(*p, Params::roar, 80.0f);
+            setParam(*p, Params::outMatch, 0.0f);
+            setParam(*p, Params::inAuto, autoLevel ? 1.0f : 0.0f);
+            setParam(*p, Params::inTrim, trimDb);
+            restart(*p, sr, block);
+            return p;
+        };
+        const auto roarOf = [](RoarschachAudioProcessor& p) { return p.getChain().getLevels().roar; };
+        const auto oneBlock = [&](RoarschachAudioProcessor& p, const Signal& x, int from)
+        {
+            (void) render(p, dual(Signal(x.begin() + from, x.begin() + from + block)), block);
+        };
+
+        // S20d: a take at the start of Auto Level's learn. ROAR learns again once IN's gain has
+        // moved, so its makeup is the one a take already at that level gets.
+        {
+            auto p = setup(true, 0.0f);
+            (void) render(*p, dual(quiet), block);
+            const double gainDb = p->getChain().getIn().getAutoGainDb();
+            const auto climbing = roarOf(*p);
+            auto q = setup(false, static_cast<float>(gainDb));
+            (void) render(*q, dual(quiet), block);
+            const auto settled = roarOf(*q);
+            std::printf("  S20d ROAR after IN's climb (+%.1f dB): correction %+.2f dB over %.2f s against %+.2f dB over %.2f s with the gain set\n",
+                        gainDb, climbing.corrDb, climbing.seconds, settled.corrDb, settled.seconds);
+            check(gainDb > 6.0, "S20d: IN did not climb (" + db1(gainDb) + ")");
+            check(climbing.seconds < settled.seconds - 0.1, "S20d: ROAR did not learn again while IN's gain moved");
+            check(std::abs(climbing.corrDb - settled.corrDb) <= 0.5,
+                  "S20d: ROAR's makeup after IN's climb is " + db1(climbing.corrDb) + " against " + db1(settled.corrDb));
+        }
+
+        // S20e: a module switched in before ROAR starts a new learn (the correction held); one
+        // after it does not.
+        {
+            auto p = setup(false, 12.0f);
+            (void) render(*p, dual(quiet), block);
+            const auto before = roarOf(*p);
+            setParam(*p, Params::tameOn, 1.0f);   // after ROAR in the default order
+            oneBlock(*p, quiet, 0);
+            const auto afterTame = roarOf(*p);
+            setParam(*p, Params::cleanOn, 1.0f);  // before ROAR
+            oneBlock(*p, quiet, block);
+            const auto afterClean = roarOf(*p);
+            std::printf("  S20e evidence %.3f s; TAME switched in after ROAR: %.3f s; CLEAN before it: %.3f s (correction %+.3f -> %+.3f dB)\n",
+                        before.evidence, afterTame.evidence, afterClean.evidence, afterTame.corrDb, afterClean.corrDb);
+            check(before.evidence > 0.2 && afterTame.evidence >= before.evidence - 1.0e-9, "S20e: a module after ROAR started a new learn");
+            check(afterClean.evidence == 0.0 && std::abs(afterClean.corrDb - afterTame.corrDb) < 1.0e-9,
+                  "S20e: CLEAN switched in before ROAR did not start a new learn from the held correction");
+        }
+
+        // S20f: the learning is saved with the session and restored exactly; a state without it
+        // (or with a malformed one) loads as a new learn.
+        {
+            auto p = setup(true, 0.0f);
+            (void) render(*p, dual(quiet), block);
+            p->reset();
+            (void) render(*p, dual(quiet), block);
+            const auto saved = roarOf(*p);
+            juce::MemoryBlock state;
+            p->getStateInformation(state);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize()));
+            check(xml != nullptr && xml->hasAttribute("levelRoar"), "S20f: the state carries no ROAR learning");
+
+            auto q = makeProcessor(sr, block);
+            q->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+            restart(*q, sr, block);
+            (void) render(*q, dual(Signal(static_cast<size_t>(block), 0.0f)), block);   // the restore lands at a block start
+            const auto restored = roarOf(*q);
+            const double dS1 = std::abs(restored.s1 - saved.s1) / std::max(1.0e-30, saved.s1);
+            std::printf("  S20f restored: correction %+.6f / %+.6f dB, evidence %.6f / %.6f s, s1 within %.1e\n",
+                        restored.corrDb, saved.corrDb, restored.evidence, saved.evidence, dS1);
+            check(std::abs(restored.corrDb - saved.corrDb) < 1.0e-9 && std::abs(restored.evidence - saved.evidence) < 1.0e-9 && dS1 < 1.0e-12
+                      && restored.anchored == saved.anchored && std::abs(restored.anchorA - saved.anchorA) < 1.0e-12,
+                  "S20f: ROAR's learning did not survive the state");
+
+            for (const char* text : { "", "1 2 three 4 5 6 7 8 9 10", "1 2 3" })
+            {
+                auto edited = std::make_unique<juce::XmlElement>(*xml);
+                if (juce::String(text).isEmpty())
+                    edited->removeAttribute("levelRoar");
+                else
+                    edited->setAttribute("levelRoar", text);
+                juce::MemoryBlock other;
+                juce::AudioProcessor::copyXmlToBinary(*edited, other);
+                p->setStateInformation(other.getData(), static_cast<int>(other.getSize()));
+                (void) render(*p, dual(Signal(static_cast<size_t>(block), 0.0f)), block);
+                const auto fresh = roarOf(*p);
+                check(fresh.corrDb == 0.0 && fresh.seconds == 0.0 && fresh.s1 == 0.0,
+                      juce::String("S20f: a state with levelRoar \"") + text + "\" did not load as a new learn");
+            }
+        }
     }
 }
 
@@ -1687,4 +1800,5 @@ void testStageB3()
     stageb3::testRoarLaw();
     stageb3::testDetail();
     stageb3::testCleanGate();
+    stageb3::testRoarFeed();
 }

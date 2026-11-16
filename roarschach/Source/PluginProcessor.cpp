@@ -160,6 +160,43 @@ namespace
     const juce::Identifier c_levelOutData    { "levelOutData" };
     const juce::Identifier c_levelOutGainDb  { "levelOutGainDb" };
     const juce::Identifier c_levelOutKey     { "levelOutKey" };
+    const juce::Identifier c_levelRoar       { "levelRoar" };   // ROAR's learnt makeup: its numbers, space separated
+
+    juce::String roarLearningToText(const roar::RoarModule::LevelLearning& l)
+    {
+        juce::String text;
+        for (const double v : l.toValues())
+        {
+            char buffer[40];
+            std::snprintf(buffer, sizeof buffer, "%.17g", v);
+            text << (text.isEmpty() ? "" : " ") << buffer;
+        }
+        return text;
+    }
+
+    /** ROAR's learnt makeup from the state, or nullopt (missing or malformed: a new learn). */
+    std::optional<roar::RoarModule::LevelLearning> roarLearningFromText(const juce::String& text)
+    {
+        using Learning = roar::RoarModule::LevelLearning;
+        juce::StringArray tokens;
+        tokens.addTokens(text.trim(), " ", "");
+        tokens.removeEmptyStrings();
+        if (tokens.size() != Learning::numValues)
+            return std::nullopt;
+        std::array<double, Learning::numValues> v {};
+        for (int k = 0; k < tokens.size(); ++k)
+        {
+            if (!tokens[k].containsOnly("+-.0123456789eE"))
+                return std::nullopt;
+            v[static_cast<size_t>(k)] = tokens[k].getDoubleValue();
+            if (!std::isfinite(v[static_cast<size_t>(k)]))
+                return std::nullopt;
+        }
+        auto l = Learning::fromValues(v);
+        if (l.s1 < 0.0 || l.s2 < 0.0 || l.so < 0.0 || l.seconds < 0.0 || l.evidence < 0.0)
+            return std::nullopt;
+        return l;
+    }
 
     double round2(double x) { return std::round(x * 100.0) / 100.0; }
     double powerToDb(double p) { return p > 1.0e-20 ? round2(10.0 * std::log10(p)) : -200.0; }
@@ -219,6 +256,11 @@ namespace
                 l.out.haveKey = true;
                 l.out.key = static_cast<std::uint64_t>(key.getHexValue64());
             }
+        }
+        if (const auto learning = roarLearningFromText(xml.getStringAttribute(c_levelRoar.toString())))
+        {
+            l.haveRoar = true;
+            l.roar = *learning;
         }
         return l;
     }
@@ -306,6 +348,12 @@ void RoarschachAudioProcessor::postLevelRestore(const roar::LevelState& l)
     r.outHaveKey.store(l.out.haveKey ? 1 : 0, std::memory_order_relaxed);
     r.outKey.store(l.out.key, std::memory_order_relaxed);
     r.outKind.store(static_cast<int>(l.outKind), std::memory_order_relaxed);
+    r.roarHave.store(l.haveRoar ? 1 : 0, std::memory_order_relaxed);
+    {
+        const auto v = l.roar.toValues();
+        for (size_t k = 0; k < v.size(); ++k)
+            r.roar[k].store(v[k], std::memory_order_relaxed);
+    }
     r.seq.store(n, std::memory_order_release);
 }
 
@@ -336,6 +384,13 @@ void RoarschachAudioProcessor::applyLevelRequests(const roar::ChainSettings& set
             l.out.haveKey = r.outHaveKey.load(std::memory_order_relaxed) != 0;
             l.out.key = r.outKey.load(std::memory_order_relaxed);
             l.outKind = static_cast<roar::LevelState::OutKind>(r.outKind.load(std::memory_order_relaxed));
+            l.haveRoar = r.roarHave.load(std::memory_order_relaxed) != 0;
+            {
+                std::array<double, roar::RoarModule::LevelLearning::numValues> v {};
+                for (size_t k = 0; k < v.size(); ++k)
+                    v[k] = r.roar[k].load(std::memory_order_relaxed);
+                l.roar = roar::RoarModule::LevelLearning::fromValues(v);
+            }
             std::atomic_thread_fence(std::memory_order_acquire);
             if (r.seq.load(std::memory_order_relaxed) == seq)
                 pending[static_cast<size_t>(count++)] = { seq, true, l, 0.0, 0 };
@@ -423,6 +478,10 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
         l.out.gainRefDb = f.levelOutGainRefDb.load();
         l.out.haveKey = f.levelOutHaveKey.load() != 0;
         l.out.key = f.levelOutKey.load();
+        std::array<double, roar::RoarModule::LevelLearning::numValues> v {};
+        l.haveRoar = f.readLevelRoar(v);
+        if (l.haveRoar)
+            l.roar = roar::RoarModule::LevelLearning::fromValues(v);
     }
     const auto applied = m_levelAppliedPublished.load(std::memory_order_acquire);
     const auto restoreSeq = m_levelRestore.seq.load(std::memory_order_acquire);
@@ -434,6 +493,13 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
         l.inPitched = r.inPitched.load() != 0;
         l.inDb = r.inDb.load();
         l.inEvidence = r.inEvidence.load();
+        l.haveRoar = r.roarHave.load() != 0;
+        {
+            std::array<double, roar::RoarModule::LevelLearning::numValues> v {};
+            for (size_t k = 0; k < v.size(); ++k)
+                v[k] = r.roar[k].load();
+            l.roar = roar::RoarModule::LevelLearning::fromValues(v);
+        }
         const auto kind = static_cast<roar::LevelState::OutKind>(r.outKind.load());
         if (kind == roar::LevelState::OutKind::keep)
             return;
@@ -853,6 +919,8 @@ void RoarschachAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
             state.setProperty(c_levelOutGainDb, round2(l.out.gainRefDb), nullptr);
         if (l.out.haveKey)
             state.setProperty(c_levelOutKey, juce::String::toHexString(static_cast<juce::int64>(l.out.key)).paddedLeft('0', 16), nullptr);
+        if (l.haveRoar)
+            state.setProperty(c_levelRoar, roarLearningToText(l.roar), nullptr);
     }
 
     {

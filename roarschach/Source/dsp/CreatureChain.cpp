@@ -389,6 +389,14 @@ namespace roar
             case LevelState::OutKind::keep:
                 break;
         }
+        for (auto& set : m_sets)
+        {
+            if (levels.haveRoar)
+                set.roar().restoreLearning (levels.roar);
+            else
+                set.roar().forgetLevel();
+        }
+        m_roarFeedSeen = false;   // what feeds ROAR now is what its restored makeup was learnt on
         refillLevelDelays();
     }
 
@@ -419,10 +427,34 @@ namespace roar
         l.inDb = m_in.getLearnedLevelDb();
         l.inEvidence = m_in.getEvidenceSeconds();
         l.out = m_output.getMatchState();
+        l.haveRoar = true;
+        l.roar = m_sets[static_cast<size_t> (frontSet())].roar().getLearning();
         return l;
     }
 
+    void CreatureChain::followRoarFeed (const ChainSettings& s, const float* inGain, int n)
+    {
+        // Spec 4.9.1: ROAR's held makeup was learnt on what fed it. A module switched in or edited
+        // before ROAR, a reorder, or IN's settings: ROAR learns again from the correction it
+        // holds. IN's gain is followed inside ROAR, on its own control grid (setFeedGainTrace).
+        const auto key = settingsKeyBefore (s, static_cast<int> (Params::ModuleId::roar));
+        const bool changed = m_roarFeedSeen && key != m_roarFeedKey;
+        m_roarFeedSeen = true;
+        m_roarFeedKey = key;
+        for (auto& set : m_sets)
+        {
+            if (changed)
+                set.roar().relearnLevel();
+            set.roar().setFeedGainTrace (inGain, n);
+        }
+    }
+
     std::uint64_t CreatureChain::settingsKey (const ChainSettings& s)
+    {
+        return settingsKeyBefore (s, -1);
+    }
+
+    std::uint64_t CreatureChain::settingsKeyBefore (const ChainSettings& s, int stopModule)
     {
         // What can change the sound: IN, then each module that is On, in the order the audio takes
         // it, with its own settings. A module that is Off passes its input untouched wherever it
@@ -434,6 +466,8 @@ namespace roar
         const auto order = Params::resolveOrder (s.positions);
         for (const int module : order)
         {
+            if (module == stopModule)
+                break;
             if (! s.isOn (module))
                 continue;
             k << module;
@@ -580,6 +614,7 @@ namespace roar
         // IN: mono sum, trim, auto level and the voice stream.
         m_in.process (m_monoIn.data(), m_scratchR.data(), n, inStereo, VoiceFrameView {});
         const VoiceFrameView voice = m_in.getVoiceView();
+        followRoarFeed (settings, m_in.getGainTrace(), n);
         {
             // IN's gain and flag, delayed to line up with OUTPUT's input.
             const float* g = m_in.getGainTrace();
@@ -694,6 +729,8 @@ namespace roar
             f.levelOutGainRefDb.store (m.gainRefDb, std::memory_order_relaxed);
             f.levelOutHaveKey.store (m.haveKey ? 1 : 0, std::memory_order_relaxed);
             f.levelOutKey.store (m.key, std::memory_order_relaxed);
+            static_assert (RoarModule::LevelLearning::numValues == MonsterFeatures::numLevelRoar);
+            f.publishLevelRoar (m_sets[static_cast<size_t> (front)].roar().getLearning().toValues());
         }
         f.outputLevel.store (std::min (m_outputLevel, 1.0f), std::memory_order_relaxed);
         f.rumble.store (m_hits.rumble(), std::memory_order_relaxed);
