@@ -1,9 +1,12 @@
 #include "Engine.h"
 
+#include "SoundRegistry.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <random>
 
 namespace pitchflattener
 {
@@ -22,6 +25,18 @@ constexpr int kAcquireAttempts = 64;
 // long sound with its length kept), short enough that a stuck engine cannot hang a bounce.
 constexpr double kSearchWaitSeconds = 3.0;
 constexpr double kRenderWaitSeconds = 30.0;
+// A render instance given a state with the sound in it decodes and analyses it first: a long
+// sound with every reading scored can take this long on a slow machine.
+constexpr double kAnalysisWaitSeconds = 60.0;
+// A wait this long (or one that gave up) gets a line of its own in the log; shorter ones are counted.
+constexpr double kNotableWaitMs = 50.0;
+// Faster than real time (see the header): measured over at least this much audio and this many
+// blocks; on above the first ratio, off again under the second.
+constexpr double kPaceWindowSeconds = 0.1;
+constexpr int kPaceWindowBlocks = 4;
+constexpr double kFastRatio = 2.5, kRealTimeRatio = 1.5;
+// No block for this long ends a run of audio (for the log), and starts the pace measurement afresh.
+constexpr double kRunGapSeconds = 0.5;
 // After a miss, or a match that stopped holding, the search waits for this much more input before
 // it tries again, doubling on each miss in a row up to the longest. Silence (a new sound starting)
 // or a match that held for a second starts it again from the shortest.
@@ -42,6 +57,36 @@ std::int64_t secondsToSamples(double seconds, double rate) noexcept
 double nowSeconds() noexcept
 {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::int64_t nowMicros() noexcept
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Generations are unique in the process: an instance can publish a render another instance made.
+std::uint64_t nextGeneration() noexcept
+{
+    static std::atomic<std::uint64_t> next { 1 };
+    return next.fetch_add(1);
+}
+
+// A random id for a learned sound, unique in practice across processes and sessions.
+std::uint64_t newSoundId()
+{
+    static std::mutex mutex;
+    static std::mt19937_64 random = []
+    {
+        std::random_device device;
+        std::seed_seq seed { device(), device(), device(), device(),
+                             static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) };
+        return std::mt19937_64(seed);
+    }();
+    const std::lock_guard<std::mutex> lock(mutex);
+    std::uint64_t id = 0;
+    while (id == 0)
+        id = random();
+    return id;
 }
 
 double snapGain(double g) noexcept
@@ -75,6 +120,7 @@ void Engine::SpinLock::lock() noexcept
 
 //==============================================================================
 Engine::Engine()
+    : m_searchWaitLimit(kSearchWaitSeconds), m_renderWaitLimit(kRenderWaitSeconds), m_analysisWaitLimit(kAnalysisWaitSeconds)
 {
     m_ring = std::make_unique<std::atomic<float>[]>(static_cast<std::size_t>(kRingSize));
     m_sideRing = std::make_unique<std::atomic<float>[]>(static_cast<std::size_t>(kRingSize));
@@ -89,6 +135,11 @@ Engine::Engine()
 
 Engine::~Engine()
 {
+    endRun();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        letGoLocked();
+    }
     m_stop.store(true);
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -121,6 +172,11 @@ bool Engine::rateDiffers(double learnedRate) const noexcept
 
 void Engine::prepare(double sampleRate, int maxBlockSize)
 {
+    endRun();
+    m_lastBlockWall = 0;
+    m_lastBlockDone.store(0);
+    m_paceCount = 0;
+    m_fast.store(false);
     std::lock_guard<std::mutex> lock(m_mutex);
     const double rate = sampleRate > 0.0 ? sampleRate : 44100.0;
     m_rate.store(rate);
@@ -210,6 +266,7 @@ void Engine::disarmLearn()
         return;
     }
     expected = CapListening;
+    m_captureEndWhy.store(2);
     if (m_captureState.compare_exchange_strong(expected, CapFinished))
         waitForCaptureWriter();
     if (m_captureState.load() == CapFinished)
@@ -261,6 +318,12 @@ void Engine::finaliseCaptureLocked()
     // The sound itself (not the pre-roll before it) has to last kMinCaptureSeconds.
     if (last < 0 || static_cast<double>(last + 1 - first) < kMinCaptureSeconds * rate)
     {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::CaptureEnded;
+        e.i[0] = 4;
+        e.i[1] = std::max<std::int64_t>(0, last + 1 - first);
+        e.d[0] = rate;
+        log(e);
         // A click, not a sound: forget it and keep listening (unless the user stopped Learn).
         m_captureLength.store(0);
         m_captureState.store(m_disarmedByUser ? CapIdle : CapArmed, std::memory_order_seq_cst);
@@ -281,7 +344,17 @@ void Engine::finaliseCaptureLocked()
         c.reset();
     m_captureCapacity = 0;
 
+    {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::CaptureEnded;
+        e.i[0] = m_captureEndWhy.load();
+        e.i[1] = length;
+        e.d[0] = rate;
+        log(e);
+    }
     m_pendingCapture = std::move(sound);
+    m_pendingStored.reset();
+    m_pendingId = newSoundId();
     m_pendingRate = rate;
     m_captureEpoch.fetch_add(1);   // whatever was being analysed or rendered stops
     // The window shows ANALYSING from here, and the audio thread passes the input dry until the
@@ -304,14 +377,146 @@ void Engine::cancelLearn()
     }
     m_captureLength.store(0);
     m_disarmedByUser = false;
-    if (m_pendingCapture != nullptr || m_analysing.load())
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Cancelled;
+    e.i[0] = st == CapArmed ? 0 : st == CapListening ? 1 : (m_pendingCapture != nullptr || m_analysing.load()) ? 2 : 3;
+    if (m_pendingCapture != nullptr || m_pendingStored != nullptr || m_analysing.load())
     {
         m_captureEpoch.fetch_add(1);   // the analysis in flight stops (and a render of the old sound
         m_pendingCapture.reset();      // in flight with it: the loop renders that again if needed)
+        m_pendingStored.reset();
         m_analysing.store(false);
         m_analysisWake.notify_all();
     }
+    log(e);
     kickHouse();
+}
+
+void Engine::letGoLocked()
+{
+    if (m_learned != nullptr)
+        SoundRegistry::instance().letGo(m_learned, result());
+}
+
+void Engine::setHooks(Hooks hooks)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_hooks = std::move(hooks);
+}
+
+void Engine::setLogSink(LogSink sink, void* context) noexcept
+{
+    m_logContext.store(context, std::memory_order_release);
+    m_logSink.store(sink, std::memory_order_release);
+}
+
+void Engine::log(const EngineEvent& event) const noexcept
+{
+    if (const auto sink = m_logSink.load(std::memory_order_acquire))
+        sink(m_logContext.load(std::memory_order_acquire), event);
+}
+
+std::uint64_t Engine::learnedId() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // While a sound is waiting for, or under, analysis, it is the one this instance has.
+    if (m_pendingCapture != nullptr || m_pendingStored != nullptr || m_analysing.load())
+        return m_pendingId;
+    if (m_learned != nullptr)
+        return m_learned->id;
+    const auto r = result();
+    return r != nullptr && r->learned != nullptr ? r->learned->id : 0;
+}
+
+std::shared_ptr<const std::vector<char>> Engine::storedSound() const
+{
+    const auto r = result();
+    return r != nullptr && r->learned != nullptr ? r->learned->stored : nullptr;
+}
+
+std::shared_ptr<const Learned> Engine::findRegistered(std::uint64_t id)
+{
+    return SoundRegistry::instance().find(id).learned;
+}
+
+bool Engine::adoptLearned(std::uint64_t id, const core::Options& options)
+{
+    const auto found = SoundRegistry::instance().find(id);
+    if (found.learned == nullptr)
+        return false;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const bool same = m_learned == found.learned && m_pendingCapture == nullptr && m_pendingStored == nullptr;
+    if (! same)
+    {
+        // Whatever this instance was learning or analysing stops: the state names another sound.
+        m_captureEpoch.fetch_add(1);
+        m_pendingCapture.reset();
+        m_pendingStored.reset();
+        m_analysing.store(false);
+        letGoLocked();
+        m_learned = found.learned;
+        m_pendingId = id;
+        m_renderedOptions = 0;
+    }
+    if (! sameOptions(options, m_options))
+    {
+        m_options = options;
+        m_optionsGeneration.fetch_add(1);
+        m_renderedOptions = 0;
+    }
+    // Its render too, when one was made for the same options: then this instance plays exactly
+    // what the other one does, at once.
+    std::shared_ptr<const Result> render;
+    for (const auto& r : found.renders)
+        if (r->learned == found.learned && sameOptions(r->requested, m_options))
+        {
+            render = r;
+            break;
+        }
+    const bool withRender = render != nullptr;
+    if (withRender && result() != render)
+        publish(render);
+    if (withRender)
+    {
+        m_renderedOptions = m_optionsGeneration.load();
+        m_renderPending.store(false);
+    }
+    else if (m_renderedOptions != m_optionsGeneration.load())
+    {
+        if (! same)
+        {
+            publish(nullptr);          // nothing of the sound before is played meanwhile
+            m_analysing.store(true);   // the window says ANALYSING until its render is published
+        }
+        m_renderPending.store(true);
+        m_analysisWake.notify_all();
+    }
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Adopted;
+    e.i[0] = static_cast<std::int64_t>(id);
+    e.i[1] = withRender ? 1 : 0;
+    log(e);
+    return true;
+}
+
+void Engine::restoreLearned(std::uint64_t id, std::shared_ptr<const std::vector<char>> stored)
+{
+    if (stored == nullptr || stored->empty())
+        return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if ((m_learned != nullptr && m_learned->id == id) || (m_pendingStored != nullptr && m_pendingId == id))
+        return;
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::RestoreStarted;
+    e.i[0] = static_cast<std::int64_t>(id);
+    e.i[1] = static_cast<std::int64_t>(stored->size());
+    log(e);
+    m_captureEpoch.fetch_add(1);
+    m_pendingCapture.reset();
+    m_pendingStored = std::move(stored);
+    m_pendingId = id;
+    m_analysing.store(true);
+    m_analysisWake.notify_all();
 }
 
 void Engine::clear()
@@ -326,7 +531,12 @@ void Engine::clear()
     m_captureLength.store(0);
     m_captureEpoch.fetch_add(1);
     m_pendingCapture.reset();
+    m_pendingStored.reset();
+    letGoLocked();
     m_learned.reset();
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Cleared;
+    log(e);
     m_analysing.store(false);
     m_rendering.store(false);
     m_renderPending.store(false);
@@ -410,6 +620,11 @@ bool Engine::waitUntilIdle(double timeoutSeconds) const
 //==============================================================================
 void Engine::publish(std::shared_ptr<const Result> result)
 {
+    if (const auto previous = this->result(); previous != nullptr && previous->learned != nullptr
+                                              && (result == nullptr || result->learned != previous->learned))
+        SoundRegistry::instance().letGo(previous->learned, previous);
+    if (result != nullptr)
+        SoundRegistry::instance().publish(result->learned, result);
     m_currentRender.store(result != nullptr ? result->generation : 0, std::memory_order_release);
     if (result != nullptr)
         m_published.push_back(result);
@@ -464,26 +679,59 @@ void Engine::analysisLoop()
         std::unique_lock<std::mutex> lock(m_mutex);
         m_analysisWake.wait(lock, [this]
         {
-            return m_stop.load() || m_pendingCapture != nullptr
+            return m_stop.load() || m_pendingCapture != nullptr || m_pendingStored != nullptr
                    || (m_learned != nullptr && m_renderedOptions != m_optionsGeneration.load());
         });
         if (m_stop.load())
             return;
 
-        if (m_pendingCapture != nullptr)
+        if (m_pendingCapture != nullptr || m_pendingStored != nullptr)
         {
             auto sound = std::move(m_pendingCapture);
-            const double rate = m_pendingRate;
+            auto stored = std::move(m_pendingStored);
+            const auto id = m_pendingId;
+            double rate = m_pendingRate;
             const auto epoch = m_captureEpoch.load();
+            const auto hooks = m_hooks;
             lock.unlock();
 
             const auto cancelled = [this, epoch] { return m_stop.load() || m_captureEpoch.load() != epoch; };
+            const bool restored = sound == nullptr;
+            if (restored)
+            {
+                // A sound from the plug-in's state: decode it, then everything as after a Learn.
+                sound = std::make_unique<core::Channels>();
+                if (! hooks.decode || ! hooks.decode(*stored, *sound, rate) || sound->empty() || (*sound)[0].empty() || rate <= 0.0)
+                {
+                    EngineEvent e;
+                    e.kind = EngineEvent::Kind::RestoreFailed;
+                    e.i[0] = static_cast<std::int64_t>(id);
+                    log(e);
+                    lock.lock();
+                    if (m_captureEpoch.load() == epoch)
+                        m_analysing.store(false);
+                    continue;
+                }
+            }
+            const auto started = std::chrono::steady_clock::now();
             auto learned = std::make_shared<Learned>();
-            learned->id = epoch;
+            learned->id = id;
             learned->sampleRate = rate;
             learned->analysis = core::analyse(*sound, rate, true, cancelled);
             if (cancelled())
                 continue;
+            {
+                EngineEvent e;
+                e.kind = EngineEvent::Kind::Analysed;
+                e.i[0] = static_cast<std::int64_t>(id);
+                e.i[1] = learned->analysis.pick;
+                e.i[2] = static_cast<std::int64_t>(sound->size());
+                e.i[3] = static_cast<std::int64_t>((*sound)[0].size());
+                e.i[4] = restored ? 1 : 0;
+                e.d[0] = rate;
+                e.d[1] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                log(e);
+            }
             const std::size_t n = (*sound)[0].size();
             std::vector<float> mono(n, 0.0f);
             const float share = 1.0f / static_cast<float>(sound->size());
@@ -504,12 +752,43 @@ void Engine::analysisLoop()
                 for (std::size_t i = 0; i < n; ++i)
                     learned->side[i] = 0.5f * ((*sound)[0][i] - (*sound)[1][i]);
             }
+            // The copy for the plug-in's state: the bytes it came from, or compressed once now (every
+            // later save reuses them).
+            if (restored)
+                learned->stored = std::move(stored);
+            else if (hooks.encode)
+            {
+                const auto encodeStart = std::chrono::steady_clock::now();
+                auto bytes = hooks.encode(*sound, rate);
+                EngineEvent e;
+                e.kind = EngineEvent::Kind::Stored;
+                e.i[0] = static_cast<std::int64_t>(id);
+                const auto limit = m_storeLimit.load();
+                e.i[2] = static_cast<std::int64_t>(bytes.size()) > limit ? 1 : 0;
+                e.i[1] = e.i[2] != 0 ? 0 : static_cast<std::int64_t>(bytes.size());
+                e.d[0] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - encodeStart).count();
+                log(e);
+                if (! bytes.empty() && static_cast<std::int64_t>(bytes.size()) <= limit)
+                    learned->stored = std::make_shared<const std::vector<char>>(std::move(bytes));
+            }
             learned->channels = std::move(*sound);
+            // Its options, with the hand corrections that belong to its reading (asked without the
+            // lock: the host side takes its own).
+            core::Options options;
+            const bool haveOptions = static_cast<bool>(hooks.optionsFor);
+            if (haveOptions)
+                options = hooks.optionsFor(*learned);
 
             lock.lock();
             if (m_captureEpoch.load() != epoch)
                 continue;
+            letGoLocked();
             m_learned = std::move(learned);
+            if (haveOptions && ! sameOptions(options, m_options))
+            {
+                m_options = options;
+                m_optionsGeneration.fetch_add(1);
+            }
             m_renderedOptions = 0;   // render it with the current options
         }
 
@@ -523,7 +802,9 @@ void Engine::analysisLoop()
         // or Clear stops it, and the loop comes back for the newest.
         const auto learned = m_learned;
         auto options = m_options;
+        const auto requested = m_options;
         const auto generation = m_optionsGeneration.load();
+        const auto renderStart = std::chrono::steady_clock::now();
         const auto epoch = m_captureEpoch.load();
         m_rendering.store(true);
         lock.unlock();
@@ -546,13 +827,28 @@ void Engine::analysisLoop()
         else
             options.line = -1;
         result->options = options;
+        result->requested = requested;
         if (cancelled())
             continue;
 
         lock.lock();
         if (m_captureEpoch.load() != epoch || m_optionsGeneration.load() != generation)
             continue;
-        result->generation = m_nextGeneration++;
+        result->generation = nextGeneration();
+        {
+            EngineEvent e;
+            e.kind = EngineEvent::Kind::Rendered;
+            e.i[0] = static_cast<int>(options.target);
+            e.i[1] = options.line;
+            e.i[2] = options.keepLength ? 1 : 0;
+            e.i[3] = result->playable() ? static_cast<std::int64_t>(result->flattened.channels[0].size()) : 0;
+            e.i[4] = result->playable() ? 1 : 0;
+            e.i[5] = static_cast<std::int64_t>(options.edits.size());
+            e.d[0] = options.amount;
+            e.d[1] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - renderStart).count();
+            e.d[2] = learned->sampleRate;
+            log(e);
+        }
         publish(std::move(result));
         m_renderedOptions = generation;
         m_renderPending.store(false);
@@ -598,9 +894,16 @@ void Engine::houseLoop()
             lastBlockTime = now;
         }
         const int cap = m_captureState.load();
+        // A run ends after half a second with no block being processed (a block waiting for the
+        // search or the analysis is still being processed).
+        const auto done = m_lastBlockDone.load(std::memory_order_relaxed);
+        if (m_runOpen.load(std::memory_order_acquire) && done != 0 && blocks == lastBlocks && ! m_inBlock.load(std::memory_order_acquire)
+            && static_cast<double>(nowMicros() - done) >= kRunGapSeconds * 1.0e6 && now - lastBlockTime >= kRunGapSeconds)
+            endRun();
         if (cap == CapListening && now - lastBlockTime >= kStallSeconds)
         {
             int expected = CapListening;
+            m_captureEndWhy.store(1);
             if (m_captureState.compare_exchange_strong(expected, CapFinished))
                 waitForCaptureWriter();
         }
@@ -638,9 +941,12 @@ void Engine::searchStep()
     const auto backoffBase = secondsToSamples(kBackoffSeconds, rate);
     const auto backoffMax = secondsToSamples(kLongestBackoffSeconds, rate);
 
-    const auto publishNeed = [this, epoch](std::int64_t need)
+    // need: the input this thread needs before it can do more; decided: no answer can start before
+    // this input position any more (an offline wait only blocks while the output would pass it).
+    const auto publishNeed = [this, epoch](std::int64_t need, std::int64_t decided)
     {
         m_workerNeed.store(need, std::memory_order_relaxed);
+        m_workerDecided.store(decided, std::memory_order_relaxed);
         m_workerEpoch.store(epoch, std::memory_order_release);
     };
 
@@ -708,7 +1014,7 @@ void Engine::searchStep()
         {
             // Nothing to try yet. Offline, the audio thread may run on a little (a quarter of a
             // probe) before this thread has to look again.
-            publishNeed(std::min(std::max(m_wGate, written) + P, written + P / 4 + 1));
+            publishNeed(std::min(std::max(m_wGate, written) + P, written + P / 4 + 1), written);
             return;
         }
         if (m_wRunStart < 0)
@@ -717,7 +1023,7 @@ void Engine::searchStep()
     }
     if (written < m_wAttempt + P)
     {
-        publishNeed(m_wAttempt + P);
+        publishNeed(m_wAttempt + P, m_wAttempt);
         return;
     }
 
@@ -731,6 +1037,7 @@ void Engine::searchStep()
         return;
     }
 
+    publishNeed(m_wAttempt + P, m_wAttempt);   // searching now
     const auto started = std::chrono::steady_clock::now();
     const auto match = locator.locate(probe.data(), std::max<std::int64_t>(0, m_wAttempt - m_wRunStart),
                                       [this, epoch] { return m_stop.load() || m_searchEpoch.load() != epoch; });
@@ -750,7 +1057,7 @@ void Engine::searchStep()
         m_answerGain.store(match.gain, std::memory_order_relaxed);
         m_answerGainEnd.store(match.gainEnd, std::memory_order_relaxed);
         m_answerSequence.fetch_add(1, std::memory_order_acq_rel);   // even: complete
-        publishNeed(kNever);
+        publishNeed(kNever, kNever);
         return;
     }
 
@@ -760,7 +1067,7 @@ void Engine::searchStep()
     m_wCursor = m_wAttempt + 1;
     m_wAttempt = -1;
     m_wSilentRun = 0;
-    publishNeed(std::min(std::max(m_wGate, written) + P, m_wCursor + P / 4 + 1));
+    publishNeed(std::min(std::max(m_wGate, written) + P, m_wCursor + P / 4 + 1), m_wCursor);
 }
 
 //==============================================================================
@@ -810,6 +1117,7 @@ void Engine::handleReset() noexcept
     // What the ring holds from before the reset belongs to the sound the host stopped: never
     // search or check it again.
     m_fence.store(m_inputPosition, std::memory_order_release);
+    endRun();
 }
 
 void Engine::process(float* const* channels, int numChannels, int numSamples) noexcept
@@ -817,8 +1125,10 @@ void Engine::process(float* const* channels, int numChannels, int numSamples) no
     if (! m_prepared.load(std::memory_order_acquire) || numSamples <= 0 || numChannels <= 0)
         return;
     numChannels = std::min(numChannels, kMaxChannels);
+    m_inBlock.store(true, std::memory_order_release);
     m_blocks.fetch_add(1, std::memory_order_release);
     handleReset();
+    beginRun(numSamples, numChannels, false);
 
     const std::int64_t t0 = m_inputPosition;
     float peak = 0.0f;
@@ -826,6 +1136,8 @@ void Engine::process(float* const* channels, int numChannels, int numSamples) no
     captureBlock(channels, numChannels, numSamples, peak);
     updateMatching(t0, numSamples);
     renderOutput(channels, numChannels, numSamples, t0);
+    m_lastBlockDone.store(nowMicros(), std::memory_order_relaxed);
+    m_inBlock.store(false, std::memory_order_release);
 }
 
 void Engine::processBypassed(float* const* channels, int numChannels, int numSamples) noexcept
@@ -833,8 +1145,10 @@ void Engine::processBypassed(float* const* channels, int numChannels, int numSam
     if (! m_prepared.load(std::memory_order_acquire) || numSamples <= 0 || numChannels <= 0)
         return;
     numChannels = std::min(numChannels, kMaxChannels);
+    m_inBlock.store(true, std::memory_order_release);
     m_blocks.fetch_add(1, std::memory_order_release);
     handleReset();
+    beginRun(numSamples, numChannels, true);
 
     const std::int64_t t0 = m_inputPosition;
     float peak = 0.0f;
@@ -852,6 +1166,8 @@ void Engine::processBypassed(float* const* channels, int numChannels, int numSam
     m_located.store(false, std::memory_order_relaxed);
     releaseUnheld();
     renderOutput(channels, numChannels, numSamples, t0);
+    m_lastBlockDone.store(nowMicros(), std::memory_order_relaxed);
+    m_inBlock.store(false, std::memory_order_release);
 }
 
 void Engine::captureBlock(const float* const* channels, int numChannels, int numSamples, float peak) noexcept
@@ -928,9 +1244,21 @@ void Engine::captureBlock(const float* const* channels, int numChannels, int num
 
     int expected = st;
     if (st == CapArmed)
-        m_captureState.compare_exchange_strong(expected, CapListening, std::memory_order_seq_cst);
+    {
+        if (m_captureState.compare_exchange_strong(expected, CapListening, std::memory_order_seq_cst))
+        {
+            EngineEvent e;
+            e.kind = EngineEvent::Kind::CaptureStarted;
+            e.i[0] = keep;
+            e.d[0] = m_rate.load(std::memory_order_relaxed);
+            log(e);
+        }
+    }
     else if (m_silentRun >= secondsToSamples(kEndSilenceSeconds, m_rate.load(std::memory_order_relaxed)) || length >= capacity)
+    {
+        m_captureEndWhy.store(length >= capacity ? 3 : 0, std::memory_order_relaxed);
         m_captureState.compare_exchange_strong(expected, CapFinished, std::memory_order_seq_cst);
+    }
     // The house thread notices the end within a few milliseconds (no wake-up from here: that
     // could take a lock).
     m_captureWriting.store(false, std::memory_order_seq_cst);
@@ -1113,52 +1441,240 @@ bool Engine::readAnswer(const Result& r, std::int64_t outNext) noexcept
     m_located.store(true, std::memory_order_relaxed);
     m_lastMatchInput.store(input, std::memory_order_relaxed);
     m_lastMatchSource.store(source, std::memory_order_relaxed);
+    m_run[RunMatches].fetch_add(1, std::memory_order_relaxed);
+    if (m_run[RunFirstMatchInput].load(std::memory_order_relaxed) < 0)
+    {
+        m_run[RunFirstMatchInput].store(input, std::memory_order_relaxed);
+        m_run[RunFirstMatchSource].store(source, std::memory_order_relaxed);
+    }
+    {
+        const auto& learnedSound = *r.learned;
+        const auto end = learnedSound.soundEnd > 0 ? learnedSound.soundEnd : learnedSound.locator.length();
+        m_run[RunLearnedEnd].store(end - m_sourceOffset, std::memory_order_relaxed);   // the input position the sound ends at
+    }
     pushEvent({ m_segmentStart, Voice { &r, m_flatOffset, m_sourceOffset, static_cast<float>(m_gainSmoothed), true } });
     return true;
 }
 
 void Engine::waitForSearch(std::int64_t tEnd) noexcept
 {
-    // Offline the host runs faster than real time, so the search would answer too late for the
-    // latency to hide it. Here (offline only) the audio thread waits for it.
-    const double deadline = nowSeconds() + kSearchWaitSeconds;
+    // Offline (or faster than real time) the search would answer too late for the latency to hide
+    // it. Here the audio thread waits, but only while the output this block reaches would otherwise
+    // pass an input position the search has not decided yet, and only while the search can make
+    // progress with the input it has.
+    const std::int64_t outEnd = tEnd - m_latency;
+    if (m_searchGaveUpEpoch == m_epoch)
+        return;
+    const double started = nowSeconds();
+    bool waited = false;
     for (int spins = 0;; ++spins)
     {
         const auto seq = m_answerSequence.load(std::memory_order_acquire);
         if ((seq & 1u) == 0 && m_answerEpoch.load(std::memory_order_relaxed) == m_epoch)
-            return;
-        if (m_workerEpoch.load(std::memory_order_acquire) == m_epoch && m_workerNeed.load(std::memory_order_relaxed) > tEnd)
-            return;
+            break;
+        if (m_workerEpoch.load(std::memory_order_acquire) == m_epoch)
+        {
+            if (m_workerDecided.load(std::memory_order_relaxed) >= outEnd || m_workerNeed.load(std::memory_order_relaxed) > tEnd)
+                break;
+        }
+        else if (m_searchFrom.load(std::memory_order_relaxed) >= outEnd)
+            break;
         if (m_stop.load())
-            return;
+            break;
+        waited = true;
         if ((spins & 63) == 0)
         {
-            kickHouse();   // offline only (see Engine.h: Threads)
-            if (nowSeconds() > deadline)
+            kickHouse();   // offline or faster than real time only (see Engine.h: Threads)
+            if (nowSeconds() - started > m_searchWaitLimit.load(std::memory_order_relaxed))
             {
-                m_waitGaveUp.store(true, std::memory_order_relaxed);
+                m_searchGaveUpEpoch = m_epoch;
+                noteWait(0, (nowSeconds() - started) * 1000.0, true);
                 return;
             }
         }
         std::this_thread::yield();
     }
+    if (waited)
+        noteWait(0, (nowSeconds() - started) * 1000.0, false);
 }
 
 void Engine::waitForRender() noexcept
 {
-    // Offline, a bounce started right after an option changed must not use the render from before
-    // the change: wait for the new one (offline only; a real-time pass carries on and switches
-    // when it arrives).
-    const double deadline = nowSeconds() + kRenderWaitSeconds;
+    // A bounce started right after an option changed must not use the render from before the
+    // change: wait for the new one (offline or faster than real time only; a real-time pass carries
+    // on and switches when it arrives).
+    const auto generation = m_optionsGeneration.load(std::memory_order_acquire);
+    if (m_renderGaveUpGeneration == generation)
+        return;
+    const double started = nowSeconds();
     while (m_renderPending.load(std::memory_order_acquire) && ! m_stop.load())
     {
-        if (nowSeconds() > deadline)
+        if (nowSeconds() - started > m_renderWaitLimit.load(std::memory_order_relaxed))
         {
-            m_waitGaveUp.store(true, std::memory_order_relaxed);
+            m_renderGaveUpGeneration = generation;
+            noteWait(1, (nowSeconds() - started) * 1000.0, true);
             return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+    noteWait(1, (nowSeconds() - started) * 1000.0, false);
+}
+
+void Engine::waitForAnalysis() noexcept
+{
+    // A sound still being analysed (a render instance that has just been given its state): a fast
+    // run waits for it, and its render, so the whole file comes out flattened.
+    if (m_analysisGaveUp)
+        return;
+    const double started = nowSeconds();
+    while ((m_analysing.load(std::memory_order_acquire) || m_renderPending.load(std::memory_order_acquire)) && ! m_stop.load())
+    {
+        if (nowSeconds() - started > m_analysisWaitLimit.load(std::memory_order_relaxed))
+        {
+            m_analysisGaveUp = true;
+            noteWait(2, (nowSeconds() - started) * 1000.0, true);
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    noteWait(2, (nowSeconds() - started) * 1000.0, false);
+}
+
+void Engine::setWaitLimitsForTesting(double search, double render, double analysis) noexcept
+{
+    m_searchWaitLimit.store(search);
+    m_renderWaitLimit.store(render);
+    m_analysisWaitLimit.store(analysis);
+}
+
+void Engine::noteWait(int what, double milliseconds, bool gaveUp) noexcept
+{
+    m_waitedMicros += static_cast<std::int64_t>(milliseconds * 1000.0);
+    m_run[RunWaits].fetch_add(1, std::memory_order_relaxed);
+    m_run[RunWaitMicros].fetch_add(static_cast<std::int64_t>(milliseconds * 1000.0), std::memory_order_relaxed);
+    if (gaveUp)
+    {
+        m_waitGaveUp.store(true, std::memory_order_relaxed);
+        m_run[RunFlags].fetch_or(4, std::memory_order_relaxed);
+    }
+    if (gaveUp || milliseconds >= kNotableWaitMs)
+    {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::Wait;
+        e.i[0] = what;
+        e.i[1] = gaveUp ? 1 : 0;
+        e.d[0] = milliseconds;
+        log(e);
+    }
+}
+
+void Engine::measurePace(int numSamples) noexcept
+{
+    // Audio against the wall clock over the last blocks (see the header). Each block's arrival
+    // time against the one before it covers the audio of the blocks in between.
+    const std::int64_t now = m_lastBlockWall;
+    const double rate = m_rate.load(std::memory_order_relaxed);
+    m_paceWall[static_cast<std::size_t>(m_paceHead)] = now;
+    m_paceSamples[static_cast<std::size_t>(m_paceHead)] = numSamples;
+    m_paceHead = (m_paceHead + 1) % kPaceBlocks;
+    m_paceCount = std::min(m_paceCount + 1, kPaceBlocks);
+    std::int64_t samples = 0;
+    for (int k = 1; k < m_paceCount; ++k)
+    {
+        const auto at = static_cast<std::size_t>((m_paceHead - 1 - k + 2 * kPaceBlocks) % kPaceBlocks);
+        samples += m_paceSamples[at];
+        if (k >= kPaceWindowBlocks && static_cast<double>(samples) >= kPaceWindowSeconds * rate)
+        {
+            const double wall = static_cast<double>(std::max<std::int64_t>(1, now - m_paceWall[at])) / 1.0e6;
+            const double ratio = static_cast<double>(samples) / rate / wall;
+            const bool fast = m_fast.load(std::memory_order_relaxed);
+            if (fast != (fast ? ratio >= kRealTimeRatio : ratio > kFastRatio))
+            {
+                m_fast.store(! fast, std::memory_order_relaxed);
+                EngineEvent e;
+                e.kind = EngineEvent::Kind::PaceChanged;
+                e.i[0] = fast ? 0 : 1;
+                e.d[0] = ratio;
+                log(e);
+            }
+            return;
+        }
+    }
+}
+
+void Engine::beginRun(int numSamples, int numChannels, bool bypassed) noexcept
+{
+    const std::int64_t now = nowMicros();
+    const auto lastDone = m_lastBlockDone.load(std::memory_order_relaxed);
+    if (lastDone != 0 && static_cast<double>(now - lastDone) > kRunGapSeconds * 1.0e6)
+    {
+        endRun();
+        m_paceCount = 0;
+        m_fast.store(false, std::memory_order_relaxed);
+    }
+    // The pace clock leaves out the time this engine spent waiting: that is not the host's pace.
+    m_lastBlockWall = now - m_waitedMicros;
+    measurePace(numSamples);
+    if (! m_runOpen.load(std::memory_order_acquire))
+    {
+        const auto relaxed = std::memory_order_relaxed;
+        m_run[RunIndex].store(++m_runCount, relaxed);
+        for (const auto field : { RunBlocks, RunSamples, RunMatches, RunFlattened, RunDry, RunFlags, RunWaits, RunWaitMicros })
+            m_run[static_cast<std::size_t>(field)].store(0, relaxed);
+        m_run[RunSearchesAtStart].store(static_cast<std::int64_t>(m_searches.load(relaxed)), relaxed);
+        m_run[RunCancelledAtStart].store(static_cast<std::int64_t>(m_cancelledStarts.load(relaxed)), relaxed);
+        m_run[RunFirstMatchInput].store(-1, relaxed);
+        m_run[RunFirstMatchSource].store(-1, relaxed);
+        m_run[RunLearnedEnd].store(-1, relaxed);
+        m_run[RunLatency].store(m_latency, relaxed);
+        m_run[RunStartWall].store(now, relaxed);
+        m_run[RunStartInput].store(m_inputPosition, relaxed);
+        m_runOpen.store(true, std::memory_order_release);
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::RunStarted;
+        e.i[0] = m_runCount;
+        e.i[1] = numSamples;
+        e.i[2] = numChannels;
+        e.i[3] = m_nonRealtime.load(relaxed) ? 1 : 0;
+        e.i[4] = bypassed ? 1 : 0;
+        e.d[0] = m_rate.load(relaxed);
+        log(e);
+    }
+    const auto relaxed = std::memory_order_relaxed;
+    m_run[RunBlocks].fetch_add(1, relaxed);
+    m_run[RunSamples].fetch_add(numSamples, relaxed);
+    m_run[RunLastWall].store(now, relaxed);
+    m_run[RunInputEnd].store(m_inputPosition + numSamples, relaxed);
+    m_run[RunFlags].fetch_or((m_nonRealtime.load(relaxed) ? 1 : 0) | (m_fast.load(relaxed) ? 2 : 0), relaxed);
+}
+
+void Engine::endRun() noexcept
+{
+    if (! m_runOpen.exchange(false, std::memory_order_acq_rel))
+        return;
+    const auto get = [this](int field) { return m_run[static_cast<std::size_t>(field)].load(std::memory_order_relaxed); };
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::RunEnded;
+    const auto startInput = get(RunStartInput);
+    e.i[0] = get(RunIndex);
+    e.i[1] = get(RunBlocks);
+    e.i[2] = get(RunSamples);
+    e.i[3] = static_cast<std::int64_t>(m_searches.load(std::memory_order_relaxed)) - get(RunSearchesAtStart);
+    e.i[4] = get(RunMatches);
+    e.i[5] = static_cast<std::int64_t>(m_cancelledStarts.load(std::memory_order_relaxed)) - get(RunCancelledAtStart);
+    e.i[6] = get(RunFirstMatchInput) >= 0 ? get(RunFirstMatchInput) - startInput : 0;
+    e.i[14] = get(RunFirstMatchInput) >= 0 ? 1 : 0;
+    e.i[7] = get(RunFirstMatchSource);
+    e.i[8] = get(RunFlattened);
+    e.i[9] = get(RunDry);
+    e.i[10] = get(RunLatency);
+    e.i[11] = get(RunLearnedEnd) >= 0 ? get(RunInputEnd) - get(RunLearnedEnd) : -1;
+    e.i[12] = get(RunFlags);
+    e.i[13] = get(RunWaits);
+    e.d[0] = m_rate.load(std::memory_order_relaxed);
+    e.d[1] = static_cast<double>(get(RunLastWall) - get(RunStartWall)) / 1.0e6;
+    e.d[2] = static_cast<double>(get(RunWaitMicros)) / 1000.0;
+    log(e);
 }
 
 void Engine::failMatch(std::int64_t at, std::int64_t outNext) noexcept
@@ -1323,9 +1839,15 @@ void Engine::updateMatching(std::int64_t t0, int numSamples) noexcept
 {
     const std::int64_t tEnd = t0 + numSamples;
     const std::int64_t outNext = t0 - m_latency;   // the input position the next output sample is
-    const bool offline = m_nonRealtime.load(std::memory_order_relaxed);
+    // Offline as the host says, or as the pace of the audio shows (see the header).
+    const bool offline = m_nonRealtime.load(std::memory_order_relaxed) || m_fast.load(std::memory_order_relaxed);
 
     releaseUnheld();
+    const int capture = m_captureState.load(std::memory_order_relaxed);
+    if (! m_analysing.load(std::memory_order_acquire))
+        m_analysisGaveUp = false;   // that analysis is over: the next one may be waited for
+    if (offline && capture == CapIdle && m_analysing.load(std::memory_order_acquire))
+        waitForAnalysis();
     const bool analysing = m_analysing.load(std::memory_order_acquire);
     if (offline && ! analysing && m_renderPending.load(std::memory_order_acquire))
         waitForRender();
@@ -1385,6 +1907,7 @@ void Engine::renderOutput(float* const* channels, int numChannels, int numSample
 {
     const int L = m_latency;
     const int gainPoints = static_cast<int>(m_gainPoints.size());
+    std::int64_t flattened = 0;
     for (int i = 0; i < numSamples; ++i)
     {
         const std::int64_t u = t0 + i - L;   // the input position this output sample is
@@ -1431,6 +1954,7 @@ void Engine::renderOutput(float* const* channels, int numChannels, int numSample
             --m_gainRampLeft;
         }
 
+        flattened += m_current.result != nullptr ? 1 : 0;
         const bool fading = m_fadePosition < m_fadeLength;
         const float w = fading ? (static_cast<float>(m_fadePosition) + 0.5f) / static_cast<float>(m_fadeLength) : 1.0f;
         for (int c = 0; c < numChannels; ++c)
@@ -1451,6 +1975,8 @@ void Engine::renderOutput(float* const* channels, int numChannels, int numSample
         if (fading && ++m_fadePosition >= m_fadeLength)
             m_previous = Voice {};   // faded out: let go of it
     }
+    m_run[RunFlattened].fetch_add(flattened, std::memory_order_relaxed);
+    m_run[RunDry].fetch_add(numSamples - flattened, std::memory_order_relaxed);
     publishReadouts(t0 + numSamples - 1 - L);
 }
 
