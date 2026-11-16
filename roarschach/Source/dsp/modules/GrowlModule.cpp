@@ -312,6 +312,7 @@ namespace roar
         const float envRange = static_cast<float> (c_envRangeDb);
         const float maxDepth = static_cast<float> (c_maxDepth);
         const float makeupCap = static_cast<float> (dsp::dbToGain (c_makeupCapDb));
+        const float grindMakeup = static_cast<float> (dsp::dbToGain (c_grindMakeupDb));
         const double invFs = 1.0 / m_fs;
         const float holdFast = static_cast<float> (c_voicingHoldFast);
         const float invHoldConfidence = static_cast<float> (1.0 / c_voicingHoldConfidence);
@@ -468,6 +469,9 @@ namespace roar
             const float osTarget = clean ? 0.0f : std::min (1.0f, st.depth / c_characterFullDepth);
             st.osWeight = std::clamp (osTarget, st.osWeight - m_fadeStep, st.osWeight + m_fadeStep);
 
+            // Grind's makeup, faded in with the character (exactly 1 for Clean and Warm).
+            const float grindMakeupNow = 1.0f + (grindMakeup - 1.0f) * wGrind;
+
             for (int c = 0; c < numChannels; ++c)
             {
                 auto& ch = m_channels[static_cast<size_t> (c)];
@@ -489,7 +493,7 @@ namespace roar
                     ch.dcBlock.processHighpass (0.0f);
                 }
                 const float curved = ch.os.downsample (a, b);
-                io[c][i] = st.osWeight >= 1.0f ? curved : linear + st.osWeight * (curved - linear);
+                io[c][i] = (st.osWeight >= 1.0f ? curved : linear + st.osWeight * (curved - linear)) * grindMakeupNow;
             }
 
             st.modulation = gm - 1.0f;

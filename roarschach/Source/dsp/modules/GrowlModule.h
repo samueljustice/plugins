@@ -66,7 +66,10 @@ namespace roar
      *          the high band linear. The bias is negative so the closed part of the cycle sits near
      *          the curve's point of symmetry (lo = -0.067): the even harmonics of the curve's offset
      *          sound in the open part and vanish in the trough (crest THD about 13 dB above the trough)
-     *   Grind  drive +12 dB, depth x 1.2 (the curve flattens the open part of the cycle), b +0.15, asymmetric: 1.2 tanh (1.8 v) / 1.8 above 0, 0.6 tanh (v / 0.6) below
+     *   Grind  drive +9 dB, depth x 1.2 (the curve flattens the open part of the cycle), b +0.15, asymmetric: 1.2 tanh (1.8 v) / 1.8 above 0, 0.6 tanh (v / 0.6) below;
+     *          makeup +1 dB after the curve (it fades in with the character, so Depth 0 stays an exact
+     *          delay and Clean and Warm are untouched). A saturator loses level in proportion to how far
+     *          into it the signal is: 9 dB puts Grind at Warm's level at the working level IN delivers
      *   Only the curve's deviation from linear is DC-blocked (10 Hz), so the linear part keeps its
      *   phase. The character fades in over the first 10 % of Depth (Depth 0 is an exact delay),
      *   and character changes crossfade over 20 ms.
@@ -107,7 +110,8 @@ namespace roar
         static constexpr double c_warmBias = -0.15;
         static constexpr double c_grindBias = 0.15;
         static constexpr double c_warmDriveDb = 9.0;
-        static constexpr double c_grindDriveDb = 12.0;
+        static constexpr double c_grindDriveDb = 9.0;
+        static constexpr double c_grindMakeupDb = 1.0;
         static constexpr double c_grindDepthScale = 1.2;   // Grind's depth, re Warm's (keeps the tremolo as deep)
         static constexpr double c_dcBlockHz = 10.0;
         static constexpr double c_optoTauOn = 0.003, c_optoTauOff = 0.025, c_optoReferenceHz = 8.0;

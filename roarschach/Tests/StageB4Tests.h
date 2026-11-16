@@ -558,6 +558,83 @@ namespace stageb4
         }
     }
 
+    // ------------------------------------------------------------------------------ GROWL
+
+    roar::GrowlSettings growlSettings(double depth, Params::GrowlShape shape, Params::GrowlCharacter character, double rateHz = 27.0)
+    {
+        roar::GrowlSettings s;
+        s.on = true;
+        s.depth = static_cast<float>(depth);
+        s.rateHz = static_cast<float>(rateHz);
+        s.shape = shape;
+        s.character = character;
+        return s;
+    }
+
+    /** The regular (pre-irregularity) oscillator, for the checks that read the line or the level. */
+    roar::GrowlModule::Diagnostics regularGrowl()
+    {
+        roar::GrowlModule::Diagnostics d;
+        return d;
+    }
+
+    std::unique_ptr<roar::GrowlModule> makeGrowl(double sr, const roar::GrowlSettings& s, const roar::GrowlModule::Diagnostics& d, int block = 512)
+    {
+        auto m = std::make_unique<roar::GrowlModule>();
+        m->setParams(s);
+        m->setDiagnostics(d);
+        m->prepare(sr, block);
+        m->setParams(s);
+        m->reset();
+        return m;
+    }
+
+    void testGrind()
+    {
+        std::printf("[stageb4] GROWL Grind: drive 9 dB, makeup +1 dB\n");
+        const int from = static_cast<int>(1.0 * c_fs);
+        // T-GR-1: Grind minus Warm on TV(110) at three levels.
+        {
+            const std::tuple<double, double, double> levels[] { { -26.0, -0.5, 2.0 }, { -18.0, -2.2, 0.5 }, { -10.0, -3.5, 0.0 } };
+            for (const auto& [db, lo, hi] : levels)
+            {
+                const auto in = testVoice(c_fs, 4.0, 110.0, db);
+                juce::String line;
+                for (const double depth : { 0.25, 0.60, 1.0 })
+                {
+                    auto grind = makeGrowl(c_fs, growlSettings(depth, Params::GrowlShape::sine, Params::GrowlCharacter::grind), regularGrowl());
+                    auto warm = makeGrowl(c_fs, growlSettings(depth, Params::GrowlShape::sine, Params::GrowlCharacter::warm), regularGrowl());
+                    const double diff = rmsDb(runMono(*grind, in), from) - rmsDb(runMono(*warm, in), from);
+                    line << juce::String(diff, 2) << " ";
+                    check(diff >= lo && diff <= hi, "T-GR-1 Grind minus Warm at " + juce::String(db, 0) + " dBFS, Depth " + juce::String(depth * 100.0, 0) + " %: "
+                                                        + juce::String(diff, 2) + " dB (" + juce::String(lo, 1) + " .. " + juce::String(hi, 1) + ")");
+                }
+                std::printf("  T-GR-1 TV(110) at %.0f dBFS, Depth 25 / 60 / 100 %%: Grind minus Warm %s dB\n", db, line.toRawUTF8());
+            }
+        }
+        // T-GR-2: Depth 0 with Grind is an exact delay; Grind's ceiling.
+        {
+            const auto in = testVoice(c_fs, 2.0, 110.0, -18.0);
+            auto m = makeGrowl(c_fs, growlSettings(0.0, Params::GrowlShape::sine, Params::GrowlCharacter::grind), regularGrowl());
+            check(identical(runMono(*m, in), delayed(in, roar::Oversampler2x::c_latency)), "T-GR-2 Depth 0 with Grind is not an exact delay");
+            for (const auto& [hz, bound] : { std::pair<double, double> { 1000.0, -10.0 }, std::pair<double, double> { 110.0, -7.0 } })
+            {
+                double worst = -200.0;
+                for (const double depth : { 0.25, 0.60, 1.0 })
+                {
+                    auto g = makeGrowl(c_fs, growlSettings(depth, Params::GrowlShape::sine, Params::GrowlCharacter::grind), regularGrowl());
+                    const auto out = runMono(*g, makeSine(c_fs, 2.0, hz, 1.0));
+                    double peak = 0.0;
+                    for (size_t i = static_cast<size_t>(0.5 * c_fs); i < out.size(); ++i)
+                        peak = std::max(peak, static_cast<double>(std::abs(out[i])));
+                    worst = std::max(worst, toDb(peak));
+                }
+                std::printf("  T-GR-2 %.0f Hz sine at 0 dBFS through Grind: output peak %.2f dBFS at most\n", hz, worst);
+                check(worst <= bound, "T-GR-2 Grind's ceiling at " + juce::String(hz, 0) + " Hz: " + juce::String(worst, 2) + " dBFS (<= " + juce::String(bound, 1) + ")");
+            }
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -566,5 +643,7 @@ namespace stageb4
             testSwirl();
         if (sectionWanted("sw2"))
             testSwirl2x();
+        if (sectionWanted("gr"))
+            testGrind();
     }
 }
