@@ -927,6 +927,8 @@ namespace roar
         m_s = o.m_s;   // plain values: filters, Hilbert pairs, glides, envelopes, ramps (same rate, so same coefficients)
         if (m_octRing.size() == o.m_octRing.size())
             std::copy (o.m_octRing.begin(), o.m_octRing.end(), m_octRing.begin());   // same rate: same size, no allocation
+        else
+            clearOctaveWindow();   // another rate: the window's indices would not fit this ring
     }
 
     void OvertoneModule::copyLeftStateToRight()
