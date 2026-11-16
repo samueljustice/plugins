@@ -565,6 +565,42 @@ private:
 };
 
 //==============================================================================
+/** A module's On switch: a click turns the module on or off; an Alt-click (onAltClick) solos it
+    instead, and never toggles the switch itself. */
+class SignalFlowStrip::OnSwitch : public juce::ToggleButton
+{
+public:
+    std::function<void()> onAltClick;
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        m_altPress = e.mods.isAltDown() && e.mods.isLeftButtonDown() && onAltClick != nullptr;
+        if (!m_altPress)
+            juce::ToggleButton::mouseDown(e);
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (!m_altPress)
+            juce::ToggleButton::mouseDrag(e);
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (!std::exchange(m_altPress, false))
+        {
+            juce::ToggleButton::mouseUp(e);
+            return;
+        }
+        if (getLocalBounds().contains(e.getPosition()) && onAltClick != nullptr)
+            onAltClick();
+    }
+
+private:
+    bool m_altPress = false;
+};
+
+//==============================================================================
 /** The soft shadow under a tile that is being dragged (it sits right behind that tile). */
 class SignalFlowStrip::DragShadow : public juce::Component
 {
@@ -793,7 +829,9 @@ public:
     {
         const juce::String name(m_spec.uiName);
 
-        m_onButton.setTooltip("Turns " + name + " on or off. Off passes the voice through unchanged.");
+        m_onButton.setTooltip("Turns " + name + " on or off. Off passes the voice through unchanged. Alt-click to hear " + name
+                              + " alone: every other module goes off. Alt-click it again to turn back on the modules that were on.");
+        m_onButton.onAltClick = [this] { if (m_owner.onSolo) m_owner.onSolo(m_module); };
         m_onButton.setTitle(name + " On");
         addAndMakeVisible(m_onButton);
         m_onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, m_spec.onId, m_onButton);
@@ -1387,7 +1425,7 @@ public:
     juce::String m_dragTip, m_footerTip;
     float m_blinkPhase = 0.0f;
 
-    juce::ToggleButton m_onButton;
+    OnSwitch m_onButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_onAttachment;
     ModeChip m_modeChip;
     MoveChip m_moveChip;

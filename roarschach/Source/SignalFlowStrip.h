@@ -94,6 +94,9 @@ public:
     /** The modules held in Randomise All: their dice show the held mark. */
     void setHeldModules(const std::array<bool, Params::numModules>& held);
     std::array<bool, Params::numModules> getHeldModules() const { return m_held; }
+    /** An Alt-click on a module's On switch: solo it, or come back from its solo (the editor connects
+        it to the processor). */
+    std::function<void(int module)> onSolo;
     /** A right-click on any die (the undo menu), with the die it came from. */
     std::function<void(juce::Component& die)> onDiceMenu;
     /** Cmd+Z (redo false) or Shift+Cmd+Z (redo true) on a die that has the keyboard focus. True if
@@ -153,6 +156,7 @@ private:
     class OutputTile;
     class MoveChip;
     class ModeChip;
+    class OnSwitch;
     class KnobSlider;
     class DragShadow;
 

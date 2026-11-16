@@ -573,4 +573,115 @@ namespace usability
         check(withLine == knobs && pitchKnob->getTooltip().contains("a semitone at a time, with Shift a cent"),
               "knobs: every knob's tooltip explains Shift-drag, the wheel and the right-click menu (" + juce::String(withLine) + " of " + juce::String(knobs) + ")");
     }
+
+    //==========================================================================
+    // U8: Alt-click a module's On switch to solo it; Alt-click again to turn back on what was on.
+    std::array<bool, Params::numModules> onSet(RoarschachAudioProcessor& p)
+    {
+        std::array<bool, Params::numModules> on {};
+        for (int m = 0; m < Params::numModules; ++m)
+            on[static_cast<size_t>(m)] = getParam(p, Params::modules[static_cast<size_t>(m)].onId) >= 0.5f;
+        return on;
+    }
+
+    std::array<bool, Params::numModules> only(int module)
+    {
+        std::array<bool, Params::numModules> on {};
+        on[static_cast<size_t>(module)] = true;
+        return on;
+    }
+
+    void altClick(juce::Component& c)
+    {
+        const juce::ModifierKeys mods(juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::altModifier);
+        const auto at = c.getLocalBounds().getCentre().toFloat();
+        c.mouseDown(knobEvent(c, at, at, mods, false));
+        c.mouseUp(knobEvent(c, at, at, juce::ModifierKeys(juce::ModifierKeys::altModifier), false));
+    }
+
+    /** One gesture over On switches only: every switch set is begun before any is set and ended after
+        all are set, once each. */
+    bool isOneSwitchGesture(const GestureLog& log, int& switches)
+    {
+        std::map<int, std::array<int, 3>> counts;
+        int phase = 0;
+        for (const auto& [kind, index] : log.events)
+        {
+            const int k = kind == 'b' ? 0 : kind == 's' ? 1 : 2;
+            if (k < phase || Params::all[static_cast<size_t>(index)].kind != Params::Kind::toggle
+                || !juce::String(Params::all[static_cast<size_t>(index)].id).endsWith("On"))
+                return false;
+            phase = k;
+            ++counts[index][static_cast<size_t>(k)];
+        }
+        switches = static_cast<int>(counts.size());
+        for (const auto& [index, c] : counts)
+            if (c[0] != 1 || c[1] != 1 || c[2] != 1)
+                return false;
+        return true;
+    }
+
+    void testSolo()
+    {
+        std::printf("[editor] solo: Alt-click an On switch, again to come back\n");
+        const int swirl = static_cast<int>(Params::ModuleId::swirl), pitch = static_cast<int>(Params::ModuleId::pitch);
+        auto p = makeProcessor(48000.0, 512);
+        p->setCurrentProgram(presetIndex("Kaiju"));
+        auto open = std::make_unique<OpenEditor>(*p);
+        auto* swirlOn = open->strip().getOnButton(swirl);
+        setParam(*p, Params::swirlOn, 0.0f);   // (a module that is off solos too)
+        const auto original = onSet(*p);
+
+        GestureLog log;
+        p->addListener(&log);
+        altClick(*swirlOn);
+        p->removeListener(&log);
+        int switches = 0;
+        const bool oneGesture = isOneSwitchGesture(log, switches);
+        int originallyOn = 0;
+        for (const bool b : original)
+            originallyOn += b ? 1 : 0;
+        std::printf("  Kaiju with SWIRL off: %d modules on; Alt-click SWIRL wrote %d switches in %s\n", originallyOn, switches, oneGesture ? "one gesture" : "MORE than one gesture");
+        check(onSet(*p) == only(swirl) && p->getSoloModule() == swirl, "solo: Alt-click on an On switch leaves that module alone on (even one that was off)");
+        check(oneGesture && switches == originallyOn + 1, "solo: every switch it changes is written in one gesture, and nothing else");
+
+        GestureLog back;
+        p->addListener(&back);
+        altClick(*swirlOn);
+        p->removeListener(&back);
+        int backSwitches = 0;
+        check(onSet(*p) == original && p->getSoloModule() < 0 && isOneSwitchGesture(back, backSwitches),
+              "solo: Alt-click again turns back on exactly what was on, in one gesture");
+
+        // Moving the solo keeps the first memory; the editor closing does not lose it.
+        altClick(*swirlOn);
+        altClick(*open->strip().getOnButton(pitch));
+        const bool moved = onSet(*p) == only(pitch) && p->getSoloModule() == pitch;
+        open.reset();
+        open = std::make_unique<OpenEditor>(*p);
+        altClick(*open->strip().getOnButton(pitch));
+        check(moved && onSet(*p) == original, "solo: soloing another module moves the solo, and coming back from it restores the set before the first solo, "
+                                               "with the editor closed and opened in between");
+
+        // A preset load lets the memory go: Alt-click then solos afresh, and comes back to the preset's set.
+        altClick(*open->strip().getOnButton(swirl));
+        p->setCurrentProgram(presetIndex("Smashed"));
+        const auto smashed = onSet(*p);
+        const bool forgotten = p->getSoloModule() < 0;
+        altClick(*open->strip().getOnButton(swirl));
+        const bool fresh = onSet(*p) == only(swirl);
+        altClick(*open->strip().getOnButton(swirl));
+        check(forgotten && fresh && onSet(*p) == smashed, "solo: a preset load clears the remembered set; the next solo comes back to the loaded preset's modules");
+
+        // A hand on another switch while soloed lets the memory go too (the solo no longer shows).
+        altClick(*open->strip().getOnButton(swirl));
+        setParam(*p, Params::pitchOn, 1.0f);
+        const bool handForgets = p->getSoloModule() < 0;
+        const auto byHand = onSet(*p);
+        altClick(*open->strip().getOnButton(swirl));
+        altClick(*open->strip().getOnButton(swirl));
+        check(handForgets && onSet(*p) == byHand, "solo: switches changed by hand during a solo end it; the next solo remembers them as they are");
+
+        check(swirlOn != nullptr && open->strip().getOnButton(swirl)->getTooltip().contains("Alt-click"), "solo: the On switch's tooltip explains Alt-click");
+    }
 }

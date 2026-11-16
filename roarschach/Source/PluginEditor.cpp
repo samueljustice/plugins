@@ -658,6 +658,7 @@ void RoarschachAudioProcessorEditor::setupDice()
     m_strip.onRollAll = [this](bool onlyOn) { m_audioProcessor.getDice().rollAll(m_audioProcessor.getRollHolds(), onlyOn); afterRoll(); };
     m_strip.onRollModule = [this](int module) { m_audioProcessor.getDice().rollModule(module); afterRoll(); };
     m_strip.onDiceMenu = [this](juce::Component& die) { showDiceMenu(die); };
+    m_strip.onSolo = [this](int module) { m_audioProcessor.toggleSolo(module); };
     m_strip.onDiceUndoKey = [this](bool redo) { return diceUndoKey(redo); };
     addMouseListener(&m_diceFocusRelease, true);
     m_strip.setHeldModules(m_audioProcessor.getRollHolds());

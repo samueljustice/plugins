@@ -73,6 +73,16 @@ public:
     std::array<bool, Params::numModules> getRollHolds() const;
     void setRollHolds(const std::array<bool, Params::numModules>& holds);
 
+    /** Solo (Alt-click on a module's On switch, message thread). Soloing a module turns it on and
+        every other module off, and remembers which were on; soloing it again while that still holds
+        turns back on exactly what was on. Soloing another module meanwhile moves the solo and keeps the
+        same memory. The memory is let go when the switches no longer show the solo (a hand, a roll or
+        the host changed them) and on any preset or session load. Every switch that changes is written
+        in one gesture (begun together, set, ended together). */
+    void toggleSolo(int module);
+    /** The soloed module, or -1 when there is no solo to come back from. */
+    int getSoloModule() const;
+
     PresetManager& getPresetManager() { return m_presetManager; }
     /** The preset, ROLL ALL and module dice, with their undo history (message thread). */
     DiceRoller& getDice() { return m_dice; }
@@ -148,6 +158,14 @@ private:
     bool m_haveHeldPositions = false;
     PresetManager m_presetManager;                // after m_parameters: it listens to them
     DiceRoller m_dice;                            // after m_presetManager: it loads and restores presets
+
+    // Solo (message thread): the module soloed, the switches as they were, and the presets' load
+    // generation then (a load lets the memory go).
+    int m_soloModule = -1;
+    std::array<bool, Params::numModules> m_soloWasOn {};
+    std::uint32_t m_soloGeneration = 0;
+    std::array<bool, Params::numModules> modulesOn() const;
+    void writeModulesOn(const std::array<bool, Params::numModules>& on);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

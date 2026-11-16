@@ -1153,6 +1153,69 @@ void RoarschachAudioProcessor::setRollHolds(const std::array<bool, Params::numMo
         m_viewOptions.set(c_rollHolds, codes.joinIntoString(" "));
 }
 
+std::array<bool, Params::numModules> RoarschachAudioProcessor::modulesOn() const
+{
+    std::array<bool, Params::numModules> on {};
+    for (int m = 0; m < Params::numModules; ++m)
+        if (const auto* v = m_parameters.getRawParameterValue(Params::modules[static_cast<size_t>(m)].onId))
+            on[static_cast<size_t>(m)] = v->load() >= 0.5f;
+    return on;
+}
+
+void RoarschachAudioProcessor::writeModulesOn(const std::array<bool, Params::numModules>& on)
+{
+    // One gesture for the whole set: every switch that changes is begun, then all are set, then all
+    // are ended (a host records it as one edit).
+    const auto now = modulesOn();
+    std::vector<juce::RangedAudioParameter*> changed;
+    for (int m = 0; m < Params::numModules; ++m)
+        if (now[static_cast<size_t>(m)] != on[static_cast<size_t>(m)])
+            if (auto* p = m_parameters.getParameter(Params::modules[static_cast<size_t>(m)].onId))
+                changed.push_back(p);
+    for (auto* p : changed)
+        p->beginChangeGesture();
+    for (auto* p : changed)
+        p->setValueNotifyingHost(p->getValue() >= 0.5f ? 0.0f : 1.0f);
+    for (auto* p : changed)
+        p->endChangeGesture();
+}
+
+int RoarschachAudioProcessor::getSoloModule() const
+{
+    if (!juce::isPositiveAndBelow(m_soloModule, Params::numModules) || m_presetManager.getLoadGeneration() != m_soloGeneration)
+        return -1;
+    const auto on = modulesOn();
+    for (int m = 0; m < Params::numModules; ++m)
+        if (on[static_cast<size_t>(m)] != (m == m_soloModule))
+            return -1;
+    return m_soloModule;
+}
+
+void RoarschachAudioProcessor::toggleSolo(int module)
+{
+    if (!juce::isPositiveAndBelow(module, Params::numModules))
+        return;
+
+    const int soloed = getSoloModule();
+    if (soloed == module)
+    {
+        // Back to what was on before the solo.
+        m_soloModule = -1;
+        writeModulesOn(m_soloWasOn);
+        return;
+    }
+    if (soloed < 0)
+    {
+        // A fresh solo: remember the switches as they are.
+        m_soloWasOn = modulesOn();
+        m_soloGeneration = m_presetManager.getLoadGeneration();
+    }
+    m_soloModule = module;
+    std::array<bool, Params::numModules> alone {};
+    alone[static_cast<size_t>(module)] = true;
+    writeModulesOn(alone);
+}
+
 bool RoarschachAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     // Mono or stereo in, mono or stereo out. The core is mono up to the first module that makes stereo;
