@@ -306,6 +306,9 @@ namespace roar
             bool monoInRange = false;
             double size = 0.0;
             double rate = 1.0;             // grain read rate phi
+            double followRate = 1.0;       // the rate phi would have in Follow (the voice read's rate)
+            double rateKeyShiftSt = 0.0, rateKeySize = 0.0;   // what rate and followRate were computed from
+            bool rateKeyFollow = true, rateKeyValid = false;
             float wet = 0.0f;              // shifter vs its aligned input (neutral crossfade)
 
             // Size body.
@@ -382,6 +385,7 @@ namespace roar
         void readReader (Reader& t, double rate, double now, bool needed, float& left, float& right, bool stereo);
         void decideSplice (Reader& t, double rate, double now, bool stereo);
         void readResampled (int which, double rate, double now, bool needed, float& left, float& right, bool stereo);
+        void idleResampled (int which);
         double followRate() const;
         float airTarget (std::int64_t outPos) const;
         double alignTapeHead (double other, double nominal, double share, bool stereo, double* matchOut = nullptr) const;

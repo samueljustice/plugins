@@ -726,12 +726,20 @@ namespace roar
 
     void PitchModule::updateRate()
     {
+        // phi, and the rate phi would have in Follow (the voice read's rate). Recomputed only when
+        // what they follow has moved (this runs every sample).
         Core& c = m_core;
-        double formantSt = 0.0;
-        if (c.formant == Params::PitchFormant::follow)
-            formantSt = c.mode == Params::PitchMode::mono ? c.knobSt : 12.0 * c.logRatio / c_ln2;
-        formantSt -= c_sizeFormantSt * c.size;
-        c.rate = std::clamp (std::exp (c_ln2 * formantSt / 12.0), c_minRate, c_maxRate);
+        const double shiftSt = c.mode == Params::PitchMode::mono ? c.knobSt : 12.0 * c.logRatio / c_ln2;
+        const bool follow = c.formant == Params::PitchFormant::follow;
+        if (c.rateKeyValid && shiftSt == c.rateKeyShiftSt && c.size == c.rateKeySize && follow == c.rateKeyFollow)
+            return;
+        c.rateKeyValid = true;
+        c.rateKeyShiftSt = shiftSt;
+        c.rateKeySize = c.size;
+        c.rateKeyFollow = follow;
+        const double sizeSt = c_sizeFormantSt * c.size;
+        c.followRate = std::clamp (std::exp (c_ln2 * (shiftSt - sizeSt) / 12.0), c_minRate, c_maxRate);
+        c.rate = follow ? c.followRate : std::clamp (std::exp (c_ln2 * -sizeSt / 12.0), c_minRate, c_maxRate);
     }
 
     float PitchModule::synthesise (float& right, bool stereo)
@@ -1851,15 +1859,23 @@ namespace roar
         }
 
         // Where no voiced grain covers the output, the resampling path does: the voice read at the
-        // Follow rate, crossfaded (8 ms) to the air read at phi where the input is air. Where
-        // the two rates are equal (Follow) it is one path and only the air read runs.
+        // Follow rate, crossfaded (8 ms) to the air read at phi where the input is air. In Follow
+        // (and wherever the two rates are equal) it is one path: only the air read runs. A read
+        // whose weight is 0 and stays 0 is idle (it costs nothing) and starts again on the output
+        // time when it is next wanted, at zero weight, so the restart is not heard.
         const float tapeWeight = totalWeight - voicedWeight;
         const float target = airTarget (outPos);
         c.airMix = target > c.airMix ? std::min (target, c.airMix + m_airStep) : std::max (target, c.airMix - m_airStep);
         const bool needed = tapeWeight > 0.0f;
         float vl = 0.0f, vr = 0.0f, al = 0.0f, ar = 0.0f;
-        readResampled (0, followRate(), now, needed && c.airMix < 1.0f, vl, vr, stereo);
-        readResampled (1, c.rate, now, needed && c.airMix > 0.0f, al, ar, stereo);
+        if (c.airMix < 1.0f || target < 1.0f)
+            readResampled (0, followRate(), now, needed && c.airMix < 1.0f, vl, vr, stereo);
+        else
+            idleResampled (0);
+        if (c.airMix > 0.0f || target > 0.0f)
+            readResampled (1, c.rate, now, needed && c.airMix > 0.0f, al, ar, stereo);
+        else
+            idleResampled (1);
         const float tl = vl + c.airMix * (al - vl);
         const float tr = vr + c.airMix * (ar - vr);
         yl += tapeWeight * tl;
@@ -2033,15 +2049,13 @@ namespace roar
     double PitchModule::followRate() const
     {
         // The rate phi would have in Follow: the applied shift (the knob in Mono) and Size.
-        const Core& c = m_core;
-        const double shiftSt = c.mode == Params::PitchMode::mono ? c.knobSt : 12.0 * c.logRatio / c_ln2;
-        return std::clamp (std::exp (c_ln2 * (shiftSt - c_sizeFormantSt * c.size) / 12.0), c_minRate, c_maxRate);
+        return m_core.followRate;
     }
 
     float PitchModule::airTarget (std::int64_t outPos) const
     {
         const Core& c = m_core;
-        if (std::abs (followRate() - c.rate) < 1.0e-9)
+        if (c.formant == Params::PitchFormant::follow || std::abs (followRate() - c.rate) < 1.0e-9)
             return 1.0f;
         const bool air = m_airForTests >= 0 ? m_airForTests > 0
                                             : c.airRing[static_cast<size_t> ((outPos >> c_voiceFrameShift) & (c_airRing - 1))] != 0;
@@ -2131,6 +2145,17 @@ namespace roar
         readReader (c.readers[static_cast<size_t> (which)], rate, now, needed, left, right, stereo);
        #else
         readTape (c.tapes[static_cast<size_t> (which)], rate, now, needed, left, right, stereo);
+       #endif
+    }
+
+    void PitchModule::idleResampled (int which)
+    {
+        // Back to the start values: the read begins again on the output time when it is wanted.
+        Core& c = m_core;
+       #if ROARSCHACH_PITCH_READER
+        c.readers[static_cast<size_t> (which)] = Reader {};
+       #else
+        c.tapes[static_cast<size_t> (which)] = Tape {};
        #endif
     }
 
