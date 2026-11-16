@@ -78,11 +78,11 @@ namespace roar
         const bool six = numVoices >= 6;
         switch (motion)
         {
-            case Params::EnsembleMotion::slow:    return six ? 0.547f : 0.895f;
-            case Params::EnsembleMotion::fast:    return six ? 0.491f : 0.821f;
-            case Params::EnsembleMotion::vibrato: return six ? 0.471f : 0.802f;
+            case Params::EnsembleMotion::slow:    return six ? 0.669f : 0.999f;
+            case Params::EnsembleMotion::fast:    return six ? 0.625f : 0.941f;
+            case Params::EnsembleMotion::vibrato: return six ? 0.601f : 0.919f;
             case Params::EnsembleMotion::medium:
-            default:                              return six ? 0.519f : 0.863f;
+            default:                              return six ? 0.646f : 0.982f;
         }
     }
 
@@ -102,6 +102,12 @@ namespace roar
         m_minDelay = static_cast<float> (c_minDelayMs * 0.001 * m_fs);
         m_maxDelay = static_cast<float> (c_maxDelayMs * 0.001 * m_fs);
         m_line.prepare (static_cast<int> (std::ceil (m_maxDelay)) + 4);
+        m_lowL.prepare (m_fs);
+        m_lowL.setCutoff (c_lowSplitHz);
+        m_lowR.prepare (m_fs);
+        m_lowR.setCutoff (c_lowSplitHz);
+        m_sideHp.prepare (m_fs);
+        m_sideHp.setParams (c_sideHighpassHz, 0.70710678118654752);
 
         for (int v = 0; v < c_maxVoices; ++v)
         {
@@ -120,6 +126,9 @@ namespace roar
         m_fade.setOn (m_settings.on);
         m_fade.reset();
         m_line.reset();
+        m_lowL.reset();
+        m_lowR.reset();
+        m_sideHp.reset();
         for (int v = 0; v < c_maxVoices; ++v)
             m_random[static_cast<size_t> (v)].seed (0x2545f491u + 0x9e3779b9u * static_cast<std::uint32_t> (v + 1));
         m_state = State {};
@@ -261,7 +270,13 @@ namespace roar
             // Restarting from an empty line would make every voice start with a step once its
             // delay has passed: an audible click under the rising fade.
             for (int i = 0; i < n; ++i)
-                m_line.push (stereo ? 0.5f * (dsp::finiteOrZero (l[i]) + dsp::finiteOrZero (r[i])) : l[i]);
+            {
+                const float xl = dsp::finiteOrZero (l[i]);
+                const float xr = stereo ? dsp::finiteOrZero (r[i]) : xl;
+                const float lowL = m_lowL.processLowpass (xl);
+                const float lowR = stereo ? m_lowR.processLowpass (xr) : lowL;
+                m_line.push (0.5f * ((xl - lowL) + (xr - lowR)));
+            }
             m_fade.outputDry (l, r, n, stereo);
             return;
         }
@@ -278,7 +293,9 @@ namespace roar
 
             const float xl = dsp::finiteOrZero (l[i]);
             const float xr = stereo ? dsp::finiteOrZero (r[i]) : xl;
-            m_line.push (stereo ? 0.5f * (xl + xr) : xl);
+            const float lowL = m_lowL.processLowpass (xl);
+            const float lowR = stereo ? m_lowR.processLowpass (xr) : lowL;
+            m_line.push (0.5f * ((xl - lowL) + (xr - lowR)));
 
             float wetL = 0.0f, wetR = 0.0f;
             for (int v = 0; v < c_maxVoices; ++v)
@@ -309,13 +326,23 @@ namespace roar
             const float makeup = makeupForAmount (m);
             const float wetGain = makeup * m * st.voiceGain;
             const float dryGain = makeup * (1.0f - m);
+            const float lowGain = 1.0f - dryGain;   // the dry's low part passes whole: exactly 0 at Amount 0
             const float mid = 0.5f * (wetL + wetR);
-            const float side = 0.5f * (wetL - wetR) * (width * st.sideScale);
+            const float side = m_sideHp.highpass (0.5f * (wetL - wetR)) * (width * st.sideScale);
 
-            const float outL = dsp::flushTiny (dryGain * xl + wetGain * (mid + side));
+            if (m_diagnostics.wetOnly)
+            {
+                l[i] = st.voiceGain * mid;
+                if (stereo)
+                    r[i] = l[i];
+                --st.controlLeft;
+                continue;
+            }
+
+            const float outL = dsp::flushTiny (dryGain * xl + lowGain * lowL + wetGain * (mid + side));
             if (stereo)
             {
-                const float outR = dsp::flushTiny (dryGain * xr + wetGain * (mid - side));
+                const float outR = dsp::flushTiny (dryGain * xr + lowGain * lowR + wetGain * (mid - side));
                 l[i] = outL;
                 r[i] = outR;
                 const double om = 0.5 * static_cast<double> (outL + outR);
@@ -325,7 +352,7 @@ namespace roar
             }
             else
             {
-                l[i] = dsp::flushTiny (dryGain * xl + wetGain * mid);
+                l[i] = dsp::flushTiny (dryGain * xl + lowGain * lowL + wetGain * mid);
                 st.midAccum += static_cast<double> (l[i]) * static_cast<double> (l[i]);
             }
             --st.controlLeft;
@@ -343,12 +370,16 @@ namespace roar
         for (size_t v = 0; v < m_random.size(); ++v)
             m_random[v].copyStateFrom (o.m_random[v]);
         m_line.copyStateFrom (o.m_line);
+        m_lowL.copyStateFrom (o.m_lowL);
+        m_lowR.copyStateFrom (o.m_lowR);
+        m_sideHp.copyStateFrom (o.m_sideHp);
         m_fade.copyStateFrom (o.m_fade);
     }
 
     void EnsembleModule::copyLeftStateToRight()
     {
-        // The voices read one shared mono line; only the On fade has a right-channel state.
+        // The voices read one shared mono line; the low split and the On fade have right-channel states.
+        m_lowR.copyStateFrom (m_lowL);
         m_fade.copyLeftStateToRight();
     }
 

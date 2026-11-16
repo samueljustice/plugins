@@ -635,6 +635,233 @@ namespace stageb4
         }
     }
 
+    // ------------------------------------------------------------------------------ ENSEMBLE
+
+    const char* motionName(int m)
+    {
+        static const char* names[] { "Slow", "Medium", "Fast", "Vibrato" };
+        return names[std::clamp(m, 0, 3)];
+    }
+
+    roar::EnsembleSettings ensembleSettings(double amount, double width, int voices, int motion)
+    {
+        roar::EnsembleSettings s;
+        s.on = true;
+        s.amount = static_cast<float>(amount);
+        s.width = static_cast<float>(width);
+        s.voices = voices == 6 ? Params::EnsembleVoices::six : Params::EnsembleVoices::three;
+        s.motion = static_cast<Params::EnsembleMotion>(motion);
+        return s;
+    }
+
+    std::unique_ptr<roar::EnsembleModule> makeEnsemble(double sr, const roar::EnsembleSettings& s, const roar::EnsembleModule::Diagnostics& d = {}, int block = 512)
+    {
+        auto m = std::make_unique<roar::EnsembleModule>();
+        m->setParams(s);
+        m->setDiagnostics(d);
+        m->prepare(sr, block);
+        m->setParams(s);
+        m->reset();
+        return m;
+    }
+
+    Stereo runStereo(roar::EnsembleModule& m, const Signal& mono, const std::vector<int>& blocks = { 512 })
+    {
+        return runModule(m, Stereo { mono, mono }, true, blocks, [](int) { return roar::VoiceFrame {}; }, [](int) {});
+    }
+
+    Signal midOf(const Stereo& s)
+    {
+        Signal m(s.l.size());
+        for (size_t i = 0; i < m.size(); ++i)
+            m[i] = 0.5f * (s.l[i] + s.r[i]);
+        return m;
+    }
+
+    Signal sideOf(const Stereo& s)
+    {
+        Signal m(s.l.size());
+        for (size_t i = 0; i < m.size(); ++i)
+            m[i] = 0.5f * (s.l[i] - s.r[i]);
+        return m;
+    }
+
+    /** Mean channel power of a stereo signal from `from`, in dB. */
+    double channelPowerDb(const Stereo& s, int from)
+    {
+        const double a = rmsOf(s.l, from), b = rmsOf(s.r, from);
+        return 10.0 * std::log10(0.5 * (a * a + b * b) + 1.0e-30);
+    }
+
+    double correlationOf(const Stereo& s, int from, int to = -1)
+    {
+        to = to < 0 ? s.size() : to;
+        double lr = 0.0, ll = 0.0, rr = 0.0;
+        for (int i = from; i < to; ++i)
+        {
+            const double l = s.l[static_cast<size_t>(i)], r = s.r[static_cast<size_t>(i)];
+            lr += l * r;
+            ll += l * l;
+            rr += r * r;
+        }
+        return lr / std::sqrt(ll * rr + 1.0e-30);
+    }
+
+    /** x - LP1 (x) at 120 Hz: what the voices are fed. */
+    Signal aboveSplit(const Signal& x, double sr)
+    {
+        roar::TptOnePole lp;
+        lp.prepare(sr);
+        lp.setCutoff(120.0);
+        Signal y(x.size());
+        for (size_t i = 0; i < x.size(); ++i)
+            y[i] = x[i] - lp.processLowpass(x[i]);
+        return y;
+    }
+
+    void testEnsembleLow()
+    {
+        std::printf("[stageb4] ENSEMBLE: the low end out of the chorus and mono\n");
+        const int from = static_cast<int>(1.0 * c_fs);
+
+        // T-EN-1: Amount 0 is the input exactly (mono and stereo in).
+        {
+            const auto a = fullBandPink(c_fs, 3.0), b = pink(c_fs, 3.0, 20.0, 20000.0, -26.0, 31);
+            bool exact = true;
+            for (const int voices : { 3, 6 })
+                for (int motion = 0; motion < 4; ++motion)
+                {
+                    auto m = makeEnsemble(c_fs, ensembleSettings(0.0, 1.0, voices, motion));
+                    const auto mono = runStereo(*m, a);
+                    exact = exact && identical(mono.l, a) && identical(mono.r, a);
+                    auto m2 = makeEnsemble(c_fs, ensembleSettings(0.0, 1.0, voices, motion));
+                    const auto st = runModule(*m2, Stereo { a, b }, true, { 512 }, [](int) { return roar::VoiceFrame {}; }, [](int) {});
+                    exact = exact && identical(st.l, a) && identical(st.r, b);
+                }
+            check(exact, "T-EN-1 Amount 0 is not the input exactly");
+        }
+
+        // T-EN-2 and T-EN-3: steady low tones, Amount 50 %, Width 60 %, three voices, Medium.
+        {
+            double worstDip = 0.0, worstMedian = 0.0, side60 = -200.0, side80 = -200.0;
+            juce::String line;
+            for (int hz = 30; hz <= 120; hz += 5)
+            {
+                const auto in = makeSine(c_fs, 12.0, hz, 0.1);
+                auto m = makeEnsemble(c_fs, ensembleSettings(0.5, 0.6, 3, 1));
+                const auto out = runStereo(*m, in);
+                const auto mid = midOf(out);
+                const int win = static_cast<int>(0.2 * c_fs);
+                std::vector<double> levels;
+                for (int s0 = from; s0 + win <= out.size(); s0 += win)
+                    levels.push_back(rmsDb(mid, s0, s0 + win) - rmsDb(in, s0, s0 + win));
+                std::sort(levels.begin(), levels.end());
+                const double median = levels[levels.size() / 2];
+                worstDip = std::min(worstDip, levels.front());
+                worstMedian = std::min(worstMedian, median);
+                const double side = rmsDb(sideOf(out), from) - rmsDb(in, from);
+                if (hz <= 60)
+                    side60 = std::max(side60, side);
+                if (hz == 80)
+                    side80 = side;
+                if (hz % 15 == 0)
+                    line << hz << " Hz " << juce::String(levels.front(), 1) << " / " << juce::String(median, 1) << " / side " << juce::String(side, 1) << "; ";
+            }
+            std::printf("  T-EN-2/3 mono sum re dry (deepest / median) and side: %s\n", line.toRawUTF8());
+            std::printf("  T-EN-2 deepest 200 ms dip %.1f dB, lowest median %.1f dB; T-EN-3 side at and below 60 Hz %.1f dB, at 80 Hz %.1f dB\n",
+                        worstDip, worstMedian, side60, side80);
+            check(worstDip >= -8.5, "T-EN-2 mono sum dips to " + juce::String(worstDip, 1) + " dB (>= -8.5)");
+            check(worstMedian >= -6.0, "T-EN-2 mono sum median " + juce::String(worstMedian, 1) + " dB (>= -6.0)");
+            check(side60 < -30.0, "T-EN-3 side at and below 60 Hz " + juce::String(side60, 1) + " dB (< -30)");
+            check(side80 < -22.0, "T-EN-3 side at 80 Hz " + juce::String(side80, 1) + " dB (< -22)");
+        }
+
+        // T-EN-4: the wet at Width 0 has the level of what the voices are fed (pink, 60 s).
+        {
+            const auto in = fullBandPink(c_fs, 60.0);
+            const double target = rmsDb(aboveSplit(in, c_fs), from);
+            roar::EnsembleModule::Diagnostics wet;
+            wet.wetOnly = true;
+            juce::String table;
+            for (const int voices : { 3, 6 })
+                for (int motion = 0; motion < 4; ++motion)
+                {
+                    auto m = makeEnsemble(c_fs, ensembleSettings(1.0, 0.0, voices, motion), wet);
+                    const double db = rmsDb(runStereo(*m, in).l, from) - target;
+                    const float g = roar::EnsembleModule::voiceGainFor(voices, static_cast<Params::EnsembleMotion>(motion));
+                    table << juce::String(g * std::pow(10.0, -db / 20.0), 3) << " ";
+                    check(std::abs(db) <= 0.15, juce::String("T-EN-4 ") + juce::String(voices) + " voices " + motionName(motion) + ": wet "
+                                                    + juce::String(db, 2) + " dB re the voices' input (+-0.15)");
+                }
+            std::printf("  T-EN-4 g_N measured (3 voices Slow / Medium / Fast / Vibrato, then 6): %s\n", table.toRawUTF8());
+        }
+
+        // T-EN-5: the level over the Amount travel, full-band pink, Width 60 %, every voice count and motion.
+        std::map<std::tuple<int, int, int>, double> levels48;
+        const auto levelOverTravel = [&](double sr, bool assert)
+        {
+            const auto in = fullBandPink(sr, 20.0);
+            const int f = static_cast<int>(sr);
+            const double dry = 20.0 * std::log10(rmsOf(in, f));
+            double lo = 1.0e9, hi = -1.0e9, worstRate = 0.0;
+            for (const int voices : { 3, 6 })
+                for (int motion = 0; motion < 4; ++motion)
+                    for (const int amount : { 21, 50, 100 })
+                    {
+                        auto m = makeEnsemble(sr, ensembleSettings(amount / 100.0, 0.6, voices, motion));
+                        const double db = channelPowerDb(runStereo(*m, in), f) - dry;
+                        lo = std::min(lo, db);
+                        hi = std::max(hi, db);
+                        const auto key = std::make_tuple(voices, motion, amount);
+                        if (assert)
+                        {
+                            levels48[key] = db;
+                            check(std::abs(db) <= 0.6, juce::String("T-EN-5 ") + juce::String(voices) + " voices " + motionName(motion) + " at "
+                                                           + juce::String(amount) + " %: " + juce::String(db, 2) + " dB re dry (+-0.6)");
+                        }
+                        else
+                            worstRate = std::max(worstRate, std::abs(db - levels48[key]));
+                    }
+            return std::make_tuple(lo, hi, worstRate);
+        };
+        {
+            const auto [lo, hi, unused] = levelOverTravel(c_fs, true);
+            juce::ignoreUnused(unused);
+            std::printf("  T-EN-5 mean channel power re dry, Amount 21 / 50 / 100 %%, every voice count and motion: %+.2f .. %+.2f dB\n", lo, hi);
+        }
+
+        // T-EN-6: blocks, reset, copy, rates.
+        {
+            const auto in = fullBandPink(c_fs, 4.0);
+            const auto s = ensembleSettings(0.7, 1.0, 6, 0);
+            auto ref = makeEnsemble(c_fs, s, {}, 4096);
+            const auto a = runStereo(*ref, in);
+            bool same = true;
+            for (const auto& blocks : { std::vector<int> { 16 }, std::vector<int> { 64 }, std::vector<int> { 4096 }, randomBlocks(7) })
+            {
+                auto m = makeEnsemble(c_fs, s, {}, 4096);
+                const auto b = runStereo(*m, in, blocks);
+                same = same && identical(a.l, b.l) && identical(a.r, b.r);
+            }
+            check(same, "T-EN-6 output depends on the block size");
+            ref->reset();
+            const auto again = runStereo(*ref, in);
+            check(identical(a.l, again.l) && identical(a.r, again.r), "T-EN-6 a reset does not start again exactly");
+            auto first = makeEnsemble(c_fs, s, {}, 4096), second = makeEnsemble(c_fs, s, {}, 4096);
+            const int half = static_cast<int>(in.size() / 2) / 512 * 512;
+            runStereo(*first, Signal(in.begin(), in.begin() + half));
+            second->copyStateFrom(*first);
+            const auto tail = runStereo(*second, Signal(in.begin() + half, in.end()));
+            check(identical(Signal(a.l.begin() + half, a.l.end()), tail.l) && identical(Signal(a.r.begin() + half, a.r.end()), tail.r),
+                  "T-EN-6 copyStateFrom does not continue exactly");
+            double worst = 0.0;
+            for (const double rate : { 44100.0, 96000.0, 192000.0 })
+                worst = std::max(worst, std::get<2>(levelOverTravel(rate, false)));
+            std::printf("  T-EN-6 T-EN-5's levels at 44.1 / 96 / 192 kHz within %.2f dB of 48 kHz\n", worst);
+            check(worst <= 0.5, "T-EN-6 levels differ from 48 kHz by " + juce::String(worst, 2) + " dB (<= 0.5)");
+        }
+    }
+
     // ------------------------------------------------------------------------------ run
 
     void run()
@@ -645,5 +872,7 @@ namespace stageb4
             testSwirl2x();
         if (sectionWanted("gr"))
             testGrind();
+        if (sectionWanted("en"))
+            testEnsembleLow();
     }
 }
