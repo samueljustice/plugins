@@ -310,6 +310,44 @@ namespace
     }
 
     constexpr const char* c_stereoTag = "ST";
+
+    /** Mouse wheel movement in whole steps: one step per notch of a wheel, and one per stretch of a
+        trackpad's smooth scroll (its fractions are kept until they make a step). Positive: the wheel
+        turned up (or away), whichever way the system scrolls. */
+    class WheelSteps
+    {
+    public:
+        int take(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+        {
+            // (some systems send a wheel event twice: one step per event time)
+            if (e.eventTime == m_lastEvent)
+                return 0;
+            m_lastEvent = e.eventTime;
+            const float d = (std::abs(wheel.deltaX) > std::abs(wheel.deltaY) ? -wheel.deltaX : wheel.deltaY) * (wheel.isReversed ? -1.0f : 1.0f);
+            if (!std::isfinite(d) || d == 0.0f)
+                return 0;
+            if (!wheel.isSmooth)
+            {
+                m_pending = 0.0f;
+                return d > 0.0f ? 1 : -1;
+            }
+            if (wheel.isInertial)
+                return 0;   // (a trackpad's glide after the fingers lift: no steps the hand did not make)
+            if ((d > 0.0f) != (m_pending > 0.0f))
+                m_pending = 0.0f;   // a change of direction starts afresh
+            m_pending += d;
+            const int steps = static_cast<int>(m_pending / c_smoothStep);
+            m_pending -= static_cast<float>(steps) * c_smoothStep;
+            return steps;
+        }
+
+        /** How far a trackpad scrolls for one step (in JUCE's wheel units: about 25 points). */
+        static constexpr float c_smoothStep = 0.05f;
+
+    private:
+        float m_pending = 0.0f;
+        juce::Time m_lastEvent;
+    };
 }
 
 //==============================================================================
@@ -353,6 +391,39 @@ public:
             g.fillEllipse(juce::Rectangle<float>(d, d).withCentre(r.getCentre().translated(static_cast<float>(k) * 5.0f, 0.0f)));
         }
     }
+};
+
+//==============================================================================
+/** A mode chip: a click opens its menu; the mouse wheel over it, or Up and Down while it has the
+    keyboard focus, step its first choice without opening the menu (onStep). */
+class SignalFlowStrip::ModeChip : public juce::TextButton
+{
+public:
+    /** direction: +1 the next choice, -1 the previous one. */
+    std::function<void(int direction)> onStep;
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        // Wheel down (towards you) is the next choice, as in the menu, which lists them downwards.
+        const int steps = m_wheel.take(e, wheel);
+        if (onStep != nullptr)
+            for (int k = 0; k < std::abs(steps); ++k)
+                onStep(steps > 0 ? -1 : 1);
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (!key.getModifiers().isAnyModifierKeyDown() && (key.isKeyCode(juce::KeyPress::upKey) || key.isKeyCode(juce::KeyPress::downKey)))
+        {
+            if (onStep != nullptr)
+                onStep(key.isKeyCode(juce::KeyPress::downKey) ? 1 : -1);
+            return true;
+        }
+        return juce::TextButton::keyPressed(key);
+    }
+
+private:
+    WheelSteps m_wheel;
 };
 
 //==============================================================================
@@ -594,13 +665,22 @@ public:
         if (m_spec.chipIds[0] != nullptr)
         {
             juce::StringArray tips;
+            int numChoices = 0;
             for (const char* id : m_spec.chipIds)
                 if (id != nullptr)
+                {
                     tips.add(juce::String(Params::spec(id).name) + ": " + tooltipFor(id));
+                    ++numChoices;
+                }
+            tips.add(numChoices > 1 ? "Scroll over the chip, or press Up or Down while it has the keyboard focus, to step "
+                                          + captionFor(m_spec.chipIds[0]) + " to the next or previous choice without opening the menu."
+                                    : juce::String("Scroll over the chip, or press Up or Down while it has the keyboard focus, to step to "
+                                                   "the next or previous choice without opening the menu."));
             m_modeChip.setTooltip(tips.joinIntoString("\n"));
             m_modeChip.setTitle(name + " Modes");
             RoarschachLookAndFeel::setMenuChip(m_modeChip);
             m_modeChip.onClick = [this] { m_owner.showModeMenu(m_module); };
+            m_modeChip.onStep = [this](int direction) { m_owner.stepModeChoice(m_module, direction); };
             addAndMakeVisible(m_modeChip);
         }
 
@@ -1158,7 +1238,7 @@ public:
 
     juce::ToggleButton m_onButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_onAttachment;
-    juce::TextButton m_modeChip;
+    ModeChip m_modeChip;
     MoveChip m_moveChip;
     DiceButton m_dice { "Randomise" };
     std::array<float, 34> m_values {};
@@ -1700,48 +1780,40 @@ juce::PopupMenu SignalFlowStrip::buildModeMenu(int module, std::vector<std::pair
     const auto& spec = Params::modules[static_cast<size_t>(module)];
     itemMap.assign(1, { nullptr, 0 });   // item IDs start at 1
 
-    int numChoices = 0;
-    for (const char* id : spec.chipIds)
-        numChoices += id != nullptr ? 1 : 0;
-
+    // One flat list: every choice of every choice parameter is a single click away, each parameter's
+    // choices under a header with the module's name and the parameter's caption.
     juce::PopupMenu menu;
     menu.setLookAndFeel(&getLookAndFeel());
-    // Several choice parameters: the menu opens under the module's name (one: under the parameter's, below).
-    if (numChoices > 1)
-        menu.addSectionHeader(juce::String(spec.uiName) + " MODES");
-
     for (const char* id : spec.chipIds)
     {
         if (id == nullptr)
             continue;
         const auto& s = Params::spec(id);
         const int current = juce::jlimit(0, s.numChoices - 1, juce::roundToInt(rawValue(id)));
-        const auto caption = captionFor(id);
-
-        if (numChoices == 1)
-        {
-            // One choice parameter: its items straight in the menu, under its name.
-            menu.addSectionHeader(juce::String(spec.uiName) + " " + caption);
-            for (int c = 0; c < s.numChoices; ++c)
-            {
-                menu.addItem(static_cast<int>(itemMap.size()), s.choices[c], true, c == current);
-                itemMap.emplace_back(id, c);
-            }
-            break;
-        }
-
-        // Several: one submenu each, named with its current choice.
-        juce::PopupMenu items;
-        items.addSectionHeader(caption);
+        menu.addSectionHeader(juce::String(spec.uiName) + " " + captionFor(id));
         for (int c = 0; c < s.numChoices; ++c)
         {
-            items.addItem(static_cast<int>(itemMap.size()), s.choices[c], true, c == current);
+            menu.addItem(static_cast<int>(itemMap.size()), s.choices[c], true, c == current);
             itemMap.emplace_back(id, c);
         }
-        const auto title = caption.substring(0, 1) + caption.substring(1).toLowerCase();
-        menu.addSubMenu(title + " (" + s.choices[current] + ")", items);
     }
     return menu;
+}
+
+bool SignalFlowStrip::stepModeChoice(int module, int direction)
+{
+    if (!juce::isPositiveAndBelow(module, Params::numModules) || direction == 0)
+        return false;
+    const char* id = Params::modules[static_cast<size_t>(module)].chipIds[0];
+    if (id == nullptr)
+        return false;
+    const auto& s = Params::spec(id);
+    const int current = juce::jlimit(0, s.numChoices - 1, juce::roundToInt(rawValue(id)));
+    const int next = juce::jlimit(0, s.numChoices - 1, current + (direction > 0 ? 1 : -1));
+    if (next == current)
+        return false;
+    setParameter(id, static_cast<float>(next));
+    return true;
 }
 
 juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const

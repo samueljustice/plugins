@@ -8520,6 +8520,9 @@ namespace
     // Stage B, batch 4: SUB, OVERTONE, SWIRL, GROWL and ENSEMBLE on their own.
 #include "StageB4Tests.h"
 
+    // The usability items: mode menus, holds, knobs, solo, host names.
+#include "UsabilityTests.h"
+
     // Offline render mode.
 
     struct RenderOptions
@@ -9727,6 +9730,7 @@ int main(int argc, char* argv[])
         { "chamber", testChamber },
         { "chamberclip", testChamberClip },
         { "editor", testEditor },
+        { "editor", usability::testModeMenus },
         { "ui", testUi },
         { "dice", testDice },
         { "creature", testCreature },

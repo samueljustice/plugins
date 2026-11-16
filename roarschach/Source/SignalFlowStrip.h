@@ -62,8 +62,12 @@ public:
     juce::PopupMenu buildMoveMenu(int module) const;
     void applyMove(int module, int item);
 
-    /** The mode chip's menu. itemMap[itemId] = (choice parameter, choice index). */
+    /** The mode chip's menu: one flat list, a section (headed with the module and the caption) for each
+        of its choice parameters. itemMap[itemId] = (choice parameter, choice index). */
     juce::PopupMenu buildModeMenu(int module, std::vector<std::pair<const char*, int>>& itemMap) const;
+    /** Steps the mode chip's first choice parameter to the next (direction > 0) or previous choice, as
+        the mouse wheel and Up / Down on the chip do (one gesture, stopping at either end). True if it moved. */
+    bool stepModeChoice(int module, int direction);
     /** The mode chip's text: the current choices, compact. */
     juce::String modeChipText(int module, float maxWidth) const;
 
@@ -133,6 +137,7 @@ private:
     class InTile;
     class OutputTile;
     class MoveChip;
+    class ModeChip;
     class DragShadow;
 
     void timerCallback() override;
