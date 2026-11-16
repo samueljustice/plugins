@@ -75,12 +75,14 @@ namespace roar
     {
         // Pink noise (1/f, 20 Hz - 20 kHz): wet (W = 0) RMS = dry RMS, measured per motion. The
         // longer delays of the slower motions comb deeper into the low octaves, so they need more.
+        // Six voices Vibrato sits 0.1 dB under its wet-alone match, which keeps the whole output
+        // within 0.6 dB of the dry over the Amount travel.
         const bool six = numVoices >= 6;
         switch (motion)
         {
             case Params::EnsembleMotion::slow:    return six ? 0.669f : 0.999f;
             case Params::EnsembleMotion::fast:    return six ? 0.625f : 0.941f;
-            case Params::EnsembleMotion::vibrato: return six ? 0.601f : 0.919f;
+            case Params::EnsembleMotion::vibrato: return six ? 0.594f : 0.919f;
             case Params::EnsembleMotion::medium:
             default:                              return six ? 0.646f : 0.982f;
         }

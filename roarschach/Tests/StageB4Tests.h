@@ -1046,6 +1046,29 @@ namespace stageb4
             check(worstMedian >= -6.0, "T-EN-2 mono sum median " + juce::String(worstMedian, 1) + " dB (>= -6.0)");
             check(side60 < -30.0, "T-EN-3 side at and below 60 Hz " + juce::String(side60, 1) + " dB (< -30)");
             check(side80 < -22.0, "T-EN-3 side at 80 Hz " + juce::String(side80, 1) + " dB (< -22)");
+
+            // Six voices: the wet is as strong as the dry, so the comb in the 100-120 Hz crossover
+            // band still swings deep in moments (the voices' delays sweep through the notches). The
+            // bound records what it does (median -6.0 dB, deepest 200 ms moment -20.7 dB at 48 kHz;
+            // before the low split six voices already reached -19 dB at 100-105 Hz) so it cannot get
+            // worse unnoticed.
+            double sixDip = 0.0, sixMedian = 0.0;
+            for (int hz = 30; hz <= 120; hz += 5)
+            {
+                const auto in = makeSine(c_fs, 12.0, hz, 0.1);
+                auto m = makeEnsemble(c_fs, ensembleSettings(0.5, 0.6, 6, 1));
+                const auto mid = midOf(runStereo(*m, in));
+                const int win = static_cast<int>(0.2 * c_fs);
+                std::vector<double> levels;
+                for (int s0 = from; s0 + win <= static_cast<int>(mid.size()); s0 += win)
+                    levels.push_back(rmsDb(mid, s0, s0 + win) - rmsDb(in, s0, s0 + win));
+                std::sort(levels.begin(), levels.end());
+                sixDip = std::min(sixDip, levels.front());
+                sixMedian = std::min(sixMedian, levels[levels.size() / 2]);
+            }
+            std::printf("  T-EN-2 six voices: deepest 200 ms dip %.1f dB, lowest median %.1f dB\n", sixDip, sixMedian);
+            check(sixMedian >= -6.5, "T-EN-2 six voices: mono sum median " + juce::String(sixMedian, 1) + " dB (>= -6.5)");
+            check(sixDip >= -22.0, "T-EN-2 six voices: mono sum dips to " + juce::String(sixDip, 1) + " dB (>= -22.0)");
         }
 
         // T-EN-4: the wet at Width 0 has the level of what the voices are fed (pink, 60 s).
