@@ -488,6 +488,12 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
 {
     // Message thread (the writers of the two slots hold the same lock).
     const juce::ScopedLock sl(m_levelRequestLock);
+    // What the audio thread has applied is read before the features: a request it applies after
+    // this read is still taken from its slot below, and one it applied before is in the features
+    // (they are published before the applied number, with release / acquire between them).
+    const auto applied = m_levelAppliedPublished.load(std::memory_order_acquire);
+    const auto restoreSeq = m_levelRestore.seq.load(std::memory_order_acquire);
+    const auto hintSeq = m_levelHint.seq.load(std::memory_order_acquire);
     roar::LevelState l;
     {
         const auto& f = m_features;
@@ -511,9 +517,6 @@ roar::LevelState RoarschachAudioProcessor::levelsForSave()
         if (l.haveRoar)
             l.roar = roar::RoarModule::LevelLearning::fromValues(v);
     }
-    const auto applied = m_levelAppliedPublished.load(std::memory_order_acquire);
-    const auto restoreSeq = m_levelRestore.seq.load(std::memory_order_acquire);
-    const auto hintSeq = m_levelHint.seq.load(std::memory_order_acquire);
     const auto applyRestore = [&]
     {
         const auto& r = m_levelRestore;
