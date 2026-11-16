@@ -1394,6 +1394,226 @@ namespace stageb3
         roar::RoarModule::setLawForTests(previous);
     }
 
+    // ============================================================================== DETAIL (D17)
+
+    struct DetailRun
+    {
+        Signal y;
+        std::vector<float> gain;   // getGainDb () per sample (traced runs)
+        int latency = 0;
+    };
+
+    DetailRun runDetail(const Signal& x, double sr, double low, double high, std::function<roar::VoiceFrame(int)> frameAt,
+                        int block = 512, bool snappy = false, bool trace = false)
+    {
+        roar::DetailModule m;
+        m.prepare(sr, block);
+        roar::DetailSettings s;
+        s.low = static_cast<float>(low);
+        s.high = static_cast<float>(high);
+        s.speed = snappy ? Params::DetailSpeed::snappy : Params::DetailSpeed::natural;
+        m.setParams(s);
+        m.reset();
+        DetailRun r;
+        r.latency = m.getLatencySamples();
+        if (trace)
+            r.y = runModuleMono(m, x, 1, frameAt, [&](int) { r.gain.push_back(m.getGainDb()); });
+        else
+            r.y = runModuleMono(m, x, block, frameAt, [](int) {});
+        return r;
+    }
+
+    /**
+     * Distortion of y against x (dB): y over [from, to) less its best fit by a constant gain on x
+     * delayed by `latency`, against that fit. A level stage that holds its gain steady over a tone
+     * scores at the float floor; one that follows each cycle scores the wobble it makes.
+     */
+    double distortionDb(const Signal& x, const Signal& y, int latency, int from, int to)
+    {
+        double xy = 0.0, xx = 0.0;
+        for (int i = from; i < to; ++i)
+        {
+            const double xi = x[static_cast<size_t>(i - latency)], yi = y[static_cast<size_t>(i)];
+            xy += xi * yi;
+            xx += xi * xi;
+        }
+        const double g = xy / std::max(xx, 1.0e-30);
+        double e = 0.0, f = 0.0;
+        for (int i = from; i < to; ++i)
+        {
+            const double fit = g * x[static_cast<size_t>(i - latency)];
+            const double d = static_cast<double>(y[static_cast<size_t>(i)]) - fit;
+            e += d * d;
+            f += fit * fit;
+        }
+        return 10.0 * std::log10((e + 1.0e-300) / std::max(f, 1.0e-300));
+    }
+
+    /** Harmonics 2-11 against the fundamental (dB), Hann-windowed over [from, to). */
+    double thdDb(const Signal& y, int from, int to, double hz, double sr)
+    {
+        const int n = to - from;
+        double harm = 0.0, fund = 0.0;
+        for (int k = 1; k <= 11; ++k)
+        {
+            double re = 0.0, im = 0.0;
+            for (int i = 0; i < n; ++i)
+            {
+                const double w = 0.5 - 0.5 * std::cos(2.0 * c_pi * i / n);
+                const double ph = 2.0 * c_pi * k * hz * static_cast<double>(i) / sr;
+                const double v = w * y[static_cast<size_t>(from + i)];
+                re += v * std::cos(ph);
+                im += v * std::sin(ph);
+            }
+            (k == 1 ? fund : harm) += re * re + im * im;
+        }
+        return 10.0 * std::log10((harm + 1.0e-300) / std::max(fund, 1.0e-300));
+    }
+
+    Signal tone(double sr, double seconds, double hz, double peakDb, double vibrato = 0.0, double tremolo = 0.0, double decayDbPerSecond = 0.0)
+    {
+        Signal s(static_cast<size_t>(seconds * sr));
+        double ph = 0.0;
+        const double a0 = std::pow(10.0, peakDb / 20.0);
+        for (size_t i = 0; i < s.size(); ++i)
+        {
+            const double t = static_cast<double>(i) / sr;
+            const double f = hz * (1.0 + vibrato * std::sin(2.0 * c_pi * 5.0 * t));
+            const double amp = a0 * (1.0 + tremolo * std::sin(2.0 * c_pi * 4.0 * t)) * std::pow(10.0, -decayDbPerSecond * t / 20.0);
+            s[i] = static_cast<float>(amp * std::sin(ph));
+            ph += 2.0 * c_pi * f / sr;
+        }
+        return s;
+    }
+
+    void testDetail()
+    {
+        const auto voicedAt = [](double f0, float confidence = 1.0f) { return [=](int) { return roar::VoiceFrame { static_cast<float>(f0), confidence, true }; }; };
+        const auto unvoiced = [](double f0) { return [=](int) { return roar::VoiceFrame { static_cast<float>(f0), 0.0f, false }; }; };
+        struct Setting { double low, high; const char* name; };
+        const std::vector<Setting> settings { { 0.60, 0.30, "Low 60 / High 30" }, { 0.25, 0.19, "defaults" } };
+
+        // ---- S21a / S21b / S21c: steady tones
+        struct Case { double hz, sr, vibrato; double bound; bool relative; const char* tag; };
+        const std::vector<Case> cases {
+            { 61.7, 48000.0, 0.0, -100.0, true, "S21a" }, { 97.3, 48000.0, 0.0, -100.0, true, "S21a" }, { 143.7, 48000.0, 0.0, -100.0, true, "S21a" },
+            { 200.0, 44100.0, 0.0, -100.0, true, "S21a" },
+            { 60.0, 48000.0, 0.0, -120.0, false, "S21b" }, { 100.0, 48000.0, 0.0, -120.0, false, "S21b" },
+            { 100.0, 48000.0, 0.03, -100.0, false, "S21c" },
+        };
+        for (const auto& st : settings)
+        {
+            juce::String line;
+            for (const auto& c : cases)
+            {
+                const auto x = tone(c.sr, 3.0, c.hz, -17.0, c.vibrato);
+                const int from = static_cast<int>(1.0 * c.sr), to = static_cast<int>(3.0 * c.sr);
+                const auto on = runDetail(x, c.sr, st.low, st.high, voicedAt(c.vibrato > 0.0 ? 100.0 : c.hz));
+                const auto off = runDetail(x, c.sr, st.low, st.high, unvoiced(c.hz));
+                const double dOn = distortionDb(x, on.y, on.latency, from, to), dOff = distortionDb(x, off.y, off.latency, from, to);
+                line << juce::String(c.hz, 1) << (c.vibrato > 0.0 ? " vib" : "") << " " << juce::String(dOn, 0) << " (" << juce::String(dOff, 0) << ")  ";
+                const juce::String what = juce::String(c.tag) + ": DETAIL " + st.name + " on " + juce::String(c.hz, 1) + " Hz" + (c.vibrato > 0.0 ? " with vibrato" : "");
+                check(dOn < c.bound, what + " distorts at " + juce::String(dOn, 1) + " dB");
+                if (c.relative)
+                    check(dOn <= dOff - 40.0, what + ": " + juce::String(dOn, 1) + " dB, not 40 dB under the unvoiced run's " + juce::String(dOff, 1));
+            }
+            std::printf("  S21 DETAIL %s, distortion dB voiced (unvoiced): %s\n", st.name, line.toRawUTF8());
+        }
+
+        // ---- S21d: amplitude changes still pass
+        {
+            const double sr = 48000.0;
+            const auto trem = tone(sr, 3.0, 100.0, -17.0, 0.0, 0.17);
+            const auto y = runDetail(trem, sr, 0.60, 0.30, voicedAt(100.0)).y;
+            double hi = -400.0, lo = 400.0;
+            const int w = static_cast<int>(0.020 * sr);
+            for (int i = static_cast<int>(1.0 * sr); i + w <= static_cast<int>(3.0 * sr); i += w / 2)
+            {
+                const double r = rmsDbOf(y, i, i + w);
+                hi = std::max(hi, r);
+                lo = std::min(lo, r);
+            }
+            const auto decay = tone(sr, 3.0, 97.3, -17.0, 0.0, 0.0, 6.0);
+            const auto dOn = runDetail(decay, sr, 0.60, 0.30, voicedAt(97.3)), dOff = runDetail(decay, sr, 0.60, 0.30, unvoiced(97.3));
+            // THD here, not the fit residual: a level stage follows a decaying tone's level by design.
+            const double a = thdDb(dOn.y, static_cast<int>(1.0 * sr), static_cast<int>(3.0 * sr), 97.3, sr);
+            const double b = thdDb(dOff.y, static_cast<int>(1.0 * sr), static_cast<int>(3.0 * sr), 97.3, sr);
+            std::printf("  S21d 4 Hz tremolo of 17 %%: output depth %.2f dB; 97.3 Hz decaying 6 dB/s: %.1f dB (unvoiced %.1f)\n", hi - lo, a, b);
+            check(hi - lo >= 1.5 && hi - lo <= 3.0, "S21d: a 4 Hz tremolo comes out " + db1(hi - lo) + " deep");
+            check(std::abs(a - b) <= 3.0, "S21d: a decaying tone " + juce::String(a, 1) + " dB against the unvoiced run's " + juce::String(b, 1));
+        }
+
+        // ---- S22: a stream below the confidence line is today's behaviour
+        {
+            const double sr = 48000.0;
+            const auto x = tone(sr, 1.5, 97.3, -17.0);
+            const auto a = runDetail(x, sr, 0.60, 0.30, voicedAt(97.3, 0.5)).y, b = runDetail(x, sr, 0.60, 0.30, unvoiced(97.3)).y;
+            check(a == b, "S22: a stream at confidence 0.5 changes DETAIL");
+        }
+
+        // ---- S23: noise after a vowel comes up as before
+        {
+            const double sr = 48000.0;
+            const auto v = vowel(sr, 0.5, 150.0, -20.0);
+            auto nz = gaussian(static_cast<int>(0.5 * sr), 23u);
+            scaleToRmsDb(nz, -45.0);
+            const auto x = join({ v, toSignal(nz) });
+            const int at = static_cast<int>(v.size());
+            const auto frames = [at](int i) { return i < at ? roar::VoiceFrame { 150.0f, 1.0f, true } : roar::VoiceFrame { 150.0f, 0.0f, false }; };
+            const auto reach = [&](const DetailRun& r)
+            {
+                const double settled = r.gain.back();
+                int k = at;
+                while (k < static_cast<int>(r.gain.size()) && std::abs(r.gain[static_cast<size_t>(k)] - settled) > 1.0)
+                    ++k;
+                return 1000.0 * (k - at) / sr;
+            };
+            const double tOn = reach(runDetail(x, sr, 0.60, 0.30, frames, 512, true, true));
+            const double tOff = reach(runDetail(x, sr, 0.60, 0.30, unvoiced(150.0), 512, true, true));
+            std::printf("  S23 noise after a vowel, Snappy: within 1 dB of its boost after %.1f ms (unvoiced stream %.1f ms)\n", tOn, tOff);
+            check(tOn <= tOff + 12.0, "S23: the boost on noise after a vowel arrives " + juce::String(tOn - tOff, 1) + " ms later");
+        }
+
+        // ---- S24: the hold's extremes
+        {
+            roar::DetailModule m;
+            m.prepare(48000.0, 64);
+            m.setParams(roar::DetailSettings {});
+            m.reset();
+            Signal x(64, 0.1f), right(64, 0.0f);
+            const auto holdFor = [&](float f0)
+            {
+                roar::VoiceStream stream;
+                stream.prepare(64);
+                stream.reset();
+                stream.beginChunk(64);
+                stream.fill(roar::VoiceFrame { f0, 1.0f, true });
+                m.process(x.data(), right.data(), 64, false, stream.view());
+                return m.getHoldSamples();
+            };
+            const int h20 = holdFor(20.0f), h0 = holdFor(0.0f), hNan = holdFor(std::numeric_limits<float>::quiet_NaN()), hInf = holdFor(std::numeric_limits<float>::infinity());
+            std::printf("  S24 hold at f0 20 Hz: %d samples; f0 0 / NaN / inf: %d / %d / %d\n", h20, h0, hNan, hInf);
+            check(h20 == 1320 && h0 == 0 && hNan == 0 && hInf == 0, "S24: the hold is not 27.5 ms at 20 Hz, or not 0 without a finite pitch");
+        }
+
+        // ---- S25: block sizes with a stream that moves every frame
+        {
+            const double sr = 48000.0;
+            const auto x = tone(sr, 2.0, 90.0, -17.0, 0.04);
+            const auto frames = [](int i)
+            {
+                const int f = i / roar::c_voiceFrameSize;
+                return roar::VoiceFrame { 70.0f + static_cast<float>((f * 7) % 41), (f % 9) == 0 ? 0.4f : 0.9f, (f % 13) != 0 };
+            };
+            const auto ref = runDetail(x, sr, 0.60, 0.30, frames, 512).y;
+            double worst = 0.0;
+            for (const int b : { 16, 480, 4096 })
+                worst = std::max(worst, maxAbsDiff(ref, runDetail(x, sr, 0.60, 0.30, frames, b).y));
+            std::printf("  S25 blocks 16 / 480 / 4096 against 512: %.2g\n", worst);
+            check(worst <= 1.0e-6, "S25: DETAIL depends on the block size (" + juce::String(worst) + ")");
+        }
+    }
+
     // ============================================================================== CLEAN (D20)
 
     void testCleanGate()
@@ -1465,5 +1685,6 @@ void testStageB3()
     stageb3::testVocoder();
     stageb3::testRoarLevel();
     stageb3::testRoarLaw();
+    stageb3::testDetail();
     stageb3::testCleanGate();
 }
