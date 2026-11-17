@@ -111,6 +111,19 @@ namespace Theme
         return juce::Colour(colours[((source % 4) + 4) % 4]);
     }
 
+    /** A panel over the whole window (Settings, Takes, Render Variations, About) covers what is under it: the
+        window sets this on its content while one is open, and whatever animates there holds still (isCovered). */
+    inline const juce::Identifier coveredProperty { "covered" };
+    /** Is this component under a panel that covers the window: nothing it shows can be seen properly, so it does
+        not animate (and does not repaint behind the panel's dimming). */
+    inline bool isCovered(const juce::Component& component)
+    {
+        for (const auto* c = &component; c != nullptr; c = c->getParentComponent())
+            if (static_cast<bool>(c->getProperties().getWithDefault(coveredProperty, false)))
+                return true;
+        return false;
+    }
+
     /** Is a component there to be seen in its window: itself and everything it sits in visible. Unlike
         Component::isShowing it does not ask for the window to be on a screen, so the interface lays its wires and
         ropes out the same way when it is drawn offline (tools/UiShot.cpp, Tests/UiTest.cpp). */

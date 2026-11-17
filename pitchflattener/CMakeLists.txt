@@ -8,7 +8,7 @@ endif()
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 3.0.0)
+project(PitchFlattener VERSION 3.1.1)
 
 # The C++ runtime is linked in on Windows, so the installer needs no redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -35,17 +35,23 @@ juce_add_binary_data(PitchFlattenerBinaryData
 )
 
 # The flattening core: plain C++, no JUCE (shared by the plug-in, its tests and the core tests).
+# The time stretch that keeps a flattened sound's length (prebuilt static library in the shared SDK folder).
+set(RUBBERBAND_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../SDK/rubberband-4.0.0")
+set(RUBBERBAND_LIB "${RUBBERBAND_ROOT}/lib/librubberband.a")
+
 set(PF_CORE_SOURCES
     Source/core/Flatten.cpp
     Source/core/HarmonicTracker.cpp
     Source/core/HindsightTracker.cpp
     Source/core/RidgeTracker.cpp
+    Source/core/KeepLength.cpp
 )
 
 # Learn, locate and play: plain C++ too, around the core.
 set(PF_ENGINE_SOURCES
     Source/Engine.cpp
     Source/Locator.cpp
+    Source/SoundRegistry.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
@@ -80,6 +86,8 @@ juce_generate_juce_header(PitchFlattener)
 target_sources(PitchFlattener
     PRIVATE
         Source/PluginProcessor.cpp
+        Source/DiagnosticLog.cpp
+        Source/SoundCodec.cpp
         Source/PluginEditor.cpp
         Source/PitchDisplay.cpp
         Source/FlightView.cpp
@@ -113,6 +121,8 @@ endif()
 
 target_include_directories(PitchFlattener
     PRIVATE
+        ${RUBBERBAND_ROOT}
+        ${RUBBERBAND_ROOT}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
         ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
@@ -122,6 +132,7 @@ target_link_libraries(PitchFlattener
         juce::juce_audio_utils
         PitchFlattenerBinaryData
     PUBLIC
+        ${RUBBERBAND_LIB}
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
@@ -186,7 +197,11 @@ if(PITCHFLATTENER_BUILD_TESTS)
 
     # The core on its own: no JUCE, sounds whose pitch is known.
     add_executable(PitchFlattenerCoreTests Tests/CoreTests.cpp ${PF_CORE_SOURCES})
-    target_include_directories(PitchFlattenerCoreTests PRIVATE Source)
+    target_include_directories(PitchFlattenerCoreTests PRIVATE Source ${RUBBERBAND_ROOT} ${RUBBERBAND_ROOT}/src)
+    target_link_libraries(PitchFlattenerCoreTests PRIVATE ${RUBBERBAND_LIB})
+    if(APPLE)
+        target_link_libraries(PitchFlattenerCoreTests PRIVATE "-framework Accelerate")
+    endif()
     target_compile_features(PitchFlattenerCoreTests PRIVATE cxx_std_20)
     # Its own warning set, as in Tests/build_core_tests.sh (the core is checked against that).
     if(MSVC)
@@ -197,3 +212,8 @@ if(PITCHFLATTENER_BUILD_TESTS)
 endif()
 
 # Post-build installation is handled by JUCE's COPY_PLUGIN_AFTER_BUILD flag
+
+# The stretch library uses the system FFT on macOS.
+if(APPLE)
+    target_link_libraries(PitchFlattener PUBLIC "-framework Accelerate")
+endif()

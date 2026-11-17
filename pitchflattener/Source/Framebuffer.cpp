@@ -68,19 +68,25 @@ void Framebuffer::render (juce::Component& host, juce::Rectangle<int> region, co
     if (area.isEmpty())
         return;
 
-    for (int y = area.getY(); y < area.getBottom(); ++y)
-        std::fill_n (m_mask.begin() + (std::ptrdiff_t) (y * m_source.getWidth() + area.getX()), area.getWidth(), Hud::kChunky);
+    // Drawn a little beyond the area and finished only inside it: where a clip edge cuts through
+    // a smoothed path, JUCE's renderer can shade the edge column slightly differently, and that
+    // column must never be one that is shown (or the same pixel would differ between repaints).
+    const auto drawn = area.expanded (4).getIntersection (host.getLocalBounds());
+    for (int y = drawn.getY(); y < drawn.getBottom(); ++y)
+        std::fill_n (m_mask.begin() + (std::ptrdiff_t) (y * m_source.getWidth() + drawn.getX()), drawn.getWidth(), Hud::kChunky);
 
     {
         Hud::FramebufferPass pass;
-        FramebufferContext context (m_source, juce::RectangleList<int> (area), m_mask);
+        FramebufferContext context (m_source, juce::RectangleList<int> (drawn), m_mask);
         juce::Graphics g (context);
         paintHost (g);
 
         // The children, as JUCE would paint them, in the same order.
         for (auto* child : host.getChildren())
         {
-            if (! child->isVisible() || ! child->getBounds().intersects (area))
+            // A tooltip draws itself over the framebuffer and comes and goes on its own: kept out
+            // of it, so its edges are never folded into the blocks around it.
+            if (! child->isVisible() || ! child->getBounds().intersects (drawn) || dynamic_cast<juce::TooltipWindow*> (child) != nullptr)
                 continue;
             juce::Graphics::ScopedSaveState save (g);
             g.reduceClipRegion (child->getBounds());
@@ -171,6 +177,12 @@ void Framebuffer::finish (juce::Rectangle<int> area)
             }
         }
     }
+}
+
+juce::Rectangle<int> Framebuffer::blockAligned (juce::Rectangle<int> r) noexcept
+{
+    const int x0 = r.getX() & ~1, y0 = r.getY() & ~1;
+    return { x0, y0, ((r.getRight() + 1) & ~1) - x0, ((r.getBottom() + 1) & ~1) - y0 };
 }
 
 void Framebuffer::draw (juce::Graphics& g, juce::Rectangle<int> region) const

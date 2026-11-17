@@ -336,6 +336,8 @@ juce::Point<float> ModPanel::getJackCentre(int source) const
 
 void ModPanel::timerCallback()
 {
+    if (Theme::isCovered(*this))
+        return; // under a panel that covers the window: holds still
     int hovered = -1;
     for (size_t i = 0; i < m_cards.size(); ++i)
     {

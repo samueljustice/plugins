@@ -1,9 +1,13 @@
 #include "Engine.h"
 
+#include "SoundRegistry.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <random>
 
 namespace pitchflattener
 {
@@ -11,8 +15,53 @@ namespace
 {
 constexpr float kSilence = Locator::kSilence;
 constexpr std::int64_t kNever = INT64_MAX;
+// The house thread's pace: quick while a capture or a search may need it, leisurely otherwise, so a
+// rack full of idle instances costs next to nothing.
 constexpr auto kHousePeriod = std::chrono::milliseconds(5);
 constexpr auto kIdlePeriod = std::chrono::milliseconds(50);
+// The audio thread tries this many times for the spin lock around the published result before
+// giving up until its next block: the lock is only ever held for a pointer copy or swap.
+constexpr int kAcquireAttempts = 64;
+// Offline waits: long enough for any search (a fraction of a second) or render (seconds for a
+// long sound with its length kept), short enough that a stuck engine cannot hang a bounce.
+constexpr double kSearchWaitSeconds = 3.0;
+constexpr double kRenderWaitSeconds = 30.0;
+// A render instance given a state with the sound in it decodes and analyses it first: a long
+// sound with every reading scored can take this long on a slow machine.
+constexpr double kAnalysisWaitSeconds = 60.0;
+// A wait this long (or one that gave up) gets a line of its own in the log; shorter ones are counted.
+constexpr double kNotableWaitMs = 50.0;
+// Faster than real time (see the header): measured over at least this much audio and this many
+// blocks; on above the first ratio, off again under the second.
+constexpr double kPaceWindowSeconds = 0.1;
+constexpr int kPaceWindowBlocks = 4;
+constexpr double kFastRatio = 2.5, kRealTimeRatio = 1.5;
+// No block for this long ends a run of audio (for the log), and starts the pace measurement afresh.
+constexpr double kRunGapSeconds = 0.5;
+// After a miss, or a match that stopped holding, the search waits for this much more input before
+// it tries again, doubling on each miss in a row up to the longest. Silence (a new sound starting)
+// or a match that held for a second starts it again from the shortest.
+constexpr double kBackoffSeconds = 0.1;
+constexpr double kLongestBackoffSeconds = 2.0;
+constexpr double kNewSoundGapSeconds = 0.05;
+constexpr double kHeldSeconds = 1.0;
+// A miss at the start of a sound (within this much of its first sound after silence, a reset or a
+// new search) is retried after this much more input, this many times, before the back-off: a host's
+// transfer path may treat a sound's first milliseconds differently from its audition path (a
+// de-click fade), so the first probe can miss where the next one, a little later, matches.
+constexpr double kSoundStartSeconds = 0.3;
+constexpr double kQuickRetrySeconds = 0.02;
+constexpr int kQuickRetries = 8;
+// Extending a match backwards to the start of the sound: window by window, the input must still be
+// clearly the same material (residual under -10 dB, level free per window); a difference in the
+// sound's first 30 ms (a fade, a clipped first block) is accepted when everything after it passed.
+constexpr double kExtendResidual = 0.1;
+constexpr double kHeadToleranceSeconds = 0.03;
+constexpr double kExtendWindowSeconds = 0.005;
+// A playback level this close to the learned one (about a tenth of a decibel) is the learned one:
+// the measurement has that much grain, and the same file played back must play the render exactly.
+constexpr double kUnityGainTolerance = 0.012;
+constexpr double kLowestGain = 1.0e-3, kHighestGain = 1.0e3;
 
 std::int64_t secondsToSamples(double seconds, double rate) noexcept
 {
@@ -23,13 +72,51 @@ double nowSeconds() noexcept
 {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
+
+std::int64_t nowMicros() noexcept
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Generations are unique in the process: an instance can publish a render another instance made.
+std::uint64_t nextGeneration() noexcept
+{
+    static std::atomic<std::uint64_t> next { 1 };
+    return next.fetch_add(1);
+}
+
+// A random id for a learned sound, unique in practice across processes and sessions.
+std::uint64_t newSoundId()
+{
+    static std::mutex mutex;
+    static std::mt19937_64 random = []
+    {
+        std::random_device device;
+        std::seed_seq seed { device(), device(), device(), device(),
+                             static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) };
+        return std::mt19937_64(seed);
+    }();
+    const std::lock_guard<std::mutex> lock(mutex);
+    std::uint64_t id = 0;
+    while (id == 0)
+        id = random();
+    return id;
+}
+
+double snapGain(double g) noexcept
+{
+    if (! std::isfinite(g))
+        return 1.0;
+    g = std::clamp(g, kLowestGain, kHighestGain);
+    return std::abs(g - 1.0) < kUnityGainTolerance ? 1.0 : g;
+}
 } // namespace
 
 bool sameOptions(const core::Options& a, const core::Options& b) noexcept
 {
     // Values closer than this render the same (a parameter read back can differ in its last bits).
     const auto same = [](double x, double y) { return std::abs(x - y) < 1.0e-9; };
-    if (a.line != b.line || a.target != b.target || ! same(a.amount, b.amount) || a.edits.size() != b.edits.size())
+    if (a.line != b.line || a.target != b.target || a.keepLength != b.keepLength || a.character != b.character || ! same(a.amount, b.amount) || a.edits.size() != b.edits.size())
         return false;
     if (a.target == core::Target::Note && ! same(a.noteMidi, b.noteMidi))
         return false;
@@ -47,16 +134,26 @@ void Engine::SpinLock::lock() noexcept
 
 //==============================================================================
 Engine::Engine()
+    : m_searchWaitLimit(kSearchWaitSeconds), m_renderWaitLimit(kRenderWaitSeconds), m_analysisWaitLimit(kAnalysisWaitSeconds)
 {
     m_ring = std::make_unique<std::atomic<float>[]>(static_cast<std::size_t>(kRingSize));
+    m_sideRing = std::make_unique<std::atomic<float>[]>(static_cast<std::size_t>(kRingSize));
     for (std::int64_t i = 0; i < kRingSize; ++i)
+    {
         m_ring[static_cast<std::size_t>(i)].store(0.0f, std::memory_order_relaxed);
+        m_sideRing[static_cast<std::size_t>(i)].store(0.0f, std::memory_order_relaxed);
+    }
     m_analysisThread = std::thread([this] { analysisLoop(); });
     m_houseThread = std::thread([this] { houseLoop(); });
 }
 
 Engine::~Engine()
 {
+    endRun();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        letGoLocked();
+    }
     m_stop.store(true);
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -70,20 +167,47 @@ Engine::~Engine()
     m_houseThread.join();
 }
 
-int Engine::latencyFor(double sampleRate) noexcept
+int Engine::latencyFor(double sampleRate, int maxBlockSize) noexcept
 {
-    return static_cast<int>(secondsToSamples(kLatencySeconds, sampleRate));
+    // The output for input sample N must not leave before the search has had the probe after N,
+    // a block to receive it in, and its budget (see the header).
+    const auto least = secondsToSamples(kLatencySeconds, sampleRate);
+    const auto needed = static_cast<std::int64_t>(Locator::nominalProbeLength(sampleRate)) + std::max(1, maxBlockSize)
+                      + secondsToSamples(kSearchBudgetSeconds, sampleRate);
+    return static_cast<int>(std::max(least, needed));
+}
+
+bool Engine::rateDiffers(double learnedRate) const noexcept
+{
+    // Rates are stored as doubles from different places (the host, the capture): within half a
+    // hertz they are the same rate.
+    return std::abs(learnedRate - m_rate.load(std::memory_order_relaxed)) > 0.5;
 }
 
 void Engine::prepare(double sampleRate, int maxBlockSize)
 {
-    (void) maxBlockSize;   // everything runs sample by sample: any block size works
+    endRun();
+    m_lastBlockWall = 0;
+    m_lastBlockDone.store(0);
+    if (const int requests = m_resetRequests.exchange(0); requests > 0)
+    {
+        EngineEvent e;   // resets asked for before this prepare (it starts afresh anyway)
+        e.kind = EngineEvent::Kind::Reset;
+        e.i[0] = requests;
+        e.i[1] = -1;
+        e.d[0] = sampleRate;
+        log(e);
+    }
+    m_paceCount = 0;
+    m_fast.store(false);
     std::lock_guard<std::mutex> lock(m_mutex);
     const double rate = sampleRate > 0.0 ? sampleRate : 44100.0;
     m_rate.store(rate);
-    m_latency = std::max(1, latencyFor(rate));
+    m_latency = std::max(1, latencyFor(rate, maxBlockSize));
     m_fadeLength = std::max(1, static_cast<int>(secondsToSamples(kFadeSeconds, rate)));
     m_verifyWindow = std::max(256, Locator::nominalProbeLength(rate) / 4);
+    m_latencyShared.store(m_latency);
+    m_verifyWindowShared.store(m_verifyWindow);
     for (auto& d : m_delay)
         d.assign(static_cast<std::size_t>(m_latency), 0.0f);
     m_delayPosition = 0;
@@ -96,13 +220,22 @@ void Engine::prepare(double sampleRate, int maxBlockSize)
     // The playback state starts afresh (positions count from here).
     m_inputPosition = 0;
     m_ringWritten.store(0, std::memory_order_release);
+    m_fence.store(0, std::memory_order_release);
     for (std::int64_t i = 0; i < kRingSize; ++i)
+    {
         m_ring[static_cast<std::size_t>(i)].store(0.0f, std::memory_order_relaxed);
+        m_sideRing[static_cast<std::size_t>(i)].store(0.0f, std::memory_order_relaxed);
+    }
     m_current = m_previous = Voice {};
     m_fadePosition = m_fadeLength;
     m_numEvents = 0;
     m_match = Match::Off;
+    m_segmentResult = nullptr;
+    m_gainHead = m_gainTail = 0;
+    m_gainNow = 1.0f;
+    m_gainRampLeft = 0;
     m_searching.store(false);
+    m_active.store(false);
     m_resetRequested.store(false);
 
     const int cap = m_captureState.load();
@@ -158,6 +291,7 @@ void Engine::disarmLearn()
         return;
     }
     expected = CapListening;
+    m_captureEndWhy.store(2);
     if (m_captureState.compare_exchange_strong(expected, CapFinished))
         waitForCaptureWriter();
     if (m_captureState.load() == CapFinished)
@@ -184,10 +318,17 @@ void Engine::finaliseCaptureLocked()
     std::int64_t length = std::min(m_captureLength.load(std::memory_order_acquire), m_captureCapacity);
 
     // Trim the silence at the end (what ended the capture), keeping 10 ms after the last sound.
-    const auto loud = [this, numChannels](std::int64_t i)
+    // Silence is what the end of a capture counts as silence: under -70 dBFS, or 50 dB under the
+    // loudest of the sound (a noise floor).
+    float loudest = 0.0f;
+    for (int c = 0; c < numChannels; ++c)
+        for (std::int64_t i = 0; i < length; ++i)
+            loudest = std::max(loudest, std::abs(m_capture[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)]));
+    const float floor = std::max(kSilence, loudest * static_cast<float>(std::pow(10.0, kRelativeSilenceDb / 20.0)));
+    const auto loud = [this, numChannels, floor](std::int64_t i)
     {
         for (int c = 0; c < numChannels; ++c)
-            if (std::abs(m_capture[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)]) >= kSilence)
+            if (std::abs(m_capture[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)]) >= floor)
                 return true;
         return false;
     };
@@ -202,6 +343,12 @@ void Engine::finaliseCaptureLocked()
     // The sound itself (not the pre-roll before it) has to last kMinCaptureSeconds.
     if (last < 0 || static_cast<double>(last + 1 - first) < kMinCaptureSeconds * rate)
     {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::CaptureEnded;
+        e.i[0] = 4;
+        e.i[1] = std::max<std::int64_t>(0, last + 1 - first);
+        e.d[0] = rate;
+        log(e);
         // A click, not a sound: forget it and keep listening (unless the user stopped Learn).
         m_captureLength.store(0);
         m_captureState.store(m_disarmedByUser ? CapIdle : CapArmed, std::memory_order_seq_cst);
@@ -222,9 +369,177 @@ void Engine::finaliseCaptureLocked()
         c.reset();
     m_captureCapacity = 0;
 
+    {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::CaptureEnded;
+        e.i[0] = m_captureEndWhy.load();
+        e.i[1] = length;
+        e.d[0] = rate;
+        log(e);
+    }
     m_pendingCapture = std::move(sound);
+    m_pendingStored.reset();
+    m_pendingId = newSoundId();
     m_pendingRate = rate;
     m_captureEpoch.fetch_add(1);   // whatever was being analysed or rendered stops
+    // The window shows ANALYSING from here, and the audio thread passes the input dry until the
+    // new sound is published (see the header). The old result stays for cancelLearn().
+    m_analysing.store(true);
+    m_analysisWake.notify_all();
+}
+
+void Engine::cancelLearn()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const int st = m_captureState.load();
+    if (st == CapArmed || st == CapListening || st == CapFinished)
+    {
+        m_captureState.store(CapIdle, std::memory_order_seq_cst);
+        waitForCaptureWriter();
+        for (auto& c : m_capture)
+            c.reset();
+        m_captureCapacity = 0;
+    }
+    m_captureLength.store(0);
+    m_disarmedByUser = false;
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Cancelled;
+    e.i[0] = st == CapArmed ? 0 : st == CapListening ? 1 : (m_pendingCapture != nullptr || m_analysing.load()) ? 2 : 3;
+    if (m_pendingCapture != nullptr || m_pendingStored != nullptr || m_analysing.load())
+    {
+        m_captureEpoch.fetch_add(1);   // the analysis in flight stops (and a render of the old sound
+        m_pendingCapture.reset();      // in flight with it: the loop renders that again if needed)
+        m_pendingStored.reset();
+        m_analysing.store(false);
+        m_analysisWake.notify_all();
+    }
+    log(e);
+    kickHouse();
+}
+
+void Engine::letGoLocked()
+{
+    if (m_learned != nullptr)
+        SoundRegistry::instance().letGo(m_learned, result());
+}
+
+void Engine::setHooks(Hooks hooks)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_hooks = std::move(hooks);
+}
+
+void Engine::setLogSink(LogSink sink, void* context) noexcept
+{
+    m_logContext.store(context, std::memory_order_release);
+    m_logSink.store(sink, std::memory_order_release);
+}
+
+void Engine::log(const EngineEvent& event) const noexcept
+{
+    if (const auto sink = m_logSink.load(std::memory_order_acquire))
+        sink(m_logContext.load(std::memory_order_acquire), event);
+}
+
+std::uint64_t Engine::learnedId() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // While a sound is waiting for, or under, analysis, it is the one this instance has.
+    if (m_pendingCapture != nullptr || m_pendingStored != nullptr || m_analysing.load())
+        return m_pendingId;
+    if (m_learned != nullptr)
+        return m_learned->id;
+    const auto r = result();
+    return r != nullptr && r->learned != nullptr ? r->learned->id : 0;
+}
+
+std::shared_ptr<const std::vector<char>> Engine::storedSound() const
+{
+    const auto r = result();
+    return r != nullptr && r->learned != nullptr ? r->learned->stored : nullptr;
+}
+
+std::shared_ptr<const Learned> Engine::findRegistered(std::uint64_t id)
+{
+    return SoundRegistry::instance().find(id).learned;
+}
+
+bool Engine::adoptLearned(std::uint64_t id, const core::Options& options)
+{
+    const auto found = SoundRegistry::instance().find(id);
+    if (found.learned == nullptr)
+        return false;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const bool same = m_learned == found.learned && m_pendingCapture == nullptr && m_pendingStored == nullptr;
+    if (! same)
+    {
+        // Whatever this instance was learning or analysing stops: the state names another sound.
+        m_captureEpoch.fetch_add(1);
+        m_pendingCapture.reset();
+        m_pendingStored.reset();
+        m_analysing.store(false);
+        letGoLocked();
+        m_learned = found.learned;
+        m_pendingId = id;
+        m_renderedOptions = 0;
+    }
+    if (! sameOptions(options, m_options))
+    {
+        m_options = options;
+        m_optionsGeneration.fetch_add(1);
+        m_renderedOptions = 0;
+    }
+    // Its render too, when one was made for the same options: then this instance plays exactly
+    // what the other one does, at once.
+    std::shared_ptr<const Result> render;
+    for (const auto& r : found.renders)
+        if (r->learned == found.learned && sameOptions(r->requested, m_options))
+        {
+            render = r;
+            break;
+        }
+    const bool withRender = render != nullptr;
+    if (withRender && result() != render)
+        publish(render);
+    if (withRender)
+    {
+        m_renderedOptions = m_optionsGeneration.load();
+        m_renderPending.store(false);
+    }
+    else if (m_renderedOptions != m_optionsGeneration.load())
+    {
+        if (! same)
+        {
+            publish(nullptr);          // nothing of the sound before is played meanwhile
+            m_analysing.store(true);   // the window says ANALYSING until its render is published
+        }
+        m_renderPending.store(true);
+        m_analysisWake.notify_all();
+    }
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Adopted;
+    e.i[0] = static_cast<std::int64_t>(id);
+    e.i[1] = withRender ? 1 : 0;
+    log(e);
+    return true;
+}
+
+void Engine::restoreLearned(std::uint64_t id, std::shared_ptr<const std::vector<char>> stored)
+{
+    if (stored == nullptr || stored->empty())
+        return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if ((m_learned != nullptr && m_learned->id == id) || (m_pendingStored != nullptr && m_pendingId == id))
+        return;
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::RestoreStarted;
+    e.i[0] = static_cast<std::int64_t>(id);
+    e.i[1] = static_cast<std::int64_t>(stored->size());
+    log(e);
+    m_captureEpoch.fetch_add(1);
+    m_pendingCapture.reset();
+    m_pendingStored = std::move(stored);
+    m_pendingId = id;
     m_analysing.store(true);
     m_analysisWake.notify_all();
 }
@@ -241,9 +556,15 @@ void Engine::clear()
     m_captureLength.store(0);
     m_captureEpoch.fetch_add(1);
     m_pendingCapture.reset();
+    m_pendingStored.reset();
+    letGoLocked();
     m_learned.reset();
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Cleared;
+    log(e);
     m_analysing.store(false);
     m_rendering.store(false);
+    m_renderPending.store(false);
     publish(nullptr);
     m_analysisWake.notify_all();
 }
@@ -255,6 +576,8 @@ void Engine::setOptions(const core::Options& options)
         return;
     m_options = options;
     m_optionsGeneration.fetch_add(1);
+    if (m_learned != nullptr)
+        m_renderPending.store(true);
     m_analysisWake.notify_all();
 }
 
@@ -322,6 +645,12 @@ bool Engine::waitUntilIdle(double timeoutSeconds) const
 //==============================================================================
 void Engine::publish(std::shared_ptr<const Result> result)
 {
+    if (const auto previous = this->result(); previous != nullptr && previous->learned != nullptr
+                                              && (result == nullptr || result->learned != previous->learned))
+        SoundRegistry::instance().letGo(previous->learned, previous);
+    if (result != nullptr)
+        SoundRegistry::instance().publish(result->learned, result);
+    m_currentRender.store(result != nullptr ? result->generation : 0, std::memory_order_release);
     if (result != nullptr)
         m_published.push_back(result);
     m_resultLock.lock();
@@ -333,9 +662,8 @@ void Engine::publish(std::shared_ptr<const Result> result)
 
 bool Engine::tryAcquireResult(std::shared_ptr<const Result>& out) const noexcept
 {
-    // A shared_ptr copy is a reference count increment: no allocation. The lock is only held for
-    // that copy or a pointer swap, so a few tries are enough; failing means "try next block".
-    for (int attempt = 0; attempt < 64; ++attempt)
+    // A shared_ptr copy is a reference count increment: no allocation.
+    for (int attempt = 0; attempt < kAcquireAttempts; ++attempt)
         if (m_resultLock.tryLock())
         {
             out = m_result;
@@ -376,26 +704,59 @@ void Engine::analysisLoop()
         std::unique_lock<std::mutex> lock(m_mutex);
         m_analysisWake.wait(lock, [this]
         {
-            return m_stop.load() || m_pendingCapture != nullptr
+            return m_stop.load() || m_pendingCapture != nullptr || m_pendingStored != nullptr
                    || (m_learned != nullptr && m_renderedOptions != m_optionsGeneration.load());
         });
         if (m_stop.load())
             return;
 
-        if (m_pendingCapture != nullptr)
+        if (m_pendingCapture != nullptr || m_pendingStored != nullptr)
         {
             auto sound = std::move(m_pendingCapture);
-            const double rate = m_pendingRate;
+            auto stored = std::move(m_pendingStored);
+            const auto id = m_pendingId;
+            double rate = m_pendingRate;
             const auto epoch = m_captureEpoch.load();
+            const auto hooks = m_hooks;
             lock.unlock();
 
             const auto cancelled = [this, epoch] { return m_stop.load() || m_captureEpoch.load() != epoch; };
+            const bool restored = sound == nullptr;
+            if (restored)
+            {
+                // A sound from the plug-in's state: decode it, then everything as after a Learn.
+                sound = std::make_unique<core::Channels>();
+                if (! hooks.decode || ! hooks.decode(*stored, *sound, rate) || sound->empty() || (*sound)[0].empty() || rate <= 0.0)
+                {
+                    EngineEvent e;
+                    e.kind = EngineEvent::Kind::RestoreFailed;
+                    e.i[0] = static_cast<std::int64_t>(id);
+                    log(e);
+                    lock.lock();
+                    if (m_captureEpoch.load() == epoch)
+                        m_analysing.store(false);
+                    continue;
+                }
+            }
+            const auto started = std::chrono::steady_clock::now();
             auto learned = std::make_shared<Learned>();
-            learned->id = epoch;
+            learned->id = id;
             learned->sampleRate = rate;
             learned->analysis = core::analyse(*sound, rate, true, cancelled);
             if (cancelled())
                 continue;
+            {
+                EngineEvent e;
+                e.kind = EngineEvent::Kind::Analysed;
+                e.i[0] = static_cast<std::int64_t>(id);
+                e.i[1] = learned->analysis.pick;
+                e.i[2] = static_cast<std::int64_t>(sound->size());
+                e.i[3] = static_cast<std::int64_t>((*sound)[0].size());
+                e.i[4] = restored ? 1 : 0;
+                e.d[0] = rate;
+                e.d[1] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                log(e);
+            }
             const std::size_t n = (*sound)[0].size();
             std::vector<float> mono(n, 0.0f);
             const float share = 1.0f / static_cast<float>(sound->size());
@@ -403,12 +764,56 @@ void Engine::analysisLoop()
                 for (std::size_t i = 0; i < n; ++i)
                     mono[i] += ch[i] * share;
             learned->locator.prepare(mono.data(), static_cast<std::int64_t>(n), rate);
+            learned->soundEnd = 0;
+            for (std::size_t i = n; i > 0; --i)
+                if (std::abs(mono[i - 1]) >= kSilence)
+                {
+                    learned->soundEnd = static_cast<std::int64_t>(i);
+                    break;
+                }
+            if (sound->size() == 2)
+            {
+                learned->side.assign(n + static_cast<std::size_t>(learned->locator.probeLength()), 0.0f);
+                for (std::size_t i = 0; i < n; ++i)
+                    learned->side[i] = 0.5f * ((*sound)[0][i] - (*sound)[1][i]);
+            }
+            // The copy for the plug-in's state: the bytes it came from, or compressed once now (every
+            // later save reuses them).
+            if (restored)
+                learned->stored = std::move(stored);
+            else if (hooks.encode)
+            {
+                const auto encodeStart = std::chrono::steady_clock::now();
+                auto bytes = hooks.encode(*sound, rate);
+                EngineEvent e;
+                e.kind = EngineEvent::Kind::Stored;
+                e.i[0] = static_cast<std::int64_t>(id);
+                const auto limit = m_storeLimit.load();
+                e.i[2] = static_cast<std::int64_t>(bytes.size()) > limit ? 1 : 0;
+                e.i[1] = e.i[2] != 0 ? 0 : static_cast<std::int64_t>(bytes.size());
+                e.d[0] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - encodeStart).count();
+                log(e);
+                if (! bytes.empty() && static_cast<std::int64_t>(bytes.size()) <= limit)
+                    learned->stored = std::make_shared<const std::vector<char>>(std::move(bytes));
+            }
             learned->channels = std::move(*sound);
+            // Its options, with the hand corrections that belong to its reading (asked without the
+            // lock: the host side takes its own).
+            core::Options options;
+            const bool haveOptions = static_cast<bool>(hooks.optionsFor);
+            if (haveOptions)
+                options = hooks.optionsFor(*learned);
 
             lock.lock();
             if (m_captureEpoch.load() != epoch)
                 continue;
+            letGoLocked();
             m_learned = std::move(learned);
+            if (haveOptions && ! sameOptions(options, m_options))
+            {
+                m_options = options;
+                m_optionsGeneration.fetch_add(1);
+            }
             m_renderedOptions = 0;   // render it with the current options
         }
 
@@ -422,7 +827,9 @@ void Engine::analysisLoop()
         // or Clear stops it, and the loop comes back for the newest.
         const auto learned = m_learned;
         auto options = m_options;
+        const auto requested = m_options;
         const auto generation = m_optionsGeneration.load();
+        const auto renderStart = std::chrono::steady_clock::now();
         const auto epoch = m_captureEpoch.load();
         m_rendering.store(true);
         lock.unlock();
@@ -445,15 +852,31 @@ void Engine::analysisLoop()
         else
             options.line = -1;
         result->options = options;
+        result->requested = requested;
         if (cancelled())
             continue;
 
         lock.lock();
         if (m_captureEpoch.load() != epoch || m_optionsGeneration.load() != generation)
             continue;
-        result->generation = m_nextGeneration++;
+        result->generation = nextGeneration();
+        {
+            EngineEvent e;
+            e.kind = EngineEvent::Kind::Rendered;
+            e.i[0] = static_cast<int>(options.target);
+            e.i[1] = options.line;
+            e.i[2] = options.keepLength ? 1 : 0;
+            e.i[3] = result->playable() ? static_cast<std::int64_t>(result->flattened.channels[0].size()) : 0;
+            e.i[4] = result->playable() ? 1 : 0;
+            e.i[5] = static_cast<std::int64_t>(options.edits.size());
+            e.d[0] = options.amount;
+            e.d[1] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - renderStart).count();
+            e.d[2] = learned->sampleRate;
+            log(e);
+        }
         publish(std::move(result));
         m_renderedOptions = generation;
+        m_renderPending.store(false);
         m_rendering.store(false);
         m_analysing.store(false);
     }
@@ -476,10 +899,10 @@ void Engine::houseLoop()
     while (! m_stop.load())
     {
         {
-            // Every 5 ms while a sound is being captured or searched for; otherwise at a leisurely
-            // pace, so a rack full of idle instances costs next to nothing.
+            // Quick while a capture, a search or a match may need it (the audio thread never wakes
+            // it in real time, so this pace is how soon a search starts); leisurely otherwise.
             const int cap = m_captureState.load();
-            const bool busy = m_searching.load() || cap == CapArmed || cap == CapListening || cap == CapFinished;
+            const bool busy = m_searching.load() || m_active.load() || cap == CapArmed || cap == CapListening || cap == CapFinished;
             std::unique_lock<std::mutex> lock(m_threadMutex);
             m_houseWake.wait_for(lock, busy ? kHousePeriod : kIdlePeriod, [this] { return m_stop.load() || m_houseKick.load(); });
             m_houseKick.store(false);
@@ -496,9 +919,16 @@ void Engine::houseLoop()
             lastBlockTime = now;
         }
         const int cap = m_captureState.load();
+        // A run ends after half a second with no block being processed (a block waiting for the
+        // search or the analysis is still being processed).
+        const auto done = m_lastBlockDone.load(std::memory_order_relaxed);
+        if (m_runOpen.load(std::memory_order_acquire) && done != 0 && blocks == lastBlocks && ! m_inBlock.load(std::memory_order_acquire)
+            && static_cast<double>(nowMicros() - done) >= kRunGapSeconds * 1.0e6 && now - lastBlockTime >= kRunGapSeconds)
+            endRun();
         if (cap == CapListening && now - lastBlockTime >= kStallSeconds)
         {
             int expected = CapListening;
+            m_captureEndWhy.store(1);
             if (m_captureState.compare_exchange_strong(expected, CapFinished))
                 waitForCaptureWriter();
         }
@@ -509,11 +939,13 @@ void Engine::houseLoop()
         }
 
         searchStep();
+        captureStep();
 
+        // Often enough that what Clear let go is given back within a fraction of a second.
         if (--freeCountdown <= 0)
         {
             freeUnusedResults();
-            freeCountdown = 20;
+            freeCountdown = 10;
         }
     }
 }
@@ -525,74 +957,136 @@ void Engine::searchStep()
     const auto epoch = m_searchEpoch.load(std::memory_order_acquire);
     const auto r = result();
     const double rate = m_rate.load();
-    if (r == nullptr || ! r->playable() || std::abs(r->learned->sampleRate - rate) > 0.5)
+    if (r == nullptr || ! r->playable() || rateDiffers(r->learned->sampleRate))
         return;
     const Learned& learned = *r->learned;
     const Locator& locator = learned.locator;
     const int P = locator.probeLength();
     if (P <= 0)
         return;
+    const auto backoffBase = secondsToSamples(kBackoffSeconds, rate);
+    const auto backoffMax = secondsToSamples(kLongestBackoffSeconds, rate);
 
-    const auto publishNeed = [this, epoch](std::int64_t need)
+    // need: the input this thread needs before it can do more; decided: no answer can start before
+    // this input position any more (an offline wait only blocks while the output would pass it).
+    const auto publishNeed = [this, epoch](std::int64_t need, std::int64_t decided)
     {
+        // A match can reach back to the start of the sound it is in (see the extension below), so
+        // nothing after that start is decided until the search is done with the sound.
+        if (decided != kNever && m_wSoundStart >= 0)
+            decided = std::min(decided, std::max(m_wSoundStart, m_wFrom));
         m_workerNeed.store(need, std::memory_order_relaxed);
+        m_workerDecided.store(decided, std::memory_order_relaxed);
         m_workerEpoch.store(epoch, std::memory_order_release);
     };
 
     if (epoch != m_wEpoch || learned.id != m_wLearned)
     {
+        const bool newSound = learned.id != m_wLearned;
         m_wEpoch = epoch;
         m_wLearned = learned.id;
         m_wCursor = m_searchFrom.load(std::memory_order_acquire);
+        m_wFrom = m_wCursor;
+        m_wGate = m_wCursor;
         m_wRunStart = -1;
         m_wAttempt = -1;
+        m_wSilentRun = 0;
+        const auto holds = m_holds.load(std::memory_order_acquire);
+        const auto failures = m_failures.load(std::memory_order_acquire);
+        if (newSound || holds != m_wHoldsSeen || m_wBackoff <= 0)
+            m_wBackoff = backoffBase;
+        const bool failed = failures != m_wFailuresSeen && ! newSound;
+        if (! failed)
+        {
+            m_wSoundStart = -1;   // a fresh search: its first sound is a sound's start
+            m_wQuickRetries = 0;
+        }
+        else if (m_wSoundStart >= 0 && m_wCursor - m_wSoundStart < secondsToSamples(kSoundStartSeconds, rate) && m_wQuickRetries < kQuickRetries)
+        {
+            // A match at the sound's start stopped holding: try again a little later at once.
+            ++m_wQuickRetries;
+            m_wGate = m_wCursor + secondsToSamples(kQuickRetrySeconds, rate);
+        }
+        else
+        {
+            // The last match stopped holding: wait for more input before trying again.
+            m_wGate = m_wCursor + m_wBackoff;
+            m_wBackoff = std::min(2 * m_wBackoff, backoffMax);
+        }
+        m_wHoldsSeen = holds;
+        m_wFailuresSeen = failures;
     }
 
     const auto written = m_ringWritten.load(std::memory_order_acquire);
-    const auto oldest = written - kRingSize + 8192;
+    const auto oldest = std::max(written - kRingSize + kRingGuard, m_fence.load(std::memory_order_acquire));
     if (m_wCursor < oldest)
     {
         m_wCursor = oldest;
         m_wAttempt = -1;
     }
 
-    // Each attempt starts at the first sound after the cursor: a probe that began in silence
-    // would not match a sound played from part way through.
+    // Each attempt starts at the first sound at or after the gate: a probe that began in silence
+    // would not match a sound played from part way through. A run of silence on the way means a
+    // new sound: the back-off and the gate start again.
     if (m_wAttempt < 0)
     {
-        std::int64_t i = std::max<std::int64_t>(m_wCursor, 0);
+        const auto gap = secondsToSamples(kNewSoundGapSeconds, rate);
+        std::int64_t i = std::max<std::int64_t>(m_wCursor, 0), found = -1;
         for (; i < written; ++i)
-            if (std::abs(m_ring[static_cast<std::size_t>(i & kRingMask)].load(std::memory_order_relaxed)) >= kSilence)
-                break;
-        if (i >= written)
         {
-            m_wCursor = written;
-            publishNeed(written + 1);
+            if (std::abs(m_ring[static_cast<std::size_t>(i & kRingMask)].load(std::memory_order_relaxed)) < kSilence)
+            {
+                ++m_wSilentRun;
+                continue;
+            }
+            if (m_wSilentRun >= gap || m_wSoundStart < 0)
+            {
+                // A new sound (after silence, a reset or at the start of a search).
+                if (m_wSilentRun >= gap)
+                {
+                    m_wBackoff = backoffBase;
+                    m_wGate = i;
+                    m_wRunStart = i;
+                }
+                m_wSoundStart = i;
+                m_wQuickRetries = 0;
+            }
+            m_wSilentRun = 0;
+            if (i >= m_wGate)
+            {
+                found = i;
+                break;
+            }
+        }
+        m_wCursor = i;
+        if (found < 0)
+        {
+            // Nothing to try yet. Offline, the audio thread may run on a little (a quarter of a
+            // probe) before this thread has to look again.
+            publishNeed(std::min(std::max(m_wGate, written) + P, written + P / 4 + 1), written);
             return;
         }
-        // A gap of silence before it (or the first sound of this search): a sound starts here, so
-        // any place in the learned sound is as likely as any other. Otherwise the input has been
-        // sounding since m_wRunStart, which a repeating sound's place has to agree with.
-        if (m_wRunStart < 0 || i - m_wCursor >= secondsToSamples(0.05, rate))
-            m_wRunStart = i;
-        m_wAttempt = i;
+        if (m_wRunStart < 0)
+            m_wRunStart = found;
+        m_wAttempt = found;
     }
     if (written < m_wAttempt + P)
     {
-        publishNeed(m_wAttempt + P);
+        publishNeed(m_wAttempt + P, m_wAttempt);
         return;
     }
 
     std::vector<float> probe(static_cast<std::size_t>(P));
     for (int i = 0; i < P; ++i)
         probe[static_cast<std::size_t>(i)] = m_ring[static_cast<std::size_t>((m_wAttempt + i) & kRingMask)].load(std::memory_order_relaxed);
-    if (m_ringWritten.load(std::memory_order_acquire) - m_wAttempt > kRingSize - 4096)
+    if (m_ringWritten.load(std::memory_order_acquire) - m_wAttempt > kRingSize - kRingGuard)
     {
         m_wCursor = m_ringWritten.load() - P;   // the audio thread wrote over it: start again later
         m_wAttempt = -1;
         return;
     }
 
+    publishNeed(m_wAttempt + P, m_wAttempt);   // searching now
     const auto started = std::chrono::steady_clock::now();
     const auto match = locator.locate(probe.data(), std::max<std::int64_t>(0, m_wAttempt - m_wRunStart),
                                       [this, epoch] { return m_stop.load() || m_searchEpoch.load() != epoch; });
@@ -601,25 +1095,322 @@ void Engine::searchStep()
     if (m_searchEpoch.load() != epoch)
         return;
 
+    const auto logSearch = [&](int outcome, std::int64_t next, bool quick)
+    {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::Searched;
+        e.i[0] = m_wAttempt;
+        e.i[1] = match.bestPosition;
+        e.i[2] = match.accepted;
+        e.i[3] = outcome;
+        e.i[4] = next;
+        e.i[5] = quick ? 1 : 0;
+        e.d[0] = 10.0 * std::log10(std::max(match.residual, 1.0e-15));
+        e.d[1] = rate;
+        e.d[2] = m_lastSearchMs.load();
+        log(e);
+    };
+
+    // A near miss by a plain level (the right kind of place, but not the same samples): what
+    // differs, matched in the end through a filter or not.
+    const auto nearMiss = [&]
+    {
+        if (match.bestPosition < 0 || ! (match.plainResidual > matching::kAcceptResidual && match.plainResidual < 0.25))
+            return;
+        diagnose(learned, m_wAttempt, match.bestPosition, P, 0);
+        bool canSave = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            canSave = static_cast<bool>(m_hooks.saveCapture);
+        }
+        if (! m_captured && m_captureInputFrom < 0 && canSave
+            && (m_fast.load(std::memory_order_relaxed) || m_nonRealtime.load(std::memory_order_relaxed)))
+        {
+            const auto before = secondsToSamples(0.5, rate);
+            m_captureInputFrom = std::max<std::int64_t>(0, m_wAttempt - before);
+            m_captureSourceFrom = match.bestPosition - (m_wAttempt - m_captureInputFrom);
+            m_captureLearned = r->learned;
+        }
+    };
+
     if (match.found)
     {
+        logSearch(0, -1, false);
+        nearMiss();
+        // Extend the match backwards towards the start of the sound: the input before the probe is
+        // the same recording by continuity, even where its first milliseconds failed the strict test.
+        const std::int64_t T = m_wAttempt, offset = match.sourceSample - T;   // learned = input + offset
+        // Never so far back that the start would be heard before the checks from the probe on have
+        // run: the output reaches the start a latency after the input does, and the first check
+        // needs the probe and one window after it.
+        const auto checkedInTime = T + P + m_verifyWindowShared.load() - m_latencyShared.load();
+        const auto floor = std::max<std::int64_t>({ m_wSoundStart >= 0 ? std::min(m_wSoundStart, T) : T, m_fence.load(std::memory_order_acquire),
+                                                    -offset, written - kRingSize + kRingGuard, m_wFrom, checkedInTime, 0 });
+        const auto window = std::max<std::int64_t>(32, secondsToSamples(kExtendWindowSeconds, rate));
+        const auto head = secondsToSamples(kHeadToleranceSeconds, rate);
+        const float* mid = locator.samples();
+        const double silent = static_cast<double>(window) * kSilence * kSilence;
+        std::int64_t start = T;
+        int why = T <= floor ? (T <= m_fence.load() || T <= -offset ? 4 : 1) : 1;
+        while (start > floor)
+        {
+            const auto a = std::max(floor, start - window);
+            double xx = 0.0, yy = 0.0;
+            for (auto t = a; t < start; ++t)
+            {
+                const double x = m_ring[static_cast<std::size_t>(t & kRingMask)].load(std::memory_order_relaxed);
+                const double y = mid[t + offset];
+                xx += x * x;
+                yy += y * y;
+            }
+            const double share = static_cast<double>(start - a) / static_cast<double>(window);
+            const bool quiet = xx < silent * share && yy < silent * share;
+            const auto fit = matching::fitRecording(
+                [this, a](int t) { return static_cast<double>(m_ring[static_cast<std::size_t>((a + t) & kRingMask)].load(std::memory_order_relaxed)); },
+                [mid, a, offset, n = locator.length() + P](int t) { const auto k = a + t + offset; return k >= 0 && k < n ? static_cast<double>(mid[k]) : 0.0; },
+                static_cast<int>(start - a));
+            if (! quiet && fit.residual > kExtendResidual)
+            {
+                // Not the same material here. In the sound's first 30 ms (a fade, a clipped first
+                // block) the difference is accepted, as everything after it passed.
+                if (m_wSoundStart >= 0 && a - m_wSoundStart < head && floor <= m_wSoundStart)
+                {
+                    start = floor;
+                    why = 2;
+                }
+                else
+                    why = 3;
+                break;
+            }
+            start = a;
+            why = start == m_fence.load() || start == -offset ? 4 : 1;
+        }
+        {
+            EngineEvent e;
+            e.kind = EngineEvent::Kind::Extended;
+            e.i[0] = T;
+            e.i[1] = start;
+            e.i[2] = start == T && why != 2 && why != 3 ? 0 : why;
+            e.d[0] = rate;
+            log(e);
+        }
         m_answerSequence.fetch_add(1, std::memory_order_acq_rel);   // odd: being written
         m_answerEpoch.store(epoch, std::memory_order_relaxed);
         m_answerLearned.store(learned.id, std::memory_order_relaxed);
-        m_answerInput.store(m_wAttempt, std::memory_order_relaxed);
-        m_answerSource.store(match.sourceSample, std::memory_order_relaxed);
+        m_answerInput.store(start, std::memory_order_relaxed);
+        m_answerSource.store(start + offset, std::memory_order_relaxed);
+        m_answerVerifyFrom.store(T + P, std::memory_order_relaxed);
         m_answerLength.store(P, std::memory_order_relaxed);
         m_answerGain.store(match.gain, std::memory_order_relaxed);
+        m_answerGainEnd.store(match.gainEnd, std::memory_order_relaxed);
         m_answerSequence.fetch_add(1, std::memory_order_acq_rel);   // even: complete
-        publishNeed(kNever);
+        publishNeed(kNever, kNever);
         return;
     }
 
-    // Not the learned sound here. Try a little later, or the newest audio if the search fell
-    // behind (a long sound takes a while to search).
-    m_wCursor = std::max(m_wAttempt + P / 4, written - P);
+    // Not the learned sound here. At a sound's start, try again 20 ms later (a few times); otherwise
+    // wait until m_wBackoff more of the input has gone by (measured in the input, not in what has
+    // been written so far: a render runs far ahead of the search).
+    const bool quick = m_wSoundStart >= 0 && m_wAttempt - m_wSoundStart < secondsToSamples(kSoundStartSeconds, rate) && m_wQuickRetries < kQuickRetries;
+    if (quick)
+    {
+        ++m_wQuickRetries;
+        m_wGate = m_wAttempt + secondsToSamples(kQuickRetrySeconds, rate);
+    }
+    else
+    {
+        m_wGate = m_wAttempt + m_wBackoff;
+        m_wBackoff = std::min(2 * m_wBackoff, backoffMax);
+    }
+    logSearch(match.tooQuiet ? 1 : match.bestPosition < 0 ? 3 : 2, m_wGate - m_wAttempt, quick);
+    nearMiss();
+    m_wCursor = m_wAttempt + 1;
     m_wAttempt = -1;
-    publishNeed(m_wCursor + 1);
+    m_wSilentRun = 0;
+    publishNeed(std::min(std::max(m_wGate, written) + P, m_wCursor + P / 4 + 1), m_wCursor);
+}
+
+//==============================================================================
+// Diagnostics (house thread)
+//==============================================================================
+void Engine::diagnose(const Learned& learned, std::int64_t input, std::int64_t source, int length, int kind)
+{
+    // Input against learned at this place, channel by channel and in combinations, each level free:
+    // what a host does differently (one channel fed to both, a mono fold, a balance, a fraction of
+    // a sample of delay) shows as which of these fit and which do not.
+    const auto written = m_ringWritten.load(std::memory_order_acquire);
+    if (length <= 0 || input < std::max<std::int64_t>(0, written - kRingSize + kRingGuard) || input + length > written)
+        return;
+    const auto& ch = learned.channels;
+    const float* mix = learned.locator.samples();
+    const std::int64_t n = learned.locator.length();
+    const auto learnedAt = [&](std::size_t c, std::int64_t k) -> double
+    {
+        return k >= 0 && k < n ? static_cast<double>(ch[std::min(c, ch.size() - 1)][static_cast<std::size_t>(k)]) : 0.0;
+    };
+    const auto mixAt = [&](std::int64_t k) -> double { return k >= 0 && k < n ? static_cast<double>(mix[k]) : 0.0; };
+
+    struct Pair
+    {
+        double xx = 0.0, yy = 0.0, xy = 0.0;
+        void add(double x, double y) { xx += x * x; yy += y * y; xy += x * y; }
+        std::int64_t hundredthsDb() const
+        {
+            // Level free: the residual against the best gain, either sign (a swapped or inverted pair still shows how alike).
+            const double r = xx > 0.0 && yy > 0.0 ? std::max(0.0, 1.0 - (xy / xx) * (xy / yy)) : 1.0;
+            return static_cast<std::int64_t>(std::llround(100.0 * 10.0 * std::log10(std::max(r, 1.0e-15))));
+        }
+    };
+    Pair ll, rr, lr, rl, lm, rm, sum, diff, inputLR;
+    double inSide = 0.0;
+    for (int i = 0; i < length; ++i)
+    {
+        const auto at = static_cast<std::size_t>((input + i) & kRingMask);
+        const double m = m_ring[at].load(std::memory_order_relaxed), s = m_sideRing[at].load(std::memory_order_relaxed);
+        const double L = m + s, R = m - s;
+        const double Ll = learnedAt(0, source + i), Rl = learnedAt(1, source + i), Ml = mixAt(source + i);
+        ll.add(L, Ll);
+        rr.add(R, Rl);
+        lr.add(L, Rl);
+        rl.add(R, Ll);
+        lm.add(L, Ml);
+        rm.add(R, Ml);
+        sum.add(L + R, Ll + Rl);
+        diff.add(L - R, Ll - Rl);
+        inputLR.add(L, R);
+        inSide += s * s;
+    }
+    double learnedL = 0.0, learnedR = 0.0;
+    for (int i = 0; i < length; ++i)
+    {
+        learnedL += learnedAt(0, source + i) * learnedAt(0, source + i);
+        learnedR += learnedAt(1, source + i) * learnedAt(1, source + i);
+    }
+    const auto balance = [](double a, double b) { return a > 0.0 && b > 0.0 ? static_cast<std::int64_t>(std::llround(100.0 * 10.0 * std::log10(a / b))) : 0; };
+
+    // The best fractional offset of the mix: the learned mix moved by -2..+2 samples in sixteenths
+    // (a windowed sinc), the residual against the input's mix at each.
+    constexpr int kTaps = 8;
+    constexpr double kPi = 3.14159265358979323846;
+    double bestResidual = 2.0, bestShift = 0.0, residualAtZero = 1.0;
+    for (int step = -32; step <= 32; ++step)
+    {
+        const double shift = step / 16.0;
+        double weights[2 * kTaps + 1];
+        for (int j = -kTaps; j <= kTaps; ++j)
+        {
+            const double x = static_cast<double>(j) - shift;
+            const double sinc = std::abs(x) < 1.0e-9 ? 1.0 : std::sin(kPi * x) / (kPi * x);
+            const double window = 0.5 + 0.5 * std::cos(kPi * x / (kTaps + 1));
+            weights[j + kTaps] = std::abs(x) <= kTaps + 1 ? sinc * window : 0.0;
+        }
+        double xx = 0.0, yy = 0.0, xy = 0.0;
+        for (int i = 0; i < length; ++i)
+        {
+            const double x = m_ring[static_cast<std::size_t>((input + i) & kRingMask)].load(std::memory_order_relaxed);
+            double y = 0.0;
+            for (int j = -kTaps; j <= kTaps; ++j)
+                y += weights[j + kTaps] * mixAt(source + i + j);
+            xx += x * x;
+            yy += y * y;
+            xy += x * y;
+        }
+        const double r = matching::residual(xx, yy, xy);
+        if (step == 0)
+            residualAtZero = r;
+        if (r < bestResidual)
+        {
+            bestResidual = r;
+            bestShift = shift;
+        }
+    }
+
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Diagnosed;
+    e.i[0] = input;
+    e.i[1] = source;
+    e.i[2] = kind;
+    e.i[3] = inSide > 1.0e-12 * std::max(1.0, inputLR.xx) ? 1 : 0;
+    e.i[4] = ch.size() > 1 ? 1 : 0;
+    e.i[5] = ll.hundredthsDb();
+    e.i[6] = rr.hundredthsDb();
+    e.i[7] = lr.hundredthsDb();
+    e.i[8] = rl.hundredthsDb();
+    e.i[9] = lm.hundredthsDb();
+    e.i[10] = rm.hundredthsDb();
+    e.i[11] = sum.hundredthsDb();
+    e.i[12] = diff.hundredthsDb();
+    e.i[13] = balance(inputLR.xx, inputLR.yy);
+    e.i[14] = balance(learnedL, learnedR);
+    e.i[15] = inputLR.xx > 0.0 && inputLR.yy > 0.0 ? static_cast<std::int64_t>(std::llround(1000.0 * inputLR.xy / std::sqrt(inputLR.xx * inputLR.yy))) : 0;
+    e.d[0] = m_rate.load(std::memory_order_relaxed);
+    e.d[1] = -bestShift;   // > 0: the input is that many samples later than the learned sound
+    e.d[2] = 10.0 * std::log10(std::max(bestResidual, 1.0e-15));
+    e.d[3] = 10.0 * std::log10(std::max(residualAtZero, 1.0e-15));
+    {
+        const auto fit = matching::fitRecording(
+            [this, input](int t) { return static_cast<double>(m_ring[static_cast<std::size_t>((input + t) & kRingMask)].load(std::memory_order_relaxed)); },
+            [&](int t) { return mixAt(source + t); }, length);
+        e.d[4] = 10.0 * std::log10(std::max(fit.filterResidual, 1.0e-15));
+        e.d[5] = fit.delayShare;
+    }
+    log(e);
+}
+
+void Engine::captureStep()
+{
+    // A let-go the audio thread asked to have looked at.
+    if (const auto request = m_diagnoseRequest.load(std::memory_order_acquire); request != m_diagnoseSeen)
+    {
+        m_diagnoseSeen = request;
+        if (const auto r = result(); r != nullptr && r->learned != nullptr)
+            diagnose(*r->learned, m_diagnoseInput.load(std::memory_order_relaxed), m_diagnoseSource.load(std::memory_order_relaxed),
+                     r->learned->locator.probeLength(), 1);
+    }
+
+    // A capture waiting for its 3 s of input (or for the run to end with less).
+    if (m_captureInputFrom < 0 || m_captureLearned == nullptr)
+        return;
+    const double rate = m_rate.load();
+    const auto length = secondsToSamples(3.0, rate);
+    const auto written = m_ringWritten.load(std::memory_order_acquire);
+    if (written < m_captureInputFrom + length && m_runOpen.load(std::memory_order_acquire))
+        return;
+    Hooks hooks;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        hooks = m_hooks;
+    }
+    const auto from = m_captureInputFrom;
+    const auto upTo = std::min(written, from + length);
+    m_captureInputFrom = -1;
+    m_captured = true;
+    const auto learned = std::move(m_captureLearned);
+    if (! hooks.saveCapture || from < written - kRingSize + kRingGuard || upTo <= from)
+        return;
+
+    core::Channels input(2, std::vector<float>(static_cast<std::size_t>(upTo - from)));
+    for (auto t = from; t < upTo; ++t)
+    {
+        const auto at = static_cast<std::size_t>(t & kRingMask);
+        const float m = m_ring[at].load(std::memory_order_relaxed), s = m_sideRing[at].load(std::memory_order_relaxed);
+        input[0][static_cast<std::size_t>(t - from)] = m + s;
+        input[1][static_cast<std::size_t>(t - from)] = m - s;
+    }
+    core::Channels sound(2, std::vector<float>(static_cast<std::size_t>(length), 0.0f));
+    const auto n = static_cast<std::int64_t>(learned->channels[0].size());
+    for (std::int64_t i = 0; i < length; ++i)
+    {
+        const auto k = m_captureSourceFrom + i;
+        if (k < 0 || k >= n)
+            continue;
+        for (std::size_t c = 0; c < 2; ++c)
+            sound[c][static_cast<std::size_t>(i)] = learned->channels[std::min(c, learned->channels.size() - 1)][static_cast<std::size_t>(k)];
+    }
+    char id[24];
+    std::snprintf(id, sizeof(id), "%016llx", static_cast<unsigned long long>(learned->id));
+    hooks.saveCapture(std::string(id) + " input", input, rate);
+    hooks.saveCapture(std::string(id) + " learned", sound, rate);
 }
 
 //==============================================================================
@@ -629,6 +1420,7 @@ void Engine::writeInput(const float* const* channels, int numChannels, int numSa
 {
     const std::int64_t t0 = m_inputPosition;
     const float share = numChannels > 0 ? 1.0f / static_cast<float>(numChannels) : 0.0f;
+    m_inputStereo = numChannels == 2;
     peak = 0.0f;
     for (int i = 0; i < numSamples; ++i)
     {
@@ -639,7 +1431,14 @@ void Engine::writeInput(const float* const* channels, int numChannels, int numSa
             mono += v * share;
             peak = std::max(peak, std::abs(v));
         }
-        m_ring[static_cast<std::size_t>((t0 + i) & kRingMask)].store(mono, std::memory_order_relaxed);
+        float side = numChannels == 2 ? 0.5f * (channels[0][i] - channels[1][i]) : 0.0f;
+        // A bad sample (NaN, infinity) would poison every sum it enters: the search and the checks
+        // see silence there instead. The audio itself passes as it came.
+        if (! std::isfinite(mono) || ! std::isfinite(side))
+            mono = side = 0.0f;
+        const auto at = static_cast<std::size_t>((t0 + i) & kRingMask);
+        m_ring[at].store(mono, std::memory_order_relaxed);
+        m_sideRing[at].store(side, std::memory_order_relaxed);
     }
     m_inputPosition = t0 + numSamples;
     m_ringWritten.store(m_inputPosition, std::memory_order_release);
@@ -656,7 +1455,19 @@ void Engine::handleReset() noexcept
     m_current = m_previous = Voice {};
     m_fadePosition = m_fadeLength;
     m_match = Match::Off;
+    m_segmentResult = nullptr;
     m_searching.store(false, std::memory_order_release);
+    // What the ring holds from before the reset belongs to the sound the host stopped: never
+    // search or check it again.
+    m_fence.store(m_inputPosition, std::memory_order_release);
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::Reset;
+    e.i[0] = m_resetRequests.exchange(0, std::memory_order_relaxed);
+    e.i[1] = m_inputPosition;
+    e.i[2] = m_runOpen.load(std::memory_order_relaxed) && m_run[RunSamples].load(std::memory_order_relaxed) > 0 ? 1 : 0;
+    e.d[0] = m_rate.load(std::memory_order_relaxed);
+    log(e);
+    endRun();
 }
 
 void Engine::process(float* const* channels, int numChannels, int numSamples) noexcept
@@ -664,8 +1475,10 @@ void Engine::process(float* const* channels, int numChannels, int numSamples) no
     if (! m_prepared.load(std::memory_order_acquire) || numSamples <= 0 || numChannels <= 0)
         return;
     numChannels = std::min(numChannels, kMaxChannels);
+    m_inBlock.store(true, std::memory_order_release);
     m_blocks.fetch_add(1, std::memory_order_release);
     handleReset();
+    beginRun(numSamples, numChannels, false);
 
     const std::int64_t t0 = m_inputPosition;
     float peak = 0.0f;
@@ -673,6 +1486,8 @@ void Engine::process(float* const* channels, int numChannels, int numSamples) no
     captureBlock(channels, numChannels, numSamples, peak);
     updateMatching(t0, numSamples);
     renderOutput(channels, numChannels, numSamples, t0);
+    m_lastBlockDone.store(nowMicros(), std::memory_order_relaxed);
+    m_inBlock.store(false, std::memory_order_release);
 }
 
 void Engine::processBypassed(float* const* channels, int numChannels, int numSamples) noexcept
@@ -680,20 +1495,29 @@ void Engine::processBypassed(float* const* channels, int numChannels, int numSam
     if (! m_prepared.load(std::memory_order_acquire) || numSamples <= 0 || numChannels <= 0)
         return;
     numChannels = std::min(numChannels, kMaxChannels);
+    m_inBlock.store(true, std::memory_order_release);
     m_blocks.fetch_add(1, std::memory_order_release);
     handleReset();
+    beginRun(numSamples, numChannels, true);
 
     const std::int64_t t0 = m_inputPosition;
     float peak = 0.0f;
     writeInput(channels, numChannels, numSamples, peak);
+    // The input is still the input: Learn goes on capturing while bypassed.
+    captureBlock(channels, numChannels, numSamples, peak);
     // Bypass is immediate (the host switches abruptly too): only the delayed input from here.
     m_numEvents = 0;
     m_current = m_previous = Voice {};
     m_fadePosition = m_fadeLength;
     m_match = Match::Off;
+    m_segmentResult = nullptr;
     m_searching.store(false, std::memory_order_release);
+    m_active.store(false, std::memory_order_relaxed);
     m_located.store(false, std::memory_order_relaxed);
+    releaseUnheld();
     renderOutput(channels, numChannels, numSamples, t0);
+    m_lastBlockDone.store(nowMicros(), std::memory_order_relaxed);
+    m_inBlock.store(false, std::memory_order_release);
 }
 
 void Engine::captureBlock(const float* const* channels, int numChannels, int numSamples, float peak) noexcept
@@ -709,13 +1533,14 @@ void Engine::captureBlock(const float* const* channels, int numChannels, int num
     const int preRollLength = static_cast<int>(m_preRoll[0].size());
     if (justArmed)
         m_preRollFill = 0;   // what came before Learn was armed is not part of the sound
+    const auto clean = [](float v) { return std::isfinite(v) ? v : 0.0f; };   // a bad sample would break the reading of the whole sound
 
     if (st == CapArmed && peak < kSilence)
     {
         for (int i = 0; i < numSamples; ++i)
         {
             for (int c = 0; c < kMaxChannels; ++c)
-                m_preRoll[static_cast<std::size_t>(c)][static_cast<std::size_t>(m_preRollPosition)] = channels[std::min(c, numChannels - 1)][i];
+                m_preRoll[static_cast<std::size_t>(c)][static_cast<std::size_t>(m_preRollPosition)] = clean(channels[std::min(c, numChannels - 1)][i]);
             m_preRollPosition = (m_preRollPosition + 1) % preRollLength;
         }
         m_preRollFill = std::min(preRollLength, m_preRollFill + numSamples);
@@ -746,20 +1571,44 @@ void Engine::captureBlock(const float* const* channels, int numChannels, int num
                     = m_preRoll[static_cast<std::size_t>(c)][static_cast<std::size_t>((from + i) % preRollLength)];
         m_preRollFill = 0;
         m_silentRun = 0;
+        m_captureLoudest = 0.0f;
     }
 
     const int take = static_cast<int>(std::min<std::int64_t>(numSamples, capacity - length));
     for (int c = 0; c < keep; ++c)
-        std::memcpy(m_capture[static_cast<std::size_t>(c)].get() + length, channels[std::min(c, numChannels - 1)], sizeof(float) * static_cast<std::size_t>(take));
+    {
+        float* dst = m_capture[static_cast<std::size_t>(c)].get() + length;
+        const float* src = channels[std::min(c, numChannels - 1)];
+        for (int i = 0; i < take; ++i)
+            dst[i] = clean(src[i]);
+    }
     length += take;
-    m_silentRun = peak < kSilence ? m_silentRun + numSamples : 0;
+    // Silent: under -70 dBFS, or 50 dB under the loudest block so far (a noise floor that would
+    // otherwise keep Learn listening for ever).
+    static const float relative = static_cast<float>(std::pow(10.0, kRelativeSilenceDb / 20.0));
+    const float blockPeak = std::isfinite(peak) ? peak : 0.0f;
+    const bool silent = blockPeak < kSilence || blockPeak < m_captureLoudest * relative;
+    m_captureLoudest = std::max(m_captureLoudest, blockPeak);
+    m_silentRun = silent ? m_silentRun + numSamples : 0;
     m_captureLength.store(length, std::memory_order_release);
 
     int expected = st;
     if (st == CapArmed)
-        m_captureState.compare_exchange_strong(expected, CapListening, std::memory_order_seq_cst);
+    {
+        if (m_captureState.compare_exchange_strong(expected, CapListening, std::memory_order_seq_cst))
+        {
+            EngineEvent e;
+            e.kind = EngineEvent::Kind::CaptureStarted;
+            e.i[0] = keep;
+            e.d[0] = m_rate.load(std::memory_order_relaxed);
+            log(e);
+        }
+    }
     else if (m_silentRun >= secondsToSamples(kEndSilenceSeconds, m_rate.load(std::memory_order_relaxed)) || length >= capacity)
+    {
+        m_captureEndWhy.store(length >= capacity ? 3 : 0, std::memory_order_relaxed);
         m_captureState.compare_exchange_strong(expected, CapFinished, std::memory_order_seq_cst);
+    }
     // The house thread notices the end within a few milliseconds (no wake-up from here: that
     // could take a lock).
     m_captureWriting.store(false, std::memory_order_seq_cst);
@@ -769,12 +1618,22 @@ bool Engine::isReferenced(const Result* r) const noexcept
 {
     if (r == nullptr)
         return false;
-    if (r == m_latest || r == m_current.result || r == m_previous.result)
+    if (r == m_latest || r == m_current.result || r == m_previous.result || r == m_segmentResult)
         return true;
     for (int i = 0; i < m_numEvents; ++i)
         if (m_events[static_cast<std::size_t>(i)].voice.result == r)
             return true;
     return false;
+}
+
+void Engine::releaseUnheld() noexcept
+{
+    // Renders the output can no longer use are let go at once (that only drops a count: the
+    // engine's own list still holds them, and frees them on the house thread). After Clear that
+    // gives back the learned sound within a block or two.
+    for (auto& h : m_held)
+        if (h != nullptr && ! isReferenced(h.get()))
+            h.reset();
 }
 
 void Engine::pushEvent(const Event& e) noexcept
@@ -791,13 +1650,52 @@ void Engine::pushEvent(const Event& e) noexcept
     m_events[static_cast<std::size_t>(m_numEvents++)] = e;
 }
 
+void Engine::pushGain(std::int64_t at, double gain) noexcept
+{
+    const int size = static_cast<int>(m_gainPoints.size());
+    if ((m_gainHead + 1) % size == m_gainTail)
+        m_gainTail = (m_gainTail + 1) % size;   // full: the oldest goes
+    m_gainPoints[static_cast<std::size_t>(m_gainHead)] = { at, static_cast<float>(gain) };
+    m_gainHead = (m_gainHead + 1) % size;
+}
+
+void Engine::followGain(std::int64_t windowStart, double gain) noexcept
+{
+    // Each window's level, averaged with its neighbours either side and placed at the middle
+    // window's centre: about 60 ms of smoothing with no lag (the output is the latency behind, so
+    // the window after is always known in time). The output draws straight lines between points.
+    const int W = m_verifyWindow;
+    gain = std::clamp(gain, kLowestGain, kHighestGain);
+    if (m_gainHistoryCount >= 2)
+    {
+        const double average = (m_gainHistory[0] + m_gainHistory[1] + gain) / kGainSmoothingWindows;
+        pushGain(windowStart - W / 2, snapGain(average));
+    }
+    m_gainHistory[0] = m_gainHistory[1];
+    m_gainHistory[1] = gain;
+    m_gainHistoryCount = std::min(2, m_gainHistoryCount + 1);
+    m_gainSmoothed = gain;
+}
+
 void Engine::beginSearch(std::int64_t from) noexcept
 {
     m_match = Match::Waiting;
+    m_segmentResult = nullptr;
     ++m_epoch;
-    m_searchFrom.store(std::max<std::int64_t>({ from, 0, m_inputPosition - kRingSize + 8192 }), std::memory_order_relaxed);
+    m_searchFrom.store(std::max<std::int64_t>({ from, 0, m_fence.load(std::memory_order_relaxed), m_inputPosition - kRingSize + kRingGuard }),
+                       std::memory_order_relaxed);
     m_searchEpoch.store(m_epoch, std::memory_order_release);
     m_searching.store(true, std::memory_order_release);
+    m_located.store(false, std::memory_order_relaxed);
+}
+
+void Engine::stopMatching(std::int64_t outNext) noexcept
+{
+    if (m_match != Match::Off || m_current.result != nullptr || m_numEvents > 0)
+        pushEvent({ outNext, Voice {} });
+    m_match = Match::Off;
+    m_segmentResult = nullptr;
+    m_searching.store(false, std::memory_order_release);
     m_located.store(false, std::memory_order_relaxed);
 }
 
@@ -807,11 +1705,6 @@ void Engine::pickUpResult(std::int64_t outNext) noexcept
     if (generation == m_seenGeneration)
         return;
 
-    // A free slot to hold it in (one not used by the output). Slots no longer needed are let go
-    // first: that only drops a count, as the engine's own list still holds them.
-    for (auto& h : m_held)
-        if (h != nullptr && h.get() != m_latest && ! isReferenced(h.get()))
-            h.reset();
     std::size_t slot = m_held.size();
     for (std::size_t i = 0; i < m_held.size(); ++i)
         if (m_held[i] == nullptr)
@@ -825,29 +1718,37 @@ void Engine::pickUpResult(std::int64_t outNext) noexcept
         return;
     m_seenGeneration = generation;
 
-    const Result* old = m_latest;
+    const Result* previous = m_latest;
+    const Result* old = m_segmentResult;   // the render the current match plays
     const Result* fresh = m_held[slot].get();
     m_latest = fresh;
-    const bool sameSound = fresh != nullptr && old != nullptr && fresh->learned == old->learned;
+    const bool sameSound = fresh != nullptr && previous != nullptr && fresh->learned == previous->learned;
 
-    if (sameSound && m_match == Match::Playing && fresh->playable()
-        && std::abs(fresh->learned->sampleRate - m_rate.load(std::memory_order_relaxed)) <= 0.5)
+    if (sameSound && m_match == Match::Playing && old != nullptr && fresh->playable() && ! rateDiffers(fresh->learned->sampleRate))
     {
-        // A new render of the same sound while it plays: carry on in the new one from the same
-        // moment of the sound (the time maps differ, so the flattened positions do).
+        // A new render of the same sound while it plays: carry on from the moment of the sound
+        // being heard. Once the start has been heard, that is the old render's position mapped
+        // back to the sound and into the new render (the two renders' time maps differ, and in
+        // Varispeed the moment heard is not the input's moment). Before it is heard, the start
+        // simply moves to the new render.
         const std::int64_t at = std::max(m_segmentStart, outNext);
-        const double source = static_cast<double>(at + m_sourceOffset);
+        double source;
+        if (outNext > m_segmentStart)
+            source = old->flattened.sourceSampleFor(static_cast<double>(at + m_flatOffset));
+        else
+            source = static_cast<double>(at + m_sourceOffset);
         m_flatOffset = static_cast<std::int64_t>(std::llround(fresh->flattened.outputSampleFor(source))) - at;
-        m_segmentStart = at;
-        pushEvent({ at, Voice { fresh, m_flatOffset, static_cast<float>(m_gain) } });
+        m_segmentResult = fresh;   // m_segmentStart stays: it says whether the match has been heard yet
+        pushEvent({ at, Voice { fresh, m_flatOffset, m_sourceOffset, 1.0f, false } });
+    }
+    else if (sameSound && m_match == Match::Tail)
+    {
+        // The old render's tail plays out; the next match uses the new one.
     }
     else if (! sameSound)
     {
         // Another sound (or none): back to the input, and search again for the new one.
-        if (m_match != Match::Off || m_current.result != nullptr || m_numEvents > 0)
-            pushEvent({ outNext, Voice {} });
-        m_match = Match::Off;
-        m_searching.store(false, std::memory_order_release);
+        stopMatching(outNext);
     }
 }
 
@@ -861,103 +1762,473 @@ bool Engine::readAnswer(const Result& r, std::int64_t outNext) noexcept
     const auto input = m_answerInput.load(std::memory_order_relaxed);
     const auto source = m_answerSource.load(std::memory_order_relaxed);
     const auto length = m_answerLength.load(std::memory_order_relaxed);
+    const auto verifyFrom = m_answerVerifyFrom.load(std::memory_order_relaxed);
     const auto gain = m_answerGain.load(std::memory_order_relaxed);
+    const auto gainEnd = m_answerGainEnd.load(std::memory_order_relaxed);
     std::atomic_thread_fence(std::memory_order_acquire);
     if (m_answerSequence.load(std::memory_order_relaxed) != before)
         return false;   // written meanwhile: next block
-    if (epoch != m_epoch || learned != r.learned->id)
+    if (epoch != m_epoch || learned != r.learned->id || input < m_fence.load(std::memory_order_relaxed))
         return false;
 
+    m_matchInput = input;
     m_sourceOffset = source - input;
     m_flatOffset = static_cast<std::int64_t>(std::llround(r.flattened.outputSampleFor(static_cast<double>(source)))) - input;
-    m_segmentStart = std::max(input, outNext);   // a late answer starts now, at the right place for now
-    m_verifyPosition = input + length;           // the search compared the probe already
-    // A level within about a tenth of a decibel of the learned one is the learned one (the
-    // measurement has that much grain), so the same file played back plays the render exactly.
-    m_gain = gain > 0.0 ? (std::abs(gain - 1.0) < 0.012 ? 1.0 : gain) : 1.0;
+    // Heard when the output reaches the matched input, the latency from now; a late answer starts
+    // at once, at the right place for that moment. Every window until then is checked (verify()),
+    // and one that fails cancels the start before it is heard.
+    m_segmentStart = std::max(input, outNext);
+    m_segmentResult = &r;
+    m_verifyPosition = std::max(verifyFrom, input + length);   // the search compared the probe (and before it) already
+    m_holdReported = false;
+    // The level starts afresh with this match: at the probe's start and end as the search fitted it.
+    m_gainSmoothed = snapGain(gain);
+    m_gainTail = m_gainHead;
+    m_gainHistoryCount = 0;
+    // The level the search fitted across the probe; before the probe (a match extended back to the
+    // sound's start) the level at the probe's start.
+    const auto probeStart = std::max(input, verifyFrom - length);
+    pushGain(input, m_gainSmoothed);
+    if (probeStart > input)
+        pushGain(probeStart, m_gainSmoothed);
+    pushGain(probeStart + length, snapGain(gainEnd));
     m_match = Match::Playing;
     m_searching.store(false, std::memory_order_release);
     m_located.store(true, std::memory_order_relaxed);
     m_lastMatchInput.store(input, std::memory_order_relaxed);
     m_lastMatchSource.store(source, std::memory_order_relaxed);
-    pushEvent({ m_segmentStart, Voice { &r, m_flatOffset, static_cast<float>(m_gain) } });
+    m_run[RunMatches].fetch_add(1, std::memory_order_relaxed);
+    if (m_run[RunFirstMatchInput].load(std::memory_order_relaxed) < 0)
+    {
+        m_run[RunFirstMatchInput].store(input, std::memory_order_relaxed);
+        m_run[RunFirstMatchSource].store(source, std::memory_order_relaxed);
+    }
+    {
+        const auto& learnedSound = *r.learned;
+        const auto end = learnedSound.soundEnd > 0 ? learnedSound.soundEnd : learnedSound.locator.length();
+        m_run[RunLearnedEnd].store(end - m_sourceOffset, std::memory_order_relaxed);   // the input position the sound ends at
+    }
+    pushEvent({ m_segmentStart, Voice { &r, m_flatOffset, m_sourceOffset, static_cast<float>(m_gainSmoothed), true } });
     return true;
 }
 
 void Engine::waitForSearch(std::int64_t tEnd) noexcept
 {
-    // Offline the host runs faster than real time, so the search would answer too late for the
-    // latency to hide it. Here (and only here) the audio thread waits for it: rendering offline
-    // is allowed to take its time.
-    const double deadline = nowSeconds() + 3.0;
+    // Offline (or faster than real time) the search would answer too late for the latency to hide
+    // it. Here the audio thread waits, but only while the output this block reaches would otherwise
+    // pass an input position the search has not decided yet, and only while the search can make
+    // progress with the input it has.
+    const std::int64_t outEnd = tEnd - m_latency;
+    if (m_searchGaveUpEpoch == m_epoch)
+        return;
+    const double started = nowSeconds();
+    bool waited = false;
     for (int spins = 0;; ++spins)
     {
         const auto seq = m_answerSequence.load(std::memory_order_acquire);
         if ((seq & 1u) == 0 && m_answerEpoch.load(std::memory_order_relaxed) == m_epoch)
-            return;
-        if (m_workerEpoch.load(std::memory_order_acquire) == m_epoch && m_workerNeed.load(std::memory_order_relaxed) > tEnd)
-            return;
+            break;
+        if (m_workerEpoch.load(std::memory_order_acquire) == m_epoch)
+        {
+            if (m_workerDecided.load(std::memory_order_relaxed) >= outEnd || m_workerNeed.load(std::memory_order_relaxed) > tEnd)
+                break;
+        }
+        else if (m_searchFrom.load(std::memory_order_relaxed) >= outEnd)
+            break;
         if (m_stop.load())
-            return;
+            break;
+        waited = true;
         if ((spins & 63) == 0)
         {
-            kickHouse();
-            if (nowSeconds() > deadline)
+            kickHouse();   // offline or faster than real time only (see Engine.h: Threads)
+            if (nowSeconds() - started > m_searchWaitLimit.load(std::memory_order_relaxed))
+            {
+                m_searchGaveUpEpoch = m_epoch;
+                noteWait(0, (nowSeconds() - started) * 1000.0, true);
                 return;
+            }
         }
         std::this_thread::yield();
     }
+    if (waited)
+        noteWait(0, (nowSeconds() - started) * 1000.0, false);
+}
+
+void Engine::waitForRender() noexcept
+{
+    // A bounce started right after an option changed must not use the render from before the
+    // change: wait for the new one (offline or faster than real time only; a real-time pass carries
+    // on and switches when it arrives).
+    const auto generation = m_optionsGeneration.load(std::memory_order_acquire);
+    if (m_renderGaveUpGeneration == generation)
+        return;
+    const double started = nowSeconds();
+    while (m_renderPending.load(std::memory_order_acquire) && ! m_stop.load())
+    {
+        if (nowSeconds() - started > m_renderWaitLimit.load(std::memory_order_relaxed))
+        {
+            m_renderGaveUpGeneration = generation;
+            noteWait(1, (nowSeconds() - started) * 1000.0, true);
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    noteWait(1, (nowSeconds() - started) * 1000.0, false);
+}
+
+void Engine::waitForAnalysis() noexcept
+{
+    // A sound still being analysed (a render instance that has just been given its state): a fast
+    // run waits for it, and its render, so the whole file comes out flattened.
+    if (m_analysisGaveUp)
+        return;
+    const double started = nowSeconds();
+    while ((m_analysing.load(std::memory_order_acquire) || m_renderPending.load(std::memory_order_acquire)) && ! m_stop.load())
+    {
+        if (nowSeconds() - started > m_analysisWaitLimit.load(std::memory_order_relaxed))
+        {
+            m_analysisGaveUp = true;
+            noteWait(2, (nowSeconds() - started) * 1000.0, true);
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    noteWait(2, (nowSeconds() - started) * 1000.0, false);
+}
+
+void Engine::setWaitLimitsForTesting(double search, double render, double analysis) noexcept
+{
+    m_searchWaitLimit.store(search);
+    m_renderWaitLimit.store(render);
+    m_analysisWaitLimit.store(analysis);
+}
+
+void Engine::noteWait(int what, double milliseconds, bool gaveUp) noexcept
+{
+    m_waitedMicros += static_cast<std::int64_t>(milliseconds * 1000.0);
+    m_run[RunWaits].fetch_add(1, std::memory_order_relaxed);
+    m_run[RunWaitMicros].fetch_add(static_cast<std::int64_t>(milliseconds * 1000.0), std::memory_order_relaxed);
+    if (gaveUp)
+    {
+        m_waitGaveUp.store(true, std::memory_order_relaxed);
+        m_run[RunFlags].fetch_or(4, std::memory_order_relaxed);
+    }
+    if (gaveUp || milliseconds >= kNotableWaitMs)
+    {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::Wait;
+        e.i[0] = what;
+        e.i[1] = gaveUp ? 1 : 0;
+        e.d[0] = milliseconds;
+        log(e);
+    }
+}
+
+void Engine::measurePace(int numSamples) noexcept
+{
+    // Audio against the wall clock over the last blocks (see the header). Each block's arrival
+    // time against the one before it covers the audio of the blocks in between.
+    const std::int64_t now = m_lastBlockWall;
+    const double rate = m_rate.load(std::memory_order_relaxed);
+    m_paceWall[static_cast<std::size_t>(m_paceHead)] = now;
+    m_paceSamples[static_cast<std::size_t>(m_paceHead)] = numSamples;
+    m_paceHead = (m_paceHead + 1) % kPaceBlocks;
+    m_paceCount = std::min(m_paceCount + 1, kPaceBlocks);
+    std::int64_t samples = 0;
+    for (int k = 1; k < m_paceCount; ++k)
+    {
+        const auto at = static_cast<std::size_t>((m_paceHead - 1 - k + 2 * kPaceBlocks) % kPaceBlocks);
+        samples += m_paceSamples[at];
+        if (k >= kPaceWindowBlocks && static_cast<double>(samples) >= kPaceWindowSeconds * rate)
+        {
+            const double wall = static_cast<double>(std::max<std::int64_t>(1, now - m_paceWall[at])) / 1.0e6;
+            const double ratio = static_cast<double>(samples) / rate / wall;
+            const bool fast = m_fast.load(std::memory_order_relaxed);
+            if (fast != (fast ? ratio >= kRealTimeRatio : ratio > kFastRatio))
+            {
+                m_fast.store(! fast, std::memory_order_relaxed);
+                EngineEvent e;
+                e.kind = EngineEvent::Kind::PaceChanged;
+                e.i[0] = fast ? 0 : 1;
+                e.d[0] = ratio;
+                log(e);
+            }
+            return;
+        }
+    }
+}
+
+void Engine::beginRun(int numSamples, int numChannels, bool bypassed) noexcept
+{
+    const std::int64_t now = nowMicros();
+    const auto lastDone = m_lastBlockDone.load(std::memory_order_relaxed);
+    if (lastDone != 0 && static_cast<double>(now - lastDone) > kRunGapSeconds * 1.0e6)
+    {
+        endRun();
+        m_paceCount = 0;
+        m_fast.store(false, std::memory_order_relaxed);
+    }
+    // The pace clock leaves out the time this engine spent waiting: that is not the host's pace.
+    m_lastBlockWall = now - m_waitedMicros;
+    measurePace(numSamples);
+    if (! m_runOpen.load(std::memory_order_acquire))
+    {
+        const auto relaxed = std::memory_order_relaxed;
+        m_run[RunIndex].store(++m_runCount, relaxed);
+        for (const auto field : { RunBlocks, RunSamples, RunMatches, RunFlattened, RunDry, RunFlags, RunWaits, RunWaitMicros })
+            m_run[static_cast<std::size_t>(field)].store(0, relaxed);
+        m_run[RunSearchesAtStart].store(static_cast<std::int64_t>(m_searches.load(relaxed)), relaxed);
+        m_run[RunCancelledAtStart].store(static_cast<std::int64_t>(m_cancelledStarts.load(relaxed)), relaxed);
+        m_run[RunFirstMatchInput].store(-1, relaxed);
+        m_run[RunFirstMatchSource].store(-1, relaxed);
+        m_run[RunLearnedEnd].store(-1, relaxed);
+        m_run[RunLatency].store(m_latency, relaxed);
+        m_run[RunStartWall].store(now, relaxed);
+        m_run[RunStartInput].store(m_inputPosition, relaxed);
+        m_runOpen.store(true, std::memory_order_release);
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::RunStarted;
+        e.i[0] = m_runCount;
+        e.i[1] = numSamples;
+        e.i[2] = numChannels;
+        e.i[3] = m_nonRealtime.load(relaxed) ? 1 : 0;
+        e.i[4] = bypassed ? 1 : 0;
+        e.d[0] = m_rate.load(relaxed);
+        log(e);
+    }
+    const auto relaxed = std::memory_order_relaxed;
+    m_run[RunBlocks].fetch_add(1, relaxed);
+    m_run[RunSamples].fetch_add(numSamples, relaxed);
+    m_run[RunLastWall].store(now, relaxed);
+    m_run[RunInputEnd].store(m_inputPosition + numSamples, relaxed);
+    m_run[RunFlags].fetch_or((m_nonRealtime.load(relaxed) ? 1 : 0) | (m_fast.load(relaxed) ? 2 : 0), relaxed);
+}
+
+void Engine::endRun() noexcept
+{
+    if (! m_runOpen.exchange(false, std::memory_order_acq_rel))
+        return;
+    const auto get = [this](int field) { return m_run[static_cast<std::size_t>(field)].load(std::memory_order_relaxed); };
+    EngineEvent e;
+    e.kind = EngineEvent::Kind::RunEnded;
+    const auto startInput = get(RunStartInput);
+    e.i[0] = get(RunIndex);
+    e.i[1] = get(RunBlocks);
+    e.i[2] = get(RunSamples);
+    e.i[3] = static_cast<std::int64_t>(m_searches.load(std::memory_order_relaxed)) - get(RunSearchesAtStart);
+    e.i[4] = get(RunMatches);
+    e.i[5] = static_cast<std::int64_t>(m_cancelledStarts.load(std::memory_order_relaxed)) - get(RunCancelledAtStart);
+    e.i[6] = get(RunFirstMatchInput) >= 0 ? get(RunFirstMatchInput) - startInput : 0;
+    e.i[14] = get(RunFirstMatchInput) >= 0 ? 1 : 0;
+    e.i[7] = get(RunFirstMatchSource);
+    e.i[8] = get(RunFlattened);
+    e.i[9] = get(RunDry);
+    e.i[10] = get(RunLatency);
+    e.i[11] = get(RunLearnedEnd) >= 0 ? get(RunInputEnd) - get(RunLearnedEnd) : -1;
+    e.i[12] = get(RunFlags);
+    e.i[13] = get(RunWaits);
+    e.d[0] = m_rate.load(std::memory_order_relaxed);
+    e.d[1] = static_cast<double>(get(RunLastWall) - get(RunStartWall)) / 1.0e6;
+    e.d[2] = static_cast<double>(get(RunWaitMicros)) / 1000.0;
+    log(e);
+}
+
+void Engine::failMatch(std::int64_t at, std::int64_t outNext, int why, double residual) noexcept
+{
+    if (outNext > m_segmentStart)
+    {
+        // Let go of a match that was heard: the house thread compares input and learned there.
+        m_diagnoseInput.store(at, std::memory_order_relaxed);
+        m_diagnoseSource.store(at + m_sourceOffset, std::memory_order_relaxed);
+        m_diagnoseRequest.fetch_add(1, std::memory_order_release);
+    }
+    {
+        EngineEvent e;
+        e.kind = EngineEvent::Kind::MatchFailed;
+        e.i[0] = at;
+        e.i[1] = outNext <= m_segmentStart ? 1 : 0;
+        e.i[2] = why;
+        e.d[0] = 10.0 * std::log10(std::max(residual, 1.0e-15));
+        e.d[1] = m_rate.load(std::memory_order_relaxed);
+        log(e);
+    }
+    // The input stopped being the learned sound at input position `at`. A start not yet heard is
+    // cancelled outright; otherwise the output fades back to the input, the fade ending at `at`,
+    // so nothing after the checked input is heard.
+    if (outNext <= m_segmentStart)
+    {
+        pushEvent({ m_segmentStart, Voice {} });
+        m_cancelledStarts.fetch_add(1, std::memory_order_relaxed);
+    }
+    else
+        pushEvent({ std::max(at - m_fadeLength, outNext), Voice {} });
+    m_failures.fetch_add(1, std::memory_order_relaxed);   // before the new epoch: the house thread backs off
+    beginSearch(at);
 }
 
 void Engine::verify(const Result& r, std::int64_t tEnd, std::int64_t outNext) noexcept
 {
-    const Locator& locator = r.learned->locator;
-    const float* learned = locator.samples();
-    const std::int64_t learnedLength = locator.length();
+    const Learned& learned = *r.learned;
+    const Locator& locator = learned.locator;
+    const float* mid = locator.samples();
+    const float* side = learned.side.empty() ? nullptr : learned.side.data();
+    const std::int64_t learnedLength = learned.soundEnd > 0 ? learned.soundEnd : locator.length();
     const std::int64_t flatLength = static_cast<std::int64_t>(r.flattened.channels[0].size());
     const int W = std::min(m_verifyWindow, std::max(1, locator.probeLength()));
     const double silent = static_cast<double>(W) * kSilence * kSilence;
-    const double loud = silent * 100.0;   // 20 dB over silence
-    const double gain2 = m_gain * m_gain;
+    const bool checkSide = side != nullptr && m_inputStereo;
 
-    while (m_verifyPosition + W <= tEnd)
+    while (m_match == Match::Playing && m_verifyPosition + W <= tEnd)
     {
-        if (m_verifyPosition < tEnd - kRingSize + 8192)
-            m_verifyPosition = tEnd - W;   // cannot happen with sane blocks; never read stale ring data
-        const std::int64_t source = m_verifyPosition + m_sourceOffset;
+        const std::int64_t v = m_verifyPosition;
+        if (v < tEnd - kRingSize + kRingGuard)
+        {
+            failMatch(v, outNext);   // a block larger than the ring: nothing left to check against
+            return;
+        }
+        const std::int64_t source = v + m_sourceOffset;
         if (source >= learnedLength || source < 0)
         {
-            // Past the end of the sound: whatever the flattened sound has left plays out, then the
-            // input again.
-            const std::int64_t end = std::max(learnedLength - m_sourceOffset, flatLength - m_flatOffset);
-            pushEvent({ std::max(end, outNext), Voice {} });
-            beginSearch(m_verifyPosition);
+            // Past the end of the sound. A longer render plays out its tail (until the input is
+            // no longer silent); a shorter one has finished, and the input comes back when the
+            // sound would have ended.
+            const std::int64_t learnedEnd = learnedLength - m_sourceOffset, flatEnd = flatLength - m_flatOffset;
+            if (flatEnd > std::max(learnedEnd, outNext))
+            {
+                m_match = Match::Tail;
+                m_tailEnd = flatEnd;
+                watchTail(tEnd, outNext);
+            }
+            else
+            {
+                // The search starts again exactly where the sound ended: a loop played back to back
+                // is found again at its seam.
+                pushEvent({ std::max(learnedEnd, outNext), Voice {} });
+                beginSearch(learnedEnd);
+            }
             return;
         }
-        double xx = 0.0, yy = 0.0, xy = 0.0;
-        for (int i = 0; i < W; ++i)
+        // The last window may run past the end of the sound: only the part inside it counts (what
+        // follows may be the next sound already). A sliver is not worth checking: the sound ended.
+        const int n = static_cast<int>(std::min<std::int64_t>(W, learnedLength - source));
+        if (n < W / 4)
         {
-            const double x = m_ring[static_cast<std::size_t>((m_verifyPosition + i) & kRingMask)].load(std::memory_order_relaxed);
-            const double y = learned[source + i];   // the learned sound has a probe's length of zeros after it
+            m_verifyPosition = learnedLength - m_sourceOffset;
+            continue;
+        }
+        const double silentHere = silent * static_cast<double>(n) / static_cast<double>(W);
+
+        double xx = 0.0, yy = 0.0, ss = 0.0, tt = 0.0, st = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto at = static_cast<std::size_t>((v + i) & kRingMask);
+            const double x = m_ring[at].load(std::memory_order_relaxed);
+            const double y = mid[source + i];
             xx += x * x;
             yy += y * y;
-            xy += x * y;
+            if (checkSide)
+            {
+                const double s = m_sideRing[at].load(std::memory_order_relaxed);
+                const double t = side[source + i];
+                ss += s * s;
+                tt += t * t;
+                st += s * t;
+            }
         }
-        const double expected = yy * gain2;
+
         bool same;
-        if (xx < silent)
-            same = expected < loud;            // both quiet; or the player stopped while the sound goes on
-        else if (expected < silent)
-            same = false;                      // something else is playing where the sound is quiet
+        double failResidual = 1.0;
+        int failWhy = 0;
+        if (yy < silentHere)
+        {
+            // The learned sound is silent here: the input must be too (scaled by the level it is
+            // played at), or something else is playing.
+            const double g = std::max(1.0, m_gainSmoothed);
+            same = xx < silentHere * g * g;
+            if (! same)
+            {
+                failMatch(v, outNext, 2, 1.0);
+                return;
+            }
+        }
         else
-            same = xy / std::sqrt(xx * yy) >= kKeepCorrelation;
+        {
+            // Anything else must be the learned recording (silence in the input is not: the player
+            // stopped, perhaps in a quiet stretch between two sounds).
+            // The same recording, allowing a short filter on the way (see matching::).
+            const auto ringAt = [this, v](int t) { return static_cast<double>(m_ring[static_cast<std::size_t>((v + t) & kRingMask)].load(std::memory_order_relaxed)); };
+            const auto midAt = [mid, source, learnedLength, this](int t)
+            {
+                const auto k = source + t;
+                return k >= 0 && k < learnedLength + m_verifyWindow ? static_cast<double>(mid[k]) : 0.0;
+            };
+            const auto fit = matching::fitRecording(ringAt, midAt, n);
+            failResidual = fit.residual;
+            same = failResidual <= matching::kKeepResidual;
+            failWhy = xx < silentHere ? 1 : 0;
+            const double g = fit.gain;
+            // In stereo, the difference of the channels too, where it carries real energy: a copy
+            // with the channels swapped has the same mix.
+            if (same && checkSide && tt * g * g >= std::max(silentHere, 0.01 * yy * g * g))
+            {
+                const double left = ss - 2.0 * g * st + g * g * tt;
+                same = left <= matching::kKeepResidual * g * g * tt;
+                if (! same)
+                {
+                    const auto sideFit = matching::fitRecording(
+                        [this, v](int t) { return static_cast<double>(m_sideRing[static_cast<std::size_t>((v + t) & kRingMask)].load(std::memory_order_relaxed)); },
+                        [side, source, learnedLength, this](int t) { const auto k = source + t; return k >= 0 && k < learnedLength + m_verifyWindow ? static_cast<double>(side[k]) : 0.0; },
+                        n);
+                    same = sideFit.filtered && sideFit.residual <= matching::kKeepResidual;
+                }
+            }
+            if (same)
+                followGain(v, g);   // follow the level
+        }
         if (! same)
         {
-            pushEvent({ std::max(m_verifyPosition, outNext), Voice {} });
-            beginSearch(m_verifyPosition);
+            failMatch(v, outNext, failWhy, failResidual);
             return;
         }
-        m_verifyPosition += W;
+        m_verifyPosition = v + n;
+        if (! m_holdReported && m_verifyPosition - m_matchInput >= secondsToSamples(kHeldSeconds, m_rate.load(std::memory_order_relaxed)))
+        {
+            m_holdReported = true;
+            m_holds.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    if (m_match == Match::Tail)
+        watchTail(tEnd, outNext);
+}
+
+void Engine::watchTail(std::int64_t tEnd, std::int64_t outNext) noexcept
+{
+    // The render outlasts the sound. It plays out while the input is silent; as soon as anything
+    // plays (the next file), the input comes back at once, with the usual fade.
+    const int W = m_verifyWindow;
+    const double silent = static_cast<double>(W) * kSilence * kSilence;
+    while (m_verifyPosition + W <= tEnd)
+    {
+        const std::int64_t v = m_verifyPosition;
+        if (v >= m_tailEnd)
+        {
+            pushEvent({ std::max(m_tailEnd, outNext), Voice {} });
+            beginSearch(v);
+            return;
+        }
+        double xx = 0.0;
+        for (int i = 0; i < W; ++i)
+        {
+            const double x = m_ring[static_cast<std::size_t>((v + i) & kRingMask)].load(std::memory_order_relaxed);
+            xx += x * x;
+        }
+        if (xx >= silent)
+        {
+            pushEvent({ std::max(v, outNext), Voice {} });
+            beginSearch(v);
+            return;
+        }
+        m_verifyPosition = v + W;
     }
 }
 
@@ -965,36 +2236,52 @@ void Engine::updateMatching(std::int64_t t0, int numSamples) noexcept
 {
     const std::int64_t tEnd = t0 + numSamples;
     const std::int64_t outNext = t0 - m_latency;   // the input position the next output sample is
+    // Offline as the host says, or as the pace of the audio shows (see the header).
+    const bool offline = m_nonRealtime.load(std::memory_order_relaxed) || m_fast.load(std::memory_order_relaxed);
 
+    releaseUnheld();
+    const int capture = m_captureState.load(std::memory_order_relaxed);
+    if (! m_analysing.load(std::memory_order_acquire))
+        m_analysisGaveUp = false;   // that analysis is over: the next one may be waited for
+    if (offline && capture == CapIdle && m_analysing.load(std::memory_order_acquire))
+        waitForAnalysis();
+    const bool analysing = m_analysing.load(std::memory_order_acquire);
+    if (offline && ! analysing && m_renderPending.load(std::memory_order_acquire))
+        waitForRender();
     pickUpResult(outNext);
     const Result* r = m_latest;
-    const bool rateMismatch = r != nullptr && r->learned != nullptr && std::abs(r->learned->sampleRate - m_rate.load(std::memory_order_relaxed)) > 0.5;
+    const bool rateMismatch = r != nullptr && r->learned != nullptr && rateDiffers(r->learned->sampleRate);
     m_rateMismatch.store(rateMismatch, std::memory_order_relaxed);
     const int cap = m_captureState.load(std::memory_order_relaxed);
-    const bool playable = r != nullptr && r->playable() && ! rateMismatch && cap != CapArmed && cap != CapListening;
+    // Nothing plays while Learn listens or a new sound is analysed: the window says so, and the
+    // audio agrees.
+    const bool playable = r != nullptr && r->playable() && ! rateMismatch && ! analysing && cap == CapIdle;
 
     if (! playable)
     {
         if (m_match != Match::Off)
-        {
-            pushEvent({ outNext, Voice {} });
-            m_match = Match::Off;
-            m_searching.store(false, std::memory_order_release);
-            m_located.store(false, std::memory_order_relaxed);
-        }
+            stopMatching(outNext);
+        m_active.store(false, std::memory_order_relaxed);
         return;
     }
+    m_active.store(true, std::memory_order_relaxed);
     if (m_match == Match::Off)
         beginSearch(outNext);
 
     if (m_match == Match::Waiting)
     {
-        if (m_nonRealtime.load(std::memory_order_relaxed))
+        if (offline)
             waitForSearch(tEnd);
         readAnswer(*r, outNext);
     }
-    if (m_match == Match::Playing)
-        verify(*r, tEnd, outNext);
+    if (m_match == Match::Playing || m_match == Match::Tail)
+    {
+        const Result* playing = m_segmentResult != nullptr ? m_segmentResult : r;
+        if (m_match == Match::Playing)
+            verify(*playing, tEnd, outNext);
+        else
+            watchTail(tEnd, outNext);
+    }
 }
 
 float Engine::voiceSample(const Voice& v, int channel, int numChannels, std::int64_t u, float dry) const noexcept
@@ -1007,15 +2294,17 @@ float Engine::voiceSample(const Voice& v, int channel, int numChannels, std::int
         return 0.0f;   // before or after the flattened sound: silence (it may be shorter than the original)
     const auto i = static_cast<std::size_t>(index);
     if (ch.size() == 1)
-        return v.gain * ch[0][i];                          // mono sound: every channel
+        return m_gainNow * ch[0][i];                          // mono sound: every channel
     if (numChannels == 1)
-        return v.gain * 0.5f * (ch[0][i] + ch[1][i]);      // stereo sound, mono track: the two halves summed
-    return v.gain * ch[static_cast<std::size_t>(std::min(channel, 1))][i];
+        return m_gainNow * (0.5f * (ch[0][i] + ch[1][i]));    // stereo sound, mono track: the two halves summed
+    return m_gainNow * ch[static_cast<std::size_t>(std::min(channel, 1))][i];
 }
 
 void Engine::renderOutput(float* const* channels, int numChannels, int numSamples, std::int64_t t0) noexcept
 {
     const int L = m_latency;
+    const int gainPoints = static_cast<int>(m_gainPoints.size());
+    std::int64_t flattened = 0;
     for (int i = 0; i < numSamples; ++i)
     {
         const std::int64_t u = t0 + i - L;   // the input position this output sample is
@@ -1025,12 +2314,44 @@ void Engine::renderOutput(float* const* channels, int numChannels, int numSample
             for (int k = 1; k < m_numEvents; ++k)
                 m_events[static_cast<std::size_t>(k - 1)] = m_events[static_cast<std::size_t>(k)];
             --m_numEvents;
+            if (next.newSegment)
+            {
+                // A new match starts at its own level.
+                m_gainNow = next.gain;
+                m_gainRampLeft = 0;
+            }
             if (next == m_current)
                 continue;
             m_previous = m_current;
             m_current = next;
             m_fadePosition = 0;
         }
+        // The level as measured on the input, in straight lines from point to point, so it never
+        // clicks and never lags. At a point the level is exactly that point's (1 for the same file).
+        while (m_gainTail != m_gainHead && m_gainPoints[static_cast<std::size_t>(m_gainTail)].at <= u)
+        {
+            const GainPoint here = m_gainPoints[static_cast<std::size_t>(m_gainTail)];
+            m_gainTail = (m_gainTail + 1) % gainPoints;
+            m_gainNow = here.gain;
+            m_gainRampLeft = 0;
+            if (m_gainTail != m_gainHead)
+            {
+                const GainPoint next = m_gainPoints[static_cast<std::size_t>(m_gainTail)];
+                const std::int64_t distance = next.at - here.at;
+                if (distance > 0 && (next.gain < here.gain || next.gain > here.gain))
+                {
+                    m_gainRampLeft = distance;
+                    m_gainStep = (next.gain - here.gain) / static_cast<float>(distance);
+                }
+            }
+        }
+        if (m_gainRampLeft > 0)
+        {
+            m_gainNow += m_gainStep;
+            --m_gainRampLeft;
+        }
+
+        flattened += m_current.result != nullptr ? 1 : 0;
         const bool fading = m_fadePosition < m_fadeLength;
         const float w = fading ? (static_cast<float>(m_fadePosition) + 0.5f) / static_cast<float>(m_fadeLength) : 1.0f;
         for (int c = 0; c < numChannels; ++c)
@@ -1048,17 +2369,36 @@ void Engine::renderOutput(float* const* channels, int numChannels, int numSample
         }
         if (++m_delayPosition >= L)
             m_delayPosition = 0;
-        if (fading)
-            ++m_fadePosition;
+        if (fading && ++m_fadePosition >= m_fadeLength)
+            m_previous = Voice {};   // faded out: let go of it
     }
+    m_run[RunFlattened].fetch_add(flattened, std::memory_order_relaxed);
+    m_run[RunDry].fetch_add(numSamples - flattened, std::memory_order_relaxed);
+    publishReadouts(t0 + numSamples - 1 - L);
+}
 
-    if (m_current.result != nullptr)
+void Engine::publishReadouts(std::int64_t u) noexcept
+{
+    Playback playback = m_match != Match::Off ? Playback::Searching : Playback::Idle;
+    if (const Result* r = m_current.result)
     {
-        m_playPosition.store(t0 + numSamples - 1 - L + m_current.flatOffset, std::memory_order_relaxed);
-        m_playGeneration.store(m_current.result->generation, std::memory_order_relaxed);
+        const std::int64_t index = u + m_current.flatOffset;
+        m_playPosition.store(index, std::memory_order_relaxed);
+        m_playGeneration.store(r->generation, std::memory_order_relaxed);
+        if (index >= static_cast<std::int64_t>(r->flattened.channels[0].size()))
+            playback = Playback::FlattenedEnded;
+        else if (u + m_current.sourceOffset >= r->learned->locator.length())
+            playback = Playback::Tail;
+        else
+            playback = Playback::Flattened;
+        m_playingCurrent.store(r->generation == m_currentRender.load(std::memory_order_acquire), std::memory_order_relaxed);
     }
     else
+    {
         m_playPosition.store(-1, std::memory_order_relaxed);
+        m_playingCurrent.store(false, std::memory_order_relaxed);
+    }
+    m_playback.store(static_cast<int>(playback), std::memory_order_relaxed);
 }
 
 } // namespace pitchflattener

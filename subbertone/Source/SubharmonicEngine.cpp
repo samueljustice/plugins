@@ -34,7 +34,6 @@ namespace
     constexpr float  c_strongConfidence    = 0.8f;  // strict YIN hits; fallback guesses are weaker
     constexpr double c_paramSeconds        = 0.030;
     constexpr double c_typeFadeSeconds     = 0.030;
-    constexpr float  c_gateHysteresisDb    = 3.0f;
     constexpr float  c_maxDrive            = 10.0f;
     constexpr int    c_filterUpdateInterval = 8;
     constexpr double c_maxResidualPeak     = 1.5;  // relative to a unit sine
@@ -46,6 +45,10 @@ namespace
     constexpr double c_loCutGlideSeconds   = 0.060; // per pole of the cutoff's two-pole glide
     constexpr double c_loCutRestHz         = 2.0;   // where the high-pass rests while the off path is the dry sub
     constexpr float  c_loCutSilentGate     = 1.0e-5f; // below this the sub is silent: the allpass may hand back to dry
+    constexpr double c_subFloorHz          = 20.0;    // Sub Floor: no deeper sub (S2, S3) at or below this ...
+    constexpr float  c_subFloorSemitones   = 3.0f;    // ... and a fade-in over this many semitones above it (to 23.8 Hz)
+    constexpr double c_subFloorSeconds     = 0.0025;  // ... its gain following the pitch through two one-poles of this
+    constexpr float  c_subOctaveOff        = 1.0e-5f; // a deeper sub fading out below this gain (-100 dB) has gone
 
     constexpr SubharmonicEngine::Parameters c_defaults {};
 
@@ -99,11 +102,21 @@ namespace
     constexpr float  c_coherenceHighSub  = 0.10f;
     constexpr float  c_rotationStable    = 0.25f;  // rotation per update / grid spacing: a real partial mistuned by e
     constexpr float  c_rotationUnstable  = 0.50f;  // rotates at k e of it, leakage of a neighbour at about 1
+    // Following a learned pitch the grid is exact, so a partial k that rotates by r is r / k off in frequency: within
+    // half a semitone it is the input's own partial (followed), from a semitone it is another one (left alone).
+    constexpr float  c_guideMistuneStable   = 0.03f;
+    constexpr float  c_guideMistuneUnstable = 0.06f;
     constexpr float  c_alignFloorDb      = -40.0f; // partials this far below the strongest are not followed
     constexpr float  c_alignFullDb       = -30.0f;
     constexpr int    c_gridSize          = 64;     // oscillator shifts searched at a note start
     constexpr int    c_tableDrives       = 145;    // shaper harmonic table: drive 1..10 in steps of 1/16
     constexpr int    c_tablePoints       = 1024;
+
+    //==========================================================================
+    // Pitch guidance (Learn)
+    constexpr double c_semitonesPerLog       = 17.312340490667562; // 12 / ln(2): ln Hz to the tracker's semitones
+    constexpr double c_guideLowestLog        = 2.995732273553991;  // ln(20 Hz): the lowest line a guide may ask for
+    constexpr double c_guideOnsetWaitSeconds = 0.025;              // Phase Align: longest wait for a period of a new note
 
     template <typename T> T wrapPi(T a) // to (-pi, pi]
     {
@@ -116,6 +129,16 @@ namespace
     {
         const float t = std::clamp((x - lo) / (hi - lo), 0.0f, 1.0f);
         return t * t * (3.0f - 2.0f * t);
+    }
+
+    // Sub Floor: the gain of a deeper sub sounding at hz. Nothing at 20 Hz and below, where a sub only uses up headroom
+    // (and the speaker's excursion), all of it from 3 semitones above, a smoothstep in semitones between.
+    float subFloorGain(double hz)
+    {
+        if (!(hz > c_subFloorHz))
+            return 0.0f;
+
+        return smoothstep(static_cast<float>(12.0 * std::log2(hz / c_subFloorHz)), 0.0f, c_subFloorSemitones);
     }
 
     struct ShaperHarmonicTable
@@ -283,6 +306,7 @@ void SubharmonicEngine::prepare(double sampleRate)
     m_weakLongHops      = std::max(m_weakWindowHops, hopsFor(c_weakLongSeconds, hopSeconds, 1));
     m_newNoteFixHops    = hopsFor(c_newNoteFixSeconds, hopSeconds, 1);
     m_paramCoeff   = onePoleCoeff(c_paramSeconds, m_sampleRate);
+    m_subFloorCoeff = onePoleCoeff(c_subFloorSeconds, m_sampleRate);
     m_typeFadeStep = static_cast<float>(1.0 / (c_typeFadeSeconds * m_sampleRate));
     m_loCutFadeStep = static_cast<float>(1.0 / (c_loCutFadeSeconds * m_sampleRate));
     m_loCutGlideCoeff = 1.0 - std::exp(-1.0 / (c_loCutGlideSeconds * m_sampleRate));
@@ -301,6 +325,9 @@ void SubharmonicEngine::prepare(double sampleRate)
     (void) shaperHarmonicTable();
     (void) phaseGrid();
 
+    // Pitch guidance: a line up to 0.4 x the rate keeps the sub (half of it) far below Nyquist.
+    m_guideHighestLog = std::log(0.4 * m_sampleRate);
+
     reset();
 }
 
@@ -313,6 +340,10 @@ void SubharmonicEngine::reset()
     updateDetectionBand(m_target.maxFundamentalHz);
     m_bandLp1.reset();
     m_bandLp2.reset();
+    m_lineLp1.reset();
+    m_lineLp2.reset();
+    m_lineCutoff = 0.0f;
+    m_lineActive = false;
 
     m_inputMeanSquare = 0.0f;
     m_dcIn = m_dcOut = 0.0;
@@ -324,8 +355,11 @@ void SubharmonicEngine::reset()
     m_gate = 0.0f;
     m_gateTarget = 0.0f;
     resetTracker();
+    m_guided = false;
+    m_guideJumped = false;
 
     m_phase = 0.0;
+    m_subCycle = 0;
     m_logFreq = m_logFreqTarget = std::log(50.0);
 
     m_distortion = m_target.distortion;
@@ -353,6 +387,13 @@ void SubharmonicEngine::reset()
     updateOvertoneTargets(50.0);
     for (int k = 0; k <= c_maxOvertone; ++k)
         m_overtoneGain[k] = m_overtoneTarget[k];
+    // The deeper subs' levels start where they are set, but their Sub Floor at 0: the resting pitch is not a note, so
+    // they rise from nothing on the first one (with the voicing gate closed, the floor waits for it).
+    for (int j = 0; j < 2; ++j)
+        m_subFloorTarget[j] = m_subFloorFast[j] = m_subFloor[j] = 0.0f;
+    updateSubOctaveTargets(50.0);
+    m_subOctaveGain[0] = m_subOctaveTarget[0];
+    m_subOctaveGain[1] = m_subOctaveTarget[1];
     m_postFilter.reset();
     m_postFilter.setCutoff(m_postLowpassHz, m_fs);
 
@@ -387,6 +428,8 @@ void SubharmonicEngine::setParameters(const Parameters& p)
     m_target.overtoneAmount = std::clamp(finiteOr(p.overtoneAmount, c_defaults.overtoneAmount), 0.0f, 1.0f);
     for (auto& level : m_target.harmonicLevels)
         level = std::clamp(finiteOr(level, 0.0f), 0.0f, 1.0f);
+    m_target.subOctave2 = std::clamp(finiteOr(p.subOctave2, 0.0f), 0.0f, 1.0f);
+    m_target.subOctave3 = std::clamp(finiteOr(p.subOctave3, 0.0f), 0.0f, 1.0f);
 
     const int wantedType = m_target.saturationType;
 
@@ -600,6 +643,57 @@ float SubharmonicEngine::getHarmonicActivity(int k) const
     return std::clamp(m_activity * m_overtoneAmount * m_overtoneGain[k] / set, 0.0f, 1.0f);
 }
 
+void SubharmonicEngine::updateSubOctaveTargets(double subFrequency)
+{
+    // S2 sounds at half the sub's pitch and S3 at a quarter of it. Their levels go through the 30 ms parameter
+    // smoothing. The Sub Floor is a gain of its own, worked out here at the control rate next to the overtones' Nyquist
+    // guard: smoothed like the levels, a deeper sub whose pitch drops below 20 Hz would go on sounding there for about
+    // 0.15 s. It reaches the sound through two short one-poles instead (a single one would start a fast fade with a
+    // corner, heard on quick note changes), so a glide through the 3-semitone fade stays smooth.
+    m_subOctaveTarget[0] = m_target.subOctave2;
+    m_subOctaveTarget[1] = m_target.subOctave3;
+
+    // While the voicing gate is shut and no note is starting (after a reset, or a long silence), the pitch is the
+    // resting one or where the last note ended: the floor waits for a note.
+    if (!subOctavesActive() || (m_gate <= 0.0f && m_gateTarget <= 0.0f))
+        return;
+
+    const float floorGain[2] { subFloorGain(0.5 * subFrequency), subFloorGain(0.25 * subFrequency) };
+
+    for (int j = 0; j < 2; ++j)
+    {
+        m_subFloorTarget[j] = floorGain[j];
+
+        // A deeper sub that has not started to sound (just switched on) starts at the floor of the pitch it joins.
+        if (m_subOctaveGain[j] <= 0.0f)
+            m_subFloorFast[j] = m_subFloor[j] = floorGain[j];
+    }
+}
+
+bool SubharmonicEngine::subOctavesActive() const
+{
+    return m_subOctaveTarget[0] > 0.0f || m_subOctaveTarget[1] > 0.0f || m_subOctaveGain[0] > 0.0f || m_subOctaveGain[1] > 0.0f;
+}
+
+bool SubharmonicEngine::subOctaveSounding(int j) const
+{
+    return (m_subOctaveTarget[j] > 0.0f && m_subFloorTarget[j] > 0.0f) || (m_subOctaveGain[j] > 0.0f && m_subFloor[j] > 0.0f);
+}
+
+float SubharmonicEngine::getSubOctaveActivity(int octaves) const
+{
+    if (octaves != 2 && octaves != 3)
+        return 0.0f;
+
+    const auto j = static_cast<size_t>(octaves - 2);
+    const float set = j == 0 ? m_target.subOctave2 : m_target.subOctave3;
+    if (set <= 1.0e-4f)
+        return 0.0f;
+
+    // Includes the Sub Floor: a deeper sub below 20 Hz at the current pitch shows nothing.
+    return std::clamp(m_activity * m_subOctaveGain[j] * m_subFloor[j] / set, 0.0f, 1.0f);
+}
+
 void SubharmonicEngine::resetTracker()
 {
     m_hasTrack = false;
@@ -796,6 +890,181 @@ void SubharmonicEngine::onPitchEstimate()
 }
 
 //==============================================================================
+// Pitch guidance (Learn)
+//==============================================================================
+void SubharmonicEngine::applyGuide(std::uint8_t state, float logLineHz, float logTargetHz, bool hop)
+{
+    const bool entering = !m_guided; // the first guided sample after live tracking
+    m_guided = true;
+
+    // A value the engine cannot play (NaN, inf) is no pitch; anything else is held inside the range it can play.
+    const bool voiced = (state & PitchGuide::voicingMask) == PitchGuide::voiced
+                     && std::isfinite(logLineHz) && std::isfinite(logTargetHz);
+    const double logLine = voiced ? std::min(std::max(static_cast<double>(logLineHz), c_guideLowestLog), m_guideHighestLog) : 0.0;
+    const double logSub = logLine - c_ln2;
+    const bool far = voiced && std::abs(m_logFreq - logSub) > c_semitoneLog; // the sub is more than a semitone off
+
+    if ((state & PitchGuide::discontinuity) != 0)
+    {
+        // The timeline jumped, so the input did too: the sub may jump to the new pitch where it would otherwise glide.
+        m_guideJumped = true;
+
+        // Phase Align: what plays after the jump is a new sound. Its phase is chosen from a period of it, against a
+        // reference counted from here (so every pass of a loop starts the same way), and a sub still sounding at another
+        // pitch, or where there is no pitch now, is faded out meanwhile, as a stale tail is when a new sound arrives.
+        if (m_paRunning && m_levelOpen)
+        {
+            if (m_hasTrack && (!voiced || far))
+                resetTracker();
+            phaseLevelOnset();
+        }
+    }
+
+    if (hop && m_levelOpen && m_trackAgeHops <= m_newNoteFixHops)
+        ++m_trackAgeHops; // as onPitchEstimate() counts it: a hand-back right after a new note may still correct it
+
+    // The Threshold still gates the sub: a learned curve never makes a sub below it.
+    bool sounding = voiced && m_levelOpen;
+    const bool started = sounding && !m_hasTrack;
+
+    // Phase Align chooses a new note's phase from the last period of the input. Right after the level gate opened (a
+    // hit) or a timeline jump, that period is not all the new note yet, so the note waits until it is: one period of
+    // the line, at most 25 ms (the history holds one period at 38 Hz). Live tracking needs 40-70 ms there.
+    if (started && m_paRunning)
+    {
+        const double wait = m_sampleRate * std::min(c_guideOnsetWaitSeconds, std::exp(-logLine));
+        if (static_cast<double>(m_sampleCounter - m_onsetSample) < wait)
+            sounding = false;
+    }
+
+    if (!sounding)
+    {
+        // As live tracking does below the Threshold: stop at once, forget the track.
+        resetTracker();
+        m_gateTarget = 0.0f;
+        m_fundamental = 0.0f;
+        return;
+    }
+
+    const bool jumped = m_guideJumped;
+    m_guideJumped = false;
+
+    // The tracker's own state sits on the learned pitch, as acceptPitch() leaves it, so a hand-back to live tracking
+    // continues from here: estimates that agree are followed, others have to confirm a jump as usual.
+    m_trackSt = m_strongSt = static_cast<float>(logLine * c_semitonesPerLog);
+    m_hasTrack = true;
+    m_hopsSinceStrong = 0;
+    m_holdHops = 0;
+    m_candidateHops = 0;
+    m_candidateSureHops = 0;
+    m_startHops = 0;
+    m_gateTarget = 1.0f;
+
+    if (hop)
+    {
+        m_voicedHistory = ((m_voicedHistory << 1) | 1u) & 0x3FFu;
+        m_fundamental = static_cast<float>(std::exp(logLine));
+    }
+
+    if (started)
+    {
+        // A note starts where the curve and the level gate start it. As a live new note, it starts on its own pitch
+        // (phase continuous) once the last note's sub has faded, and so it does after a timeline jump; a note picked up
+        // again while the sub still sounds glides. Phase Align makes the jump itself, with the phase chosen from the
+        // input: where Classic jumps, where the sub is more than a semitone off, and where the tail guard holds a tail.
+        m_trackAgeHops = 0;
+        m_newNoteTrack = m_gate < c_newNoteGate;
+        m_fundamental = static_cast<float>(std::exp(logLine));
+        m_logFreqTarget = logSub;
+
+        if (m_paRunning)
+        {
+            const bool guardHolding = m_duckState == 3 || m_duckState == 4;
+            if (m_gate < c_newNoteGate || far || guardHolding)
+                phaseNoteStart(false);
+        }
+        else if (m_gate < c_newNoteGate || (jumped && far))
+        {
+            m_logFreq = logSub;
+        }
+    }
+    else if (far && m_paRunning && entering)
+    {
+        // Entering a learned stretch mid-note while the live sub plays another pitch: Phase Align corrects it like a
+        // new note's pitch (faded out over 8 ms first if it is audible). Without Phase Align the sub glides over.
+        m_fundamental = static_cast<float>(std::exp(logLine));
+        m_logFreqTarget = logSub;
+        phaseNoteStart(true);
+    }
+    else if (far && jumped && !m_paRunning)
+    {
+        m_logFreq = logSub; // the input jumped, so does the sub (phase continuous)
+    }
+
+    // The glide's target is the line one glide time ahead: the one-pole glide lags its target by about the glide time,
+    // so the sub lands on the line on time on ramps, per sample (no 5 ms staircase). While Phase Align fades out to a
+    // jump, the target is the line now, so the jump at the bottom of the fade lands on it.
+    if (m_paRunning && m_duckState == 1)
+        m_logFreqTarget = logSub;
+    else
+        m_logFreqTarget = std::min(std::max(static_cast<double>(logTargetHz), c_guideLowestLog), m_guideHighestLog) - c_ln2;
+}
+
+float SubharmonicEngine::guidedLevelBand(float x, float band, std::uint8_t state, float logLineHz)
+{
+    // The sub's level comes from the band the level follower hears. Live, that is the detection band, which ends a
+    // little above Max Pitch, as does every pitch the tracker accepts. A learned line may lie above it (Max Pitch does
+    // not bound it), and there the band would give the sub the level of the line's fundamental sliding down the
+    // band's skirt (measured: a line of 330-590 Hz at Max Pitch 250 came out 5-22 dB too quiet, note by note). So
+    // while the line lies above the band, the follower hears the same 4th-order low-pass at 1.25 x the line instead.
+    // It takes over from the detection band where that stands (its coefficients and states, which already hold this
+    // sample), and the follower's own smoothing (12 Hz) carries the level across either way, so neither the change
+    // nor the entry to a learned stretch steps. Called before applyGuide(): m_guided still says whether the last
+    // sample was guided.
+    const bool entering = ! m_guided;
+    bool tookOver = false;
+
+    if (entering)
+        m_lineActive = false;   // a new learned stretch: start again from the detection band
+
+    // The cutoff follows the line at the control rate (and at once on entry); an unvoiced sample holds it.
+    if ((state & PitchGuide::voicingMask) == PitchGuide::voiced && std::isfinite(logLineHz)
+        && (entering || (m_shaperCounter % c_shaperUpdateInterval) == 0))
+    {
+        const double logLine = std::min(std::max(static_cast<double>(logLineHz), c_guideLowestLog), m_guideHighestLog);
+        const float wanted = std::min(static_cast<float>(1.25 * std::exp(logLine)), 0.45f * m_fs);
+
+        if (wanted <= m_bandCutoff)
+        {
+            m_lineActive = false;   // the detection band holds the line
+        }
+        else
+        {
+            if (! m_lineActive)
+            {
+                m_lineLp1 = m_bandLp1;
+                m_lineLp2 = m_bandLp2;
+                m_lineCutoff = m_bandCutoff;
+                m_lineActive = true;
+                tookOver = true;
+            }
+
+            if (std::abs(wanted - m_lineCutoff) >= 0.5f)
+            {
+                m_lineCutoff = wanted;
+                m_lineLp1.setLowpass(m_sampleRate, wanted, 0.5411961);
+                m_lineLp2.setLowpass(m_sampleRate, wanted, 1.3065630);
+            }
+        }
+    }
+
+    if (! m_lineActive || tookOver)
+        return band;
+
+    return m_lineLp2.process(m_lineLp1.process(x));
+}
+
+//==============================================================================
 // Phase Align
 //==============================================================================
 void SubharmonicEngine::Demodulator::prepare(int entries)
@@ -935,6 +1204,17 @@ void SubharmonicEngine::startRise()
     m_duckStep = static_cast<float>(1.0 / (c_duckRiseSeconds * m_sampleRate));
 }
 
+void SubharmonicEngine::setOscillatorPhase(double cycles)
+{
+    // A jump Phase Align makes where it cannot be heard: the sub takes the chosen phase, and the deeper subs the cycle
+    // count from the onset that goes with it (m_pendingTurns), so S2 and S3 land on the same phase on every repeat.
+    const double whole = std::floor(cycles);
+    m_phase = cycles - whole;
+
+    if (std::isfinite(whole))
+        m_subCycle = static_cast<std::uint32_t>((static_cast<std::int64_t>(whole) + m_pendingTurns) & 3);
+}
+
 void SubharmonicEngine::phaseLevelOnset()
 {
     m_onsetSample = m_sampleCounter;
@@ -971,7 +1251,7 @@ void SubharmonicEngine::advanceDuck()
                 // At the bottom: the new note's pitch and phase (the phase chosen at the note start, carried forward).
                 m_logFreq = m_logFreqTarget;
                 const double cycles = m_pendingPhase + m_pendingSubHz * static_cast<double>(m_sampleCounter - m_pendingSample) / m_sampleRate;
-                m_phase = cycles - std::floor(cycles);
+                setOscillatorPhase(cycles);
                 m_demod.reset();
                 m_prevValid = false;
                 m_batchActive = true;
@@ -1177,7 +1457,7 @@ void SubharmonicEngine::updateAlignment(const Cpx* X, float rmsWindow)
         const float lo = (k == 1) ? c_coherenceLowSub : c_coherenceLow;
         const float hi = (k == 1) ? c_coherenceHighSub : c_coherenceHigh;
         const float coherence = smoothstep(mag / (1.41421356f * rmsWindow + 1.0e-12f), lo, hi);
-        const float stable = smoothstep(-m_rotation[k], -c_rotationUnstable, -c_rotationStable);
+        const float stable = phaseStability(k);
         const float relDb = 20.0f * std::log10(mag / (xMax + 1.0e-20f) + 1.0e-12f);
         const float alpha = (mag > 1.0e-6f) ? coherence * stable * smoothstep(relDb, c_alignFloorDb, c_alignFullDb) : 0.0f;
 
@@ -1185,6 +1465,19 @@ void SubharmonicEngine::updateAlignment(const Cpx* X, float rmsWindow)
         if (alpha > 0.0f)
             m_alignPhase[k] = std::atan2(X[k].im, X[k].re);
     }
+}
+
+float SubharmonicEngine::phaseStability(int k) const
+{
+    const float stable = smoothstep(-m_rotation[k], -c_rotationUnstable, -c_rotationStable);
+
+    if (! m_guided)
+        return stable;   // live tracking: as it always was
+
+    // Following a learned pitch, the sub's grid is exact: a partial that rotates is mistuned by rotation / k of its
+    // frequency. Live, a quarter of a grid step counts as stable, so an engine's half order 25 % from the sub would
+    // too, and following its drift turns the sub's partial onto it for good: a change of pitch, not of phase.
+    return std::min(stable, smoothstep(-m_rotation[k] / static_cast<float>(k), -c_guideMistuneUnstable, -c_guideMistuneStable));
 }
 
 void SubharmonicEngine::setCorrectionTargets(bool snap)
@@ -1370,6 +1663,12 @@ void SubharmonicEngine::phaseNoteStart(bool correction)
     m_pendingSubHz = subHz;
     m_pendingSample = m_sampleCounter;
 
+    // The deeper subs (S2, S3) need the sub's whole cycles too: the chosen phase is taken on the cycle nearest the
+    // reference, so they count from the onset, as if they had started there. Where the tracker's note start falls after
+    // the onset then makes no difference, and repeats of a hit start them at the same phase as the sub's.
+    const double turns = subHz * static_cast<double>(m_sampleCounter - m_onsetSample) / m_sampleRate - m_pendingPhase;
+    m_pendingTurns = std::isfinite(turns) ? static_cast<std::int64_t>(std::llround(turns)) : 0;
+
     if (correction)
         ++m_paDiag.pitchCorrections;
     else
@@ -1383,7 +1682,7 @@ void SubharmonicEngine::phaseNoteStart(bool correction)
     if (possible < c_duckAudible * std::max(amplitude, 1.0e-4f))
     {
         m_logFreq = m_logFreqTarget;
-        m_phase = m_pendingPhase - std::floor(m_pendingPhase);
+        setOscillatorPhase(m_pendingPhase);
         m_demod.reset();
         m_prevValid = false;
         m_batchActive = true;
@@ -1421,8 +1720,14 @@ void SubharmonicEngine::phaseControlUpdate()
     const double subHz = std::exp(m_logFreq);
     const double dt = m_paUpdateInterval / m_sampleRate;
 
-    // The tail detector (the wet's peak) must hold over a whole waveform: decay over two sub periods.
-    m_wetPeakDecay = static_cast<float>(std::exp(-subHz / (2.0 * m_sampleRate)));
+    // The tail detector (the wet's peak) must hold over a whole waveform: decay over two periods of the lowest partial
+    // sounding, the sub's or, while they sound, S2's or S3's (two and four of its periods).
+    double lowestHz = subHz;
+    if (subOctaveSounding(1))
+        lowestHz *= 0.25;
+    else if (subOctaveSounding(0))
+        lowestHz *= 0.5;
+    m_wetPeakDecay = static_cast<float>(std::exp(-lowestHz / (2.0 * m_sampleRate)));
 
     // Window: exactly one period of the oscillator, in demodulator entries.
     const double window = std::clamp(m_sampleRate / (m_decimation * subHz), 4.0, static_cast<double>(m_demod.ringLength - 3));
@@ -1517,7 +1822,7 @@ void SubharmonicEngine::phaseControlUpdate()
 
         for (int k = 1; k <= c_numPartials; ++k)
         {
-            const float stable = smoothstep(-m_rotation[k], -c_rotationUnstable, -c_rotationStable);
+            const float stable = phaseStability(k);
             if (stable <= 0.0f)
                 continue;
 
@@ -1609,10 +1914,12 @@ bool SubharmonicEngine::stateIsFinite() const
 {
     // Every recursive state in one sum: NaN or inf anywhere makes the sum non-finite.
     float sum = m_inputMeanSquare + m_bandLp1.z1 + m_bandLp1.z2 + m_bandLp2.z1 + m_bandLp2.z2
+              + m_lineLp1.z1 + m_lineLp1.z2 + m_lineLp2.z1 + m_lineLp2.z2
               + m_bandEnv1 + m_bandEnv2 + m_gate + m_filterEnv
               + m_harmonicFilter.ic1 + m_harmonicFilter.ic2 + m_postFilter.ic1 + m_postFilter.ic2
               + m_distortion + m_toneHz + m_postLowpassHz + m_resonance + m_envAmount
-              + m_overtoneAmount + m_subLevel;
+              + m_overtoneAmount + m_subLevel + m_subOctaveGain[0] + m_subOctaveGain[1]
+              + m_subFloorFast[0] + m_subFloorFast[1] + m_subFloor[0] + m_subFloor[1];
 
     for (const auto& stage : m_loCut)
         sum += stage.ic1 + stage.ic2;
@@ -1645,8 +1952,9 @@ bool SubharmonicEngine::stateIsFinite() const
     return std::isfinite(sum) && std::isfinite(m_logFreq + m_phase + m_loCutLog + m_loCutLogFast + m_dcIn + m_dcOut);
 }
 
-template <bool aligned>
-int SubharmonicEngine::processSamples(const float* in, float* out, float* residual, int start, int numSamples, BlockConstants& block)
+template <bool aligned, bool guided>
+int SubharmonicEngine::processSamples(const float* in, float* out, float* residual, int start, int numSamples, BlockConstants& block,
+                                      [[maybe_unused]] const PitchGuide* guide)
 {
     const float openMs = block.openMs;
     const float closeMs = block.closeMs;
@@ -1663,6 +1971,26 @@ int SubharmonicEngine::processSamples(const float* in, float* out, float* residu
     int i = start;
     for (; i < numSamples; ++i)
     {
+        [[maybe_unused]] std::uint8_t guideState = PitchGuide::live;
+
+        if constexpr (guided)
+        {
+            // The flushes process() applies at the end of each block, applied before every guided sample instead: a guided
+            // note may start at once while these states are still tiny, and its output must not depend on where the
+            // host's blocks end (an offline bounce then equals playback bit for bit). Live samples are left as they were.
+            guideState = guide->state[i];
+
+            if ((guideState & PitchGuide::voicingMask) != PitchGuide::live)
+            {
+                if (std::abs(m_bandEnv2) < 1.0e-20f) m_bandEnv1 = m_bandEnv2 = 0.0f;
+                if (std::abs(m_dcOut) < 1.0e-20 && std::abs(m_dcIn) < 1.0e-20) m_dcIn = m_dcOut = 0.0;
+                if constexpr (aligned)
+                {
+                    if (m_wetPeak < 1.0e-30f) m_wetPeak = 0.0f;
+                }
+            }
+        }
+
         // NaN, inf and absurd values are silence; nothing else can poison the states below.
         float x = in[i];
         if (!(std::abs(x) < c_maxInput))
@@ -1696,12 +2024,44 @@ int SubharmonicEngine::processSamples(const float* in, float* out, float* residu
 
         // --- Detection band: amplitude follower + pitch ------------------------
         const float band = m_bandLp2.process(m_bandLp1.process(x));
+        float levelBand = band;
 
-        m_bandEnv1 += m_bandEnvCoeff * (band * band - m_bandEnv1);
+        if constexpr (guided)
+        {
+            // A guided sample's line may lie above the detection band: the level then comes from a band that holds it.
+            const auto voicing = guideState & PitchGuide::voicingMask;
+
+            if (voicing != PitchGuide::live)
+                levelBand = guidedLevelBand(x, band, guideState, voicing == PitchGuide::voiced ? guide->logLineHz[i] : 0.0f);
+        }
+
+        m_bandEnv1 += m_bandEnvCoeff * (levelBand * levelBand - m_bandEnv1);
         m_bandEnv2 += m_bandEnvCoeff * (m_bandEnv1 - m_bandEnv2);
 
-        if (m_detector.pushSample(band))
-            onPitchEstimate();
+        if constexpr (guided)
+        {
+            // The detector always runs, so its history is warm when tracking hands back to live; a guided sample
+            // follows the learned curve instead of the tracker's decisions.
+            const bool hop = m_detector.pushSample(band);
+
+            if ((guideState & PitchGuide::voicingMask) == PitchGuide::live)
+            {
+                m_guided = false;
+                m_guideJumped = false; // live tracking follows the input by itself
+                if (hop)
+                    onPitchEstimate();
+            }
+            else
+            {
+                const bool voiced = (guideState & PitchGuide::voicingMask) == PitchGuide::voiced;
+                applyGuide(guideState, voiced ? guide->logLineHz[i] : 0.0f, voiced ? guide->logTargetHz[i] : 0.0f, hop);
+            }
+        }
+        else
+        {
+            if (m_detector.pushSample(band))
+                onPitchEstimate();
+        }
 
         // --- Parameter smoothing ------------------------------------------------
         m_distortion    += m_paramCoeff * (distortionTarget - m_distortion);
@@ -1721,7 +2081,9 @@ int SubharmonicEngine::processSamples(const float* in, float* out, float* residu
 
         if ((m_shaperCounter % c_shaperUpdateInterval) == 0)
         {
-            updateOvertoneTargets(std::exp(m_logFreq));
+            const double subFrequency = std::exp(m_logFreq);
+            updateOvertoneTargets(subFrequency);
+            updateSubOctaveTargets(subFrequency);
 
             const float drive = 1.0f + m_distortion * (c_maxDrive - 1.0f);
             m_shaper = computeShaper(drive, m_type);
@@ -1743,9 +2105,39 @@ int SubharmonicEngine::processSamples(const float* in, float* out, float* residu
 
         const double freq = std::exp(m_logFreq);
         m_phase += freq / m_sampleRate;
-        m_phase -= std::floor(m_phase);
+        const double wrapped = std::floor(m_phase);
+        m_phase -= wrapped;
+        m_subCycle += wrapped > 0.0 ? 1u : 0u; // S2 and S3 run over 2 and 4 of the sub's cycles
 
         const float s = static_cast<float>(std::sin(c_twoPi * m_phase));
+
+        // --- Deeper subs (S2, S3): the sub's phase over 2 and 4 of its cycles --------------------
+        // ((q & 1) + phi) / 2 and (q + phi) / 4 for q = the cycle count. With a = pi phi / 2, S3 is sin(a + q pi / 2) and S2
+        // is +-sin(2a) = +-2 sin a cos a, the sign from q's parity: S3 at twice its speed is S2, exactly.
+        const bool subOctavesOn = subOctavesActive();
+        float subOctaves = 0.0f;
+
+        if (subOctavesOn)
+        {
+            for (int j = 0; j < 2; ++j)
+            {
+                m_subOctaveGain[j] += m_paramCoeff * (m_subOctaveTarget[j] - m_subOctaveGain[j]);
+                if (m_subOctaveTarget[j] <= 0.0f && m_subOctaveGain[j] < c_subOctaveOff)
+                    m_subOctaveGain[j] = 0.0f; // faded out: from here on nothing is computed
+
+                m_subFloorFast[j] += m_subFloorCoeff * (m_subFloorTarget[j] - m_subFloorFast[j]);
+                m_subFloor[j] += m_subFloorCoeff * (m_subFloorFast[j] - m_subFloor[j]);
+                if (m_subFloorTarget[j] <= 0.0f && m_subFloor[j] < c_subOctaveOff)
+                    m_subFloorFast[j] = m_subFloor[j] = 0.0f; // below the floor: silent, exactly
+            }
+
+            const float a = static_cast<float>(m_phase) * (0.5f * c_pi);
+            const float sa = std::sin(a), ca = std::cos(a);
+            const std::uint32_t q = m_subCycle & 3u;
+            const float s2 = ((q & 1u) != 0 ? -2.0f : 2.0f) * sa * ca;
+            const float s3 = (q & 1u) != 0 ? ((q & 2u) != 0 ? -ca : ca) : ((q & 2u) != 0 ? -sa : sa);
+            subOctaves = m_subOctaveGain[0] * m_subFloor[0] * s2 + m_subOctaveGain[1] * m_subFloor[1] * s3;
+        }
 
         // --- Harmonic residual ---------------------------------------------------
         float harm = harmonicResidual(s, m_shaper, m_type);
@@ -1885,6 +2277,18 @@ int SubharmonicEngine::processSamples(const float* in, float* out, float* residu
         if constexpr (aligned)
             wet = level * m_duck * (cleanWeight * m_subLevel * s + harmWeight * harmFiltered + overtones + correction);
 
+        // The deeper subs share the sub's clean path (they fade with Drive as it does, not with H1), added only while
+        // they sound, so the line above stays exactly what it was without them.
+        if (subOctavesOn)
+        {
+            float subOctaveLevel = level * cleanWeight;
+
+            if constexpr (aligned)
+                subOctaveLevel *= m_duck;
+
+            wet += subOctaveLevel * subOctaves;
+        }
+
         float sub = m_postFilter.process(wet);
 
         // --- Lo cut (48 dB/oct Butterworth: stage Qs 0.510, 0.601, 0.900, 2.563) ---
@@ -1983,8 +2387,11 @@ int SubharmonicEngine::processSamples(const float* in, float* out, float* residu
     return i;
 }
 
-void SubharmonicEngine::process(const float* in, float* out, float* residual, int numSamples)
+void SubharmonicEngine::process(const float* in, float* out, float* residual, int numSamples, const PitchGuide* guide)
 {
+    if (guide != nullptr && guide->state == nullptr)
+        guide = nullptr;
+
     // Phase Align on / off takes effect here, at the block start. Switching on starts from Classic's exact output
     // (no partial has turned yet); switching on again while turning back carries on from where it is.
     if (m_target.phaseAlign && m_demod.ringLength > 0)
@@ -2029,11 +2436,24 @@ void SubharmonicEngine::process(const float* in, float* out, float* residual, in
     block.loCutSetLog = std::log(static_cast<double>(m_target.loCutHz));
     block.loCutRestLog = std::log(c_loCutRestHz);
 
-    // The sample loop: Classic, or Phase Align (which may hand back to Classic mid-block).
+    // The sample loop: Classic, or Phase Align (which may hand back to Classic mid-block). Without a guide it is the
+    // loop as it was before guidance existed; with one, the guided loop, which runs the same code on live samples.
     int done = 0;
-    while (done < numSamples)
-        done = m_paRunning ? processSamples<true>(in, out, residual, done, numSamples, block)
-                           : processSamples<false>(in, out, residual, done, numSamples, block);
+    if (guide == nullptr)
+    {
+        m_guided = false;
+        m_guideJumped = false;
+
+        while (done < numSamples)
+            done = m_paRunning ? processSamples<true, false>(in, out, residual, done, numSamples, block, nullptr)
+                               : processSamples<false, false>(in, out, residual, done, numSamples, block, nullptr);
+    }
+    else
+    {
+        while (done < numSamples)
+            done = m_paRunning ? processSamples<true, true>(in, out, residual, done, numSamples, block, guide)
+                               : processSamples<false, true>(in, out, residual, done, numSamples, block, guide);
+    }
 
     m_inputRms = std::sqrt(std::max(0.0f, m_inputMeanSquare));
 

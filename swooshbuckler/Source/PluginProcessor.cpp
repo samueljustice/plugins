@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "SettingsFile.h"
 #include "VariationRenderer.h"
 #include "Version.h"
 
@@ -7,20 +8,18 @@ namespace
 {
     std::unique_ptr<juce::PropertiesFile> openSettings()
     {
-        juce::PropertiesFile::Options o;
-        o.applicationName = "Swooshbuckler";
-        o.folderName = "Sweet Justice";
-        o.filenameSuffix = "settings";
-        o.osxLibrarySubFolder = "Application Support";
-        o.commonToAllUsers = false;
-        return std::make_unique<juce::PropertiesFile>(o);
+        // The file every Swooshbuckler shares; an old one that still holds the app's session gives it up first, so
+        // this instance never reads or writes megabytes (SettingsFile.h).
+        settingsfile::separateAppSession(settingsfile::defaultFile());
+        return std::make_unique<juce::PropertiesFile>(settingsfile::defaultFile(), settingsfile::options());
     }
 }
 
 SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor() : SwooshbucklerAudioProcessor(nullptr) {}
 
 SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* offlineSettings)
-    // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out.
+    // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out by default
+    // (a host may make it any of the room's widths: see isBusesLayoutSupported).
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
     , m_offline(offlineSettings != nullptr)
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout(m_stowModeSource))
@@ -45,7 +44,28 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
         for (int k = 0; k < ParamIDs::numBusControls; ++k)
             m_raw.bus[b][k] = ParamIDs::bus[b][k] != nullptr ? raw(ParamIDs::bus[b][k]) : nullptr;
     for (int b = 0; b < ParamIDs::numBuses; ++b)
+    {
         m_raw.passMode[b] = raw(ParamIDs::passMode[b]);
+        m_raw.flightPath[b] = raw(ParamIDs::flightPath[b]);
+    }
+    m_raw.stowFlightPath = raw(ParamIDs::stowFlightPath);
+    m_raw.roomSpread = raw(ParamIDs::roomSpread);
+    m_raw.roomHeight = raw(ParamIDs::roomHeight);
+    m_raw.roomCentre = raw(ParamIDs::roomCentre);
+    m_raw.roomHeightVaries = raw(ParamIDs::roomHeightVaries);
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+    {
+        m_raw.direction[b] = raw(ParamIDs::direction[b]);
+        m_raw.side[b] = raw(ParamIDs::side[b]);
+        m_directionTarget[b] = ModMatrix::targetIndex(ParamIDs::direction[b]);
+        m_sideTarget[b] = ModMatrix::targetIndex(ParamIDs::side[b]);
+    }
+    m_raw.stowDirection = raw(ParamIDs::stowDirection);
+    m_raw.stowSide = raw(ParamIDs::stowSide);
+    m_directionTarget[ParamIDs::numBuses] = ModMatrix::targetIndex(ParamIDs::stowDirection);
+    m_sideTarget[ParamIDs::numBuses] = ModMatrix::targetIndex(ParamIDs::stowSide);
+    m_raw.roomLfeMode = raw(ParamIDs::roomLfeMode);
+    m_raw.roomLfeLevel = raw(ParamIDs::roomLfeLevel);
     m_raw.stowOn = raw(ParamIDs::stowOn);
     m_raw.stowMode = raw(ParamIDs::stowMode);
     m_stowModeSource->mode.store(m_raw.stowMode); // the Stowaway knobs read by the mode from here on
@@ -73,6 +93,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     m_raw.takeTurns = raw(ParamIDs::takeTurns);
     m_raw.linkBuses = raw(ParamIDs::linkBuses);
     m_raw.hitAim = raw(ParamIDs::hitAim);
+    m_raw.hitPosition = raw(ParamIDs::hitPosition);
+    m_raw.hitSpread = raw(ParamIDs::hitSpread);
     m_raw.tremOn = raw(ParamIDs::tremOn);
     m_raw.tremDepth = raw(ParamIDs::tremDepth);
     m_raw.tremRate = raw(ParamIDs::tremRate);
@@ -135,7 +157,11 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
         m_ownSettings = openSettings();
         m_settings = m_ownSettings.get();
     }
+    // The saved last minutes take their memory at the first Play, arm or sound, not here: an instance that is
+    // never played costs nothing for them.
+    m_recorder.setRetroOnDemand();
     m_recorder.setRetroSeconds(getRetroMinutes() * 60);
+    m_listening.store(juce::jlimit(0, room::c_numWidths - 1, m_settings->getIntValue("listening", static_cast<int>(room::Width::Stereo))));
     // The learned MIDI controllers: "target:cc" pairs.
     for (const auto& pair : juce::StringArray::fromTokens(m_settings->getValue("midiControls"), ",", ""))
     {
@@ -145,6 +171,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
             m_ccOf[static_cast<size_t>(target)].store(cc);
     }
     updateCcPump();
+    if (! m_offline)
+        m_retroPump.startTimerHz(50);
     startTimerHz(4);
 }
 
@@ -157,13 +185,22 @@ SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
     m_history.reset();
     stopTimer();
     m_ccPump.stopTimer();
+    m_retroPump.stopTimer();
     m_recorder.stop();
 }
 
 bool SwooshbucklerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-    const auto out = layouts.getMainOutputChannelSet();
-    if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
+    // Any of the room's seven widths (Mono, Stereo, Quad, 5.1, 7.1, 7.1.2, 7.1.4) as JUCE's own channel set. In
+    // AAX each one becomes a stem format with a plug-in ID of its own (JUCE's default IDs come from a fixed table
+    // of channel sets, so Mono and Stereo keep theirs); VST3 and AU map them to their speaker arrangements.
+    // The app takes its Listening width and no other: AppOutput sets it, and the audio device is never matched to
+    // the rig by its output count (a device with six outputs would otherwise make a Stereo listener's rig 5.1).
+    const auto width = room::widthFor(layouts.getMainOutputChannelSet());
+    if (! width.has_value())
+        return false;
+    // (An offline copy has no device: Render Variations prepares it at any width, in the app too.)
+    if (isApp() && *width != getListening())
         return false;
     return layouts.getMainInputChannelSet().isDisabled();
 }
@@ -183,7 +220,8 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     // seed. No key is held across it either (its note-off may never come).
     m_hostWasPlaying = false;
     m_keysDown = {};
-    m_audition.prepare(sampleRate);
+    m_audition.prepare(sampleRate, room::widthFor(getBusesLayout().getMainOutputChannelSet()).value_or(room::Width::Stereo));
+    m_sumGuard.prepare(sampleRate);
     prepareInternal();
 }
 
@@ -197,32 +235,60 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     m_renderRate = recordRate > m_deviceRate + 0.5 ? recordRate : m_deviceRate;
     const double ratio = m_renderRate / m_deviceRate;
 
+    // The room: the track's width (the output bus). The audio is carried at the pipe's width (Mono as Stereo).
+    m_width = room::widthFor(getBusesLayout().getMainOutputChannelSet()).value_or(room::Width::Stereo);
+    m_roomWidth.store(static_cast<int>(m_width), std::memory_order_relaxed);
+    m_pipeChannels = RoomMaster::pipeChannels(m_width);
+    {
+        const auto& pipe = room::layout(RoomMaster::pipeWidth(m_width));
+        const auto& toMono = room::fold(pipe.width, room::Width::Mono);
+        m_loudnessWeight.fill(0.0f);
+        m_monoFold.fill(0.0f);
+        for (int ch = 0; ch < pipe.numChannels; ++ch)
+        {
+            m_loudnessWeight[static_cast<size_t>(ch)] = room::loudnessWeight(pipe.speakers[static_cast<size_t>(ch)]);
+            m_monoFold[static_cast<size_t>(ch)] = toMono.gain[0][static_cast<size_t>(ch)];
+        }
+    }
+    for (auto& peak : m_channelPeak)
+        peak.store(0.0f, std::memory_order_relaxed);
+
+    // The stream's grid starts again with the engine (see processBlock): nothing of the last quantum is left to
+    // play (it was rendered by the engine as it was, at the rate and the width it had).
+    m_carry = 0;
+    m_sinceControl = 0;
+    m_followSquares = 0.0;
+    m_followSamples = 0;
+
     updateEngineParams();
+    m_engine.setWidth(RoomMaster::pipeWidth(m_width)); // Quad and wider: every pass is an object in the room
     m_engine.prepare(m_renderRate, m_blockSize);
-    m_master.prepare(m_renderRate, 2);
+    m_master.prepare(m_renderRate, m_width);
     if (! m_offline)
-        m_recorder.prepare(m_renderRate, 2);
-    m_work.setSize(2, m_blockSize);
+        m_recorder.prepare(m_renderRate, m_pipeChannels); // the tape records the room at its width (Mono as Stereo)
+    m_work.setSize(m_pipeChannels, m_blockSize);
 
     // Latency: the engine and the limiter (in device samples), and when rendering high, the input the
     // downsampler needs ahead of its output plus the monitor limiter's look-ahead.
     double latency = (static_cast<double>(m_engine.getLatencySamples()) + m_master.getLatencySamples()) / ratio;
     if (ratio > 1.0)
     {
-        m_down.prepare(ratio, 2);
-        m_highRate.setSize(2, m_down.maxInputsFor(c_maxSection));
+        m_down.prepare(ratio, m_pipeChannels);
+        m_down.prime(); // the first sound after a prepare is as late as the latency below, like every later one
+        m_highRate.setSize(m_pipeChannels, m_down.maxInputsFor(c_maxSection));
         m_highRate.clear();
-        m_monitorLimiter.prepare(m_deviceRate, 2);
+        m_monitorLimiter.prepare(m_deviceRate, m_width);
         latency += m_down.getLatencySamples() + m_monitorLimiter.getLatencySamples();
     }
     setLatencySamples(juce::roundToInt(latency));
 }
 
-void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n)
+void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const float* inR, float* const* chans, int n)
 {
+    const int numChans = m_pipeChannels;
     const bool playing = m_playing.load();
     m_engine.setReleased(! playing); // Stop: the sources let go, the echoes and Space ring out
-    m_engine.process(inL, inR, l, r, n);
+    m_engine.process(inL, inR, chans, numChans, n);
     // The pass peaks and hits of this block, for the take's markers: they reach the tape after the limiter's look-ahead.
     static_assert(static_cast<int>(RigEngine::MarkPassA) == static_cast<int>(TapeRecorder::MarkPassA)
                   && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit)
@@ -231,9 +297,9 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
         m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
 
-    // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter.
-    float* chans[2] = { l, r };
-    m_master.process(chans, 2, n);
+    // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter: one linked across the
+    // main channels, one of its own on the LFE.
+    m_master.process(chans, numChans, n);
 
     // Transport, ahead of the tape so a take starts and ends as cleanly as what you hear. Stopped, the tail rings
     // until it has stayed under the floor for 100 ms (not before the sources have gone) or the time is up.
@@ -246,8 +312,9 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     else if (! m_tailDone)
     {
         float peak = 0.0f;
-        for (int i = 0; i < n; ++i)
-            peak = juce::jmax(peak, std::abs(l[i]), std::abs(r[i]));
+        for (int ch = 0; ch < numChans; ++ch)
+            for (int i = 0; i < n; ++i)
+                peak = juce::jmax(peak, std::abs(chans[ch][i]));
         m_tailElapsed += n;
         m_tailQuiet = peak < juce::Decibels::decibelsToGain(c_tailFloorDb) ? m_tailQuiet + n : 0;
         m_tailDone = static_cast<double>(m_tailElapsed) > c_tailMaxSeconds * m_renderRate
@@ -266,12 +333,12 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
         {
             m_transportGain = target > m_transportGain ? juce::jmin(target, m_transportGain + step)
                                                        : juce::jmax(target, m_transportGain - step);
-            l[i] *= m_transportGain;
-            r[i] *= m_transportGain;
+            for (int ch = 0; ch < numChans; ++ch)
+                chans[ch][i] *= m_transportGain;
         }
     }
     if (! m_offline)
-        m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
+        m_recorder.process(chans, numChans, n); // the full-rate signal, every channel of the room
 }
 
 void SwooshbucklerAudioProcessor::releaseResources()
@@ -308,6 +375,17 @@ void SwooshbucklerAudioProcessor::publishModViews()
         if (m_mods.isWired(t))
             m_mods.publishTarget(t, juce::jlimit(0.0f, 1.0f, m_modTargets[i].param->convertTo0to1(m_modTargets[i].raw->load()) + m_mods.offset(t)));
     }
+    publishDirectionViews();
+}
+
+void SwooshbucklerAudioProcessor::publishDirectionViews()
+{
+    // A wired Direction or Side shows the choice its modulator makes right now (the second or the third of the
+    // three: forwards or backwards, left or right), not a place between two choices.
+    for (const auto* targets : { m_directionTarget, m_sideTarget })
+        for (int k = 0; k <= ParamIDs::numBuses; ++k)
+            if (const int t = targets[k]; t >= 0 && m_mods.isWired(t))
+                m_mods.publishTarget(t, m_mods.centred(t) >= 0.0f ? 0.5f : 1.0f);
 }
 
 void SwooshbucklerAudioProcessor::runModulators(int numSamples)
@@ -373,7 +451,31 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.duck = get(ParamIDs::Duck);
         d.key = get(ParamIDs::Key);
         d.passMode = juce::jlimit(0, 1, juce::roundToInt(m_raw.passMode[b]->load()));
+        d.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.flightPath[b]->load()));
+        // Direction and Side: the choice, and where a modulator wired to it stands (it decides as a pass starts).
+        d.direction = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.direction[b]->load()));
+        d.side = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.side[b]->load()));
+        d.directionWired = m_mods.isWired(m_directionTarget[b]);
+        d.directionMod = m_mods.centred(m_directionTarget[b]);
+        d.sideWired = m_mods.isWired(m_sideTarget[b]);
+        d.sideMod = m_mods.centred(m_sideTarget[b]);
     }
+    p.stow.direction = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.stowDirection->load()));
+    p.stow.side = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.stowSide->load()));
+    p.stow.directionWired = m_mods.isWired(m_directionTarget[ParamIDs::numBuses]);
+    p.stow.directionMod = m_mods.centred(m_directionTarget[ParamIDs::numBuses]);
+    p.stow.sideWired = m_mods.isWired(m_sideTarget[ParamIDs::numBuses]);
+    p.stow.sideMod = m_mods.centred(m_sideTarget[ParamIDs::numBuses]);
+    static_assert(ParamIDs::numFlightPaths == room::c_numPaths, "the same Flight Paths");
+    p.stow.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.stowFlightPath->load()));
+    p.roomSpread = modValue(m_raw.roomSpread);
+    publishDirectionViews();
+    p.roomHeight = modValue(m_raw.roomHeight);
+    p.roomHeightVaries = m_raw.roomHeightVaries->load();
+    p.roomCentre = m_raw.roomCentre->load() > 0.5f;
+    static_assert(ParamIDs::numLfeModes == RigEngine::c_lfeModes, "the same LFE modes"); // (the levels: checked by the SpaceLfe test)
+    p.lfeMode = juce::jlimit(0, ParamIDs::numLfeModes - 1, juce::roundToInt(m_raw.roomLfeMode->load()));
+    p.lfeLevelDb = m_raw.roomLfeLevel->load();
     {
         static_assert(static_cast<int>(RigEngine::c_stowModes) == static_cast<int>(ParamIDs::numStowModes)
                       && static_cast<int>(RigEngine::c_stowKnobs) == static_cast<int>(ParamIDs::numStowControls)
@@ -401,6 +503,9 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.takeTurns = m_raw.takeTurns->load() > 0.5f;
     p.linkBuses = m_raw.linkBuses->load() > 0.5f;
     p.hitAim = m_raw.hitAim->load() > 0.5f;
+    static_assert(static_cast<int>(ParamIDs::numHitPositions) == static_cast<int>(RigEngine::c_hitPositions), "the same Hit Positions");
+    p.hitPosition = juce::jlimit(0, ParamIDs::numHitPositions - 1, juce::roundToInt(m_raw.hitPosition->load()));
+    p.hitSpread = modValue(m_raw.hitSpread);
     p.tremOn = m_raw.tremOn->load() > 0.5f;
     p.tremDepth = modValue(m_raw.tremDepth);
     p.tremRate = modValue(m_raw.tremRate);
@@ -458,6 +563,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const int n = buffer.getNumSamples();
     if (n == 0)
         return;
+    m_audition.setCeilingDb(m_raw.ceiling->load()); // a folded take being auditioned is held under the Ceiling too
 
     // The Play parameter moved (host automation, or a restored session): start or stop.
     {
@@ -515,6 +621,8 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_drainLeft -= n;
     if (! playing && m_transportGain <= 0.0f && m_drainLeft <= 0)
     {
+        m_carry = 0;        // (silence: the rig has rung out) the stream's grid starts again when it wakes
+        m_sinceControl = 0;
         // The tape isn't fed while the rig rests: Skip Silence's gate closes here, not at the next Play.
         if (! m_tapeRested)
             m_tapeRested = m_offline || m_recorder.rest();
@@ -532,6 +640,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         buffer.clear();
         m_audition.process(buffer, 0, n); // a take being auditioned plays whether the rig does or not
         publishOutputPeak(0.0f, n);
+        publishChannelPeaks(nullptr, n);
         return;
     }
 
@@ -543,6 +652,13 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_restartPending.store(false);
         m_engine.restartSeeded();
         m_mods.reset();
+        // The stream's grid starts again here, at this block's first sample: what was left of the last quantum
+        // belongs to the ride that has just been stopped, and played first it would start this one that many
+        // samples late (a different number each time).
+        m_carry = 0;
+        m_sinceControl = 0;
+        m_followSquares = 0.0;
+        m_followSamples = 0;
         m_wanderOn = false; // the wander sets off again from where the X / Y controls are
         m_wanderBlend = 0.0f;
         m_morphX = m_raw.morphX->load();
@@ -551,14 +667,18 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     else if (m_restartPending.exchange(false))
         m_engine.restart();
     if (m_uiThrows.exchange(0) > 0)
-        m_engine.throwWhoosh(0, -1.0f); // as close as the bus draws it
+        m_engine.throwWhoosh(0, -1.0f, m_offlineFlight); // as close as the bus draws it
 
-    // Hosts may send more than the prepared block size (offline / freewheel). Never reallocate here: work in
-    // sections of the prepared size instead.
-    // Sections are also capped so the modulators (and the parameters they move) update at least every 512 samples,
-    // so an offline bounce with huge blocks sounds like realtime playback.
-    const int maxSection = juce::jmin(m_work.getNumSamples(), c_maxSection);
-    if (maxSection <= 0)
+    // THE STREAM'S OWN GRID. The rig is rendered a quantum (c_quantum samples) at a time, counted from when it woke,
+    // not from the start of the host's block: what is left of a quantum when the host's block ends is played at the
+    // start of the next one. The modulators, the wander and the parameters they move are updated every
+    // c_maxSection samples of that same stream. So the sound does not depend on the size of the host's blocks
+    // (odd sizes, blocks split at loop points or by automation, one sample at a time), and a tiny block costs no
+    // more than a quantum's share. A host whose blocks are multiples of the quantum never has anything left over.
+    // (A key or a parameter change that arrives inside a quantum already rendered acts at the start of the next:
+    // at most c_quantum - 1 samples late, and only in a host whose blocks are not multiples of it.)
+    static_assert(c_maxSection % c_quantum == 0, "the modulators are updated on a quantum's edge");
+    if (m_work.getNumSamples() < c_quantum)
     {
         buffer.clear();
         return;
@@ -566,26 +686,65 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     const int inputChannels = getTotalNumInputChannels();
     const int outChannels = buffer.getNumChannels();
-    float* outL = m_work.getWritePointer(0);
-    float* outR = m_work.getWritePointer(1);
-    for (int start = 0; start < n; start += maxSection)
+    const int pipe = m_pipeChannels;
+    std::array<float*, room::c_maxChannels> work {};
+    for (int ch = 0; ch < pipe; ++ch)
+        work[static_cast<size_t>(ch)] = m_work.getWritePointer(ch);
+    auto nextEvent = midi.cbegin();
+    for (int start = 0; start < n;)
     {
-        const int len = juce::jmin(maxSection, n - start);
-        runModulators(len);
-        runWander(len);
+        // What is left of the last quantum first.
+        if (m_carry > 0)
+        {
+            const int take = juce::jmin(m_carry, n - start), from = c_quantum - m_carry;
+            if (outChannels == 1 && pipe == 2) // Mono, folded from Stereo
+            {
+                buffer.copyFrom(0, start, m_work, 0, from, take);
+                buffer.addFrom(0, start, m_work, 1, from, take);
+                buffer.applyGain(0, start, take, 0.5f);
+            }
+            else
+            {
+                for (int ch = 0; ch < outChannels; ++ch)
+                {
+                    if (ch < pipe)
+                        buffer.copyFrom(ch, start, m_work, ch, from, take);
+                    else
+                        buffer.clear(ch, start, take);
+                }
+            }
+            m_carry -= take;
+            start += take;
+            continue;
+        }
 
-        // The keys of this section (a thrown whoosh starts at its note's own sample).
-        for (const auto meta : midi)
-            if (meta.samplePosition >= start && meta.samplePosition < start + len)
-                handleMidi(meta.getMessage(), meta.samplePosition - start, true);
-        updateEngineParams();
+        const int len = c_quantum;
+        const bool control = m_sinceControl <= 0; // the modulators and the parameters: every c_maxSection samples
+        if (control)
+        {
+            runModulators(c_maxSection);
+            runWander(c_maxSection);
+            m_sinceControl = c_maxSection;
+        }
+        m_sinceControl -= len;
 
-        const float* inL = inputChannels > 0 ? buffer.getReadPointer(0, start) : nullptr;
-        const float* inR = inputChannels > 1 ? buffer.getReadPointer(1, start) : nullptr;
+        // The keys of this quantum (a thrown whoosh starts at its note's own sample), and any that arrived inside
+        // what was already rendered.
+        for (; nextEvent != midi.cend() && (*nextEvent).samplePosition < start + len; ++nextEvent)
+        {
+            handleMidi((*nextEvent).getMessage(), juce::jmax(0, (*nextEvent).samplePosition - start), true);
+            m_keysMoved = true; // a key sets pitches: the engine has them before this quantum is rendered
+        }
+        if (control || m_keysMoved)
+            updateEngineParams();
+        m_keysMoved = false;
+        juce::ignoreUnused(inputChannels);
+        const float* const inL = nullptr; // sample-based: the plug-in has no audio input
+        const float* const inR = nullptr;
 
         if (m_renderRate <= m_deviceRate + 0.5)
         {
-            renderAtRenderRate(inL, inR, outL, outR, len);
+            renderAtRenderRate(inL, inR, work.data(), len);
         }
         else
         {
@@ -594,74 +753,146 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             // (The audio input is at the device rate, so it isn't used as a source while rendering high.)
             const int needed = m_down.inputsNeeded(len);
             jassert(needed <= m_highRate.getNumSamples()); // sized for a whole section in prepareInternal
-            float* hiL = m_highRate.getWritePointer(0);
-            float* hiR = m_highRate.getWritePointer(1);
+            std::array<float*, room::c_maxChannels> hi {};
             for (int pos = 0; pos < needed; pos += 256)
-                renderAtRenderRate(nullptr, nullptr, hiL + pos, hiR + pos, juce::jmin(256, needed - pos));
-            const float* in[2] = { hiL, hiR };
-            float* out[2] = { outL, outR };
-            m_down.process(in, out, len);
-            m_monitorLimiter.process(out, 2, len);
+            {
+                for (int ch = 0; ch < pipe; ++ch)
+                    hi[static_cast<size_t>(ch)] = m_highRate.getWritePointer(ch) + pos;
+                renderAtRenderRate(nullptr, nullptr, hi.data(), juce::jmin(256, needed - pos));
+            }
+            std::array<const float*, room::c_maxChannels> in {};
+            for (int ch = 0; ch < pipe; ++ch)
+                in[static_cast<size_t>(ch)] = m_highRate.getReadPointer(ch);
+            m_down.process(in.data(), work.data(), len);
+            m_monitorLimiter.process(work.data(), pipe, len);
         }
 
         // Master Trim (what you hear; the tape above already has the full-level signal).
         double preTrimSquares = 0.0;
         float preTrimPeak = 0.0f;
+        std::array<float, room::c_maxChannels> channelPeaks {};
         {
+            // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound. It
+            // reads the room's loudness: each speaker's power weighted as ITU-R BS.1770 weights it (the side
+            // surrounds +1.5 dB, the LFE left out), scaled so that Stereo reads as the mean of L and R.
+            for (int ch = 0; ch < pipe; ++ch)
+            {
+                const float* x = work[static_cast<size_t>(ch)];
+                const double weight = 0.5 * static_cast<double>(m_loudnessWeight[static_cast<size_t>(ch)]);
+                double squares = 0.0;
+                float peak = 0.0f;
+                for (int i = 0; i < len; ++i)
+                {
+                    squares += static_cast<double>(x[i]) * x[i];
+                    peak = juce::jmax(peak, std::abs(x[i]));
+                }
+                preTrimSquares += weight * squares;
+                channelPeaks[static_cast<size_t>(ch)] = peak;
+                preTrimPeak = juce::jmax(preTrimPeak, peak); // the OUT meter: what the tape gets
+            }
+            if (m_width == room::Width::Mono)
+            {
+                // One speaker: its meter shows the mono the output is folded to.
+                float peak = 0.0f;
+                for (int i = 0; i < len; ++i)
+                    peak = juce::jmax(peak, std::abs(0.5f * (work[0][i] + work[1][i])));
+                channelPeaks = {};
+                channelPeaks[0] = peak;
+            }
             const float trimDb = m_raw.masterTrim->load();
             m_trimGain.setTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
-            preTrimSquares = 0.0;
             for (int i = 0; i < len; ++i)
             {
-                // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound.
-                preTrimSquares += 0.5 * (static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i]);
-                preTrimPeak = juce::jmax(preTrimPeak, std::abs(outL[i]), std::abs(outR[i])); // the OUT meter: what the tape gets
                 const float trim = m_trimGain.getNextValue();
                 const float g = trim <= 1.0e-4f ? 0.0f : trim;
-                outL[i] *= g;
-                outR[i] *= g;
+                for (int ch = 0; ch < pipe; ++ch)
+                    work[static_cast<size_t>(ch)][i] *= g;
             }
         }
 
-        // Output
-        if (outChannels >= 2)
-        {
-            buffer.copyFrom(0, start, m_work, 0, 0, len);
-            buffer.copyFrom(1, start, m_work, 1, 0, len);
-            for (int ch = 2; ch < outChannels; ++ch)
-                buffer.clear(ch, start, len);
-        }
-        else if (outChannels == 1)
-        {
-            buffer.copyFrom(0, start, m_work, 0, 0, len);
-            buffer.addFrom(0, start, m_work, 1, 0, len);
-            buffer.applyGain(0, start, len, 0.5f);
-        }
+        m_carry = len; // played by the top of the loop, as far as the host's block goes
 
         // Scope + meter
         int w = m_scopeWrite.load(std::memory_order_relaxed);
         for (int i = 0; i < len; ++i)
         {
-            const float v = 0.5f * (outL[i] + outR[i]);
+            float v = 0.0f; // the room folded to mono (0.5 (L + R) from Stereo)
+            for (int ch = 0; ch < pipe; ++ch)
+                v += m_monoFold[static_cast<size_t>(ch)] * work[static_cast<size_t>(ch)][i];
             m_outRing.push(v);
             m_scope[static_cast<size_t>(w)] = v;
             w = (w + 1) & (c_scopeSize - 1);
         }
         m_scopeWrite.store(w, std::memory_order_release);
-        m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(preTrimSquares / juce::jmax(1, len)));
-        const auto sections = m_engine.takeSectionLevels();
-        m_followerLevels[ModMatrix::FollowBusA] = sections[0];
-        m_followerLevels[ModMatrix::FollowBusB] = sections[1];
-        m_followerLevels[ModMatrix::FollowHits] = sections[2];
-        m_followerLevels[ModMatrix::FollowStow] = sections[RigEngine::SectionStow];
-        const auto& master = m_engine.getMasterFollow();
-        m_followerLevels[ModMatrix::FollowMaster] = master[0];
-        m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
-        m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
+        // The Followers hear the rig a section at a time (the levels over the last c_maxSection samples).
+        m_followSquares += preTrimSquares;
+        m_followSamples += len;
+        if (m_sinceControl <= 0)
+        {
+            m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(m_followSquares / juce::jmax(1, m_followSamples)));
+            m_followSquares = 0.0;
+            m_followSamples = 0;
+            const auto sections = m_engine.takeSectionLevels();
+            m_followerLevels[ModMatrix::FollowBusA] = sections[0];
+            m_followerLevels[ModMatrix::FollowBusB] = sections[1];
+            m_followerLevels[ModMatrix::FollowHits] = sections[2];
+            m_followerLevels[ModMatrix::FollowStow] = sections[RigEngine::SectionStow];
+            const auto& master = m_engine.getMasterFollow();
+            m_followerLevels[ModMatrix::FollowMaster] = master[0];
+            m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
+            m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
+        }
         publishOutputPeak(preTrimPeak, len);
+        publishChannelPeaks(channelPeaks.data(), len);
     }
-    // A take being auditioned: on top of the output, after the tape, the meters and the trim.
-    m_audition.process(buffer, 0, n);
+    // Keys that arrived inside what was already rendered, in a block that rendered nothing new: they act at the
+    // start of the next quantum.
+    for (; nextEvent != midi.cend(); ++nextEvent)
+    {
+        handleMidi((*nextEvent).getMessage(), 0, true);
+        m_keysMoved = true;
+    }
+    // A take being auditioned: on top of the output, after the tape, the meters and the trim. The rig and the take
+    // are each under the Ceiling; together they are held under it here (only what you hear: the tape has the rig
+    // alone). With no take playing nothing is touched.
+    if (m_audition.process(buffer, 0, n) || m_sumGuard.isWorking())
+        m_sumGuard.process(buffer, 0, n, juce::Decibels::decibelsToGain(m_raw.ceiling->load()));
+}
+
+SwooshbucklerAudioProcessor::LfeFeed SwooshbucklerAudioProcessor::lfeFeedFor(room::Width width, int lfeMode, bool stowawayOn, int stowawayMode, bool trackOnStowaway)
+{
+    if (! room::hasLfe(width))
+        return LfeFeed::NoLfe;
+    if (lfeMode == RigEngine::LfeMixdown)
+        return LfeFeed::Mixdown;
+    if (lfeMode != RigEngine::LfeDiscrete)
+        return LfeFeed::Off;
+    if (! stowawayOn || stowawayMode != ParamIDs::StowSub)
+        return LfeFeed::NoSub;
+    return trackOnStowaway ? LfeFeed::Sub : LfeFeed::NoSubTrack;
+}
+
+SwooshbucklerAudioProcessor::LfeFeed SwooshbucklerAudioProcessor::getLfeFeedAt(room::Width width) const
+{
+    const int mode = juce::jlimit(0, ParamIDs::numLfeModes - 1, juce::roundToInt(m_raw.roomLfeMode->load()));
+    return lfeFeedFor(width, mode, isStowawayOn(), stowMode(), hasTrackOnStowaway());
+}
+
+bool SwooshbucklerAudioProcessor::hasTrackOnStowaway() const
+{
+    for (int track = 0; track < CargoHold::c_numTracks; ++track)
+        if (m_cargo.getLive(track) != nullptr && m_cargo.getBus(track) == CargoHold::c_stowBus)
+            return true;
+    return false;
+}
+
+juce::String SwooshbucklerAudioProcessor::lfeFeedReason(LfeFeed feed)
+{
+    if (feed == LfeFeed::NoSub)
+        return "Nothing feeds the LFE: Discrete plays Stowaway's Sub, and Stowaway is off or not in Sub. Switch Stowaway on in Sub mode, or choose Mixdown.";
+    if (feed == LfeFeed::NoSubTrack)
+        return "Nothing feeds the LFE: Discrete plays Stowaway's Sub, and no track is on Stowaway. Send a track to Stowaway, or choose Mixdown.";
+    return {};
 }
 
 int SwooshbucklerAudioProcessor::stowMode() const
@@ -777,6 +1008,14 @@ int SwooshbucklerAudioProcessor::getMidiControl(int target) const
     return target >= 0 && target < c_numCcTargets ? m_ccOf[static_cast<size_t>(target)].load(std::memory_order_relaxed) : -1;
 }
 
+void SwooshbucklerAudioProcessor::RetroPump::timerCallback()
+{
+    // A host's transport or a key played the rig before anything on this thread asked for the saved last minutes.
+    owner.m_recorder.allocateRetroIfAsked();
+    if (owner.m_recorder.isRetroInUse())
+        stopTimer(); // taken (here, or by Play or arm): prepare keeps it from now on
+}
+
 void SwooshbucklerAudioProcessor::updateCcPump()
 {
     bool wanted = m_ccLearn.load() >= 0;
@@ -803,8 +1042,7 @@ void SwooshbucklerAudioProcessor::saveMidiControls()
             pairs.add(juce::String(t) + ":" + juce::String(cc));
     if (m_settings != nullptr && ! m_offline)
     {
-        m_settings->setValue("midiControls", pairs.joinIntoString(","));
-        m_settings->saveIfNeeded();
+        storeSetting("midiControls", pairs.joinIntoString(","));
     }
     ++m_ccGeneration;
 }
@@ -862,6 +1100,8 @@ void SwooshbucklerAudioProcessor::runWander(int numSamples)
 
 void SwooshbucklerAudioProcessor::setPlaying(bool on)
 {
+    if (on && ! m_offline && juce::MessageManager::existsAndIsCurrentThread())
+        m_recorder.useRetro(); // the saved last minutes' memory, before the first sound (it allocates)
     if (on && ! m_playing.load())
         m_restartPending.store(true);
     m_playing.store(on);
@@ -887,6 +1127,29 @@ void SwooshbucklerAudioProcessor::publishOutputPeak(float peak, int numSamples)
     // the worst that does is show one peak for one more reading.
     if (peak > m_outputPeakHold.load(std::memory_order_relaxed))
         m_outputPeakHold.store(peak, std::memory_order_relaxed);
+}
+
+void SwooshbucklerAudioProcessor::publishChannelPeaks(const float* peaks, int numSamples)
+{
+    // Each speaker's meter falls back like the OUT meter (see publishOutputPeak). nullptr: silence.
+    const float decay = std::exp(-static_cast<float>(numSamples) / (0.3f * static_cast<float>(juce::jmax(1.0, m_deviceRate))));
+    for (size_t ch = 0; ch < m_channelPeak.size(); ++ch)
+    {
+        const float peak = peaks != nullptr ? peaks[ch] : 0.0f;
+        m_channelPeak[ch].store(juce::jmax(peak, m_channelPeak[ch].load(std::memory_order_relaxed) * decay), std::memory_order_relaxed);
+        if (peak > m_channelPeakHold[ch].load(std::memory_order_relaxed))
+            m_channelPeakHold[ch].store(peak, std::memory_order_relaxed);
+    }
+}
+
+float SwooshbucklerAudioProcessor::getChannelPeak(int channel) const
+{
+    return channel >= 0 && channel < room::c_maxChannels ? m_channelPeak[static_cast<size_t>(channel)].load(std::memory_order_relaxed) : 0.0f;
+}
+
+float SwooshbucklerAudioProcessor::takeChannelPeak(int channel)
+{
+    return channel >= 0 && channel < room::c_maxChannels ? m_channelPeakHold[static_cast<size_t>(channel)].exchange(0.0f, std::memory_order_relaxed) : 0.0f;
 }
 
 void SwooshbucklerAudioProcessor::copyScope(float* dest, int count) const
@@ -1346,14 +1609,12 @@ void SwooshbucklerAudioProcessor::noteRecentSession(const juce::File& file)
     paths.insert(0, file.getFullPathName());
     while (paths.size() > 10)
         paths.remove(paths.size() - 1);
-    m_settings->setValue("recentSessions", paths.joinIntoString("\n"));
-    m_settings->saveIfNeeded();
+    storeSetting("recentSessions", paths.joinIntoString("\n"));
 }
 
 void SwooshbucklerAudioProcessor::clearRecentSessions()
 {
-    m_settings->removeValue("recentSessions");
-    m_settings->saveIfNeeded();
+    settingsfile::remove(*m_settings, "recentSessions");
 }
 
 bool SwooshbucklerAudioProcessor::isUserEdit(int) const
@@ -1364,12 +1625,9 @@ bool SwooshbucklerAudioProcessor::isUserEdit(int) const
 
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 {
+    m_recorder.useRetro();
     m_recorder.setSignalGate(getSkipSilence());
-    TapeRecorder::Options o;
-    o.bitDepth = getBitDepth();
-    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
-    o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    auto o = tapeOptions();
     o.perWhoosh = getOneFilePerWhoosh();
     refreshTakes();
     m_filesThisTake = 0;
@@ -1379,12 +1637,9 @@ bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 
 bool SwooshbucklerAudioProcessor::startRecording(juce::String& error)
 {
+    m_recorder.useRetro();
     // One continuous take in one file, whatever the settings say about whooshes.
-    TapeRecorder::Options o;
-    o.bitDepth = getBitDepth();
-    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
-    o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    const auto o = tapeOptions();
     refreshTakes();
     m_filesThisTake = 0;
     updateTapeNaming();
@@ -1403,8 +1658,7 @@ int SwooshbucklerAudioProcessor::getRecordRate() const
 
 void SwooshbucklerAudioProcessor::setRecordRate(int rate)
 {
-    m_settings->setValue("recordRate", rate);
-    m_settings->saveIfNeeded();
+    storeSetting("recordRate", rate);
     if (m_deviceRate > 0.0 && ! isRecording())
     {
         // Re-render at the new rate (the tape stays closed while it changes).
@@ -1415,9 +1669,138 @@ void SwooshbucklerAudioProcessor::setRecordRate(int rate)
 }
 
 int SwooshbucklerAudioProcessor::getFileType() const { return juce::jlimit(0, 2, m_settings->getIntValue("fileType", 0)); }
-void SwooshbucklerAudioProcessor::setFileType(int type) { m_settings->setValue("fileType", juce::jlimit(0, 2, type)); m_settings->saveIfNeeded(); }
-bool SwooshbucklerAudioProcessor::getMono() const { return m_settings->getBoolValue("mono", false); }
-void SwooshbucklerAudioProcessor::setMono(bool mono) { m_settings->setValue("mono", mono); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setFileType(int type) { storeSetting("fileType", juce::jlimit(0, 2, type)); }
+SwooshbucklerAudioProcessor::TapeFold SwooshbucklerAudioProcessor::getTapeFold() const
+{
+    return static_cast<TapeFold>(juce::jlimit(0, 2, m_settings->getIntValue("tapeFold", 0)));
+}
+
+void SwooshbucklerAudioProcessor::setTapeFold(TapeFold fold)
+{
+    storeSetting("tapeFold", static_cast<int>(fold));
+}
+
+room::Width SwooshbucklerAudioProcessor::getTapeWidth() const
+{
+    const auto room = getRoomWidth();
+    switch (getTapeFold())
+    {
+        case TapeFold::Mono:   return room::Width::Mono;
+        case TapeFold::Stereo: return room::canFold(room, room::Width::Stereo) ? room::Width::Stereo : room;
+        case TapeFold::AsPlayed:
+        default:               return room;
+    }
+}
+
+bool SwooshbucklerAudioProcessor::setListening(room::Width width)
+{
+    if (! isApp())
+        return false; // in a host the track decides
+    if (width == getListening())
+        return true;
+    if (isRecording())
+        return false; // the tape is written at the room's width: it cannot change under a take
+    m_listening.store(static_cast<int>(width));
+    storeSetting("listening", static_cast<int>(width));
+    if (onListeningChanged)
+        onListeningChanged();
+    return true;
+}
+
+void SwooshbucklerAudioProcessor::setDeviceOutputs(int switchedOn, int available)
+{
+    m_deviceOutputs.store(juce::jmax(0, switchedOn), std::memory_order_relaxed);
+    m_deviceOutputsAvailable.store(juce::jmax(0, available), std::memory_order_relaxed);
+}
+
+bool SwooshbucklerAudioProcessor::listeningFolded(room::Width width, int deviceOutputs)
+{
+    return deviceOutputs > 0 && deviceOutputs < room::layout(width).numChannels;
+}
+
+juce::String SwooshbucklerAudioProcessor::listeningStatus() const
+{
+    return isApp() ? listeningStatus(getListening(), getDeviceOutputs(), getDeviceOutputsAvailable()) : juce::String();
+}
+
+juce::String SwooshbucklerAudioProcessor::listeningStatus(room::Width width, int deviceOutputs, int available)
+{
+    if (! listeningFolded(width, deviceOutputs))
+        return {};
+    juce::String s;
+    s << "Playing " << room::layout(width).name << " folded to " << (deviceOutputs >= 2 ? "stereo" : "mono") << ": ";
+    if (available > deviceOutputs)
+        s << deviceOutputs << " of this audio device's " << available << " outputs are switched on.";
+    else
+        s << "this audio device has " << deviceOutputs << (deviceOutputs == 1 ? " output." : " outputs.");
+    return s;
+}
+
+juce::String SwooshbucklerAudioProcessor::listeningLine(room::Width width, int deviceOutputs, int available)
+{
+    const auto& room = room::layout(width);
+    if (deviceOutputs <= 0)
+        return "No audio device is playing. Choose one with Audio Device.";
+    if (listeningFolded(width, deviceOutputs))
+        return listeningStatus(width, deviceOutputs, available) + " The tape and Render Variations still get all "
+               + juce::String(room.numChannels) + " channels.";
+    if (width == room::Width::Mono)
+        return deviceOutputs >= 2 ? "The one channel plays on the first two outputs switched on."
+                                  : "The one channel plays on the one output.";
+    juce::String order;
+    const auto channels = room::deviceChannels(width);
+    for (int ch = 0; ch < room.numChannels; ++ch)
+        order << (ch > 0 ? " " : "") << room::info(room.speakers[static_cast<size_t>(channels[static_cast<size_t>(ch)])]).name;
+    return "Plays on the first " + juce::String(room.numChannels) + " outputs switched on, in this order: " + order + ".";
+}
+
+room::FileOrder SwooshbucklerAudioProcessor::getChannelOrder() const
+{
+    return m_settings->getIntValue("channelOrder", 0) == 1 ? room::FileOrder::WavStandard : room::FileOrder::ProTools;
+}
+
+void SwooshbucklerAudioProcessor::setChannelOrder(room::FileOrder order)
+{
+    storeSetting("channelOrder", order == room::FileOrder::WavStandard ? 1 : 0);
+}
+
+takefile::Layout SwooshbucklerAudioProcessor::getFileLayout() const
+{
+    return m_settings->getIntValue("fileLayout", 0) == 1 ? takefile::Layout::MultiMono : takefile::Layout::Interleaved;
+}
+
+void SwooshbucklerAudioProcessor::setFileLayout(takefile::Layout layout)
+{
+    storeSetting("fileLayout", layout == takefile::Layout::MultiMono ? 1 : 0);
+}
+
+TapeRecorder::Options SwooshbucklerAudioProcessor::tapeOptions() const
+{
+    TapeRecorder::Options o;
+    o.bitDepth = getBitDepth();
+    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
+    o.type = static_cast<TapeRecorder::FileType>(getFileType());
+    // The tape gets the pipe (a Mono room is carried as Stereo, so As Played there is the Mono fold of it).
+    const auto width = getTapeWidth();
+    o.mono = width == room::Width::Mono;
+    o.stereo = width == room::Width::Stereo;
+    o.played = getRoomWidth();
+    o.order = getChannelOrder();
+    o.layout = getFileLayout();
+    if (m_raw.ceiling != nullptr)
+        o.foldCeilingDb = m_raw.ceiling->load();
+    return o;
+}
+
+juce::String SwooshbucklerAudioProcessor::retroLabel() const
+{
+    // What the button saves: the length asked for, or (where the memory cap cuts it short) what it really holds.
+    const int asked = getRetroMinutes() * 60;
+    const int kept = static_cast<int>(getRetroSecondsKept());
+    if (kept > 0 && kept < asked)
+        return kept < 60 ? "Last " + juce::String(kept) + " s" : juce::String::formatted("Last %d:%02d", kept / 60, kept % 60);
+    return asked == 60 ? juce::String("Last 60 s") : "Last " + juce::String(asked / 60) + " Min";
+}
 
 void SwooshbucklerAudioProcessor::stopRecording()
 {
@@ -1427,16 +1810,12 @@ void SwooshbucklerAudioProcessor::stopRecording()
 
 bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& error)
 {
-    // The same file type, bit depth, sample rate and channels as the tape.
-    TapeRecorder::Options o;
-    o.bitDepth = getBitDepth();
-    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
-    o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    // The same file type, bit depth, sample rate, channels, order and layout as the tape.
     updateTapeNaming();
-    if (! m_recorder.saveRetro(getRecordFolder(), o, written, error))
+    const auto options = tapeOptions();
+    if (! m_recorder.saveRetro(getRecordFolder(), options, written, error))
         return false;
-    registerTake(written, getRetroMinutes() == 1 ? juce::String("Last 60 s") : "Last " + juce::String(getRetroMinutes()) + " Min");
+    registerTake(written, retroLabel(), -1.0, 0, TapeRecorder::foldedFrom(options, m_pipeChannels));
     return true;
 }
 
@@ -1451,20 +1830,19 @@ VariationRenderer& SwooshbucklerAudioProcessor::getVariations()
 }
 
 int SwooshbucklerAudioProcessor::getVariationCount() const { return juce::jlimit(1, VariationRenderer::c_maxCount, m_settings->getIntValue("variationCount", 100)); }
-void SwooshbucklerAudioProcessor::setVariationCount(int count) { m_settings->setValue("variationCount", juce::jlimit(1, VariationRenderer::c_maxCount, count)); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationCount(int count) { storeSetting("variationCount", juce::jlimit(1, VariationRenderer::c_maxCount, count)); }
 int SwooshbucklerAudioProcessor::getVariationMode() const { return juce::jlimit(0, 2, m_settings->getIntValue("variationMode", 0)); }
-void SwooshbucklerAudioProcessor::setVariationMode(int mode) { m_settings->setValue("variationMode", juce::jlimit(0, 2, mode)); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationMode(int mode) { storeSetting("variationMode", juce::jlimit(0, 2, mode)); }
 float SwooshbucklerAudioProcessor::getVariationAmount() const { return juce::jlimit(0.0f, 1.0f, static_cast<float>(m_settings->getDoubleValue("variationAmount", 0.3))); }
-void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { m_settings->setValue("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { storeSetting("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); }
 juce::String SwooshbucklerAudioProcessor::getVariationFolder() const { return m_settings->getValue("variationFolder").trim(); }
-void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { m_settings->setValue("variationFolder", path.trim()); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { storeSetting("variationFolder", path.trim()); }
 juce::String SwooshbucklerAudioProcessor::getVariationValue(const juce::String& key, const juce::String& fallback) const { return m_settings->getValue("variation" + key, fallback); }
 void SwooshbucklerAudioProcessor::setVariationValue(const juce::String& key, const juce::String& value)
 {
     if (m_settings->getValue("variation" + key) == value && m_settings->containsKey("variation" + key))
         return;
-    m_settings->setValue("variation" + key, value);
-    m_settings->saveIfNeeded();
+    storeSetting("variation" + key, value);
 }
 
 std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOfflineCopy()
@@ -1489,7 +1867,7 @@ std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOf
     return copy;
 }
 
-void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_t seed)
+void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_t seed, room::Width width)
 {
     jassert(m_offline);
     // Stopped, nothing held, nothing waiting.
@@ -1510,13 +1888,39 @@ void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_
     m_engine.setSeed(seed);
     m_mods.setSeed(static_cast<juce::int64>(seed));
     m_recordRateOverride = 0; // the rig renders at the rate it is prepared at
-    setPlayConfigDetails(0, 2, sampleRate, c_maxSection);
+    // The room it plays in: the output bus as JUCE's own set for the width (a discrete set of the same count would
+    // not be a room), whatever the live rig's track or device is. An offline copy is no app, so every width is
+    // allowed (isBusesLayoutSupported).
+    auto layout = getBusesLayout();
+    if (! layout.outputBuses.isEmpty())
+        layout.outputBuses.getReference(0) = room::channelSet(width);
+    for (auto& input : layout.inputBuses)
+        input = juce::AudioChannelSet::disabled();
+    const bool set = setBusesLayout(layout);
+    jassert(set);
+    juce::ignoreUnused(set);
+    setRateAndBufferSizeDetails(sampleRate, c_maxSection);
     prepareToPlay(sampleRate, c_maxSection); // empties the engine, the modulators and the output stage
     // The morph wander sets off from where the X / Y controls are.
     m_wanderOn = false;
     m_wanderBlend = 0.0f;
     m_morphX = m_raw.morphX->load();
     m_morphY = m_raw.morphY->load();
+}
+
+void SwooshbucklerAudioProcessor::carryOn(const RigEngine::Places& places)
+{
+    jassert(m_offline);
+    m_restartPending.store(false);
+    m_engine.setPlaces(places);
+}
+
+void SwooshbucklerAudioProcessor::scatter(std::uint32_t seed)
+{
+    jassert(m_offline);
+    juce::Random random(static_cast<juce::int64>(seed));
+    m_mods.scatter(random);
+    m_engine.scatterRide(static_cast<std::uint32_t>(random.nextInt()) | 1u);
 }
 
 //==============================================================================
@@ -1527,8 +1931,7 @@ void SwooshbucklerAudioProcessor::setOneFilePerWhoosh(bool on)
 {
     if (on == getOneFilePerWhoosh())
         return;
-    m_settings->setValue("oneFilePerWhoosh", on);
-    m_settings->saveIfNeeded();
+    storeSetting("oneFilePerWhoosh", on);
     if (isRecording())
     {
         // The open take is written the old way: close it and carry on in a new one.
@@ -1539,11 +1942,11 @@ void SwooshbucklerAudioProcessor::setOneFilePerWhoosh(bool on)
 }
 
 juce::String SwooshbucklerAudioProcessor::getTakeName() const { return m_settings->getValue("takeName").trim(); }
-void SwooshbucklerAudioProcessor::setTakeName(const juce::String& name) { m_settings->setValue("takeName", name.trim()); m_settings->saveIfNeeded(); updateTapeNaming(); }
+void SwooshbucklerAudioProcessor::setTakeName(const juce::String& name) { storeSetting("takeName", name.trim()); updateTapeNaming(); }
 juce::String SwooshbucklerAudioProcessor::getCreator() const { return m_settings->getValue("creator").trim(); }
-void SwooshbucklerAudioProcessor::setCreator(const juce::String& creator) { m_settings->setValue("creator", creator.trim()); m_settings->saveIfNeeded(); updateTapeNaming(); }
+void SwooshbucklerAudioProcessor::setCreator(const juce::String& creator) { storeSetting("creator", creator.trim()); updateTapeNaming(); }
 int SwooshbucklerAudioProcessor::getNameStyle() const { return juce::jlimit(0, 1, m_settings->getIntValue("nameStyle", 0)); }
-void SwooshbucklerAudioProcessor::setNameStyle(int style) { m_settings->setValue("nameStyle", juce::jlimit(0, 1, style)); m_settings->saveIfNeeded(); updateTapeNaming(); }
+void SwooshbucklerAudioProcessor::setNameStyle(int style) { storeSetting("nameStyle", juce::jlimit(0, 1, style)); updateTapeNaming(); }
 
 int SwooshbucklerAudioProcessor::getRetroMinutes() const
 {
@@ -1553,8 +1956,7 @@ int SwooshbucklerAudioProcessor::getRetroMinutes() const
 
 void SwooshbucklerAudioProcessor::setRetroMinutes(int minutes)
 {
-    m_settings->setValue("retroMinutes", minutes == 3 || minutes == 5 ? minutes : 1);
-    m_settings->saveIfNeeded();
+    storeSetting("retroMinutes", minutes == 3 || minutes == 5 ? minutes : 1);
     m_recorder.setRetroSeconds(getRetroMinutes() * 60);
 }
 
@@ -1567,22 +1969,62 @@ juce::String SwooshbucklerAudioProcessor::getEffectiveTakeName() const
     return preset.isEmpty() || preset == "Default" ? juce::String("Swooshbuckler") : preset;
 }
 
-juce::String SwooshbucklerAudioProcessor::describeSettings() const
+juce::String SwooshbucklerAudioProcessor::describeRoom(room::Width width) const
 {
-    // Short enough for a BWF description (256 characters): the version, the preset, and the controls that say most
-    // about how the take was made.
+    if (room::layout(width).numChannels <= 2)
+        return {};
     auto text = [this](const char* id)
     {
         auto* param = m_state.getParameter(id);
         return param != nullptr ? param->getCurrentValueAsText() : juce::String();
     };
+    // A Flight Path with the way and the side its passes are held to, where they are: "Through (Front to Back, Left)".
+    auto flight = [this, &text](const char* pathId, const char* directionId, const char* sideId)
+    {
+        auto choice = [this](const char* id) { return juce::roundToInt(m_state.getRawParameterValue(id)->load()); };
+        const int path = choice(pathId);
+        juce::StringArray held;
+        if (const int way = choice(directionId); way != ParamIDs::DirectionRandom)
+            held.add(Params::directionLabel(path, way));
+        if (const int which = choice(sideId); which != ParamIDs::SideRandom && Params::sideLabel(path, which) != nullptr)
+            held.add(Params::sideLabel(path, which));
+        return text(pathId) + (held.isEmpty() ? juce::String() : " (" + held.joinIntoString(", ") + ")");
+    };
     juce::String d;
-    d << "Swooshbuckler " << Version::number() << ". Preset: " << currentPresetName
+    d << "Flight Paths A " << flight(ParamIDs::flightPath[0], ParamIDs::direction[0], ParamIDs::side[0])
+      << ", B " << (m_raw.linkBuses != nullptr && m_raw.linkBuses->load() > 0.5f ? juce::String("as A (Link)")
+                                                                                 : flight(ParamIDs::flightPath[1], ParamIDs::direction[1], ParamIDs::side[1]))
+      // (Stowaway's only while it flies: on, in Fly. Off or in another mode nothing of it takes a path.)
+      << (isStowawayOn() && stowMode() == ParamIDs::StowFly
+              ? ", Stowaway " + flight(ParamIDs::stowFlightPath, ParamIDs::stowDirection, ParamIDs::stowSide) : juce::String())
+      << ". Spread " << text(ParamIDs::roomSpread) << ", Height " << text(ParamIDs::roomHeight) << ", Height Varies " << text(ParamIDs::roomHeightVaries)
+      << ", Centre Speaker " << text(ParamIDs::roomCentre) << ", LFE " << text(ParamIDs::roomLfeMode);
+    if (const auto* mode = m_state.getRawParameterValue(ParamIDs::roomLfeMode); mode != nullptr && mode->load() > 0.5f)
+        d << " " << text(ParamIDs::roomLfeLevel);
+    return d + ".";
+}
+
+juce::String SwooshbucklerAudioProcessor::describeSettings() const
+{
+    // The most telling first, because a WAV file's BWF description keeps only its first 256 bytes (cut after a
+    // whole item): the version, the room, the preset, then the controls that say most about how the take was made.
+    auto text = [this](const char* id)
+    {
+        auto* param = m_state.getParameter(id);
+        return param != nullptr ? param->getCurrentValueAsText() : juce::String();
+    };
+    const auto width = getRoomWidth();
+    juce::String d;
+    d << "Swooshbuckler " << Version::number() << ". " << room::layout(width).name << ".";
+    if (const auto roomText = describeRoom(width); roomText.isNotEmpty())
+        d << " " << roomText;
+    d << " Preset: " << currentPresetName
       << ". Energy " << text(ParamIDs::energy) << ", Rate " << text(ParamIDs::rate) << ", Fill " << text(ParamIDs::fill)
       << ", Chaos " << text(ParamIDs::chaos) << ", Pitch " << text(ParamIDs::pitch) << ", Space " << text(ParamIDs::space)
       << ". Pass A " << text(ParamIDs::passMode[0]) << ", Pass B " << text(ParamIDs::passMode[1])
-      << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim) << ".";
-    return d.substring(0, 256);
+      << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim)
+      << ", Hits " << text(ParamIDs::hitPosition) << ", Hit Spread " << text(ParamIDs::hitSpread) << ".";
+    return d;
 }
 
 void SwooshbucklerAudioProcessor::updateTapeNaming()
@@ -1601,39 +2043,48 @@ void SwooshbucklerAudioProcessor::refreshTakes()
     for (const auto& take : m_recorder.takeFinishedTakes())
     {
         ++m_filesThisTake;
-        registerTake(take.file, take.whoosh ? "Whoosh" : "Tape", take.seconds, take.markers);
+        registerTake(take.file, take.whoosh ? "Whoosh" : "Tape", take.seconds, take.markers, take.foldedFrom);
     }
     if (m_variations != nullptr)
         for (const auto& written : m_variations->takeWritten())
             registerTake(written.file, written.markers > 0 ? "Variations" : "Variation", written.seconds, written.markers); // one file that holds them all is one take
 }
 
-void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers)
+juce::String SwooshbucklerAudioProcessor::widthTag(const Take& take)
+{
+    const juce::String width(room::layout(take.format.width).name);
+    return take.foldedFrom.has_value() ? width + " Fold" : width;
+}
+
+void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers,
+                                               std::optional<room::Width> foldedFrom)
 {
     const juce::File file(fileToAdd);     // copies: the caller may have handed us a take of the list that is about
     const juce::String kind(kindToShow);  // to be replaced
     if (! juce::MessageManager::existsAndIsCurrentThread())
     {
         juce::WeakReference<SwooshbucklerAudioProcessor> weak(this);
-        juce::MessageManager::callAsync([weak, file, kind, seconds, markers]
+        juce::MessageManager::callAsync([weak, file, kind, seconds, markers, foldedFrom]
         {
             if (auto* self = weak.get())
-                self->registerTake(file, kind, seconds, markers);
+                self->registerTake(file, kind, seconds, markers, foldedFrom);
         });
         return;
     }
+    // The take the file belongs to: a Multi-Mono set is one take, whichever of its files is handed in.
+    const auto found = takefile::find(file);
     if (seconds < 0.0)
-    {
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
-        if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
+        if (const auto reader = takefile::openReader(found))
             seconds = reader->sampleRate > 0.0 ? static_cast<double>(reader->lengthInSamples) / reader->sampleRate : 0.0;
-    }
-    for (auto it = m_takes.begin(); it != m_takes.end();) // the same file again (written over): one entry
-        it = it->file == file ? m_takes.erase(it) : it + 1;
+    const auto first = found.files.isEmpty() ? file : found.files[0];
+    for (auto it = m_takes.begin(); it != m_takes.end();) // the same take again (written over): one entry
+        it = it->file == first ? m_takes.erase(it) : it + 1;
     Take take;
     take.id = m_nextTakeId++;
-    take.file = file;
+    take.file = first;
+    take.files = found.files.isEmpty() ? juce::Array<juce::File> { file } : found.files;
+    take.format = found.format;
+    take.foldedFrom = foldedFrom;
     take.kind = kind;
     take.seconds = juce::jmax(0.0, seconds);
     take.markers = markers;
@@ -1669,8 +2120,12 @@ bool SwooshbucklerAudioProcessor::deleteTake(int id, bool toTrash)
         if (it->id == id)
         {
             if (m_audition.getFile() == it->file)
-                m_audition.close(); // it holds the file open, and an open file can't be moved everywhere
-            if (it->file.existsAsFile() && ! (toTrash ? it->file.moveToTrash() : it->file.deleteFile()))
+                m_audition.close(); // it holds the files open, and an open file can't be moved everywhere
+            bool all = true;
+            for (const auto& f : it->files)
+                if (f.existsAsFile() && ! (toTrash ? f.moveToTrash() : f.deleteFile()))
+                    all = false;
+            if (! all)
                 return false;
             m_takes.erase(it);
             ++m_takesGeneration;
@@ -1708,8 +2163,7 @@ juce::File SwooshbucklerAudioProcessor::getRecordFolder() const
 
 void SwooshbucklerAudioProcessor::setRecordFolder(const juce::File& folder)
 {
-    m_settings->setValue("recordFolder", folder.getFullPathName());
-    m_settings->saveIfNeeded();
+    storeSetting("recordFolder", folder.getFullPathName());
 }
 
 int SwooshbucklerAudioProcessor::getBitDepth() const
@@ -1720,8 +2174,7 @@ int SwooshbucklerAudioProcessor::getBitDepth() const
 
 void SwooshbucklerAudioProcessor::setBitDepth(int bits)
 {
-    m_settings->setValue("bitDepth", bits);
-    m_settings->saveIfNeeded();
+    storeSetting("bitDepth", bits);
 }
 
 bool SwooshbucklerAudioProcessor::getAutoRecord() const
@@ -1731,8 +2184,7 @@ bool SwooshbucklerAudioProcessor::getAutoRecord() const
 
 void SwooshbucklerAudioProcessor::setAutoRecord(bool on)
 {
-    m_settings->setValue("autoRecord", on);
-    m_settings->saveIfNeeded();
+    storeSetting("autoRecord", on);
 }
 
 bool SwooshbucklerAudioProcessor::getSkipSilence() const
@@ -1742,8 +2194,7 @@ bool SwooshbucklerAudioProcessor::getSkipSilence() const
 
 void SwooshbucklerAudioProcessor::setSkipSilence(bool on)
 {
-    m_settings->setValue("skipSilence", on);
-    m_settings->saveIfNeeded();
+    storeSetting("skipSilence", on);
     m_recorder.setSignalGate(on); // an open take follows at once
 }
 
@@ -2031,6 +2482,12 @@ void SwooshbucklerAudioProcessor::applyRestoredState(const juce::ValueTree& carg
 
 std::function<void()> SwooshbucklerAudioProcessor::showAudioSettings;
 juce::PropertiesFile* SwooshbucklerAudioProcessor::s_sharedSettings = nullptr;
+
+void SwooshbucklerAudioProcessor::storeSetting(const juce::String& key, const juce::var& value)
+{
+    // Only this key goes into the file as it is now: another instance's (or the app's) newer values stay.
+    settingsfile::store(*m_settings, key, value);
+}
 
 juce::AudioProcessorEditor* SwooshbucklerAudioProcessor::createEditor()
 {

@@ -425,7 +425,12 @@ juce::Slider::SliderLayout SubbertoneLookAndFeel::getSliderLayout(juce::Slider& 
 
     if (slider.getTextBoxPosition() == juce::Slider::NoTextBox)
     {
+        // A horizontal slider's knob travels between the ends, so it is never cut off.
         layout.sliderBounds = slider.getLocalBounds();
+
+        if (slider.getSliderStyle() == juce::Slider::LinearHorizontal)
+            layout.sliderBounds.reduce(getSliderThumbRadius(slider) + 1, 0);
+
         return layout;
     }
 
@@ -463,6 +468,59 @@ juce::Label* SubbertoneLookAndFeel::createSliderTextBox(juce::Slider& slider)
         }
     };
     return label;
+}
+
+void SubbertoneLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
+                                             float minSliderPos, float maxSliderPos, juce::Slider::SliderStyle style,
+                                             juce::Slider& slider)
+{
+    if (style != juce::Slider::LinearHorizontal)
+    {
+        juce::LookAndFeel_V4::drawLinearSlider(g, x, y, width, height, sliderPos, minSliderPos, maxSliderPos, style, slider);
+        return;
+    }
+
+    // The track of the limiter's gain-reduction meter, filled in the slider's accent up to a knob like the rotary
+    // knobs' body.
+    const auto accent = slider.findColour(juce::Slider::rotarySliderFillColourId);
+    const bool enabled = slider.isEnabled();
+    const bool hot = enabled && slider.isMouseOverOrDragging();
+    const auto area = juce::Rectangle<int>(x, y, width, height).toFloat();
+    const float radius = static_cast<float>(getSliderThumbRadius(slider));
+    const auto track = juce::Rectangle<float>(area.getX() - radius, area.getCentreY() - 2.0f, area.getWidth() + 2.0f * radius, 4.0f);
+
+    g.setColour(outline);
+    g.fillRoundedRectangle(track, 2.0f);
+
+    if (sliderPos > track.getX())
+    {
+        g.setColour(accent.withAlpha(! enabled ? 0.3f : hot ? 1.0f : 0.9f));
+        g.fillRoundedRectangle(track.withRight(sliderPos), 2.0f);
+    }
+
+    const auto knob = juce::Rectangle<float>(2.0f * radius, 2.0f * radius).withCentre({ sliderPos, area.getCentreY() });
+
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.fillEllipse(knob.translated(0.0f, 1.0f));
+    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(hot ? 0.18f : 0.1f), knob.getCentreX(), knob.getY(),
+                                           panelRaised.darker(0.25f), knob.getCentreX(), knob.getBottom(), false));
+    g.fillEllipse(knob);
+
+    if (shouldShowFocusRing(slider))
+    {
+        g.setColour(output);
+        g.drawEllipse(knob.reduced(0.25f), 1.5f);
+    }
+    else
+    {
+        g.setColour(hot ? accent : enabled ? outline.brighter(0.15f) : outline);
+        g.drawEllipse(knob.reduced(0.5f), 1.0f);
+    }
+}
+
+int SubbertoneLookAndFeel::getSliderThumbRadius(juce::Slider& slider)
+{
+    return slider.getSliderStyle() == juce::Slider::LinearHorizontal ? 6 : juce::LookAndFeel_V4::getSliderThumbRadius(slider);
 }
 
 juce::Font SubbertoneLookAndFeel::getLabelFont(juce::Label& label)

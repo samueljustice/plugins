@@ -362,8 +362,8 @@ jobs:
           echo "Built $BUILT."
           echo
           echo "### Downloads"
-          echo "- **macOS** (\`.dmg\`): the installer, with every app, VST3, AU and signed AAX (choose Customize to pick), and **Uninstall Sammy J's Plugins**, which removes them again. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later. The \`.pkg\` is the same installer on its own."
-          echo "- **Windows** (\`.exe\`): every VST3 and signed AAX, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later. Uninstall from Settings > Apps (or the Start menu), which can also remove your settings and presets."
+          echo "- **macOS** (\`.dmg\`): the installer, with every app, VST3, AU and AAX (choose Customize to pick), and **Uninstall Sammy J's Plugins**, which removes them again. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later. The \`.pkg\` is the same installer on its own."
+          echo "- **Windows** (\`.exe\`): every VST3 and AAX, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later. Uninstall from Settings > Apps (or the Start menu), which can also remove your settings and presets."
         } > notes.md
         cat notes.md
 

@@ -6,6 +6,9 @@
 #include "PitchDetector.h"
 #include "PresetManager.h"
 #include "MasterProcessor.h"
+#include "LearnAudio.h"
+#include "LearnStore.h"
+#include "LearnWorker.h"
 
 #include <array>
 #include <atomic>
@@ -86,6 +89,38 @@ public:
         return (k >= 1 && k <= 16) ? m_harmonicActivity[static_cast<size_t>(k)].load(std::memory_order_relaxed) : 0.0f;
     }
 
+    /** The same for the deeper subs, octaves 2 (S2) or 3 (S3) below the input; 0 while the Sub Floor silences one. */
+    float getSubOctaveActivity(int octaves) const
+    {
+        return (octaves == 2 || octaves == 3) ? m_subOctaveActivity[static_cast<size_t>(octaves - 2)].load(std::memory_order_relaxed) : 0.0f;
+    }
+
+    /** LEARN: its commands (learn, stop, forget, pick a line, gap filling, USE LEARNED), its status and what is
+        learned. Any thread but the audio thread; see LearnWorker.h. */
+    subbertone::learn::Learner& getLearner() { return m_learner; }
+    const subbertone::learn::Learner& getLearner() const { return m_learner; }
+
+    /** Where the sub's pitch comes from right now: a learned curve (true) or live tracking (false), and how sure
+        that source is, 0..1 (the curve's confidence there, or the tracker's, smoothed). For the visualiser. */
+    bool isPitchLearned() const { return m_pitchLearned.load(std::memory_order_relaxed); }
+    float getPitchConfidence() const { return m_pitchConfidence.load(std::memory_order_relaxed); }
+
+    /** LEARN's trail for the view: what the live tracker heard, and the sub played, at each timeline position while
+        the transport played (oldest first; empty until Learn is used). Message thread. */
+    void getLearnTrail(std::vector<subbertone::learn::TrailPoint>& dest) const { m_learnAudio.copyTrail(dest); }
+
+    /** Whether the host gives LEARN a timeline to line up what it hears with: false in the standalone app (its
+        player counts samples but never plays), in Pro Tools' AudioSuite, in a host whose play head reports no
+        position, and in one that has never played while its time runs on in real time or stays at a bare 0 without
+        tempo (a host with no transport: JUCE's wrappers report a position all the same); true otherwise, also before
+        any block has said (a plug-in host nearly always has one). Any thread. */
+    bool hasHostTimeline() const;
+    bool isStandaloneApp() const { return wrapperType == wrapperType_Standalone; }
+
+    /** While an editor shows, the play head is read on every block for hasHostTimeline(), even before Learn is used
+        (reading it changes nothing in the sound). */
+    void watchHostTimeline(bool watch) { m_timelineWatched.store(watch, std::memory_order_relaxed); }
+
     // Parameters
     juce::AudioProcessorValueTreeState m_parameters;
 
@@ -117,6 +152,8 @@ private:
     void copyVisualRing(const std::vector<float>& ring, std::vector<float>& dest) const;
 
     void render(juce::AudioBuffer<float>& buffer, bool bypassed);
+    void readTransport(subbertone::learn::Transport& transport) const;
+    bool isUsableTimeline(const subbertone::learn::Transport& transport, int numSamples);
     void handlePendingReset(bool bypassed);
     void delayDry(const juce::AudioBuffer<float>& buffer, int start, int numSamples, int numInputs, int numChannels);
     void applyBypassFade(juce::AudioBuffer<float>& buffer, int start, int numSamples, int numChannels, float target);
@@ -175,9 +212,12 @@ private:
     std::atomic<float>* m_loCutOnParam = nullptr;
     std::atomic<float>* m_loCutFreqParam = nullptr;
     std::atomic<float>* m_phaseAlignParam = nullptr;
+    std::atomic<float>* m_subOctave2Param = nullptr;
+    std::atomic<float>* m_subOctave3Param = nullptr;
 
     // Live per-harmonic activity (0..1) for the harmonic strip, written once per block.
     std::array<std::atomic<float>, 17> m_harmonicActivity {};
+    std::array<std::atomic<float>, 2> m_subOctaveActivity {};   // S2, S3
     std::atomic<float> m_gainReductionDb { 0.0f };
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_mixSmoothed;
@@ -198,4 +238,22 @@ private:
 
     std::atomic<float> m_currentFundamental{ 0.0f };
     std::atomic<float> m_currentSignalLevelDb{ 0.0f }; // linear RMS despite the name (editor converts)
+
+    // LEARN (non-parameter state, saved as the LEARN child of the state). The store holds what is learned; the
+    // audio side listens, captures and fills the engine's pitch guide; the learner runs the commands and the
+    // background jobs. Declared last, so the learner goes first and its jobs have stopped before the rest goes.
+    static_assert(subbertone::learn::LearnAudio::c_maxChunkSamples == c_chunkSize);
+    subbertone::learn::LearnStore m_learnStore;
+    subbertone::learn::LearnAudio m_learnAudio { m_learnStore };
+    std::atomic<bool> m_pitchLearned { false };
+    std::atomic<float> m_pitchConfidence { 0.0f };
+    float m_liveConfidence = 0.0f;                // audio thread: the tracker's confidence, smoothed
+    std::atomic<bool> m_timelineWatched { false }; // an editor shows: read the play head even before Learn is used
+    std::atomic<int> m_hostTimeline { -1 };        // the play head's latest report: -1 none read, 0 no usable
+                                                   // timeline, 1 a timeline (see isUsableTimeline())
+    std::atomic<bool> m_inAudioSuite { false };    // Pro Tools' AudioSuite: no timeline to learn on
+    bool m_hostHasPlayed = false;                  // audio thread: the host has said it plays at least once
+    bool m_haveHostTime = false;                   // audio thread: the last block read had a position ...
+    std::int64_t m_nextHostTime = 0;               // ... and this is where the next one continues it
+    subbertone::learn::Learner m_learner { m_learnStore, m_learnAudio };
 };

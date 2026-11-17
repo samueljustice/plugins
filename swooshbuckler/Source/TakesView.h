@@ -5,6 +5,7 @@
 #include "Theme.h"
 
 #include <map>
+#include <vector>
 
 /**
  * Takes: the recordings of this run (tape takes, whoosh files, LAST 60s saves and whatever else has registered
@@ -42,7 +43,7 @@ private:
     enum class Zone { None, Star, Body, Show, Bin };
     struct Row
     {
-        juce::Rectangle<int> all, star, wave, name, kind, length, show, bin;
+        juce::Rectangle<int> all, star, wave, name, width, kind, length, show, bin;
     };
     Row rowBounds(int index) const;
     /** The take and the part of its row under a point (-1 = none). */
@@ -60,6 +61,7 @@ private:
     juce::AudioFormatManager m_formats;
     juce::AudioThumbnailCache m_cache { SwooshbucklerAudioProcessor::c_maxTakes + 4 };
     std::map<int, std::unique_ptr<juce::AudioThumbnail>> m_thumbs; // by take id
+    std::map<int, std::vector<float>> m_closest; // by take id: where its Closest markers are, as fractions of its length
 
     int m_generation = -1, m_playing = -1;
     int m_hoverRow = -1, m_pressRow = -1;

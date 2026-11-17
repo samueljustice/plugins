@@ -69,6 +69,11 @@ public:
     juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
     juce::Label* createSliderTextBox(juce::Slider&) override;
 
+    // Horizontal sliders (LEARN's GAP FILL): a meter-like track and a small knob
+    void drawLinearSlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos, float minSliderPos,
+                          float maxSliderPos, juce::Slider::SliderStyle, juce::Slider&) override;
+    int getSliderThumbRadius(juce::Slider&) override;
+
     // Labels
     juce::Font getLabelFont(juce::Label&) override;
 

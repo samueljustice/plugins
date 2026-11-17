@@ -97,6 +97,12 @@ float Course::at (const std::vector<float>& h, double stepSeconds, double second
 
 Course buildCourse (const pitchflattener::core::PitchLine& line, bool flattened, double targetMidi, double amount, double stepSeconds)
 {
+    return buildCourse (line, flattened, [targetMidi] (double) { return targetMidi; }, amount, stepSeconds);
+}
+
+Course buildCourse (const pitchflattener::core::PitchLine& line, bool flattened, const std::function<double (double)>& targetAt, double amount,
+                    double stepSeconds)
+{
     Course c;
     const auto& midi = line.midi;
     if (midi.empty() || line.hopSeconds <= 0.0 || stepSeconds <= 0.0)
@@ -112,10 +118,11 @@ Course buildCourse (const pitchflattener::core::PitchLine& line, bool flattened,
         high = *mx;
     }
     if (flattened)
-    {
-        low = std::min (low, targetMidi);
-        high = std::max (high, targetMidi);
-    }
+        for (double t = 0.0; t <= (double) midi.size() * line.hopSeconds; t += stepSeconds)
+        {
+            low = std::min (low, targetAt (t));
+            high = std::max (high, targetAt (t));
+        }
     const double ups = unitsPerSemitone (low, high);
     const double centre = 0.5 * (low + high);
     const auto heightOf = [&] (double m) { return (float) std::clamp ((m - centre) * ups, (double) -kCourseSpan, (double) kCourseSpan); };
@@ -144,7 +151,8 @@ Course buildCourse (const pitchflattener::core::PitchLine& line, bool flattened,
         c.highest = std::max (c.highest, c.track[i]);
         if (flattened)
         {
-            c.lane[i] = heightOf (targetMidi + (1.0 - amount) * (m - targetMidi));
+            const double target = targetAt ((double) i * stepSeconds);
+            c.lane[i] = heightOf (target + (1.0 - amount) * (m - target));
             c.lowest = std::min (c.lowest, c.lane[i]);
             c.highest = std::max (c.highest, c.lane[i]);
         }
@@ -488,7 +496,22 @@ void FlightView::setView (std::shared_ptr<const pitchflattener::Result> result, 
                         break;
                     }
             if (line != nullptr)
-                m_course = flight::buildCourse (*line, flattened, m_result->flattened.targetMidi, m_result->options.amount);
+            {
+                // Each separate sound has its own target; between two, the next one's.
+                const auto& events = analysis.events;
+                const auto targets = m_result->flattened.eventTargets;
+                const double first = m_result->flattened.targetMidi;
+                const auto targetAt = [&events, targets, first] (double t)
+                {
+                    if (targets.size() != events.size() || targets.empty())
+                        return first;
+                    for (std::size_t i = 0; i < events.size(); ++i)
+                        if (t < events[i].endSeconds)
+                            return targets[i];
+                    return targets.back();
+                };
+                m_course = flight::buildCourse (*line, flattened, targetAt, m_result->options.amount);
+            }
         }
     }
     m_playSeconds = playSeconds;

@@ -907,6 +907,31 @@ LogoOutline::FrameStats LogoOutline::measureFrame(float timeSeconds, float opaci
     return stats;
 }
 
+juce::Path LogoOutline::createOutlinePath(bool cherry) const
+{
+    juce::Path path;
+
+    for (const auto& contour : m_contours)
+    {
+        if (contour.cherry != cherry)
+            continue;
+
+        for (int i = 0; i < contour.count; ++i)
+        {
+            const auto& p = m_points[static_cast<size_t>(contour.first + i)];
+
+            if (i == 0)
+                path.startNewSubPath(p);
+            else
+                path.lineTo(p);
+        }
+
+        path.closeSubPath();
+    }
+
+    return path;
+}
+
 juce::Path LogoOutline::createOutlinePath() const
 {
     juce::Path path;

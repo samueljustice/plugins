@@ -10,5 +10,7 @@ soundadvice|Library/Saved Application State/com.samueljustice.soundadvice.savedS
 subbertone|Library/Audio/Presets/SammyJs/Subbertone|Library/Audio/Presets/SammyJs
 pitchflattener|Library/SammyJs/PitchFlattener|Library/SammyJs
 roarschach|Library/Audio/Presets/SammyJs/Roarschach|Library/Audio/Presets/SammyJs
+pitchflattener|Library/Logs/SammyJ/PitchFlattener.log|Library/Logs/SammyJ
+pitchflattener|Library/Logs/SammyJ/PitchFlattener captures|Library/Logs/SammyJ
 tonalrecall|Library/Logs/SammyJ/TonalRecall.log|Library/Logs/SammyJ
 updates|Library/Application Support/Sammy J/Updates.settings|Library/Application Support/Sammy J

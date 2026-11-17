@@ -1041,12 +1041,26 @@ int main(int argc, char* argv[])
         check(juce::String(Presets::sectionName(Presets::Stowaway)) == "Stowaway" && ! Presets::isSessionParameter(ParamIDs::stowMode),
               "stowaway: a section of its own for the dice and the locks, and a preset may set its Mode");
         juce::Random r(7);
-        bool modeLeft = true, knobsRolled = true, lockHolds = true, onlyItsOwn = true;
+        bool modeLeft = true, knobsRolled = true, lockHolds = true, onlyItsOwn = true, pathRolled = true, roomLeft = true;
+        std::array<bool, ParamIDs::numFlightPaths> pathSeen {};
         for (int i = 0; i < 200; ++i)
         {
             const auto all = Presets::roll(r), locked = Presets::roll(r, 1u << Presets::Stowaway), die = Presets::rollSection(r, Presets::Stowaway);
             modeLeft = modeLeft && all.values.count(ParamIDs::stowMode) == 0 && die.values.count(ParamIDs::stowMode) == 0;
-            onlyItsOwn = onlyItsOwn && die.values.size() == static_cast<size_t>(ParamIDs::numStowControls);
+            onlyItsOwn = onlyItsOwn && die.values.size() == static_cast<size_t>(ParamIDs::numStowControls) + 1;
+            // Its Flight Path (Fly's, in a room) is rolled with it, and so are the buses' with theirs; the room's
+            // own settings are the session's.
+            pathRolled = pathRolled && die.values.count(ParamIDs::stowFlightPath) == 1 && locked.values.count(ParamIDs::stowFlightPath) == 0
+                         && all.values.count(ParamIDs::flightPath[0]) == 1 && all.values.count(ParamIDs::flightPath[1]) == 1;
+            if (pathRolled)
+            {
+                const float path = all.values.at(ParamIDs::flightPath[0]);
+                const int whole = juce::roundToInt(path);
+                pathRolled = std::abs(path - static_cast<float>(whole)) < 1.0e-6f && whole >= 0 && whole < ParamIDs::numFlightPaths;
+                if (pathRolled)
+                    pathSeen[static_cast<size_t>(whole)] = true;
+            }
+            roomLeft = roomLeft && all.values.count(ParamIDs::roomSpread) == 0 && all.values.count(ParamIDs::roomHeight) == 0 && all.values.count(ParamIDs::roomCentre) == 0;
             for (const auto* id : ParamIDs::stow)
             {
                 knobsRolled = knobsRolled && all.values.count(id) == 1 && die.values.count(id) == 1 && die.values.at(id) >= 0.0f && die.values.at(id) <= 1.0f;
@@ -1054,7 +1068,12 @@ int main(int argc, char* argv[])
             }
         }
         check(modeLeft, "stowaway: Randomise and Stowaway's die never change the Mode");
-        check(knobsRolled && onlyItsOwn, "stowaway: they roll its five knobs (the die: those and nothing else)");
+        check(knobsRolled && onlyItsOwn, "stowaway: they roll its five knobs (the die: those, its Flight Path and nothing else)");
+        check(pathRolled && pathSeen[0] && pathSeen[1] && pathSeen[2] && pathSeen[3], "flight paths: Randomise rolls each bus's and Stowaway's, over all four");
+        check(roomLeft && Presets::isSessionParameter(ParamIDs::roomSpread) && Presets::isSessionParameter(ParamIDs::roomHeight)
+                  && Presets::isSessionParameter(ParamIDs::roomCentre) && ! Presets::isSessionParameter(ParamIDs::flightPath[0])
+                  && ! Presets::isSessionParameter(ParamIDs::stowFlightPath),
+              "the room: Spread, Height and Centre Speaker belong to the session (no preset or die moves them); a preset may set the Flight Paths");
         check(lockHolds, "stowaway: its lock keeps Randomise off them");
         Presets::Preset wake { "Wake", { { ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly) } } };
         bool presetSetsMode = false, rollKeepsMode = true;

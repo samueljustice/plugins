@@ -40,6 +40,62 @@ namespace ParamIDs
     inline constexpr const char* busNames[numBuses] = { "A", "B" };
     // Pass Mode: Bed (two overlapped passes, a steady level) / Fly-By (one pass at a time). Linked: B uses A's.
     inline constexpr const char* passMode[numBuses] = { "aPassMode", "bPassMode" };
+    // Flight Path: where a bus's passes fly in a room (Quad and wider). Linked: B uses A's. Stowaway's is Fly's.
+    inline constexpr const char* flightPath[numBuses] = { "aFlightPath", "bFlightPath" };
+    inline constexpr const char* stowFlightPath = "stowFlightPath";
+    inline constexpr int numFlightPaths = 4;
+    inline constexpr const char* flightPathNames[numFlightPaths] = { "Across", "Through", "Overhead", "Around" };
+    // Direction: which way a bus's passes fly. Random (each pass picks its own), or one way or the other: what
+    // that way is called follows the Flight Path (Params::directionLabel). Heard in Stereo too (an Across pass
+    // goes left to right or right to left). Linked: B uses A's. Stowaway's is Fly's.
+    // Side: which side of you a pass takes (Through, Overhead), or where a pass going Around is at its loudest
+    // (Params::sideLabel); Across has no sides. Rooms only.
+    // Each is a modulation target too: a modulator wired to it decides, pass by pass, as the pass starts.
+    inline constexpr const char* direction[numBuses] = { "aDirection", "bDirection" };
+    inline constexpr const char* stowDirection = "stowDirection";
+    inline constexpr const char* side[numBuses] = { "aSide", "bSide" };
+    inline constexpr const char* stowSide = "stowSide";
+    inline constexpr int numDirections = 3;
+    enum DirectionChoice { DirectionRandom = 0, DirectionForwards, DirectionBackwards };
+    inline constexpr const char* directionNames[numDirections] = { "Random", "Forwards", "Backwards" };
+    enum SideChoice { SideRandom = 0, SideLeft, SideRight };
+    inline constexpr const char* sideNames[numDirections] = { "Random", "Left", "Right" };
+    inline constexpr const char* directionTip =
+        "Which way this bus's passes fly. Random: each pass picks its own way. Or always one way: left to right or "
+        "right to left on Across (in Stereo too), front to back or back to front on Through and Overhead, clockwise "
+        "or anticlockwise on Around. A modulator wired here decides instead, pass by pass, as each pass starts: "
+        "above its middle is the first way, below it the other.";
+    inline constexpr const char* sideTip =
+        "Which side of you this bus's passes take on Through and Overhead: Random (each pass picks its own), always "
+        "your left, or always your right. On Around: where the pass is at its loudest, in front of you or behind "
+        "you. Across has no sides. A modulator wired here decides instead, pass by pass.";
+    // The room itself (Quad and wider): how far a sound bleeds into the other speakers, how much of its height
+    // reaches the top speakers, and whether the centre speaker is used.
+    inline constexpr const char* roomSpread = "roomSpread";
+    inline constexpr const char* roomHeight = "roomHeight";
+    inline constexpr const char* roomCentre = "roomCentre";
+    // Height Varies: how far each pass's own height may differ from the next one's (rooms with speakers overhead).
+    inline constexpr const char* roomHeightVaries = "roomHeightVaries";
+    inline constexpr const char* heightVariesTip =
+        "How much the height of each pass varies. At 0% every Across, Through and Around pass flies at ear level and "
+        "every Overhead pass flies its full arch. Turned up, each pass picks a height of its own: the others rise "
+        "towards the speakers overhead, as high as an Overhead pass at 100%, and Overhead passes fly a little lower. "
+        "Height then sets how much of that reaches the speakers overhead. Only at 7.1.2 and 7.1.4.";
+    // The LFE (widths with one: 5.1 and wider; the others ignore both). What feeds it, and how loud it is.
+    inline constexpr const char* roomLfeMode = "roomLfeMode";
+    inline constexpr const char* roomLfeLevel = "roomLfeLevel";
+    inline constexpr int numLfeModes = 3;
+    inline constexpr const char* lfeModeNames[numLfeModes] = { "Off", "Discrete", "Mixdown" };
+    inline constexpr float lfeLevelMinDb = -40.0f, lfeLevelMaxDb = 0.0f;
+    inline constexpr float lfeLevelMainsDb = -10.0f; // a calibrated room plays the LFE 10 dB hotter: here it is as loud as a main speaker
+    // Tooltips for the LFE controls (for the room strip).
+    inline constexpr const char* lfeModeTip =
+        "What plays from the LFE (the subwoofer channel). Off: nothing. Discrete: Stowaway's Sub, when Stowaway is "
+        "on in Sub mode; it stays in the front speakers too, so nothing is lost without a subwoofer. Mixdown: the "
+        "low end of the whole mix, with nothing else to set up. Either way only what is under 120 Hz. Only at 5.1 and wider.";
+    inline constexpr const char* lfeLevelTip =
+        "How loud the LFE is. At -10 dB (marked Mains, and by the tick on the knob) it plays in line with the main "
+        "speakers in a calibrated room, which turns the LFE up by 10 dB. Higher adds weight; 0 dB is 10 dB louder than the mains.";
 
     // Stowaway: one extra bus beside A and B. A Mode menu, and five knobs that keep their names and places in
     // every mode (what each does, and how it reads, follows the mode: see Params::stowText).
@@ -70,6 +126,23 @@ namespace ParamIDs
     inline constexpr const char* takeTurns  = "takeTurns";
     inline constexpr const char* linkBuses  = "linkBuses"; // bus B flies bus A's passes, with A's Doppler and Width
     inline constexpr const char* hitAim     = "hitAim";    // fire the hits so their transients land on the buses' pass peaks
+    // Where a hit lands (Stereo and wider), and how far it bleeds into the other speakers.
+    inline constexpr const char* hitPosition = "hitPosition";
+    inline constexpr const char* hitSpread   = "hitSpread";
+    enum HitPositionChoice { HitWithPass = 0, HitFront, HitRandom, numHitPositions };
+    inline constexpr const char* hitPositionNames[numHitPositions] = { "With the Pass", "Front", "Random" };
+    inline constexpr float hitSpreadDefault = 0.2f;
+    inline constexpr const char* hitPositionTip =
+        "Where a hit lands. With the Pass: where the whoosh it belongs to is at that moment, left or right, in "
+        "front or behind, and as high, and it stays with that whoosh as it flies on. With Aim on that is the pass "
+        "the hit was aimed at; with Aim off, the loudest pass in the air as the hit starts. With nothing in the "
+        "air it lands in front. Front: always in front of you, at ear level. Random: each hit at a place of its "
+        "own somewhere round you. At Stereo the hit moves between left and right; at Mono it stays in the middle.";
+    inline constexpr const char* hitSpreadTip =
+        "How far a hit bleeds into the other speakers. 0%: a point at the place it lands. 100%: every speaker "
+        "alike, never the LFE. A stereo hit keeps its left on your left and its right on your right, wider the "
+        "further you turn this up, and stays as loud all the way. At Stereo it is how wide the hit is; at Mono "
+        "it does nothing.";
 
     // Morph (Zynaptiq-style spectral morph between bus A and bus B)
     inline constexpr const char* morphOn     = "morphOn";
@@ -104,6 +177,33 @@ namespace ParamIDs
 
 namespace Params
 {
+    /** What a Direction choice is called on a Flight Path (0 Across, 1 Through, 2 Overhead, 3 Around): "Random",
+        then "Left to Right" / "Right to Left", "Front to Back" / "Back to Front", "Clockwise" / "Anticlockwise". */
+    inline const char* directionLabel(int path, int choice)
+    {
+        if (choice != ParamIDs::DirectionForwards && choice != ParamIDs::DirectionBackwards)
+            return "Random";
+        const bool forwards = choice == ParamIDs::DirectionForwards;
+        switch (path)
+        {
+            case 0:  return forwards ? "Left to Right" : "Right to Left";
+            case 3:  return forwards ? "Clockwise" : "Anticlockwise";
+            default: return forwards ? "Front to Back" : "Back to Front";
+        }
+    }
+
+    /** What a Side choice is called on a Flight Path: "Random", then "Left" / "Right" (Through, Overhead) or
+        "Loudest in Front" / "Loudest Behind" (Around). Across has no sides: nullptr. */
+    inline const char* sideLabel(int path, int choice)
+    {
+        if (path == 0)
+            return nullptr;
+        if (choice != ParamIDs::SideLeft && choice != ParamIDs::SideRight)
+            return "Random";
+        const bool first = choice == ParamIDs::SideLeft;
+        return path == 3 ? (first ? "Loudest in Front" : "Loudest Behind") : (first ? "Left" : "Right");
+    }
+
     /** Track fader: 30 dB of travel in dB, the last 5% fading to silence. */
     inline float faderGain(float k)
     {
@@ -171,6 +271,23 @@ namespace Params
         if (hz < 999.5f)
             return juce::String(juce::roundToInt(hz)) + " Hz";
         return (hz < 9950.0f ? juce::String(hz / 1000.0f, 1) : juce::String(juce::roundToInt(hz / 1000.0f))) + " kHz";
+    }
+    /** How LFE Level reads: "-10.0 dB (Mains)" at the reference (where the LFE plays in line with the main speakers in a
+        calibrated room), so it is easy to find; "-18.5 dB" elsewhere. */
+    inline juce::String lfeLevelText(float db)
+    {
+        const float v = std::round(std::clamp(db, ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb) * 10.0f) / 10.0f;
+        const juce::String text = juce::String(v, 1) + " dB";
+        return std::abs(v - ParamIDs::lfeLevelMainsDb) < 0.05f ? text + " (Mains)" : text;
+    }
+    /** What a typed LFE Level means. The level is never above 0 dB, so a number typed without its minus sign is
+        read as that many dB down ("10" is -10 dB, not a clamp to 0); "Mains" (or "Unity") finds the reference. */
+    inline float lfeLevelFromText(const juce::String& text)
+    {
+        if (text.containsIgnoreCase("mains") || text.containsIgnoreCase("unity"))
+            return ParamIDs::lfeLevelMainsDb;
+        const float typed = text.retainCharacters("-.0123456789").getFloatValue();
+        return juce::jlimit(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, -std::abs(typed));
     }
     /** How a Stowaway knob reads at position v in a mode (ParamIDs::StowMode, ParamIDs::StowControl). The knobs
         keep their names; Filter reads the Sub's crossover in Hz, and otherwise what it lets through ("Under 2.4 kHz"
@@ -398,6 +515,48 @@ namespace Params
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
                                                               StringArray { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
         }
+
+        // The room (Quad and wider): each bus's Flight Path, Stowaway's (Fly), and the room's own settings.
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::flightPath[b], 5 }, String("Bus ") + ParamIDs::busNames[b] + " Flight Path",
+                                                              StringArray(ParamIDs::flightPathNames, ParamIDs::numFlightPaths), 0));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowFlightPath, 5 }, "Stowaway Flight Path",
+                                                          StringArray(ParamIDs::flightPathNames, ParamIDs::numFlightPaths), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomSpread, 5 }, "Room Spread", NormalisableRange<float>(0.0f, 1.0f), 0.0f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomHeight, 5 }, "Room Height", NormalisableRange<float>(0.0f, 1.0f), 1.0f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::roomCentre, 5 }, "Centre Speaker", false));
+        // Which way and which side each bus's passes fly (and Stowaway's, in Fly), and how much their height varies.
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+        {
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::direction[b], 6 }, String("Bus ") + ParamIDs::busNames[b] + " Direction",
+                                                              StringArray(ParamIDs::directionNames, ParamIDs::numDirections), 0));
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::side[b], 6 }, String("Bus ") + ParamIDs::busNames[b] + " Side",
+                                                              StringArray(ParamIDs::sideNames, ParamIDs::numDirections), 0));
+        }
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowDirection, 6 }, "Stowaway Direction",
+                                                          StringArray(ParamIDs::directionNames, ParamIDs::numDirections), 0));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowSide, 6 }, "Stowaway Side",
+                                                          StringArray(ParamIDs::sideNames, ParamIDs::numDirections), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomHeightVaries, 6 }, "Room Height Varies", NormalisableRange<float>(0.0f, 1.0f), 0.5f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        // Where a hit lands, and how far it bleeds.
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::hitPosition, 7 }, "Hit Position",
+                                                          StringArray(ParamIDs::hitPositionNames, ParamIDs::numHitPositions), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitSpread, 7 }, "Hit Spread", NormalisableRange<float>(0.0f, 1.0f), ParamIDs::hitSpreadDefault,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::roomLfeMode, 5 }, "LFE Mode",
+                                                          StringArray(ParamIDs::lfeModeNames, ParamIDs::numLfeModes), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomLfeLevel, 5 }, "LFE Level",
+                                       NormalisableRange<float>(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, 0.1f), ParamIDs::lfeLevelMainsDb,
+                                       AudioParameterFloatAttributes().withLabel("dB")
+                                           .withStringFromValueFunction([](float v, int) { return lfeLevelText(v); })
+                                           .withValueFromStringFunction([](const String& t) { return lfeLevelFromText(t); })));
 
         // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
         for (int b = 0; b < ParamIDs::numBuses; ++b)

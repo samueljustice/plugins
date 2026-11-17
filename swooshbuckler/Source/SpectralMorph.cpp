@@ -14,7 +14,7 @@ namespace
     inline float wrapPhase(float p) { return p - c_twoPi * std::floor((p + c_pi) / c_twoPi); }
 
     constexpr float c_magFloor = 1.0e-6f;
-    constexpr int c_envIterations = 3;   // true-envelope iterations (cepstrum, max with the spectrum, again)
+    constexpr int c_envIterations = 3;   // true-envelope iterations (cepstrum, max with the spectrum, again): a stage each (StageEnvA0 ..)
     constexpr int c_modeFadeFrames = 6;
     constexpr float c_onsetFlux = 0.5f;  // positive spectral flux / total magnitude that marks an onset (as in PitchShifter)
     constexpr int c_onsetFrames = 3;     // frames for which an onset sits late enough in the frame to be smeared ahead of itself
@@ -61,6 +61,16 @@ void SpectralMorph::prepare(double sampleRate, int maxBlock)
     m_outAcc.assign(n, 0.0f);
     m_outFifo.assign(static_cast<size_t>(m_hop), 0.0f);
     m_work.assign(2 * n, 0.0f);
+    m_frameA.assign(2 * n, 0.0f);
+    m_frameB.assign(2 * n, 0.0f);
+
+    // A frame's work all at once, or spread over the half hop after the frame (see the class comment): from
+    // 176.4 kHz up, where a frame is 8192 samples and its work is far more than a small buffer's share. The
+    // stages after the first are due at even steps, the last one at m_spread.
+    m_spread = m_fftSize >= c_spreadFromSize ? m_hop / 2 : 0;
+    m_due[0] = 0;
+    for (int k = 1; k < c_stages; ++k)
+        m_due[k] = static_cast<int>(static_cast<long long>(k) * m_spread / (c_stages - 1));
 
     for (auto* v : { &m_specA, &m_specB, &m_out, &m_tmp })
         v->assign(bins, Cpx {});
@@ -84,6 +94,9 @@ void SpectralMorph::reset()
     for (auto* v : { &m_inA, &m_inB, &m_outAcc, &m_outFifo, &m_work, &m_prevPhA, &m_prevPhB, &m_outPhase, &m_magA, &m_magB })
         std::fill(v->begin(), v->end(), 0.0f);
     m_pos = 0;
+    m_stage = c_stages; // no frame in work
+    m_frame = {};
+    m_unitsThisCall = m_mostUnits = 0;
     m_gateA = m_gateB = 0.0f;
     m_onsetLeft = 0;
     m_first = true;
@@ -98,6 +111,8 @@ void SpectralMorph::reset()
 //==============================================================================
 void SpectralMorph::process(const float* a, const float* b, float* out, int n)
 {
+    m_unitsThisCall = 0;
+
     if (m_fft == nullptr)
     {
         for (int i = 0; i < n; ++i)
@@ -106,44 +121,59 @@ void SpectralMorph::process(const float* a, const float* b, float* out, int n)
     }
 
     const int base = m_fftSize - m_hop;
+    const int hop = m_hop, spread = m_spread;
     for (int i = 0; i < n; ++i)
     {
         const float sa = a != nullptr ? a[i] : 0.0f;
         const float sb = b != nullptr ? b[i] : 0.0f;
         m_inA[static_cast<size_t>(base + m_pos)] = sa;
         m_inB[static_cast<size_t>(base + m_pos)] = sb;
-        out[i] = m_outFifo[static_cast<size_t>(m_pos)];
 
-        if (++m_pos == m_hop)
+        // The frame's first hop is heard from `spread` samples after the frame was taken: until its last stage has
+        // run (it is due at exactly that sample), the end of the frame before's hop is still being played.
+        const int at = m_pos - spread;
+        out[i] = m_outFifo[static_cast<size_t>(at >= 0 ? at : at + hop)];
+
+        if (++m_pos == hop)
         {
-            processFrame();
             m_pos = 0;
+            m_stage = 0; // a frame is complete: its stages follow, each as it falls due
         }
+        while (m_stage < c_stages && m_pos >= m_due[m_stage])
+            runStage(m_stage++);
     }
+
+    m_mostUnits = std::max(m_mostUnits, m_unitsThisCall);
 }
 
 //==============================================================================
-void SpectralMorph::analyse(const std::vector<float>& in, std::vector<Cpx>& spec, std::vector<float>& mag,
+void SpectralMorph::takeFrame(const std::vector<float>& in, std::vector<float>& frame, float& sumSq)
+{
+    const int n = m_fftSize;
+    sumSq = 0.0f;
+    for (int i = 0; i < n; ++i)
+    {
+        const float v = in[static_cast<size_t>(i)] * m_window[static_cast<size_t>(i)];
+        frame[static_cast<size_t>(i)] = v;
+        sumSq += v * v;
+    }
+    std::fill(frame.begin() + n, frame.end(), 0.0f);
+}
+
+void SpectralMorph::analyse(std::vector<float>& frame, float sumSq, std::vector<Cpx>& spec, std::vector<float>& mag,
                             std::vector<float>& phase, std::vector<float>& logMag, float& energy, float& rms,
                             float& total, float& flux)
 {
     const int n = m_fftSize;
-    float sumSq = 0.0f;
-    for (int i = 0; i < n; ++i)
-    {
-        const float v = in[static_cast<size_t>(i)] * m_window[static_cast<size_t>(i)];
-        m_work[static_cast<size_t>(i)] = v;
-        sumSq += v * v;
-    }
-    std::fill(m_work.begin() + n, m_work.end(), 0.0f);
     rms = std::sqrt(sumSq / (0.375f * static_cast<float>(n))); // sum of hann^2 = 3N/8
 
-    m_fft->performRealOnlyForwardTransform(m_work.data(), true);
+    m_fft->performRealOnlyForwardTransform(frame.data(), true);
+    m_unitsThisCall += 2; // the transform, and the loop below (a square root, an arctangent and a logarithm a bin)
 
     energy = total = flux = 0.0f;
     for (int k = 0; k < m_bins; ++k)
     {
-        const Cpx z(m_work[static_cast<size_t>(2 * k)], m_work[static_cast<size_t>(2 * k + 1)]);
+        const Cpx z(frame[static_cast<size_t>(2 * k)], frame[static_cast<size_t>(2 * k + 1)]);
         const auto ks = static_cast<size_t>(k);
         spec[ks] = z;
         const float m2 = std::norm(z);
@@ -180,210 +210,291 @@ void SpectralMorph::cepstralSmooth(const float* in, float* out)
     std::fill(m_work.begin() + n, m_work.end(), 0.0f);
 
     m_fft->performRealOnlyForwardTransform(m_work.data(), true);
+    m_unitsThisCall += 2; // two transforms
     for (int k = 0; k < m_bins; ++k)
         out[k] = m_work[static_cast<size_t>(2 * k)];
 }
 
-void SpectralMorph::trueEnvelope(const float* logMag, float* env, int iterations)
+void SpectralMorph::envelopeStep(const float* logMag, float* env, int iteration)
 {
+    static_assert(StageEnvA2 - StageEnvA0 + 1 == c_envIterations && StageEnvB2 - StageEnvB0 + 1 == c_envIterations, "an envelope iteration a stage");
     // Roebel & Rodet's "true envelope": iterate cepstral smoothing of max(spectrum, envelope),
     // so the envelope rides over the harmonic peaks instead of through their average.
-    cepstralSmooth(logMag, env);
-    for (int it = 1; it < iterations; ++it)
+    if (iteration == 0)
     {
-        for (int k = 0; k < m_bins; ++k)
-            m_scratch[static_cast<size_t>(k)] = std::max(logMag[k], env[k]);
-        cepstralSmooth(m_scratch.data(), env);
+        cepstralSmooth(logMag, env);
+        return;
     }
+    for (int k = 0; k < m_bins; ++k)
+        m_scratch[static_cast<size_t>(k)] = std::max(logMag[k], env[k]);
+    cepstralSmooth(m_scratch.data(), env);
 }
 
 //==============================================================================
-void SpectralMorph::processFrame()
+// One frame, in stages. With m_spread at 0 they all run one after the other as soon as the frame is complete
+// (the frame's work in one go, as it always was). Spread, each runs at its own sample of the half hop after the
+// frame, so the work arrives a little at a time: no stage holds more than two transforms (about a twelfth of a
+// frame in Glide), and at 192 kHz they are 39 samples apart, so a host buffer of 64 samples never meets more than
+// two of them. Each stage leaves what the later ones need in members (m_frame, m_glide and the spectra), never
+// in the scratch buffers a transform uses.
+void SpectralMorph::runStage(int stage)
 {
-    float eA = 0, eB = 0, rmsA = 0, rmsB = 0, totA = 0, totB = 0, fluxA = 0, fluxB = 0;
-    analyse(m_inA, m_specA, m_magA, m_phA, m_logA, eA, rmsA, totA, fluxA);
-    analyse(m_inB, m_specB, m_magB, m_phB, m_logB, eB, rmsB, totB, fluxB);
-
-    // Presence gates (-75 dBFS = absent, -60 dBFS = present), fast attack, slower release.
-    auto gateTarget = [](float rms)
-    {
-        const float db = 20.0f * std::log10(rms + 1.0e-12f);
-        return clampf((db + 75.0f) / 15.0f, 0.0f, 1.0f);
-    };
-    const float tA = gateTarget(rmsA), tB = gateTarget(rmsB);
-
-    if (m_first)
-    {
-        m_x = clampf(m_target.x, 0.0f, 1.0f);
-        m_y = clampf(m_target.y, 0.0f, 1.0f);
-        m_amount = clampf(m_target.amount, 0.0f, 1.0f);
-        m_gateA = tA;
-        m_gateB = tB;
-        m_mode = m_prevMode = juce::jlimit(0, NumModes - 1, m_target.mode);
-        m_modeFade = 1.0f;
-        m_first = false;
-    }
-    else
-    {
-        m_gateA += (tA - m_gateA) * (tA > m_gateA ? m_gateAttack : m_gateRelease);
-        m_gateB += (tB - m_gateB) * (tB > m_gateB ? m_gateAttack : m_gateRelease);
-        m_x += (clampf(m_target.x, 0.0f, 1.0f) - m_x) * m_paramCoeff;
-        m_y += (clampf(m_target.y, 0.0f, 1.0f) - m_y) * m_paramCoeff;
-        m_amount += (clampf(m_target.amount, 0.0f, 1.0f) - m_amount) * m_paramCoeff;
-    }
-
-    const int wanted = juce::jlimit(0, NumModes - 1, m_target.mode);
-    if (wanted != m_mode)
-    {
-        m_prevMode = m_mode;
-        m_mode = wanted;
-        m_modeFade = 0.0f;
-    }
-
     const auto bins = static_cast<size_t>(m_bins);
-    const float advance = c_twoPi * static_cast<float>(m_hop) / static_cast<float>(m_fftSize);
-    bool silent = (m_gateA + m_gateB) < 1.0e-3f;
+    Frame& f = m_frame;
 
-    // Effective x: pulled towards whichever input is present.
-    const float gateSum = m_x * m_gateB + (1.0f - m_x) * m_gateA;
-    const float xe = gateSum < 1.0e-6f ? (m_gateB >= m_gateA ? 1.0f : 0.0f) : clampf(m_x * m_gateB / gateSum, 0.0f, 1.0f);
-
-    // Level law. With both inputs there the target is the mix of their powers, (1 - x) A + x B, so a swell in one
-    // input comes through as a swell (the geometric mean would halve it in dB). The geometric mean only takes
-    // over while an input is fading out through its gate, where x is on its way to the other input anyway.
-    const float both = m_gateA * m_gateB;
-    auto levelTarget = [xe, both](float pa, float pb)
+    switch (stage)
     {
-        const float geometric = std::exp(lerpf(std::log(pa + 1.0e-20f), std::log(pb + 1.0e-20f), xe));
-        return geometric + both * (lerpf(pa, pb, xe) - geometric);
-    };
-
-    // Onsets (for Glide): a jump in spectral flux in what is heard of the two inputs. For the next few frames the
-    // onset has most of the frame ahead of it; Glide takes its phases from the analysis for those frames.
-    if (m_onsetLeft > 0)
-        --m_onsetLeft;
-    {
-        const float heard = (1.0f - xe) * totA + xe * totB;
-        if (heard > 1.0e-9f && (1.0f - xe) * fluxA + xe * fluxB > c_onsetFlux * heard)
-            m_onsetLeft = c_onsetFrames;
-    }
-
-    if (! silent)
-    {
-
-        const bool fading = m_modeFade < 1.0f;
-        auto usesEnvelope = [this](int mode) { return mode != Glide || m_y > 0.01f; };
-        if (usesEnvelope(m_mode) || (fading && usesEnvelope(m_prevMode)))
+        case StageTake:
         {
-            trueEnvelope(m_logA.data(), m_envA.data(), c_envIterations);
-            trueEnvelope(m_logB.data(), m_envB.data(), c_envIterations);
+            // The two frames as they stand, windowed, and the input windows moved on: what comes in while the
+            // later stages run belongs to the next frame.
+            takeFrame(m_inA, m_frameA, f.sumSqA);
+            takeFrame(m_inB, m_frameB, f.sumSqB);
+            const int n = m_fftSize, hop = m_hop;
+            std::memmove(m_inA.data(), m_inA.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
+            std::memmove(m_inB.data(), m_inB.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
+            break;
         }
 
-        renderMode(m_mode, xe, m_y, m_out);
-        if (fading)
+        case StageAnalyseA:
+            analyse(m_frameA, f.sumSqA, m_specA, m_magA, m_phA, m_logA, f.eA, f.rmsA, f.totA, f.fluxA);
+            break;
+
+        case StageAnalyseB:
+            analyse(m_frameB, f.sumSqB, m_specB, m_magB, m_phB, m_logB, f.eB, f.rmsB, f.totB, f.fluxB);
+            break;
+
+        case StageControl:
         {
-            renderMode(m_prevMode, xe, m_y, m_tmp);
-            // Level-match the outgoing mode to the incoming one before the crossfade.
-            float e1 = 0.0f, e0 = 0.0f;
-            for (size_t k = 0; k < bins; ++k) { e1 += std::norm(m_out[k]); e0 += std::norm(m_tmp[k]); }
-            const float g0 = e0 > 1.0e-30f ? std::sqrt(e1 / e0) : 0.0f;
-            const float f = m_modeFade;
-            for (size_t k = 0; k < bins; ++k)
-                m_out[k] = m_out[k] * f + m_tmp[k] * (g0 * (1.0f - f));
-            m_modeFade = std::min(1.0f, m_modeFade + 1.0f / static_cast<float>(c_modeFadeFrames));
-        }
-
-        // Level matching: the frame gets the interpolated energy of the two inputs.
-        float eOut = 0.0f;
-        for (size_t k = 0; k < bins; ++k)
-            eOut += std::norm(m_out[k]);
-        const float eTarget = levelTarget(eA, eB);
-        const float g = (eOut > 1.0e-30f ? std::min(100.0f, std::sqrt(eTarget / eOut)) : 0.0f) * m_trim;
-
-        // Amount: blend with a plain equal-power crossfade (automation only, default 1).
-        const float wet = m_amount;
-        const float ca = std::cos(xe * 0.5f * c_pi) * (1.0f - wet);
-        const float cb = std::sin(xe * 0.5f * c_pi) * (1.0f - wet);
-        for (size_t k = 0; k < bins; ++k)
-            m_out[k] = m_out[k] * (g * wet) + m_specA[k] * ca + m_specB[k] * cb;
-    }
-    else
-    {
-        std::fill(m_out.begin(), m_out.end(), Cpx {});
-        for (size_t k = 0; k < bins; ++k)
-            m_outPhase[k] = wrapPhase(m_outPhase[k] + advance * static_cast<float>(k));
-    }
-
-    std::copy(m_phA.begin(), m_phA.end(), m_prevPhA.begin());
-    std::copy(m_phB.begin(), m_phB.end(), m_prevPhB.begin());
-
-    // Shift the input windows.
-    const int n = m_fftSize, hop = m_hop;
-    std::memmove(m_inA.data(), m_inA.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
-    std::memmove(m_inB.data(), m_inB.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
-
-    // Synthesis: inverse FFT, Hann synthesis window, overlap-add (Hann^2 at 75 % overlap sums to 1.5).
-    if (! silent)
-    {
-        for (size_t k = 0; k < bins; ++k)
-        {
-            m_work[2 * k] = m_out[k].real();
-            m_work[2 * k + 1] = m_out[k].imag();
-        }
-        m_work[1] = 0.0f;
-        m_work[2 * bins - 1] = 0.0f;
-        std::fill(m_work.begin() + static_cast<long>(2 * bins), m_work.end(), 0.0f);
-        m_fft->performRealOnlyInverseTransform(m_work.data());
-
-        constexpr float olaGain = 1.0f / 1.5f;
-        for (int i = 0; i < n; ++i)
-        {
-            const auto is = static_cast<size_t>(i);
-            const float v = m_work[is] * m_window[is] * olaGain;
-            m_outAcc[is] += std::isfinite(v) ? v : 0.0f;
-        }
-    }
-
-    std::copy(m_outAcc.begin(), m_outAcc.begin() + hop, m_outFifo.begin());
-
-    // Loudness trim. The target is what this frame should sound like (the interpolated input
-    // power); it is heard one latency (4 hops) later, so compare it with the output 4 frames on.
-    {
-        const float target = silent ? 0.0f : levelTarget(rmsA * rmsA, rmsB * rmsB);
-        const float heardTarget = m_targetHistory[m_historyPos];
-        m_targetHistory[m_historyPos] = target;
-        m_historyPos = (m_historyPos + 1) & 3;
-
-        float outPow = 0.0f;
-        for (int i = 0; i < hop; ++i)
-            outPow += m_outFifo[static_cast<size_t>(i)] * m_outFifo[static_cast<size_t>(i)];
-        outPow /= static_cast<float>(hop);
-
-        // Only learn while there is a steady signal to compare (skips onsets, tails and silence).
-        if (heardTarget > 1.0e-8f && outPow > 1.0e-9f && target > 1.0e-8f)
-        {
-            m_powTarget += (heardTarget - m_powTarget) * m_trimCoeff;
-            m_powOut += (outPow / (m_trim * m_trim) - m_powOut) * m_trimCoeff; // untrimmed output power
-            if (m_powOut > 1.0e-12f)
+            // Presence gates (-75 dBFS = absent, -60 dBFS = present), fast attack, slower release.
+            auto gateTarget = [](float rms)
             {
-                // -3 .. +4 dB; Glide can lose more level, so it may make up to +/-12 dB.
-                const float want = m_mode == Glide ? clampf(std::sqrt(m_powTarget / m_powOut), 0.25f, 4.0f)
-                                                   : clampf(std::sqrt(m_powTarget / m_powOut), 0.7f, 1.6f);
-                m_trim += (want - m_trim) * m_trimCoeff;
+                const float db = 20.0f * std::log10(rms + 1.0e-12f);
+                return clampf((db + 75.0f) / 15.0f, 0.0f, 1.0f);
+            };
+            const float tA = gateTarget(f.rmsA), tB = gateTarget(f.rmsB);
+
+            if (m_first)
+            {
+                m_x = clampf(m_target.x, 0.0f, 1.0f);
+                m_y = clampf(m_target.y, 0.0f, 1.0f);
+                m_amount = clampf(m_target.amount, 0.0f, 1.0f);
+                m_gateA = tA;
+                m_gateB = tB;
+                m_mode = m_prevMode = juce::jlimit(0, NumModes - 1, m_target.mode);
+                m_modeFade = 1.0f;
+                m_first = false;
             }
+            else
+            {
+                m_gateA += (tA - m_gateA) * (tA > m_gateA ? m_gateAttack : m_gateRelease);
+                m_gateB += (tB - m_gateB) * (tB > m_gateB ? m_gateAttack : m_gateRelease);
+                m_x += (clampf(m_target.x, 0.0f, 1.0f) - m_x) * m_paramCoeff;
+                m_y += (clampf(m_target.y, 0.0f, 1.0f) - m_y) * m_paramCoeff;
+                m_amount += (clampf(m_target.amount, 0.0f, 1.0f) - m_amount) * m_paramCoeff;
+            }
+
+            const int wanted = juce::jlimit(0, NumModes - 1, m_target.mode);
+            if (wanted != m_mode)
+            {
+                m_prevMode = m_mode;
+                m_mode = wanted;
+                m_modeFade = 0.0f;
+            }
+
+            f.silent = (m_gateA + m_gateB) < 1.0e-3f;
+
+            // Effective x: pulled towards whichever input is present.
+            const float gateSum = m_x * m_gateB + (1.0f - m_x) * m_gateA;
+            f.xe = gateSum < 1.0e-6f ? (m_gateB >= m_gateA ? 1.0f : 0.0f) : clampf(m_x * m_gateB / gateSum, 0.0f, 1.0f);
+            f.both = m_gateA * m_gateB;
+            f.y = m_y;
+
+            // Onsets (for Glide): a jump in spectral flux in what is heard of the two inputs. For the next few frames the
+            // onset has most of the frame ahead of it; Glide takes its phases from the analysis for those frames.
+            if (m_onsetLeft > 0)
+                --m_onsetLeft;
+            {
+                const float heard = (1.0f - f.xe) * f.totA + f.xe * f.totB;
+                if (heard > 1.0e-9f && (1.0f - f.xe) * f.fluxA + f.xe * f.fluxB > c_onsetFlux * heard)
+                    m_onsetLeft = c_onsetFrames;
+            }
+
+            f.fading = ! f.silent && m_modeFade < 1.0f;
+            auto usesEnvelope = [&f](int mode) { return mode != Glide || f.y > 0.01f; };
+            f.envelopes = ! f.silent && (usesEnvelope(m_mode) || (f.fading && usesEnvelope(m_prevMode)));
+            auto shapes = [&f](int mode) { return mode == Glide && f.y > 0.01f; };
+            f.shape = ! f.silent && shapes(m_mode);
+            f.shapeOld = f.fading && shapes(m_prevMode);
+            break;
         }
+
+        case StageEnvA0: case StageEnvA1: case StageEnvA2:
+            if (f.envelopes)
+                envelopeStep(m_logA.data(), m_envA.data(), stage - StageEnvA0);
+            break;
+
+        case StageEnvB0: case StageEnvB1: case StageEnvB2:
+            if (f.envelopes)
+                envelopeStep(m_logB.data(), m_envB.data(), stage - StageEnvB0);
+            break;
+
+        case StageRender0: case StageRender1: case StageRender2: case StageRender3: case StageRender4: case StageRender5:
+            if (! f.silent)
+                renderStep(m_mode, f.xe, f.y, m_out, stage - StageRender0);
+            break;
+
+        case StageShape0: case StageShape1:
+            if (f.shape)
+                shapeGlide(f.xe, f.y, m_out, stage - StageShape0);
+            break;
+
+        case StageRenderOld0: case StageRenderOld1: case StageRenderOld2: case StageRenderOld3: case StageRenderOld4: case StageRenderOld5:
+            if (f.fading)
+                renderStep(m_prevMode, f.xe, f.y, m_tmp, stage - StageRenderOld0);
+            break;
+
+        case StageShapeOld0: case StageShapeOld1:
+            if (f.shapeOld)
+                shapeGlide(f.xe, f.y, m_tmp, stage - StageShapeOld0);
+            break;
+
+        case StageOut:
+        {
+            const float xe = f.xe, both = f.both;
+            // Level law. With both inputs there the target is the mix of their powers, (1 - x) A + x B, so a swell in one
+            // input comes through as a swell (the geometric mean would halve it in dB). The geometric mean only takes
+            // over while an input is fading out through its gate, where x is on its way to the other input anyway.
+            auto levelTarget = [xe, both](float pa, float pb)
+            {
+                const float geometric = std::exp(lerpf(std::log(pa + 1.0e-20f), std::log(pb + 1.0e-20f), xe));
+                return geometric + both * (lerpf(pa, pb, xe) - geometric);
+            };
+            const float advance = c_twoPi * static_cast<float>(m_hop) / static_cast<float>(m_fftSize);
+            const bool silent = f.silent;
+
+            if (! silent)
+            {
+                if (f.fading)
+                {
+                    // Level-match the outgoing mode to the incoming one before the crossfade.
+                    float e1 = 0.0f, e0 = 0.0f;
+                    for (size_t k = 0; k < bins; ++k) { e1 += std::norm(m_out[k]); e0 += std::norm(m_tmp[k]); }
+                    const float g0 = e0 > 1.0e-30f ? std::sqrt(e1 / e0) : 0.0f;
+                    const float fade = m_modeFade;
+                    for (size_t k = 0; k < bins; ++k)
+                        m_out[k] = m_out[k] * fade + m_tmp[k] * (g0 * (1.0f - fade));
+                    m_modeFade = std::min(1.0f, m_modeFade + 1.0f / static_cast<float>(c_modeFadeFrames));
+                }
+
+                // Level matching: the frame gets the interpolated energy of the two inputs.
+                float eOut = 0.0f;
+                for (size_t k = 0; k < bins; ++k)
+                    eOut += std::norm(m_out[k]);
+                const float eTarget = levelTarget(f.eA, f.eB);
+                const float g = (eOut > 1.0e-30f ? std::min(100.0f, std::sqrt(eTarget / eOut)) : 0.0f) * m_trim;
+
+                // Amount: blend with a plain equal-power crossfade (automation only, default 1).
+                const float wet = m_amount;
+                const float ca = std::cos(xe * 0.5f * c_pi) * (1.0f - wet);
+                const float cb = std::sin(xe * 0.5f * c_pi) * (1.0f - wet);
+                for (size_t k = 0; k < bins; ++k)
+                    m_out[k] = m_out[k] * (g * wet) + m_specA[k] * ca + m_specB[k] * cb;
+            }
+            else
+            {
+                std::fill(m_out.begin(), m_out.end(), Cpx {});
+                for (size_t k = 0; k < bins; ++k)
+                    m_outPhase[k] = wrapPhase(m_outPhase[k] + advance * static_cast<float>(k));
+            }
+
+            std::copy(m_phA.begin(), m_phA.end(), m_prevPhA.begin());
+            std::copy(m_phB.begin(), m_phB.end(), m_prevPhB.begin());
+
+            // Synthesis: inverse FFT, Hann synthesis window, overlap-add (Hann^2 at 75 % overlap sums to 1.5).
+            const int n = m_fftSize, hop = m_hop;
+            if (! silent)
+            {
+                for (size_t k = 0; k < bins; ++k)
+                {
+                    m_work[2 * k] = m_out[k].real();
+                    m_work[2 * k + 1] = m_out[k].imag();
+                }
+                m_work[1] = 0.0f;
+                m_work[2 * bins - 1] = 0.0f;
+                std::fill(m_work.begin() + static_cast<long>(2 * bins), m_work.end(), 0.0f);
+                m_fft->performRealOnlyInverseTransform(m_work.data());
+                m_unitsThisCall += 2;
+
+                constexpr float olaGain = 1.0f / 1.5f;
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto is = static_cast<size_t>(i);
+                    const float v = m_work[is] * m_window[is] * olaGain;
+                    m_outAcc[is] += std::isfinite(v) ? v : 0.0f;
+                }
+            }
+
+            std::copy(m_outAcc.begin(), m_outAcc.begin() + hop, m_outFifo.begin());
+
+            // Loudness trim. The target is what this frame should sound like (the interpolated input
+            // power); it is heard one latency (4 hops) later, so compare it with the output 4 frames on.
+            {
+                const float target = silent ? 0.0f : levelTarget(f.rmsA * f.rmsA, f.rmsB * f.rmsB);
+                const float heardTarget = m_targetHistory[m_historyPos];
+                m_targetHistory[m_historyPos] = target;
+                m_historyPos = (m_historyPos + 1) & 3;
+
+                float outPow = 0.0f;
+                for (int i = 0; i < hop; ++i)
+                    outPow += m_outFifo[static_cast<size_t>(i)] * m_outFifo[static_cast<size_t>(i)];
+                outPow /= static_cast<float>(hop);
+
+                // Only learn while there is a steady signal to compare (skips onsets, tails and silence).
+                if (heardTarget > 1.0e-8f && outPow > 1.0e-9f && target > 1.0e-8f)
+                {
+                    m_powTarget += (heardTarget - m_powTarget) * m_trimCoeff;
+                    m_powOut += (outPow / (m_trim * m_trim) - m_powOut) * m_trimCoeff; // untrimmed output power
+                    if (m_powOut > 1.0e-12f)
+                    {
+                        // -3 .. +4 dB; Glide can lose more level, so it may make up to +/-12 dB.
+                        const float want = m_mode == Glide ? clampf(std::sqrt(m_powTarget / m_powOut), 0.25f, 4.0f)
+                                                           : clampf(std::sqrt(m_powTarget / m_powOut), 0.7f, 1.6f);
+                        m_trim += (want - m_trim) * m_trimCoeff;
+                    }
+                }
+            }
+            std::memmove(m_outAcc.data(), m_outAcc.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
+            std::fill(m_outAcc.begin() + (n - hop), m_outAcc.end(), 0.0f);
+            break;
+        }
+
+        default:
+            break;
     }
-    std::memmove(m_outAcc.data(), m_outAcc.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
-    std::fill(m_outAcc.begin() + (n - hop), m_outAcc.end(), 0.0f);
 }
 
 //==============================================================================
+void SpectralMorph::renderStep(int mode, float xe, float y, std::vector<Cpx>& dest, int step)
+{
+    // Glide moves its partials in six steps (it is the heaviest part of a frame); Blend and Cross are one.
+    if (mode == Glide)
+    {
+        glideStep(xe, dest, step);
+        m_unitsThisCall += 1;
+    }
+    else if (step == 0)
+    {
+        renderMode(mode, xe, y, dest);
+        m_unitsThisCall += 2;
+    }
+}
+
 void SpectralMorph::renderMode(int mode, float xe, float y, std::vector<Cpx>& dest)
 {
     switch (mode)
     {
-        case Glide:
-            renderGlide(xe, y, dest);
+        case Glide: // (worked by glideStep)
             break;
 
         case Cross:
@@ -506,96 +617,104 @@ int SpectralMorph::findMasses(const std::vector<float>& mag, const std::vector<f
     return count;
 }
 
-void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
+void SpectralMorph::GlideSide::start(int i)
+{
+    index = i;
+    const Mass& m = (*masses)[static_cast<size_t>(i)];
+    massLeft = m.weight;
+    bin = m.lo;
+    binLeft = (*mag)[static_cast<size_t>(bin)] * inv;
+}
+
+// Moves `amount` of normalised mass from the current mass by `shift` bins into out.
+void SpectralMorph::GlideSide::consume(float amount, float gain, int shift, float centrePhase, std::vector<Cpx>& out, int nBins)
+{
+    const Mass& m = (*masses)[static_cast<size_t>(index)];
+    const float refPhase = (*phase)[static_cast<size_t>(m.peak)];
+    while (amount > 1.0e-12f && bin < m.hi)
+    {
+        const float take = std::min(binLeft, amount);
+        const int dst = bin + shift;
+        if (gain > 0.0f && take > 0.0f && dst >= 0 && dst < nBins)
+            out[static_cast<size_t>(dst)] += std::polar(take * gain, centrePhase + (*phase)[static_cast<size_t>(bin)] - refPhase);
+        binLeft -= take;
+        amount -= take;
+        if (binLeft <= 1.0e-12f)
+        {
+            ++bin;
+            binLeft = bin < m.hi ? (*mag)[static_cast<size_t>(bin)] * inv : 0.0f;
+        }
+    }
+}
+
+void SpectralMorph::glideStep(float xe, std::vector<Cpx>& dest, int step)
 {
     // Displacement interpolation between the two spectra (after Henderson & Solomon, "Audio
     // Transport", DAFx 2019): cut each spectrum into peak-centred masses, match the masses with the
     // monotone 1-D optimal-transport plan, and move each matched slice rigidly to the interpolated
     // frequency. Phases are locked to the moved peak, whose phase is advanced at the moved frequency.
+    //
+    // In six steps: the masses are found (0), the plan is walked from the bottom of the two spectra to the top
+    // in four quarters (1 to 4), and the levels and phases are settled (5).
     const int bins = m_bins;
     const auto binsS = static_cast<size_t>(bins);
     const float t = xe * xe; // the tonal / noise change otherwise all happens in the first few percent of X
     const float advance = c_twoPi * static_cast<float>(m_hop) / static_cast<float>(m_fftSize);
+    GlideRun& g = m_glide;
 
-    std::fill(dest.begin(), dest.end(), Cpx {});
-
-    const int nA = findMasses(m_magA, m_phA, m_prevPhA, m_massA);
-    const int nB = findMasses(m_magB, m_phB, m_prevPhB, m_massB);
-
-    float totA = 0.0f, totB = 0.0f;
-    for (size_t k = 0; k < binsS; ++k) { totA += m_magA[k]; totB += m_magB[k]; }
-    const float invA = totA > 1.0e-20f ? 1.0f / totA : 0.0f;
-    const float invB = totB > 1.0e-20f ? 1.0f / totB : 0.0f;
-
-    struct Side
+    if (step == 0)
     {
-        const std::vector<Mass>* masses;
-        const std::vector<float>* mag;
-        const std::vector<float>* phase;
-        float inv;
-        int index = 0, bin = 0;
-        float massLeft = 0.0f, binLeft = 0.0f;
+        std::fill(dest.begin(), dest.end(), Cpx {});
 
-        void start(int i)
-        {
-            index = i;
-            const Mass& m = (*masses)[static_cast<size_t>(i)];
-            massLeft = m.weight;
-            bin = m.lo;
-            binLeft = (*mag)[static_cast<size_t>(bin)] * inv;
-        }
+        g.nA = findMasses(m_magA, m_phA, m_prevPhA, m_massA);
+        g.nB = findMasses(m_magB, m_phB, m_prevPhB, m_massB);
 
-        // Moves `amount` of normalised mass from the current mass by `shift` bins into dest.
-        void consume(float amount, float gain, int shift, float centrePhase, std::vector<Cpx>& out, int nBins)
-        {
-            const Mass& m = (*masses)[static_cast<size_t>(index)];
-            const float refPhase = (*phase)[static_cast<size_t>(m.peak)];
-            while (amount > 1.0e-12f && bin < m.hi)
-            {
-                const float take = std::min(binLeft, amount);
-                const int dst = bin + shift;
-                if (gain > 0.0f && take > 0.0f && dst >= 0 && dst < nBins)
-                    out[static_cast<size_t>(dst)] += std::polar(take * gain, centrePhase + (*phase)[static_cast<size_t>(bin)] - refPhase);
-                binLeft -= take;
-                amount -= take;
-                if (binLeft <= 1.0e-12f)
-                {
-                    ++bin;
-                    binLeft = bin < m.hi ? (*mag)[static_cast<size_t>(bin)] * inv : 0.0f;
-                }
-            }
-        }
-    };
+        float totA = 0.0f, totB = 0.0f;
+        for (size_t k = 0; k < binsS; ++k) { totA += m_magA[k]; totB += m_magB[k]; }
+        g.totA = totA;
+        g.totB = totB;
+        const float invA = totA > 1.0e-20f ? 1.0f / totA : 0.0f;
+        const float invB = totB > 1.0e-20f ? 1.0f / totB : 0.0f;
 
-    Side sa { &m_massA, &m_magA, &m_phA, invA };
-    Side sb { &m_massB, &m_magB, &m_phB, invB };
-    sa.start(0);
-    sb.start(0);
+        g.a = GlideSide { &m_massA, &m_magA, &m_phA, invA };
+        g.b = GlideSide { &m_massB, &m_magB, &m_phB, invB };
+        g.a.start(0);
+        g.b.start(0);
+        return;
+    }
 
-    while (sa.index < nA && sb.index < nB)
+    if (step <= 4)
     {
-        const Mass& ma = m_massA[static_cast<size_t>(sa.index)];
-        const Mass& mb = m_massB[static_cast<size_t>(sb.index)];
-        const float amount = std::min(sa.massLeft, sb.massLeft);
+        // This quarter of the way up the two spectra (the last quarter: to the end of the plan).
+        GlideSide& sa = g.a;
+        GlideSide& sb = g.b;
+        const int upTo = step == 4 ? 2 * bins + 1 : step * (2 * bins) / 4;
+        while (sa.index < g.nA && sb.index < g.nB && sa.bin + sb.bin < upTo)
+        {
+            const Mass& ma = m_massA[static_cast<size_t>(sa.index)];
+            const Mass& mb = m_massB[static_cast<size_t>(sb.index)];
+            const float amount = std::min(sa.massLeft, sb.massLeft);
 
-        const float f = (1.0f - t) * ma.freq + t * mb.freq;
-        const int centre = juce::jlimit(0, bins - 1, t < 0.5f ? ma.peak + static_cast<int>(std::lround(f - ma.freq))
-                                                              : mb.peak + static_cast<int>(std::lround(f - mb.freq)));
-        const float phi = m_outPhase[static_cast<size_t>(centre)] + advance * f;
+            const float f = (1.0f - t) * ma.freq + t * mb.freq;
+            const int centre = juce::jlimit(0, bins - 1, t < 0.5f ? ma.peak + static_cast<int>(std::lround(f - ma.freq))
+                                                                  : mb.peak + static_cast<int>(std::lround(f - mb.freq)));
+            const float phi = m_outPhase[static_cast<size_t>(centre)] + advance * f;
 
-        sa.consume(amount, 1.0f - t, centre - ma.peak, phi, dest, bins);
-        sb.consume(amount, t, centre - mb.peak, phi, dest, bins);
+            sa.consume(amount, 1.0f - t, centre - ma.peak, phi, dest, bins);
+            sb.consume(amount, t, centre - mb.peak, phi, dest, bins);
 
-        sa.massLeft -= amount;
-        sb.massLeft -= amount;
-        if (sa.massLeft <= 1.0e-7f && ++sa.index < nA)
-            sa.start(sa.index);
-        if (sb.massLeft <= 1.0e-7f && ++sb.index < nB)
-            sb.start(sb.index);
+            sa.massLeft -= amount;
+            sb.massLeft -= amount;
+            if (sa.massLeft <= 1.0e-7f && ++sa.index < g.nA)
+                sa.start(sa.index);
+            if (sb.massLeft <= 1.0e-7f && ++sb.index < g.nB)
+                sb.start(sb.index);
+        }
+        return;
     }
 
     // Back to absolute magnitude (the masses were normalised so A and B weigh the same in the plan).
-    const float scale = std::exp(lerpf(std::log(totA + 1.0e-20f), std::log(totB + 1.0e-20f), t));
+    const float scale = std::exp(lerpf(std::log(g.totA + 1.0e-20f), std::log(g.totB + 1.0e-20f), t));
     for (size_t k = 0; k < binsS; ++k)
         dest[k] *= scale;
 
@@ -620,24 +739,34 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
         m_outPhase[k] = std::norm(z) > 1.0e-20f ? std::atan2(z.imag(), z.real())
                                                 : wrapPhase(m_outPhase[k] + advance * static_cast<float>(k));
     }
+}
 
-    // y: re-impose the in-between spectral envelope (formants morph in place instead of travelling).
-    if (y > 0.01f)
+void SpectralMorph::shapeGlide(float xe, float y, std::vector<Cpx>& dest, int step)
+{
+    // Glide's y: re-impose the in-between spectral envelope (formants morph in place instead of travelling). In
+    // two steps, a pass of the moved partials' own envelope in each.
+    const auto binsS = static_cast<size_t>(m_bins);
+    const float t = xe * xe;
+
+    if (step == 0)
     {
         for (size_t k = 0; k < binsS; ++k)
             m_scratch2[k] = std::log(std::abs(dest[k]) + 1.0e-9f);
-        trueEnvelope(m_scratch2.data(), m_envT.data(), 2);
-
-        float mean = 0.0f;
-        for (size_t k = 0; k < binsS; ++k)
-        {
-            m_scratch2[k] = lerpf(m_envA[k], m_envB[k], t) - m_envT[k];
-            mean += m_scratch2[k];
-        }
-        mean /= static_cast<float>(bins);
-        for (size_t k = 0; k < binsS; ++k)
-            dest[k] *= std::exp(clampf(0.18f * y * (m_scratch2[k] - mean), -1.5f, 1.5f)); // Y spans the even part of the correction
+        envelopeStep(m_scratch2.data(), m_envT.data(), 0);
+        return;
     }
+
+    envelopeStep(m_scratch2.data(), m_envT.data(), 1);
+
+    float mean = 0.0f;
+    for (size_t k = 0; k < binsS; ++k)
+    {
+        m_scratch2[k] = lerpf(m_envA[k], m_envB[k], t) - m_envT[k];
+        mean += m_scratch2[k];
+    }
+    mean /= static_cast<float>(m_bins);
+    for (size_t k = 0; k < binsS; ++k)
+        dest[k] *= std::exp(clampf(0.18f * y * (m_scratch2[k] - mean), -1.5f, 1.5f)); // Y spans the even part of the correction
 }
 
 //==============================================================================
