@@ -11,6 +11,7 @@
 //   <out>-small.png  32 x 32 (ICON_SMALL): the .icns at 16 and 32 px, drawn simpler (no bolts, stars, moon or fine
 //                    swell; thicker blades and outlines) so it stays crisp in a Finder list or a taskbar
 //   <out>.ico        the Windows installer's icon: 16, 24 and 32 px from the simple drawing, 48 to 256 from the master
+//   Icon.icns        (on a Mac) the macOS app icon at every size, the plate set on the system's rounded tile
 //
 // Not part of the release build: run it after changing the artwork, and commit the three files.
 //
@@ -59,6 +60,7 @@ namespace
     struct Style
     {
         bool simple = false;
+        bool mac = false; // set on the macOS tile: see render()
         float k(float full, float small) const { return simple ? small : full; }
     };
 
@@ -426,12 +428,45 @@ namespace
         stamp(g, c.brass, C::brass, C::brassLit, C::brassDark, outline, { -5.0f, -8.0f });
     }
 
+    /** The macOS icon outline: a superellipse |x|^5 + |y|^5 = 1 over the 824 px square in the middle of the 1024 grid,
+        which matches the system's rounded square (corner radius about 185 px) to within a pixel or two. */
+    juce::Path macTile()
+    {
+        juce::Path p;
+        constexpr int n = 720;
+        constexpr float half = 412.0f, centre = canvas * 0.5f;
+        for (int i = 0; i < n; ++i)
+        {
+            const float t = juce::MathConstants<float>::twoPi * static_cast<float>(i) / n;
+            const float c = std::cos(t), s = std::sin(t);
+            const P2 q { centre + half * std::copysign(std::pow(std::abs(c), 0.4f), c),
+                         centre + half * std::copysign(std::pow(std::abs(s), 0.4f), s) };
+            if (i == 0)
+                p.startNewSubPath(q);
+            else
+                p.lineTo(q);
+        }
+        p.closeSubPath();
+        return p;
+    }
+
     //==============================================================================
     juce::Image render(Style style)
     {
         juce::Image image(juce::Image::ARGB, canvas, canvas, true);
         juce::Graphics g(image);
         g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+
+        // On macOS the plate is set on a dark iron tile of the shape the system expects (a rounded square 824 px on
+        // the 1024 grid). An icon of any other outline, like the bare cut-corner plate, is shrunk by macOS 26 onto a
+        // pale tile of its own in the Dock and the app switcher. The plate is drawn a little smaller, so its cut
+        // corners sit inside the tile's rounded ones.
+        if (style.mac)
+        {
+            g.setColour(C::edgeDark);
+            g.fillPath(macTile());
+            g.addTransform(juce::AffineTransform::scale(0.955f, 0.955f, canvas * 0.5f, canvas * 0.5f));
+        }
 
         const Tile tile(style);
         tile.drawBack(g);
@@ -592,5 +627,34 @@ int main(int argc, char* argv[])
         return 1;
     }
     std::cout << "Wrote " << ico.getFullPathName() << "\n";
+
+   #if JUCE_MAC
+    // The macOS icon, built by Apple's iconutil from a full set of sizes, so the Dock, Finder and the app switcher
+    // each find a picture drawn for them. The build copies it into the app over the one JUCE makes from ICON_BIG.
+    const auto macMaster = render({ false, true });
+    const auto macSimple = render({ true, true });
+    const auto iconset = out.getSiblingFile("Icon.iconset");
+    iconset.deleteRecursively();
+    iconset.createDirectory();
+    for (int size : { 16, 32, 128, 256, 512 })
+    {
+        const auto name = "icon_" + juce::String(size) + "x" + juce::String(size);
+        if (! writePng(iconset.getChildFile(name + ".png"), atSize(macMaster, macSimple, size))
+            || ! writePng(iconset.getChildFile(name + "@2x.png"), atSize(macMaster, macSimple, size * 2)))
+            return 1;
+    }
+    const auto icns = out.getSiblingFile("Icon.icns");
+    juce::ChildProcess iconutil;
+    const bool built = iconutil.start(juce::StringArray { "/usr/bin/iconutil", "-c", "icns", "-o", icns.getFullPathName(),
+                                                         iconset.getFullPathName() })
+                       && iconutil.waitForProcessToFinish(30000) && iconutil.getExitCode() == 0;
+    iconset.deleteRecursively();
+    if (! built)
+    {
+        std::cerr << "iconutil couldn't build " << icns.getFullPathName() << "\n";
+        return 1;
+    }
+    std::cout << "Wrote " << icns.getFullPathName() << "\n";
+   #endif
     return 0;
 }

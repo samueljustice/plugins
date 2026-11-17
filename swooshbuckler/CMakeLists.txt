@@ -68,6 +68,15 @@ if(APPLE)
         XCODE_ATTRIBUTE_HARDENED_RUNTIME_ENABLED YES
         XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Manual"
     )
+    # The app's macOS icon is Resources/Icon.icns (made by tools/IconRender.cpp with iconutil, every size, on the
+    # system's rounded tile), copied over the one JUCE makes from ICON_BIG, which holds only two sizes and the bare
+    # cut-corner plate: macOS shows that small on a pale tile in the Dock and garbled in the app switcher.
+    if(TARGET Swooshbuckler_Standalone)
+        add_custom_command(TARGET Swooshbuckler_Standalone POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Icon.icns"
+                    "$<TARGET_BUNDLE_DIR:Swooshbuckler_Standalone>/Contents/Resources/Icon.icns"
+            VERBATIM)
+    endif()
 endif()
 
 set(SWOOSHBUCKLER_DSP_SOURCES
