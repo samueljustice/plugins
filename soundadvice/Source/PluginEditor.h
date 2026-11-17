@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "PluginProcessor.h"
+#include "BookCover.h"
 #include "PageTurn.h"
 #include "QuoteView.h"
 #include "Theme.h"
@@ -109,6 +110,8 @@ public:
     void setInkTimeForPreview (double seconds) { quote.setInkTimeForPreview (seconds); }
     /** For the preview tool: deals another entry and holds the page turn at `position` (0..1). */
     void previewPageTurn (float position, bool backwards);
+    /** For the preview tool: holds the cover this far open (0 = shut). */
+    void previewCover (float openness);
 
     /** Puts the "new version available" card over the page (the update check calls this). */
     void showUpdatePopup (const sammyj::UpdateInfo&);
@@ -135,6 +138,7 @@ private:
     GlyphButton backButton { GlyphButton::Glyph::back };
     GlyphButton nightButton { GlyphButton::Glyph::moon };
     PageTurn pageTurn;
+    BookCover bookCover;
     juce::TooltipWindow tooltips { this, 900 };
 
     juce::Image grain;

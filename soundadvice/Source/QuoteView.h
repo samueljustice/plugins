@@ -21,7 +21,7 @@ public:
     /** Shows an entry at once, blank, and starts writing it after `delaySeconds` (used under a turning page). */
     void showEntryAfter (int entryIndex, double delaySeconds);
     /** Writes the current entry in the next time the page is on screen (used when the window opens). */
-    void writeInWhenShown() { introPending = true; }
+    void writeInWhenShown (double delaySeconds = 0.0) { introPending = true; introDelay = delaySeconds; }
     /** For the preview tool: freezes the writing at this many seconds in (a large value = finished). */
     void setInkTimeForPreview (double seconds) { introPending = false; phase = 2.0f; ink = seconds; repaint(); }
 
@@ -83,6 +83,7 @@ private:
     float phase = 2.0f;    // 0..1: the old entry fades out; 2: the entry on screen is `shown`
     double ink = 1.0e6;    // seconds since the writing of `shown` began (large = finished)
     bool introPending = false;
+    double introDelay = 0.0;
     double lastTick = 0.0;
     Hover hover = Hover::none;
     Layout layout;

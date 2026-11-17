@@ -109,7 +109,7 @@ juce::String QuoteView::getClipboardText() const
 double QuoteView::currentInk() const
 {
     // Until the first tick of an intro, an on-screen page shows nothing written yet.
-    return (introPending && isShowing()) ? 0.0 : ink;
+    return (introPending && isShowing()) ? -1.0 : ink;
 }
 
 void QuoteView::tick()
@@ -121,7 +121,7 @@ void QuoteView::tick()
     {
         introPending = false;
         phase = 2.0f;
-        ink = 0.0;
+        ink = -introDelay;
         lastTick = now;
         repaint();
         return;

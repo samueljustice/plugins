@@ -352,6 +352,7 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
     addAndMakeVisible (backButton);
     addAndMakeVisible (nightButton);
     addChildComponent (pageTurn);
+    addChildComponent (bookCover);
 
     dice.setTooltip ("Another (Return)");
     backButton.setTooltip ("The one before");
@@ -369,7 +370,9 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
 
     categories.setCategory (owner.getCategory());
     quote.showEntry (owner.dealForNewWindow(), false);
-    quote.writeInWhenShown();
+    // On screen the book lies shut for a moment, opens, and the page is written as it does.
+    quote.writeInWhenShown (BookCover::introHoldSeconds + BookCover::writeDelaySeconds);
+    bookCover.openWhenShown ({});
 
     setWantsKeyboardFocus (true);
     setResizable (true, true);
@@ -428,6 +431,7 @@ void SoundAdviceEditor::applyTheme()
     nightButton.setPalette (palette);
     nightButton.setGlyph (night ? GlyphButton::Glyph::sun : GlyphButton::Glyph::moon);
     nightButton.setTooltip (night ? "Paper" : "Night");
+    bookCover.setNight (night);
     if (updatePopup != nullptr)
         updatePopup->setPalette (palette);
     rebuildGrain();
@@ -462,6 +466,8 @@ void SoundAdviceEditor::turnPage (PageTurn::Kind kind, const std::function<void(
     change();
     pageTurn.setBounds (getLocalBounds());
     pageTurn.begin (std::move (before), scale, kind, paletteBefore);
+    if (bookCover.isBusy())
+        bookCover.toFront (false);
     if (updatePopup != nullptr)
         updatePopup->toFront (false);
 }
@@ -479,13 +485,30 @@ void SoundAdviceEditor::previewPageTurn (float position, bool backwards)
     pageTurn.freezeAt (position);
 }
 
+void SoundAdviceEditor::previewCover (float openness)
+{
+    bookCover.setBounds (getLocalBounds());
+    bookCover.freezeAt (openness);
+    quote.setInkTimeForPreview (juce::jmax (0.0, (double) (openness * BookCover::openSeconds - BookCover::writeDelaySeconds)));
+}
+
 void SoundAdviceEditor::chooseCategory (int index)
 {
-    turnPage (PageTurn::Kind::forward, [this, index]
+    if (! isShowing())
     {
         const auto entry = owner.selectCategory (index);
         categories.setCategory (owner.getCategory());
-        quote.showEntryAfter (entry, isShowing() ? PageTurn::writeDelaySeconds : -1.0e6);
+        quote.showEntry (entry, false);
+        refreshButtons();
+        return;
+    }
+
+    // Shut the book, find the place, open it there.
+    bookCover.shutAndReopen ([this, index]
+    {
+        const auto entry = owner.selectCategory (index);
+        categories.setCategory (owner.getCategory());
+        quote.showEntryAfter (entry, BookCover::writeDelaySeconds);
         refreshButtons();
     });
     dice.roll();
@@ -493,9 +516,16 @@ void SoundAdviceEditor::chooseCategory (int index)
 
 void SoundAdviceEditor::rollDice()
 {
-    turnPage (PageTurn::Kind::forward, [this]
+    if (! isShowing())
     {
-        quote.showEntryAfter (owner.roll(), isShowing() ? PageTurn::writeDelaySeconds : -1.0e6);
+        quote.showEntry (owner.roll(), false);
+        refreshButtons();
+        return;
+    }
+
+    bookCover.shutAndReopen ([this]
+    {
+        quote.showEntryAfter (owner.roll(), BookCover::writeDelaySeconds);
         refreshButtons();
     });
     dice.roll();
@@ -605,6 +635,7 @@ void SoundAdviceEditor::resized()
     dice.setBounds (juce::Rectangle<int> (34, 34).withCentre ({ r.getRight() - 17, footY }));
 
     pageTurn.setBounds (getLocalBounds());
+    bookCover.setBounds (getLocalBounds());
     if (updatePopup != nullptr)
         updatePopup->setBounds (getLocalBounds());
 
