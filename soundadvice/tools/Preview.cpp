@@ -204,6 +204,33 @@ namespace
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc >= 4 && juce::String (argv[1]) == "--ink")
+    {
+        // The writing-in animation, frozen at a few moments: --ink <out.png> <entry-id> [night]
+        SoundAdviceProcessor proc;
+        const auto& lib = proc.getLibrary();
+        const auto index = lib.findEntry (argv[3]);
+        if (index < 0) { std::cout << "unknown entry id\n"; return 1; }
+        showEntry (proc, lib.getEntries()[(size_t) index].categories[0], argv[3], argc > 4);
+        const double times[] = { 0.12, 0.35, 0.6, 0.9, 1.2, 1.0e6 };
+        const int w = 560, h = 360;
+        juce::Image strip (juce::Image::ARGB, w * 2 * 3, h * 2 * 2, true);
+        juce::Graphics g (strip);
+        int n = 0;
+        for (auto time : times)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            editor->setSize (w, h);
+            dynamic_cast<SoundAdviceEditor&> (*editor).setInkTimeForPreview (time);
+            g.drawImageAt (editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f), (n % 3) * w * 2, (n / 3) * h * 2);
+            ++n;
+        }
+        const juce::File file { juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) };
+        file.deleteFile();
+        juce::FileOutputStream out { file };
+        juce::PNGImageFormat().writeImageToStream (strip, out);
+        return 0;
+    }
     if (argc == 3 && juce::String (argv[1]) == "--icon")
         return icon (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
     if (argc == 5 && juce::String (argv[1]) == "--hero")

@@ -104,6 +104,9 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
 
+    /** For the preview tool: freezes the page's writing at this many seconds in. */
+    void setInkTimeForPreview (double seconds) { quote.setInkTimeForPreview (seconds); }
+
     /** Puts the "new version available" card over the page (the update check calls this). */
     void showUpdatePopup (const sammyj::UpdateInfo&);
 

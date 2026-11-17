@@ -365,6 +365,7 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
 
     categories.setCategory (owner.getCategory());
     quote.showEntry (owner.dealForNewWindow(), false);
+    quote.writeInWhenShown();
 
     setWantsKeyboardFocus (true);
     setResizable (true, true);

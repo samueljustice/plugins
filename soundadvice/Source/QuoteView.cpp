@@ -3,7 +3,11 @@
 namespace
 {
     constexpr float fadeOutSeconds = 0.16f;
-    constexpr float fadeInSeconds = 0.34f;
+    constexpr float maxGlyphSeconds = 0.42f;   // how long one letter takes to be drawn and filled
+    constexpr float minGlyphSeconds = 0.24f;   // ...in a long entry, so the wet edge stays a line or so wide
+    constexpr float maxGlyphStep = 0.022f;     // pause between letters, for short entries
+    constexpr float bodyBudget = 1.0f;         // long entries are written within about this long
+    constexpr double inkFinished = 1.0e6;
     constexpr float maxBodySize = 31.0f;
     constexpr float minBodySize = 13.0f;
     constexpr float maxMeasure = 600.0f;   // longest comfortable line, in pixels
@@ -13,6 +17,27 @@ namespace
     const juce::String middleDot  = juce::String::fromUTF8 (" \xc2\xb7 ");
 
     float easeOut (float t) { return 1.0f - std::pow (1.0f - juce::jlimit (0.0f, 1.0f, t), 3.0f); }
+    float smooth (float t)  { t = juce::jlimit (0.0f, 1.0f, t); return t * t * (3.0f - 2.0f * t); }
+
+    /** The first `fraction` of a polyline, by length, added to `path`. */
+    void addPartialContour (juce::Path& path, const std::vector<juce::Point<float>>& points, float length,
+                            float fraction, juce::Point<float> offset)
+    {
+        if (points.size() < 2 || length <= 0.0f)
+            return;
+
+        auto remaining = length * fraction;
+        path.startNewSubPath (points.front() + offset);
+        for (size_t i = 1; i < points.size() && remaining > 0.0f; ++i)
+        {
+            const auto segment = points[i - 1].getDistanceFrom (points[i]);
+            if (segment <= remaining)
+                path.lineTo (points[i] + offset);
+            else if (segment > 0.0f)
+                path.lineTo (points[i - 1] + (points[i] - points[i - 1]) * (remaining / segment) + offset);
+            remaining -= segment;
+        }
+    }
 }
 
 QuoteView::QuoteView (const QuoteLibrary& lib) : library (lib)
@@ -30,11 +55,17 @@ void QuoteView::setPalette (const Theme::Palette& p)
 
 void QuoteView::showEntry (int entryIndex, bool animate)
 {
-    if (! animate || shown < 0 || ! isShowing())
+    const bool midWriting = phase >= 2.0f && ink < (double) layout.inkEnd;
+
+    if (! animate || shown < 0 || ! isShowing() || midWriting)
     {
+        // Nothing settled on screen to fade out: switch now (and start writing, if animating).
         shown = entryIndex;
         incoming = -1;
         phase = 2.0f;
+        introPending = false;
+        ink = (animate && isShowing()) ? 0.0 : inkFinished;
+        lastTick = juce::Time::getMillisecondCounterHiRes();
         rebuildLayout();
         repaint();
         return;
@@ -42,7 +73,7 @@ void QuoteView::showEntry (int entryIndex, bool animate)
 
     incoming = entryIndex;
     if (phase >= 1.0f)
-        phase = phase >= 2.0f ? 0.0f : 2.0f - phase;   // mid-fade-in: fade back out from where we are
+        phase = 0.0f;
     lastTick = juce::Time::getMillisecondCounterHiRes();
 }
 
@@ -63,34 +94,51 @@ juce::String QuoteView::getClipboardText() const
     return text;
 }
 
+double QuoteView::currentInk() const
+{
+    // Until the first tick of an intro, an on-screen page shows nothing written yet.
+    return (introPending && isShowing()) ? 0.0 : ink;
+}
+
 void QuoteView::tick()
 {
-    if (phase >= 2.0f)
-        return;
-
     const auto now = juce::Time::getMillisecondCounterHiRes();
-    const auto dt = (float) juce::jlimit (0.0, 0.1, (now - lastTick) / 1000.0);
-    lastTick = now;
+    const auto dt = juce::jlimit (0.0, 0.1, (now - lastTick) / 1000.0);
+
+    if (introPending)
+    {
+        introPending = false;
+        phase = 2.0f;
+        ink = 0.0;
+        lastTick = now;
+        repaint();
+        return;
+    }
 
     if (phase < 1.0f)
     {
-        phase += dt / fadeOutSeconds;
+        lastTick = now;
+        phase += (float) dt / fadeOutSeconds;
         if (phase >= 1.0f)
         {
-            phase = 1.0f;
+            // The old entry has gone: put the new one down and start writing it.
+            phase = 2.0f;
             if (incoming >= 0)
             {
                 shown = incoming;
                 incoming = -1;
                 rebuildLayout();
             }
+            ink = 0.0;
         }
+        repaint();
     }
-    else
+    else if (ink < (double) layout.inkEnd)
     {
-        phase = juce::jmin (2.0f, phase + dt / fadeInSeconds);
+        lastTick = now;
+        ink += dt;
+        repaint();
     }
-    repaint();
 }
 
 //==============================================================================
@@ -162,6 +210,57 @@ void QuoteView::rebuildLayout()
     layout.labelArea = { area.getX(), top, area.getWidth(), labelHeight };
     layout.bodyArea = juce::Rectangle<float> (measure, bodyHeight)
                           .withCentre ({ area.getCentreX(), top + labelHeight + bodyHeight * 0.5f });
+
+    // The letters, in reading order, for writing in.
+    for (const auto& line : layout.body)
+    {
+        for (const auto* run : line.runs)
+        {
+            layout.bodyFont = run->font;
+            const auto typeface = run->font.getTypefacePtr();
+            if (typeface == nullptr)
+                continue;
+            const auto scale = juce::AffineTransform::scale (run->font.getHeight() * run->font.getHorizontalScale(),
+                                                             run->font.getHeight());
+            for (const auto& glyph : run->glyphs)
+            {
+                InkGlyph ig;
+                ig.code = (juce::uint16) glyph.glyphCode;
+                ig.position = line.lineOrigin + glyph.anchor;
+
+                juce::Path raw;
+                typeface->getOutlineForGlyph (run->font.getMetricsKind(), glyph.glyphCode, raw);
+                if (raw.isEmpty())
+                    continue;   // a space
+                ig.outline.addPath (raw, scale.translated (ig.position));
+
+                int subPath = -1;
+                for (juce::PathFlatteningIterator it (ig.outline, {}, 0.25f); it.next();)
+                {
+                    if (it.subPathIndex != subPath)
+                    {
+                        subPath = it.subPathIndex;
+                        ig.contours.push_back ({ { it.x1, it.y1 } });
+                        ig.lengths.push_back (0.0f);
+                    }
+                    const juce::Point<float> end (it.x2, it.y2);
+                    ig.lengths.back() += ig.contours.back().back().getDistanceFrom (end);
+                    ig.contours.back().push_back (end);
+                }
+                layout.glyphs.push_back (std::move (ig));
+            }
+        }
+    }
+
+    const auto count = (float) juce::jmax ((size_t) 1, layout.glyphs.size());
+    const auto step = juce::jmin (maxGlyphStep, bodyBudget / count);
+    for (size_t i = 0; i < layout.glyphs.size(); ++i)
+        layout.glyphs[i].start = step * (float) i;
+
+    layout.glyphSeconds = juce::jlimit (minGlyphSeconds, maxGlyphSeconds, step * 30.0f);
+    layout.bodyEnd = step * count;
+    layout.flourishStart = juce::jmax (0.25f, layout.bodyEnd * 0.7f);
+    layout.inkEnd = juce::jmax (layout.bodyEnd + layout.glyphSeconds, layout.flourishStart + 0.35f + 0.45f);
 }
 
 //==============================================================================
@@ -170,20 +269,112 @@ void QuoteView::paint (juce::Graphics& g)
     if (shown < 0)
         return;
 
-    float alpha = 1.0f, drift = 0.0f;
     if (phase < 1.0f)
+        paintEntry (g, 1.0f - easeOut (phase), -3.0f * easeOut (phase));
+    else
+        paintWriting (g, currentInk());
+}
+
+void QuoteView::paintFlourish (juce::Graphics& g, float grow, float alpha)
+{
+    if (grow <= 0.0f || alpha <= 0.0f)
+        return;
+
+    // A fine rule that swells towards a small lozenge at its centre, drawn outwards from the middle.
+    const auto centre = layout.ruleArea.getCentre();
+    const auto half = 38.0f * grow, gap = 7.0f;
+    g.setColour (palette.accent.withMultipliedAlpha (0.8f * alpha));
+
+    for (const float dir : { -1.0f, 1.0f })
     {
-        alpha = 1.0f - easeOut (phase);
-        drift = -3.0f * easeOut (phase);
-    }
-    else if (phase < 2.0f)
-    {
-        const auto t = easeOut (phase - 1.0f);
-        alpha = t;
-        drift = 5.0f * (1.0f - t);
+        if (half <= gap)
+            break;
+        juce::Path stroke;
+        stroke.startNewSubPath (centre.x + dir * gap, centre.y - 0.6f);
+        stroke.lineTo (centre.x + dir * half, centre.y);
+        stroke.lineTo (centre.x + dir * gap, centre.y + 0.6f);
+        stroke.closeSubPath();
+        g.fillPath (stroke);
     }
 
-    paintEntry (g, alpha, drift);
+    const auto size = 3.1f * juce::jmin (1.0f, grow * 2.5f);
+    juce::Path lozenge;
+    lozenge.startNewSubPath (centre.x, centre.y - size);
+    lozenge.lineTo (centre.x + size, centre.y);
+    lozenge.lineTo (centre.x, centre.y + size);
+    lozenge.lineTo (centre.x - size, centre.y);
+    lozenge.closeSubPath();
+    g.strokePath (lozenge, juce::PathStrokeType (0.9f));
+}
+
+void QuoteView::paintBodyInk (juce::Graphics& g, juce::Point<float> origin, float inkTime)
+{
+    std::vector<uint16_t> doneCodes;
+    std::vector<juce::Point<float>> donePositions;
+    const auto penWidth = juce::jmax (0.75f, layout.bodyFont.getHeight() * 0.032f);
+    const juce::PathStrokeType pen (penWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+
+    for (const auto& glyph : layout.glyphs)
+    {
+        const auto u = (inkTime - glyph.start) / layout.glyphSeconds;
+        if (u <= 0.0f)
+            break;   // in reading order: nothing later has started
+
+        if (u >= 1.0f)
+        {
+            doneCodes.push_back (glyph.code);
+            donePositions.push_back (glyph.position);
+            continue;
+        }
+
+        // Being written: the outline is drawn in the accent ink, then the letter fills and the line fades.
+        const auto drawn = easeOut (u / 0.65f);
+        const auto fill = smooth ((u - 0.3f) / 0.7f);
+        const auto line = 1.0f - smooth ((u - 0.55f) / 0.45f);
+
+        if (fill > 0.0f)
+        {
+            g.setColour (palette.ink.withMultipliedAlpha (fill));
+            g.fillPath (glyph.outline, juce::AffineTransform::translation (origin));
+        }
+
+        juce::Path partial;
+        for (size_t c = 0; c < glyph.contours.size(); ++c)
+            addPartialContour (partial, glyph.contours[c], glyph.lengths[c], drawn, origin);
+        g.setColour (palette.accent.withMultipliedAlpha (line));
+        g.strokePath (partial, pen);
+    }
+
+    if (! doneCodes.empty())
+    {
+        // Finished letters go through the same glyph renderer as the settled page, so nothing shifts at the end.
+        auto& context = g.getInternalContext();
+        context.saveState();
+        context.setFont (layout.bodyFont);
+        context.setFill (palette.ink);
+        context.drawGlyphs (doneCodes, donePositions, juce::AffineTransform::translation (origin));
+        context.restoreState();
+    }
+}
+
+void QuoteView::paintWriting (juce::Graphics& g, double inkTime)
+{
+    if (inkTime >= (double) layout.inkEnd)
+    {
+        paintEntry (g, 1.0f, 0.0f);
+        return;
+    }
+
+    const auto t = (float) inkTime;
+    const auto after = t - layout.flourishStart;
+
+    // TextLayout::draw puts a centred-top layout here.
+    const juce::Point<float> origin (layout.bodyArea.getCentreX() - layout.body.getWidth() * 0.5f, layout.bodyArea.getY());
+    paintBodyInk (g, origin, t);
+
+    paintFlourish (g, easeOut (after / 0.55f), smooth (after / 0.3f));
+    paintFurniture (g, smooth (t / 0.35f), smooth ((after - 0.12f) / 0.4f), smooth ((after - 0.22f) / 0.4f),
+                    smooth ((after - 0.32f) / 0.4f), 0.0f);
 }
 
 void QuoteView::paintEntry (juce::Graphics& g, float alpha, float drift)
@@ -191,44 +382,54 @@ void QuoteView::paintEntry (juce::Graphics& g, float alpha, float drift)
     if (alpha <= 0.001f)
         return;
 
-    auto withAlpha = [alpha] (juce::Colour c) { return c.withMultipliedAlpha (alpha); };
-
-    if (layout.label.isNotEmpty())
-    {
-        g.setColour (withAlpha (palette.accent));
-        g.setFont (Theme::caps (10.5f, 0.32f));
-        g.drawText (layout.label, layout.labelArea.translated (0.0f, drift), juce::Justification::centredTop, false);
-    }
-
     {
         juce::Graphics::ScopedSaveState save (g);
         g.setOpacity (alpha);
         layout.body.draw (g, layout.bodyArea.translated (0.0f, drift));
     }
 
-    g.setColour (withAlpha (palette.accent.withMultipliedAlpha (0.7f)));
-    g.fillRect (layout.ruleArea);
+    paintFlourish (g, 1.0f, alpha);
+    paintFurniture (g, alpha, alpha, alpha, alpha, drift);
+}
 
-    const auto nameFont = Theme::caps (13.5f, 0.2f);
-    g.setFont (nameFont);
-    g.setColour (withAlpha (hover == Hover::name ? palette.accent : palette.ink));
-    g.drawText (layout.name, layout.nameArea, juce::Justification::centred, true);
-    if (hover == Hover::name)
+void QuoteView::paintFurniture (juce::Graphics& g, float labelAlpha, float nameAlpha, float roleAlpha,
+                                float sourceAlpha, float drift)
+{
+    if (layout.label.isNotEmpty() && labelAlpha > 0.0f)
     {
-        const auto w = juce::GlyphArrangement::getStringWidth (nameFont, layout.name);
-        g.fillRect (juce::Rectangle<float> (w, 0.75f).withCentre ({ layout.nameArea.getCentreX(), layout.nameArea.getBottom() - 1.0f }));
+        g.setColour (palette.accent.withMultipliedAlpha (labelAlpha));
+        g.setFont (Theme::caps (10.5f, 0.32f));
+        g.drawText (layout.label, layout.labelArea.translated (0.0f, drift), juce::Justification::centredTop, false);
     }
 
-    g.setFont (Theme::italic (14.5f));
-    g.setColour (withAlpha (palette.muted));
-    g.drawFittedText (layout.role, layout.roleArea.toNearestInt(), juce::Justification::centred, 1, 0.85f);
+    if (nameAlpha > 0.0f)
+    {
+        const auto nameFont = Theme::caps (13.5f, 0.2f);
+        const auto rise = 4.0f * (1.0f - nameAlpha);
+        g.setFont (nameFont);
+        g.setColour ((hover == Hover::name ? palette.accent : palette.ink).withMultipliedAlpha (nameAlpha));
+        g.drawText (layout.name, layout.nameArea.translated (0.0f, rise), juce::Justification::centred, true);
+        if (hover == Hover::name)
+        {
+            const auto w = juce::GlyphArrangement::getStringWidth (nameFont, layout.name);
+            g.fillRect (juce::Rectangle<float> (w, 0.75f).withCentre ({ layout.nameArea.getCentreX(), layout.nameArea.getBottom() - 1.0f }));
+        }
+    }
 
-    if (layout.source.isNotEmpty())
+    if (roleAlpha > 0.0f)
+    {
+        g.setFont (Theme::italic (14.5f));
+        g.setColour (palette.muted.withMultipliedAlpha (roleAlpha));
+        g.drawFittedText (layout.role, layout.roleArea.translated (0.0f, 3.0f * (1.0f - roleAlpha)).toNearestInt(),
+                          juce::Justification::centred, 1, 0.85f);
+    }
+
+    if (layout.source.isNotEmpty() && sourceAlpha > 0.0f)
     {
         const auto sourceFont = Theme::caps (10.5f, 0.16f);
         g.setFont (sourceFont);
         const bool hasLink = shown >= 0 && library.getEntries()[(size_t) shown].source.url.isNotEmpty();
-        g.setColour (withAlpha (hover == Hover::source ? palette.accent : palette.muted.withMultipliedAlpha (0.85f)));
+        g.setColour ((hover == Hover::source ? palette.accent : palette.muted.withMultipliedAlpha (0.85f)).withMultipliedAlpha (sourceAlpha));
         g.drawFittedText (layout.source, layout.sourceArea.toNearestInt(), juce::Justification::centred, 1, 0.8f);
         if (hover == Hover::source && hasLink)
         {
