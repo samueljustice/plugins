@@ -804,43 +804,11 @@
   {
    "person": "Sweet Justice Sound",
    "kind": "insight",
-   "text": "Monitor through the mastering chain. If something seems far too loud or too quiet, check the routing before you touch the mix.",
-   "categories": [
-    "sjtips",
-    "mixing",
-    "craft"
-   ],
-   "source": {
-    "title": "Sweet Justice Tips",
-    "publication": "Sweet Justice Sound",
-    "url": "https://www.sweetjusticesound.com",
-    "year": 2026
-   }
-  },
-  {
-   "person": "Sweet Justice Sound",
-   "kind": "insight",
    "text": "Fade every clip and zoom in on conforms. Tiny unfaded regions cause clicks that are very hard to find later.",
    "categories": [
     "sjtips",
     "craft",
     "collaboration"
-   ],
-   "source": {
-    "title": "Sweet Justice Tips",
-    "publication": "Sweet Justice Sound",
-    "url": "https://www.sweetjusticesound.com",
-    "year": 2026
-   }
-  },
-  {
-   "person": "Sweet Justice Sound",
-   "kind": "insight",
-   "text": "When you leave a note for a colleague, say what you are hearing and what you would like instead, and mention what is already working.",
-   "categories": [
-    "sjtips",
-    "collaboration",
-    "creativity"
    ],
    "source": {
     "title": "Sweet Justice Tips",
