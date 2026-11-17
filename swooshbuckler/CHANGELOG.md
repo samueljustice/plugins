@@ -1,5 +1,9 @@
 # Swooshbuckler changelog
 
+## 2.2.1
+
+- **The app's icon on macOS is sharp at every size**, set on the system's dark rounded tile. It used to show shrunk on a pale tile in the Dock and garbled in the app switcher.
+
 ## 2.2.0
 
 ### Surround, up to 7.1.4
