@@ -666,6 +666,7 @@ namespace roar
                 {
                     m_aL[s] = m_bL[s];
                     m_aR[s] = m_bR[s];
+                    tapReorder (xa, ya, xb, yb, xb, yb);
                     continue;
                 }
                 const double phi = 0.5 * 3.14159265358979323846 * static_cast<double> (w);
@@ -680,6 +681,7 @@ namespace roar
                 const auto ga = static_cast<float> (k * c), gb = static_cast<float> (k * sn);
                 m_aL[s] = ga * m_aL[s] + gb * m_bL[s];
                 m_aR[s] = ga * m_aR[s] + gb * m_bR[s];
+                tapReorder (xa, ya, xb, yb, m_aL[s], m_aR[s]);
             }
 
             if (m_fadePos >= m_fadeLength)

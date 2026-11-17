@@ -1343,17 +1343,27 @@ namespace
         // history, never reordered) and a fresh render of the new order: the level during the fade
         // must not drop under the quieter of the two. On Init, PITCH's grains, SUB's divider and
         // ENSEMBLE's delays leave the two renders out of phase, so this is where a plain linear
-        // crossfade would cancel. On the voice the worst of these few orders moves by a few dB with
-        // where PITCH's grains fall at the moment of the reorder (60 orders each at 0.9, 1.0 and
-        // 1.1 s: worst dips of -4 to -10 dB, medians of -1.1 to -2.2 dB), so the voice has a wider
-        // limit on its worst order, and both runs have one on the median.
+        // crossfade would cancel.
+        //
+        // The fade itself is gated against the two renders it actually blends (the chain's reorder
+        // tap): the outgoing chain and the incoming one, whose state is cloned from the outgoing
+        // chain. A fresh render of the new order is not what the fade fades into: its level stages
+        // (ROAR's learnt makeup among them) learnt that order from the start, while the incoming
+        // chain starts from what the previous order left in them. On the voice that difference,
+        // not the fade, sets the worst frame against the fresh render, and it moves by several dB
+        // with any setting that moves where PITCH's grains fall (90 orders at 0.9, 1.0 and 1.1 s:
+        // worst -6.8 dB, median -1.8 dB against the references; the fade against its own renders:
+        // worst -2.1 dB, median 0.0 dB, where a linear crossfade of the same renders gives -4.4 and
+        // -1.4 dB; with the chain's fade made linear, these 12 sine orders give -3.1 and -1.0 dB).
+        // So the voice's worst order against the references is reported, and its median gated; the
+        // sine, whose renders keep their phase, is gated on both.
         {
-            struct Case { const char* name; bool sine; double limitDb; };
-            for (const Case c : { Case { "voice, Init", false, -4.0 }, Case { "sine, Init", true, -3.0 } })
+            struct Case { const char* name; bool sine; bool gateWorst; };
+            for (const Case c : { Case { "voice, Init", false, false }, Case { "sine, Init", true, true } })
             {
                 const auto in = dual(c.sine ? makeSine(sr, 1.4, 220.0, 0.25) : makeVoice(sr, 1.4));
                 std::mt19937 rng(99);
-                std::vector<double> dips;
+                std::vector<double> dips, fadeDips;
                 const int trials = g_quick ? 6 : 12;
                 for (int trial = 0; trial < trials; ++trial)
                 {
@@ -1369,7 +1379,43 @@ namespace
                         return q;
                     };
                     auto p = make(false), a = make(false), b = make(true);
+                    constexpr int tapLength = 4096;
+                    std::array<std::vector<float>, 6> tapped;
+                    for (auto& v : tapped)
+                        v.assign(tapLength, 0.0f);
+                    roar::CreatureChain::ReorderTap tap;
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        tap.outgoing[ch] = tapped[static_cast<size_t>(ch)].data();
+                        tap.incoming[ch] = tapped[static_cast<size_t>(2 + ch)].data();
+                        tap.mixed[ch] = tapped[static_cast<size_t>(4 + ch)].data();
+                    }
+                    tap.capacity = tapLength;
+                    p->getChainForTests().setReorderTapForTests(&tap);
                     const auto moved = render(*p, in, block, false, [&](int start) { if (start == at) setOrder(*p, order); }).l;
+                    p->getChainForTests().setReorderTapForTests(nullptr);
+                    {
+                        // The fade against its own two renders: 20 ms frames every 5 ms.
+                        const auto power = [&](size_t k, int from, int len)
+                        {
+                            double e = 0.0;
+                            for (int i = from; i < from + len; ++i)
+                                e += static_cast<double>(tapped[k][static_cast<size_t>(i)]) * tapped[k][static_cast<size_t>(i)]
+                                   + static_cast<double>(tapped[k + 1][static_cast<size_t>(i)]) * tapped[k + 1][static_cast<size_t>(i)];
+                            return 10.0 * std::log10(e / len + 1e-30);
+                        };
+                        const int len = static_cast<int>(std::lround(0.020 * sr)), hop = len / 4;
+                        double worstFade = 0.0;
+                        for (int f = 0; f + len <= tap.count; f += hop)
+                        {
+                            const double pa = power(0, f, len), pb = power(2, f, len), pm = power(4, f, len);
+                            if (std::max(pa, pb) > -60.0)
+                                worstFade = std::min(worstFade, pm - std::min(pa, pb));
+                        }
+                        check(tap.count >= static_cast<int>(std::lround(roar::CreatureChain::c_reorderSeconds * sr)),
+                              juce::String(c.name) + ": the reorder tap saw the whole fade (" + juce::String(tap.count) + " samples)");
+                        fadeDips.push_back(worstFade);
+                    }
                     const auto before = render(*a, in, block).l;
                     const auto after = render(*b, in, block).l;
                     const int from = at, to = at + static_cast<int>(0.15 * sr);
@@ -1384,10 +1430,17 @@ namespace
                     dips.push_back(worst);
                 }
                 std::sort(dips.begin(), dips.end());
+                std::sort(fadeDips.begin(), fadeDips.end());
                 std::printf("  %-27s %d single reorders against the previous order's continuation: worst 20 ms dip %.2f dB, median %.2f dB\n",
                             c.name, trials, dips.front(), dips[dips.size() / 2]);
-                check(dips.front() >= c.limitDb, juce::String(c.name) + ": reorder fade dip " + juce::String(dips.front(), 2) + " dB");
+                std::printf("  %-27s the same fades against their own two renders: worst 20 ms dip %.2f dB, median %.2f dB\n",
+                            "", fadeDips.front(), fadeDips[fadeDips.size() / 2]);
+                if (c.gateWorst)
+                    check(dips.front() >= -3.0, juce::String(c.name) + ": reorder fade dip " + juce::String(dips.front(), 2) + " dB");
                 check(dips[dips.size() / 2] >= -1.5, juce::String(c.name) + ": median reorder fade dip " + juce::String(dips[dips.size() / 2], 2) + " dB");
+                check(fadeDips.front() >= -2.5, juce::String(c.name) + ": reorder fade dip under its own renders " + juce::String(fadeDips.front(), 2) + " dB");
+                check(fadeDips[fadeDips.size() / 2] >= -0.75, juce::String(c.name) + ": median reorder fade dip under its own renders "
+                                                                   + juce::String(fadeDips[fadeDips.size() / 2], 2) + " dB");
             }
         }
 

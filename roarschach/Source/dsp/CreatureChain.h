@@ -172,6 +172,17 @@ namespace roar
         /** Test hooks: OUTPUT's filters, comp and level match, and Ride (all on in the plug-in). */
         void setOutputTestOptions (bool filters, bool autoGain, bool ride) { m_output.setTestOptions (filters, autoGain, ride); }
         void setOutputTestInvertWet (bool inverted) { m_output.setTestInvertWet (inverted); }
+        /** Test hook: the reorder fade's two renders and its mix (before OUTPUT), written for every
+            sample of the audible fade until `capacity` is reached. */
+        struct ReorderTap
+        {
+            float* outgoing[2] {};
+            float* incoming[2] {};
+            float* mixed[2] {};
+            int capacity = 0;
+            int count = 0;
+        };
+        void setReorderTapForTests (ReorderTap* tap) { m_reorderTap = tap; }
         /** Test hooks: forget what IN / OUTPUT learnt. */
         void clearLevelsForTests() { m_in.clearLearning(); m_output.clearLearning(); }
 
@@ -273,6 +284,18 @@ namespace roar
         int frontSet() const { return m_fadePos >= 0 ? 1 - m_active : m_active; }
         void startReorder (const Topology& next);
         void publish (const ChainSettings& settings, const float* outL, const float* outR, int n, MonsterFeatures& features);
+        void tapReorder (double al, double ar, double bl, double br, double ml, double mr)
+        {
+            if (m_reorderTap == nullptr || m_reorderTap->count >= m_reorderTap->capacity)
+                return;
+            const auto k = static_cast<size_t> (m_reorderTap->count++);
+            m_reorderTap->outgoing[0][k] = static_cast<float> (al);
+            m_reorderTap->outgoing[1][k] = static_cast<float> (ar);
+            m_reorderTap->incoming[0][k] = static_cast<float> (bl);
+            m_reorderTap->incoming[1][k] = static_cast<float> (br);
+            m_reorderTap->mixed[0][k] = static_cast<float> (ml);
+            m_reorderTap->mixed[1][k] = static_cast<float> (mr);
+        }
         void refillLevelDelays();
         int hintSettleSamples() const;
         static DryPhaseMatch::Settings dryMatchSettings (const ChainSettings& s);
@@ -297,6 +320,7 @@ namespace roar
         double m_corrPole = 0.995;  // running power and cross power of A and B during the fade
         double m_corrAA = 0.0, m_corrBB = 0.0, m_corrAB = 0.0;
         int m_reorderCount = 0;
+        ReorderTap* m_reorderTap = nullptr;
         bool m_snap = true;
 
         // Dry for OUTPUT's Mix: the host input delayed by the module latency, phase-matched.
