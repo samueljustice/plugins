@@ -204,6 +204,33 @@ namespace
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc >= 4 && juce::String (argv[1]) == "--turn")
+    {
+        // The page turn, frozen at a few moments: --turn <out.png> <entry-id> [back]
+        SoundAdviceProcessor proc;
+        const auto& lib = proc.getLibrary();
+        const auto index = lib.findEntry (argv[3]);
+        if (index < 0) { std::cout << "unknown entry id\n"; return 1; }
+        const float moments[] = { 0.12f, 0.3f, 0.45f, 0.6f, 0.78f, 0.93f };
+        const int w = 560, h = 360;
+        juce::Image strip (juce::Image::ARGB, w * 2 * 3, h * 2 * 2, true);
+        juce::Graphics g (strip);
+        int n = 0;
+        for (auto moment : moments)
+        {
+            showEntry (proc, lib.getEntries()[(size_t) index].categories[0], argv[3], false);
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            editor->setSize (w, h);
+            dynamic_cast<SoundAdviceEditor&> (*editor).previewPageTurn (moment, argc > 4);
+            g.drawImageAt (editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f), (n % 3) * w * 2, (n / 3) * h * 2);
+            ++n;
+        }
+        const juce::File file { juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) };
+        file.deleteFile();
+        juce::FileOutputStream out { file };
+        juce::PNGImageFormat().writeImageToStream (strip, out);
+        return 0;
+    }
     if (argc >= 4 && juce::String (argv[1]) == "--ink")
     {
         // The writing-in animation, frozen at a few moments: --ink <out.png> <entry-id> [night]

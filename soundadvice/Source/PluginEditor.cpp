@@ -351,6 +351,7 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
     addAndMakeVisible (dice);
     addAndMakeVisible (backButton);
     addAndMakeVisible (nightButton);
+    addChildComponent (pageTurn);
 
     dice.setTooltip ("Another (Return)");
     backButton.setTooltip ("The one before");
@@ -359,8 +360,11 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
     backButton.onClick = [this] { goBack(); };
     nightButton.onClick = [this]
     {
-        owner.setNightMode (! owner.isNightMode());
-        applyTheme();
+        turnPage (PageTurn::Kind::dissolve, [this]
+        {
+            owner.setNightMode (! owner.isNightMode());
+            applyTheme();
+        });
     };
 
     categories.setCategory (owner.getCategory());
@@ -430,28 +434,82 @@ void SoundAdviceEditor::applyTheme()
     repaint();
 }
 
+juce::Image SoundAdviceEditor::pictureOfPage (float& scale)
+{
+    scale = 1.0f;
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds()))
+        scale = (float) display->scale;
+    scale = juce::jlimit (1.0f, 3.0f, scale);
+
+    const bool wasTurning = pageTurn.isVisible();
+    pageTurn.setVisible (false);    // a turn in progress isn't part of the page
+    auto image = createComponentSnapshot (getLocalBounds(), true, scale);
+    pageTurn.setVisible (wasTurning);
+    return image;
+}
+
+void SoundAdviceEditor::turnPage (PageTurn::Kind kind, const std::function<void()>& change)
+{
+    if (! isShowing())
+    {
+        change();
+        return;
+    }
+
+    float scale = 1.0f;
+    auto before = pictureOfPage (scale);
+    const auto paletteBefore = palette;
+    change();
+    pageTurn.setBounds (getLocalBounds());
+    pageTurn.begin (std::move (before), scale, kind, paletteBefore);
+    if (updatePopup != nullptr)
+        updatePopup->toFront (false);
+}
+
+void SoundAdviceEditor::previewPageTurn (float position, bool backwards)
+{
+    float scale = 2.0f;
+    pageTurn.setVisible (false);
+    auto before = createComponentSnapshot (getLocalBounds(), true, scale);
+    quote.showEntryAfter (owner.roll(), 0.0);
+    quote.setInkTimeForPreview (juce::jmax (0.0, (double) (position * PageTurn::turnSeconds - PageTurn::writeDelaySeconds)));
+    refreshButtons();
+    pageTurn.setBounds (getLocalBounds());
+    pageTurn.begin (std::move (before), scale, backwards ? PageTurn::Kind::backward : PageTurn::Kind::forward, palette);
+    pageTurn.freezeAt (position);
+}
+
 void SoundAdviceEditor::chooseCategory (int index)
 {
-    const auto entry = owner.selectCategory (index);
-    categories.setCategory (owner.getCategory());
-    quote.showEntry (entry, true);
+    turnPage (PageTurn::Kind::forward, [this, index]
+    {
+        const auto entry = owner.selectCategory (index);
+        categories.setCategory (owner.getCategory());
+        quote.showEntryAfter (entry, isShowing() ? PageTurn::writeDelaySeconds : -1.0e6);
+        refreshButtons();
+    });
     dice.roll();
-    refreshButtons();
 }
 
 void SoundAdviceEditor::rollDice()
 {
-    quote.showEntry (owner.roll(), true);
+    turnPage (PageTurn::Kind::forward, [this]
+    {
+        quote.showEntryAfter (owner.roll(), isShowing() ? PageTurn::writeDelaySeconds : -1.0e6);
+        refreshButtons();
+    });
     dice.roll();
-    refreshButtons();
 }
 
 void SoundAdviceEditor::goBack()
 {
     if (! owner.canGoBack())
         return;
-    quote.showEntry (owner.back(), true);
-    refreshButtons();
+    turnPage (PageTurn::Kind::backward, [this]
+    {
+        quote.showEntryAfter (owner.back(), isShowing() ? PageTurn::writeDelaySeconds : -1.0e6);
+        refreshButtons();
+    });
 }
 
 void SoundAdviceEditor::refreshButtons()
@@ -508,9 +566,17 @@ void SoundAdviceEditor::paint (juce::Graphics& g)
     if (grain.isValid())
         g.drawImageAt (grain, 0, 0);
 
-    // A single hairline frame, inset, like a printed card.
-    g.setColour (palette.hairline.withMultipliedAlpha (0.8f));
+    // The gutter: the page darkens a little towards the spine.
+    const bool night = owner.isNightMode();
+    g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (night ? 0.30f : 0.085f), 0.0f, 0.0f,
+                                             juce::Colours::transparentBlack, 34.0f, 0.0f, false));
+    g.fillRect (r.withWidth (34.0f));
+
+    // A double rule round the page, as on a title page.
+    g.setColour (palette.hairline.withMultipliedAlpha (0.9f));
     g.drawRect (r.reduced (8.0f), 1.0f);
+    g.setColour (palette.hairline.withMultipliedAlpha (0.55f));
+    g.drawRect (r.reduced (11.5f), 0.6f);
 
     if (getWidth() >= 520)
     {
@@ -538,6 +604,7 @@ void SoundAdviceEditor::resized()
     backButton.setBounds (juce::Rectangle<int> (30, 30).withCentre ({ r.getX() + 15, footY }));
     dice.setBounds (juce::Rectangle<int> (34, 34).withCentre ({ r.getRight() - 17, footY }));
 
+    pageTurn.setBounds (getLocalBounds());
     if (updatePopup != nullptr)
         updatePopup->setBounds (getLocalBounds());
 

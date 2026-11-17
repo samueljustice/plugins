@@ -18,6 +18,8 @@ public:
     void setPalette (const Theme::Palette& p);
     /** Shows an entry. With `animate` the old one fades and the new one is written in. */
     void showEntry (int entryIndex, bool animate);
+    /** Shows an entry at once, blank, and starts writing it after `delaySeconds` (used under a turning page). */
+    void showEntryAfter (int entryIndex, double delaySeconds);
     /** Writes the current entry in the next time the page is on screen (used when the window opens). */
     void writeInWhenShown() { introPending = true; }
     /** For the preview tool: freezes the writing at this many seconds in (a large value = finished). */

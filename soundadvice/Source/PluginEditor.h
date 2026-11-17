@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "PluginProcessor.h"
+#include "PageTurn.h"
 #include "QuoteView.h"
 #include "Theme.h"
 #include "UpdatePopup.h"
@@ -106,6 +107,8 @@ public:
 
     /** For the preview tool: freezes the page's writing at this many seconds in. */
     void setInkTimeForPreview (double seconds) { quote.setInkTimeForPreview (seconds); }
+    /** For the preview tool: deals another entry and holds the page turn at `position` (0..1). */
+    void previewPageTurn (float position, bool backwards);
 
     /** Puts the "new version available" card over the page (the update check calls this). */
     void showUpdatePopup (const sammyj::UpdateInfo&);
@@ -117,6 +120,9 @@ private:
     void goBack();
     void refreshButtons();
     void rebuildGrain();
+    /** Turns the page: pictures it as it is, makes `change`, then lifts the picture away. */
+    void turnPage (PageTurn::Kind, const std::function<void()>& change);
+    juce::Image pictureOfPage (float& scale);
 
     SoundAdviceProcessor& owner;
     const QuoteLibrary& library;
@@ -128,6 +134,7 @@ private:
     GlyphButton dice { GlyphButton::Glyph::die };
     GlyphButton backButton { GlyphButton::Glyph::back };
     GlyphButton nightButton { GlyphButton::Glyph::moon };
+    PageTurn pageTurn;
     juce::TooltipWindow tooltips { this, 900 };
 
     juce::Image grain;

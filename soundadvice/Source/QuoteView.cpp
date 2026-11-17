@@ -77,6 +77,18 @@ void QuoteView::showEntry (int entryIndex, bool animate)
     lastTick = juce::Time::getMillisecondCounterHiRes();
 }
 
+void QuoteView::showEntryAfter (int entryIndex, double delaySeconds)
+{
+    shown = entryIndex;
+    incoming = -1;
+    phase = 2.0f;
+    introPending = false;
+    ink = -delaySeconds;
+    lastTick = juce::Time::getMillisecondCounterHiRes();
+    rebuildLayout();
+    repaint();
+}
+
 juce::String QuoteView::getClipboardText() const
 {
     if (! juce::isPositiveAndBelow (shown, (int) library.getEntries().size()))

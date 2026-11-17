@@ -62,6 +62,7 @@ target_sources(SoundAdvice
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/QuoteView.cpp
+    Source/PageTurn.cpp
     Source/UpdatePopup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
@@ -120,7 +121,7 @@ if(SOUNDADVICE_TOOLS)
     juce_add_console_app(SoundAdvicePreview PRODUCT_NAME "SoundAdvicePreview")
     juce_generate_juce_header(SoundAdvicePreview)
     target_sources(SoundAdvicePreview PRIVATE tools/Preview.cpp Source/QuoteLibrary.cpp Source/PluginProcessor.cpp
-                   Source/PluginEditor.cpp Source/QuoteView.cpp Source/UpdatePopup.cpp
+                   Source/PluginEditor.cpp Source/QuoteView.cpp Source/PageTurn.cpp Source/UpdatePopup.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp)
     target_include_directories(SoundAdvicePreview PRIVATE Source ${CMAKE_CURRENT_SOURCE_DIR}/../common)
     # The preview renders offline: no update check, no network.
