@@ -1,5 +1,12 @@
 {
- "people": [],
+ "people": [
+  {
+   "name": "Michael Kent",
+   "role": "Supervising sound designer",
+   "credits": "God of War Ragnarök, Mass Effect: Andromeda, Mass Effect",
+   "imdb": "https://www.imdb.com/name/nm1981699/"
+  }
+ ],
  "entries": [
   {
    "person": "David W. Collins",
@@ -457,6 +464,321 @@
     "publication": "SoundWorks Collection",
     "url": "https://www.youtube.com/watch?v=F57F1kSeqXA",
     "year": 2022
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "craft",
+    "collaboration"
+   ],
+   "text": "On True Grit, Lievsay had Craig Berkey building sound effects and atmospheres from the very first cuts, alongside the dialogue work. Choosing the cleaner radio-mic takes, which capture little beyond the voice, left scenes sounding naked, so the fill had to be there for every screening.",
+   "source": {
+    "title": "The Sound of True Grit",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=QBp1ewEDe4Y",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Chris Burdon",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "text": "Empire of Light is a quiet film, but when Hillary's outburst comes before the police break into her flat, Burdon let her dialogue play at its absolute loudness rather than reining it in, so it would be properly discomforting and disquieting to hear.",
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "music",
+    "recording"
+   ],
+   "text": "For Arthur's tap-dance fantasy in Joker: Folie à Deux, Aadahl had choreographer Michael Arnold teach him tap's vocabulary, then recorded Arnold performing each move himself, which beat the Foley-stage takes, and edited every tap to land precisely on 16th and 32nd notes to make it hyper-real.",
+   "source": {
+    "title": "The Sound of Joker: Folie à Deux",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=q2w0gWTEHco",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "categories": [
+    "story",
+    "action",
+    "recording"
+   ],
+   "text": "After the explosion in Joker: Folie à Deux, Aadahl and Van der Ryn's team muffled Arthur's breaths so he seems to hear through his chest, then brought frequencies back in steps: a car door first, then a binaural recording of ear canals opening, timed to a small gesture from Phoenix.",
+   "source": {
+    "title": "The Sound of Joker: Folie à Deux",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=q2w0gWTEHco",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "story",
+    "mixing"
+   ],
+   "text": "For the cochlear-implant party scene in Sound of Metal, Becker used IRCAM tools to split each track into transients, noise and harmonics, reprocessing the layers so nothing quite lines up, and gave the mixer all three. He tested mono against constantly shifting spatialisation; the director chose shifting.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "story",
+    "collaboration"
+   ],
+   "text": "On Sound of Metal, Becker built Riz Ahmed an in-ear monitor fed from the production's main microphone through several stages of alteration, so during takes the actor physically heard his hearing deteriorate. They did the same again for the cochlear-implant scenes.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "silence",
+    "recording",
+    "story"
+   ],
+   "text": "For Ruben's deafness in Sound of Metal, Becker pushed everything into the low and low-mid frequencies, the vibration the body still feels without hearing. He put contact mics on Riz Ahmed's chest and recorded his breathing in a silent chamber.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "story",
+    "music"
+   ],
+   "text": "In Sound of Metal, the playground slide isn't a recording of a slide: Becker made it with a Baschet sound sculpture, large metal sheets linked to glass rods played with wet fingers, the same metal instrument used for the score.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "text": "In The Bear, Giammaria treats the kitchen door as a magic curtain: when Richie crosses into the dining room, almost none of the kitchen's yelling comes through unless the door opens on camera. Realism there would muddy the music and dialogue the scene needs.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "text": "For Claire and Carmy's one-take stoop argument in The Bear, which runs from whisper to scream, Giammaria reduced the overall dynamic range rather than compressing individual words, keeping the feeling of going loud without sending viewers for the remote.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "craft"
+   ],
+   "text": "For a gum-chewing scene between Carmy and Odenkirk's character in The Bear, Giammaria and his mix tech spent about an hour on every chew, deciding to lose it, keep it or enhance it with Foley, because the chewing punctuated the lines almost musically.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Scott D. Smith",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "text": "On The Bear, Smith mics the kitchen staff's 'Yes, chef' responses separately, often in stereo, so post can spread them into the surrounds and build a different environment from the main dialogue.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gary A. Rizzo",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "recording",
+    "mixing"
+   ],
+   "text": "Rizzo on Tenet's loop group: it was recorded outdoors on Warner Bros. lot exteriors in a six-track format, close mics plus several distant ones, so it arrived naturally worldized. Instead of spending mix time making group sound exterior, he picked the right mic combination for each sequence.",
+   "source": {
+    "title": "The Sound of Tenet",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=zAwNW4cBpc8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "categories": [
+    "action",
+    "weapons",
+    "story"
+   ],
+   "text": "In Tenet's final battle, forward and inverted teams are intercut. King's team hit those cuts with more clearly reversed sounds, including odd, wonky reverse ricochets that didn't sound simply reversed, so the audience always knew which team they were with.",
+   "source": {
+    "title": "The Sound of Tenet",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=zAwNW4cBpc8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Gary A. Rizzo",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "text": "Tenet was mixed in 5.1, built mainly on the screen channels and the sub. For the inverted airport aftermath, Rizzo leaned into the surrounds, with firefighters running past, trucks pulling in and fire everywhere, giving it a different flavour from the scenes around it.",
+   "source": {
+    "title": "The Sound of Tenet",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=zAwNW4cBpc8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ron Bartlett",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "creatures",
+    "scifi"
+   ],
+   "text": "For the Engineers' language in Prometheus, Bartlett recorded syllables, words and lines at home at night with his deep voice, basing them on ancient Greek and Sanskrit; each morning he and the dialogue editor crafted them into short conversations.",
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Prometheus",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=14C1gaSYvt0",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Ron Bartlett",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music",
+    "scifi"
+   ],
+   "text": "On Prometheus's 7.1 mix, Bartlett brought the music forward, using the mid surrounds rather than the far rear ones for a more cohesive feel, which left the back for Hemphill's effects and gave width and depth. Denser tracks need exaggerated stereo.",
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Prometheus",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=14C1gaSYvt0",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Michael Kent",
+   "kind": "insight",
+   "categories": [
+    "weapons",
+    "action",
+    "mixing"
+   ],
+   "text": "For Thor's hammer in God of War Ragnarök, Kent pushed air with sonic booms used like kick drums, leading into quad thunder. He delayed the thunder as far as he could to make it feel bigger, until it started to sound out of sync, then pulled it back to where it just held.",
+   "source": {
+    "title": "The Sound of God of War Ragnarök",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Michael Kent",
+   "kind": "insight",
+   "categories": [
+    "action",
+    "recording",
+    "weapons"
+   ],
+   "text": "For the clashes of hammer and axe in God of War Ragnarök's Thor fight, Kent's team hit metal hard in the studio and recorded it to a Nagra, overdriving the machine for its tape saturation, then cleaned up the distorted hits.",
+   "source": {
+    "title": "The Sound of God of War Ragnarök",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Michael Kent",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "scifi",
+    "craft"
+   ],
+   "text": "For God of War Ragnarök's Bifrost, Kent bought a seat-shaker transducer and a small amp, fed it an oscillator from his modular rig and swept tones across metal objects to find each one's resonant frequency, then recorded them shaking. The processed results became a shared source library and style guide.",
+   "source": {
+    "title": "The Sound of God of War Ragnarök",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
+    "year": 2023
    }
   }
  ]

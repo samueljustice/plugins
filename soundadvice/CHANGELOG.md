@@ -12,6 +12,6 @@
 ### The entries
 
 - Every entry taken from an article was re-read against its source. 110 were corrected (wrong person credited, a changed fact, a detail the source doesn't give) and 25 were cut because the source didn't support them.
-- Every entry taken from a video was re-read against its transcript. 18 were corrected and 2 were cut.
-- 30 entries were added from those videos: techniques that had been passed over the first time.
+- Every entry taken from a video was re-read against its transcript. 29 were corrected and 2 were cut.
+- 50 entries were added from those videos: techniques that had been passed over the first time.
 - One credits line was corrected.

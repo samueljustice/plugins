@@ -12,7 +12,7 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 
 ## What's in it
 
-842 entries from 146 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+862 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short. When a quote is about a particular film, show or game, it's named above it ("On Arrival").
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -23,22 +23,22 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 258 |
-| Action & Impact | 92 |
+| Mixing | 267 |
+| Action & Impact | 97 |
 | Trailers | 27 |
-| Creatures & Voices | 86 |
+| Creatures & Voices | 87 |
 | Ambience & Worlds | 120 |
-| Dialogue | 172 |
-| Field Recording | 192 |
-| Weapons & Vehicles | 53 |
-| Sci-Fi & Magic | 149 |
+| Dialogue | 179 |
+| Field Recording | 200 |
+| Weapons & Vehicles | 56 |
+| Sci-Fi & Magic | 152 |
 | Horror & Tension | 54 |
-| Silence & Restraint | 70 |
-| Music & Sound | 70 |
+| Silence & Restraint | 71 |
+| Music & Sound | 73 |
 | Games | 31 |
-| Story & Emotion | 116 |
-| Craft & Technique | 204 |
-| Collaboration & Career | 76 |
+| Story & Emotion | 123 |
+| Craft & Technique | 210 |
+| Collaboration & Career | 78 |
 | Creativity & Teams | 75 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
