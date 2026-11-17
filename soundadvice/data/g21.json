@@ -1,0 +1,853 @@
+{
+ "people": [
+  {
+   "name": "Sweet Justice Sound",
+   "role": "Sound design & audio post-production studio",
+   "credits": "",
+   "imdb": "https://www.sweetjusticesound.com"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Smooth the music edit before anything else goes in. Edits from picture often carry small timing or note problems, and everything you build afterwards inherits them.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Tempo map the piece once the music edit is settled, and set the grid to the beat of the music. Tight effects are far easier to achieve on a grid.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Carry the music edit and its intent from the main trailer into every cutdown, so the 30, the 20 and the 15 all feel like the same family.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Ask for proper music stems early. Mixing from a single stereo file takes longer and leaves fewer options once effects and dialogue arrive.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "mixing",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Mix the music first. Once it sits well, the choices about effects and dialogue around it become much clearer.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "music",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Anything tonal should be in tune with the music: bells, risers, drones, engine tones, logo hits. One clashing element can change the mood of a whole section.",
+   "categories": [
+    "sjtips",
+    "music",
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Tune tonal design to the main key of the cue, not only to the bass note underneath it.",
+   "categories": [
+    "sjtips",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If a passage is sound design only, remember the music on either side of it and stay in the same key, so the handover feels like one performance.",
+   "categories": [
+    "sjtips",
+    "music",
+    "trailers",
+    "silence"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "A hit that is right to picture but off the beat will feel wrong. One frame can be enough to unsettle the music, so nudge it until it locks.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Play effects as instruments. Footsteps, hooves, gunfire and punches often work best treated as drums inside the rhythm of the music.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music",
+    "action",
+    "weapons"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If a moment sounds too much like a sound effect, make it more musical. A big, low, tuned swish will usually sit better than a bright literal hit.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Try not to double the music. If the score already rises, falls or hits at a moment, try the opposite gesture or leave the space to the music.",
+   "categories": [
+    "sjtips",
+    "music",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Long whooshes, wind and sustained noise will mask the music. When music is carrying the scene, prefer short, defined or tonal elements.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "music",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Shape effects to sit where the music is not. If the score is busy in the high end, a bright, washy explosion will only fight it.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "music",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "A full music section hides small things and lets you simplify. An open, sparse section exposes every edit, so take extra care there.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Sometimes the strongest choice is fewer effects, more music, or a moment of nothing at all.",
+   "categories": [
+    "sjtips",
+    "silence",
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Covering the picture is a different job from telling the story. On a first watch, note what your attention goes to, and build those sounds.",
+   "categories": [
+    "sjtips",
+    "story",
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Bring a sound in ahead of its shot, so the audience is already there when the picture arrives. The shorter the edit, the more this matters.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Where two sounds belong together, such as a pass by and a transition, shape them into one gesture. Let sounds travel out of the shot instead of stopping dead.",
+   "categories": [
+    "sjtips",
+    "craft",
+    "trailers",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Check that intensity builds across the piece, with valleys as well as peaks. If it starts to feel steady, pull something back so the next moment can land.",
+   "categories": [
+    "sjtips",
+    "story",
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Bigger and louder are different things. When a moment feels small, look for body, sustain and tail before reaching for the fader.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "action",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "A sound that feels like a click or a small bang usually lacks sustain. Give it weight in the low mids and a tail that rings.",
+   "categories": [
+    "sjtips",
+    "action",
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "For a bigger explosion, try fewer restarts and a slower, heavier envelope. A clear start, body and decay reads larger than a burst of noise.",
+   "categories": [
+    "sjtips",
+    "action",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Leave a frame of near silence before a big impact. The gap makes it hit harder and read more clearly.",
+   "categories": [
+    "sjtips",
+    "action",
+    "silence",
+    "craft",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Passes and impacts need a clear peak point. Heavily limited, flat sounds feel smaller and more tiring, however loud they are.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "action",
+    "weapons"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If a section sounds squashed and the master is not working hard, the source sounds may be over limited. Swap them for something more open.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If the effects feel like too much across a whole section, try them around 6 dB lower before changing anything else.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Decide what a moment is about and let one clear, thick sound carry it. If many layers are playing and none of them reads, mute until one does.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft",
+    "trailers",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "When a section sounds smeared, look first at the broadband layers: whooshes, wind, debris and long tails. Remove or shorten those before anything else.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "A sound that is only sub and top end has no body once it is in the mix. Make sure the mid range has something solid in it.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If lowering a layer by 10 dB means it no longer reads, it probably does not need to be there.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Clean your sources. Hiss on individual sounds builds up quickly across a dense mix, and a little noise reduction on each keeps the whole thing punchy.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "When several layers make one impact, line them up carefully so they land as a single event and not as a flam.",
+   "categories": [
+    "sjtips",
+    "action",
+    "craft",
+    "weapons"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Mute, do not delete. Keeping the material in the session makes it easy to compare, and someone may want it back.",
+   "categories": [
+    "sjtips",
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Under dialogue, soften the top end of big effects and let the tail do the work, so the line stays clear.",
+   "categories": [
+    "sjtips",
+    "dialogue",
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If music or effects have to duck a long way for a line, smooth the move or thin out what is playing, so the change goes unnoticed.",
+   "categories": [
+    "sjtips",
+    "dialogue",
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Match the level of the guide track and your version by ear, then compare them quietly on small speakers. Any moment that loses needs more work.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If the guide has an idea that works, such as a vocal, a rhythm or a double hit, keep it or improve on it. It shows what the client already loves.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "If you can name the library a sound came from, so can other people. Use it as a starting layer, or design something new.",
+   "categories": [
+    "sjtips",
+    "craft",
+    "trailers",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Explosions, sci fi beeps and whooshes age quickly. If a sound feels old, thin or crunchy, replace it with cleaner, more current source.",
+   "categories": [
+    "sjtips",
+    "craft",
+    "scifi",
+    "action"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "A run of similar explosions or gunshots needs variety in size, pitch and rhythm, and the biggest one should clearly be the biggest.",
+   "categories": [
+    "sjtips",
+    "action",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Give the logo something with sustain and identity, placed on musical timing. A short, door slam of a hit rarely does it justice.",
+   "categories": [
+    "sjtips",
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "A stylised sound that sells the feeling often beats an accurate one that sells nothing.",
+   "categories": [
+    "sjtips",
+    "craft",
+    "story",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Judge balance on small speakers at a low level first. If it works small and quiet, it will work big.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Always check the stereo version. A section that is clear in surround can turn messy when folded down, and dialogue is usually first to suffer.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "dialogue",
+    "trailers"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Constant loud beds, such as engines or crowds, tire the ear quickly. Give them peaks and rests.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "weapons",
+    "worlds"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Big events should feel wide. A large sound that is nearly mono will always seem small.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Monitor through the mastering chain. If something seems far too loud or too quiet, check the routing before you touch the mix.",
+   "categories": [
+    "sjtips",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "Fade every clip and zoom in on conforms. Tiny unfaded regions cause clicks that are very hard to find later.",
+   "categories": [
+    "sjtips",
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Sweet Justice Sound",
+   "kind": "insight",
+   "text": "When you leave a note for a colleague, say what you are hearing and what you would like instead, and mention what is already working.",
+   "categories": [
+    "sjtips",
+    "collaboration",
+    "creativity"
+   ],
+   "source": {
+    "title": "Sweet Justice Tips",
+    "publication": "Sweet Justice Sound",
+    "url": "https://www.sweetjusticesound.com",
+    "year": 2026
+   }
+  }
+ ]
+}

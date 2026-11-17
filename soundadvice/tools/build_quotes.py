@@ -40,6 +40,7 @@ CATEGORIES = [
     ("craft", "Craft & Technique"),
     ("collaboration", "Collaboration & Career"),
     ("creativity", "Creativity & Teams"),
+    ("sjtips", "Sweet Justice Tips"),
 ]
 CATEGORY_IDS = {c for c, _ in CATEGORIES}
 # Categories taken out of the plug-in: entries whose primary category is one of these are left out,

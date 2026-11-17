@@ -12,7 +12,7 @@ It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/release
 
 ## What's in it
 
-862 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+912 entries from 147 people and one studio, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. The Sweet Justice Tips category is 50 working tips from Sweet Justice Sound, mostly on trailers, music editing and mixing; they aren't tied to a production and link to the studio's site. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short. When a quote is about a particular film, show or game, it's named above it ("On Arrival").
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -23,23 +23,24 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 267 |
-| Action & Impact | 97 |
-| Trailers | 27 |
+| Mixing | 294 |
+| Action & Impact | 114 |
+| Trailers | 54 |
 | Creatures & Voices | 87 |
-| Ambience & Worlds | 120 |
-| Dialogue | 179 |
+| Ambience & Worlds | 121 |
+| Dialogue | 182 |
 | Field Recording | 200 |
-| Weapons & Vehicles | 56 |
-| Sci-Fi & Magic | 152 |
+| Weapons & Vehicles | 62 |
+| Sci-Fi & Magic | 153 |
 | Horror & Tension | 54 |
-| Silence & Restraint | 71 |
-| Music & Sound | 73 |
+| Silence & Restraint | 75 |
+| Music & Sound | 90 |
 | Games | 31 |
-| Story & Emotion | 123 |
-| Craft & Technique | 210 |
-| Collaboration & Career | 78 |
-| Creativity & Teams | 75 |
+| Story & Emotion | 127 |
+| Craft & Technique | 238 |
+| Collaboration & Career | 83 |
+| Creativity & Teams | 76 |
+| Sweet Justice Tips | 50 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
 
