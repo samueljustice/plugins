@@ -48,6 +48,7 @@ namespace roar
         m_ring.assign (static_cast<size_t> (frameLength), 0.0f);
         m_frame.assign (static_cast<size_t> (frameLength), 0.0f);
         m_diff.assign (static_cast<size_t> (m_tauMax + 2), 0.0f);
+        m_fullRing.assign (static_cast<size_t> (frameLength), 0.0f);
 
         m_hpCoeff = static_cast<float> (std::exp (-2.0 * c_pi * c_highpassHz / m_sampleRate));
         // Butterworth 4th order as two biquads.
@@ -60,6 +61,9 @@ namespace roar
     void PitchDetector::reset()
     {
         std::fill (m_ring.begin(), m_ring.end(), 0.0f);
+        std::fill (m_fullRing.begin(), m_fullRing.end(), 0.0f);
+        m_fullAcc = 0.0f;
+        m_latCount = 0;
         m_ringWrite = 0;
         m_ringFilled = 0;
         m_decimationCounter = 0;
@@ -102,6 +106,7 @@ namespace roar
         m_hpX1 = x;
         m_hpY1 = std::abs (hp) > 1.0e-20f ? hp : 0.0f;
         float band = m_lp2.process (m_lp1.process (hp));
+        m_fullAcc += m_hpY1 * m_hpY1;
 
         if (! std::isfinite (band))
         {
@@ -118,6 +123,8 @@ namespace roar
 
         const int ringSize = static_cast<int> (m_ring.size());
         m_ring[static_cast<size_t> (m_ringWrite)] = band;
+        m_fullRing[static_cast<size_t> (m_ringWrite)] = m_fullAcc / static_cast<float> (m_decimation);
+        m_fullAcc = 0.0f;
         m_ringWrite = (m_ringWrite + 1) % ringSize;
         m_ringFilled = std::min (m_ringFilled + 1, ringSize);
 
@@ -194,6 +201,12 @@ namespace roar
 
                 runningSum += sum;
                 d[tau] = runningSum > 0.0 ? static_cast<float> (static_cast<double> (sum) * tau / runningSum) : 1.0f;
+            }
+
+            if (m_lattice)
+            {
+                latticeStep (d, true, energy);
+                return;
             }
 
             // YIN step 3: first dip under the threshold, walked down to its local minimum.
@@ -278,6 +291,12 @@ namespace roar
             }
         }
 
+        if (m_lattice)
+        {
+            latticeStep (m_diff.data(), false, energy);
+            return;
+        }
+
         if (estimate > 0.0f)
         {
             m_history[static_cast<size_t> (m_historyCount % 3)] = estimate;
@@ -302,6 +321,116 @@ namespace roar
 
         m_rawConfidence = confidence;
         track (m_rawFrequency, confidence);
+    }
+
+    void PitchDetector::latticeStep (const float* d, bool loudEnough, double bandEnergy)
+    {
+        // States of this hop: the unvoiced state, then up to five dips of the normalised difference.
+        struct Cand { float st = 0.0f, depth = 1.0f, cost = 0.0f; bool voiced = false; };
+        std::array<Cand, c_latticeStates> cand {};
+        int n = 1;
+        cand[0].cost = c_latticeUnvoicedCost;
+
+        bool guardOk = loudEnough;
+        if (loudEnough && m_latticeGuard > 0.0f)
+        {
+            // Sub-multiple guard: a tone above the detector's band (a whistle, a scream's top) is
+            // still periodic inside it at a multiple of its period, so a dip is trusted only while
+            // the band holds a fair share of the power that reaches the detector.
+            const int ringSize = static_cast<int> (m_ring.size());
+            double full = 0.0;
+            for (int i = 0; i < m_window + m_tauMax; ++i)
+                full += m_fullRing[static_cast<size_t> ((m_ringWrite + i) % ringSize)];
+            guardOk = full > 0.0 && bandEnergy >= static_cast<double> (m_latticeGuard) * full;
+        }
+
+        if (guardOk)
+        {
+            const float logMin = std::log2 (static_cast<float> (m_tauMin));
+            for (int t = m_tauMin; t < m_tauMax; ++t)
+            {
+                if (! (d[t] < c_latticeDipCeiling && d[t] <= d[t - 1] && d[t] < d[t + 1]))
+                    continue;
+                const float depth = dipDepth (d, t);
+                const float s0 = d[t - 1], s1 = d[t], s2 = d[t + 1];
+                const float denom = 2.0f * (2.0f * s1 - s2 - s0);
+                float betterTau = static_cast<float> (t);
+                if (std::abs (denom) > 1.0e-9f)
+                    betterTau += std::clamp ((s2 - s0) / denom, -1.0f, 1.0f);
+                const float hz = static_cast<float> (m_decimatedRate) / betterTau;
+                if (hz < c_minFrequency * 0.95f || hz > c_maxFrequency * 1.1f)
+                    continue;
+
+                Cand c;
+                c.st = 12.0f * std::log2 (hz);
+                c.depth = depth;
+                c.cost = depth + c_latticeLagPrior * std::max (0.0f, std::log2 (betterTau) - logMin);
+                c.voiced = true;
+
+                if (n < c_latticeStates)
+                    cand[static_cast<size_t> (n++)] = c;
+                else
+                {
+                    int worst = 1;
+                    for (int k = 2; k < n; ++k)
+                        if (cand[static_cast<size_t> (k)].depth > cand[static_cast<size_t> (worst)].depth)
+                            worst = k;
+                    if (depth < cand[static_cast<size_t> (worst)].depth)
+                        cand[static_cast<size_t> (worst)] = c;
+                }
+            }
+        }
+
+        // One causal step of the best path: each state's cost is its own plus the cheapest way in.
+        std::array<float, c_latticeStates> total {};
+        float lowest = 0.0f;
+        int best = 0;
+        for (int j = 0; j < n; ++j)
+        {
+            const auto& c = cand[static_cast<size_t> (j)];
+            float in = 0.0f;
+            if (m_latCount > 0)
+            {
+                in = 1.0e9f;
+                for (int i = 0; i < m_latCount; ++i)
+                {
+                    const bool vi = m_latVoiced[static_cast<size_t> (i)];
+                    float step = 0.0f;
+                    if (vi != c.voiced)
+                        step = c_latticeSwitchCost;
+                    else if (vi)
+                        step = std::min (c_latticeJumpCap, c_latticeCostPerSt * std::abs (c.st - m_latSt[static_cast<size_t> (i)]));
+                    in = std::min (in, m_latCost[static_cast<size_t> (i)] + step);
+                }
+            }
+            total[static_cast<size_t> (j)] = c.cost + in;
+            if (j == 0 || total[static_cast<size_t> (j)] < lowest)
+            {
+                lowest = total[static_cast<size_t> (j)];
+                best = j;
+            }
+        }
+        for (int j = 0; j < n; ++j)
+        {
+            m_latSt[static_cast<size_t> (j)] = cand[static_cast<size_t> (j)].st;
+            m_latVoiced[static_cast<size_t> (j)] = cand[static_cast<size_t> (j)].voiced;
+            m_latCost[static_cast<size_t> (j)] = total[static_cast<size_t> (j)] - lowest;
+        }
+        m_latCount = n;
+
+        const auto& b = cand[static_cast<size_t> (best)];
+        const float confidence = b.voiced ? std::clamp (1.0f - b.depth, 0.0f, 1.0f) : 0.0f;
+        m_rawFrequency = b.voiced ? std::exp2 (b.st / 12.0f) : 0.0f;
+        m_rawConfidence = confidence;
+        m_smoothedConfidence += 0.4f * (confidence - m_smoothedConfidence);
+        m_voice.voiced = b.voiced;
+        if (b.voiced)
+        {
+            m_trackSt = b.st;
+            m_hasTrack = true;
+        }
+        m_voice.f0Hz = m_hasTrack ? std::exp2 (m_trackSt / 12.0f) : 0.0f;
+        m_voice.confidence = std::clamp (m_smoothedConfidence, 0.0f, 1.0f);
     }
 
     void PitchDetector::track (float hz, float confidence)

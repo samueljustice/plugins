@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <type_traits>
 
 namespace roar
 {
@@ -11,6 +13,27 @@ namespace roar
         constexpr double c_outputLevelReleaseSeconds = 0.300;
 
         int index (Params::ModuleId id) { return static_cast<int> (id); }
+
+        // 64-bit FNV-1a over the bytes of each field (never a whole struct: no padding bytes).
+        struct KeyHash
+        {
+            std::uint64_t h = 1469598103934665603ull;
+
+            void bytes (const void* p, size_t n)
+            {
+                const auto* b = static_cast<const unsigned char*> (p);
+                for (size_t i = 0; i < n; ++i)
+                {
+                    h ^= b[i];
+                    h *= 1099511628211ull;
+                }
+            }
+            KeyHash& operator<< (bool v) { const unsigned char c = v ? 1 : 0; bytes (&c, 1); return *this; }
+            KeyHash& operator<< (float v) { std::uint32_t u; std::memcpy (&u, &v, sizeof u); bytes (&u, sizeof u); return *this; }
+            KeyHash& operator<< (int v) { const auto u = static_cast<std::int32_t> (v); bytes (&u, sizeof u); return *this; }
+            template <typename E, typename = std::enable_if_t<std::is_enum_v<E>>>
+            KeyHash& operator<< (E v) { return *this << static_cast<int> (v); }
+        };
     }
 
     bool ChainSettings::isOn (int module) const
@@ -297,15 +320,15 @@ namespace roar
         m_corrPole = dsp::poleFromTau (c_fadeCorrelationSeconds, m_fs);
         m_settleSamples = std::max (1, dsp::samplesFor (c_reorderSettleSeconds, m_fs));
 
-        for (auto& d : m_dryDelay)
+        for (auto* d : { &m_dryDelay[0], &m_dryDelay[1], &m_gainDelay, &m_activeDelay })
         {
-            d.prepare (m_moduleLatency);
-            d.setFixedDelay (m_moduleLatency);
+            d->prepare (m_moduleLatency);
+            d->setFixedDelay (m_moduleLatency);
         }
         m_dryMatch.prepare (m_fs, m_output.getLowPassHz());
 
         const auto size = static_cast<size_t> (m_maxBlock);
-        for (auto* v : { &m_dryL, &m_dryR, &m_monoIn, &m_aL, &m_aR, &m_bL, &m_bR, &m_scratchR })
+        for (auto* v : { &m_dryL, &m_dryR, &m_monoIn, &m_aL, &m_aR, &m_bL, &m_bR, &m_scratchR, &m_gainD, &m_activeD })
             v->assign (size, 0.0f);
 
         m_levelRelease = static_cast<float> (dsp::poleFromTau (c_outputLevelReleaseSeconds, m_fs));
@@ -322,6 +345,7 @@ namespace roar
         m_output.reset();
         for (auto& d : m_dryDelay)
             d.reset();
+        refillLevelDelays();
         m_dryMatch.reset (DryPhaseMatch::Settings {});
         m_active = 0;
         m_fadePos = -1;
@@ -329,6 +353,145 @@ namespace roar
         m_snap = true;
         m_outputLevel = 0.0f;
         m_hits.reset();
+    }
+
+    void CreatureChain::refillLevelDelays()
+    {
+        // The gain delay holds IN's current gain (not zeros: the comp must not jump after a
+        // reset), the flag delay "not matched".
+        const float g = m_in.getCurrentTotalGain();
+        m_gainDelay.reset();
+        m_activeDelay.reset();
+        for (int i = 0; i <= m_gainDelay.getMaxDelay(); ++i)
+            m_gainDelay.push (g);
+    }
+
+    void CreatureChain::beginPass()
+    {
+        m_in.beginPass();
+    }
+
+    void CreatureChain::restoreLevels (const LevelState& levels, const ChainSettings& settings)
+    {
+        m_in.setParams (settings.in);
+        m_output.setParams (settings.output);
+        m_in.restoreLearning (levels.inLearnt, levels.inDb, levels.inEvidence, levels.inPitched);
+        switch (levels.outKind)
+        {
+            case LevelState::OutKind::learnt:
+                m_output.restoreLearning (levels.out);
+                break;
+            case LevelState::OutKind::hint:
+                m_output.applyHint (levels.out.matchDb, hintSettleSamples());
+                m_output.setSettingsKey (settingsKey (settings), true);
+                m_adoptKeyNext = true;
+                break;
+            case LevelState::OutKind::keep:
+                break;
+        }
+        for (auto& set : m_sets)
+        {
+            if (levels.haveRoar)
+                set.roar().restoreLearning (levels.roar);
+            else
+                set.roar().forgetLevel();
+        }
+        m_roarFeedSeen = false;   // what feeds ROAR now is what its restored makeup was learnt on
+        refillLevelDelays();
+    }
+
+    bool CreatureChain::applyMatchHint (double matchDb, std::uint64_t hintKey, const ChainSettings& settings)
+    {
+        const std::uint64_t key = settingsKey (settings);
+        const auto m = m_output.getMatchState();
+        if (m.dataSeconds > 0.0 && m.haveKey && m.key == key)
+            return false;
+        m_output.setParams (settings.output);
+        m_output.applyHint (matchDb, hintSettleSamples());
+        // The hint's own settings are taken as the key in force; this chunk's key is compared with
+        // it (an edit since the preset was loaded drops the hint's weight, nothing heard yet).
+        m_output.setSettingsKey (hintKey, true);
+        return true;
+    }
+
+    int CreatureChain::hintSettleSamples() const
+    {
+        return m_moduleLatency + dsp::samplesFor (c_hintSettleSeconds, m_fs);
+    }
+
+    LevelState CreatureChain::getLevels() const
+    {
+        LevelState l;
+        l.inLearnt = m_in.isLearnt();
+        l.inPitched = m_in.hasHeardPitched();
+        l.inDb = m_in.getLearnedLevelDb();
+        l.inEvidence = m_in.getEvidenceSeconds();
+        l.out = m_output.getMatchState();
+        l.haveRoar = true;
+        l.roar = m_sets[static_cast<size_t> (frontSet())].roar().getLearning();
+        return l;
+    }
+
+    void CreatureChain::followRoarFeed (const ChainSettings& s, const float* inGain, int n)
+    {
+        // Spec 4.9.1: ROAR's held makeup was learnt on what fed it. A module switched in or edited
+        // before ROAR, a reorder, or IN's settings: ROAR learns again from the correction it
+        // holds. IN's gain is followed inside ROAR, on its own control grid (setFeedGainTrace).
+        const auto key = settingsKeyBefore (s, static_cast<int> (Params::ModuleId::roar));
+        const bool changed = m_roarFeedSeen && key != m_roarFeedKey;
+        m_roarFeedSeen = true;
+        m_roarFeedKey = key;
+        for (auto& set : m_sets)
+        {
+            if (changed)
+                set.roar().relearnLevel();
+            set.roar().setFeedGainTrace (inGain, n);
+        }
+    }
+
+    std::uint64_t CreatureChain::settingsKey (const ChainSettings& s)
+    {
+        return settingsKeyBefore (s, -1);
+    }
+
+    std::uint64_t CreatureChain::settingsKeyBefore (const ChainSettings& s, int stopModule)
+    {
+        // What can change the sound: IN, then each module that is On, in the order the audio takes
+        // it, with its own settings. A module that is Off passes its input untouched wherever it
+        // sits, so its slot and its knobs are left out: moving or editing it is not a new sound
+        // and must not start OUTPUT's probe (or drop a preset's hint), and the same On modules in
+        // the same order give the same key whatever slots the Off ones hold.
+        KeyHash k;
+        k << s.in.trimDb << s.in.autoLevel;
+        const auto order = Params::resolveOrder (s.positions);
+        for (const int module : order)
+        {
+            if (module == stopModule)
+                break;
+            if (! s.isOn (module))
+                continue;
+            k << module;
+            switch (static_cast<Params::ModuleId> (module))
+            {
+                case Params::ModuleId::pitch:    k << s.pitch.pitchSemitones << s.pitch.size << s.pitch.drive << s.pitch.mode << s.pitch.formant; break;
+                case Params::ModuleId::clean:    k << s.clean.contain << s.clean.gate << s.clean.tone; break;
+                case Params::ModuleId::deess:    k << s.deess.amount << s.deess.mode; break;
+                case Params::ModuleId::detail:   k << s.detail.low << s.detail.high << s.detail.speed; break;
+                case Params::ModuleId::vocoder:  k << s.vocoder.gravel << s.vocoder.octave << s.vocoder.formantShiftBands; break;
+                case Params::ModuleId::ring:     k << s.ring.amount << s.ring.freqHz << s.ring.ratio << s.ring.carrier << s.ring.track << s.ring.mode << s.ring.body; break;
+                case Params::ModuleId::shimmer:  k << s.shimmer.amount << s.shimmer.rateHz << s.shimmer.mode; break;
+                case Params::ModuleId::growl:    k << s.growl.depth << s.growl.rateHz << s.growl.shape << s.growl.character; break;
+                case Params::ModuleId::swirl:    k << s.swirl.amount << s.swirl.rateHz << s.swirl.circuit << s.swirl.motion; break;
+                case Params::ModuleId::roar:     k << s.roar.drive << s.roar.tone << s.roar.voicing; break;
+                case Params::ModuleId::ensemble: k << s.ensemble.amount << s.ensemble.width << s.ensemble.voices << s.ensemble.motion; break;
+                case Params::ModuleId::tame:     k << s.tame.amount; break;
+                case Params::ModuleId::sub:      k << s.sub.level << s.sub.drive << s.sub.reg << s.sub.character; break;
+                case Params::ModuleId::overtone: k << s.overtone.amount << s.overtone.freqOct << s.overtone.pattern << s.overtone.mode; break;
+                case Params::ModuleId::chamber:  k << s.chamber.amount << s.chamber.resonance << s.chamber.edge << s.chamber.width
+                                                   << s.chamber.room << s.chamber.speaker << s.chamber.boom; break;
+            }
+        }
+        return k.h;
     }
 
     Topology CreatureChain::topologyFor (const ChainSettings& s)
@@ -421,6 +584,7 @@ namespace roar
             m_in.setParams (settings.in);
             m_output.reset();
             m_output.setParams (settings.output);
+            refillLevelDelays();
             m_dryMatch.reset (dryMatchSettings (settings));
             m_pendingTopology = wanted;
             m_pendingSamples = m_settleSamples;
@@ -443,9 +607,24 @@ namespace roar
             m_pendingSamples = std::min (m_pendingSamples + n, m_settleSamples);
         }
 
+        // The settings key (a change starts OUTPUT's probe; not in the chunk a hint was applied).
+        m_output.setSettingsKey (settingsKey (settings), m_adoptKeyNext);
+        m_adoptKeyNext = false;
+
         // IN: mono sum, trim, auto level and the voice stream.
         m_in.process (m_monoIn.data(), m_scratchR.data(), n, inStereo, VoiceFrameView {});
         const VoiceFrameView voice = m_in.getVoiceView();
+        followRoarFeed (settings, m_in.getGainTrace(), n);
+        {
+            // IN's gain and flag, delayed to line up with OUTPUT's input.
+            const float* g = m_in.getGainTrace();
+            const float* a = m_in.getMatchActiveTrace();
+            for (int i = 0; i < n; ++i)
+            {
+                m_gainD[static_cast<size_t> (i)] = m_gainDelay.processFixed (g[i]);
+                m_activeD[static_cast<size_t> (i)] = m_activeDelay.processFixed (a[i]);
+            }
+        }
 
         // The modules: the active chain, and during a reorder fade the incoming one too.
         auto& a = m_sets[static_cast<size_t> (m_active)];
@@ -487,6 +666,7 @@ namespace roar
                 {
                     m_aL[s] = m_bL[s];
                     m_aR[s] = m_bR[s];
+                    tapReorder (xa, ya, xb, yb, xb, yb);
                     continue;
                 }
                 const double phi = 0.5 * 3.14159265358979323846 * static_cast<double> (w);
@@ -501,6 +681,7 @@ namespace roar
                 const auto ga = static_cast<float> (k * c), gb = static_cast<float> (k * sn);
                 m_aL[s] = ga * m_aL[s] + gb * m_bL[s];
                 m_aR[s] = ga * m_aR[s] + gb * m_bR[s];
+                tapReorder (xa, ya, xb, yb, m_aL[s], m_aR[s]);
             }
 
             if (m_fadePos >= m_fadeLength)
@@ -514,7 +695,7 @@ namespace roar
         m_dryMatch.process (m_dryL.data(), m_dryR.data(), n, true);
         std::copy (m_aL.begin(), m_aL.begin() + n, outL);
         std::copy (m_aR.begin(), m_aR.begin() + n, outR);
-        m_output.processWithDry (outL, outR, m_dryL.data(), m_dryR.data(), n, true);
+        m_output.processWithDry (outL, outR, m_dryL.data(), m_dryR.data(), m_gainD.data(), m_activeD.data(), n, true);
 
         publish (settings, outL, outR, n, features);
     }
@@ -535,6 +716,26 @@ namespace roar
         m_sets[static_cast<size_t> (front)].publishFeatures (s, f);
         m_output.publishFeatures (f);
         f.clipDb.store (m_output.getClipDb(), std::memory_order_relaxed);
+        {
+            const auto m = m_output.getMatchState();
+            f.levelInLearnt.store (m_in.isLearnt() ? 1 : 0, std::memory_order_relaxed);
+            f.levelInPitched.store (m_in.hasHeardPitched() ? 1 : 0, std::memory_order_relaxed);
+            f.levelInDb.store (m_in.getLearnedLevelDb(), std::memory_order_relaxed);
+            f.levelInEvidence.store (m_in.getEvidenceSeconds(), std::memory_order_relaxed);
+            f.levelOutDb.store (m.matchDb, std::memory_order_relaxed);
+            f.levelOutSeconds.store (m.seconds, std::memory_order_relaxed);
+            f.levelOutDryPower.store (m.dryPower, std::memory_order_relaxed);
+            f.levelOutWetPower.store (m.wetPower, std::memory_order_relaxed);
+            f.levelOutData.store (m.dataSeconds, std::memory_order_relaxed);
+            f.levelOutHaveGainRef.store (m.haveGainRef ? 1 : 0, std::memory_order_relaxed);
+            f.levelOutGainRefDb.store (m.gainRefDb, std::memory_order_relaxed);
+            f.levelOutHaveKey.store (m.haveKey ? 1 : 0, std::memory_order_relaxed);
+            f.levelOutKey.store (m.key, std::memory_order_relaxed);
+            f.levelOutPriorDb.store (m.priorDb, std::memory_order_relaxed);
+            f.levelOutPriorWeight.store (m.priorWeight, std::memory_order_relaxed);
+            static_assert (RoarModule::LevelLearning::numValues == MonsterFeatures::numLevelRoar);
+            f.publishLevelRoar (m_sets[static_cast<size_t> (front)].roar().getLearning().toValues());
+        }
         f.outputLevel.store (std::min (m_outputLevel, 1.0f), std::memory_order_relaxed);
         f.rumble.store (m_hits.rumble(), std::memory_order_relaxed);
         {

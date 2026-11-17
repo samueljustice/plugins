@@ -21,6 +21,12 @@ namespace roar
         constexpr double c_smoothSeconds = 0.020;
         constexpr double c_lnTenOver20 = 0.11512925464970228;
         constexpr double c_tinyPower = 1.0e-20;
+        // The guard.
+        constexpr double c_memorySeconds = 2.5, c_startWeightSeconds = 0.02;
+        constexpr double c_slowStartDb = -16.0;
+        constexpr double c_marginLowDb = 10.0, c_marginHighDb = 6.0;
+        constexpr double c_betaT1 = 0.85, c_betaWidth = 0.5;
+        constexpr double c_activeWindowDb = 30.0, c_activeFloorDb = -60.0, c_topFallDbPerSecond = 3.0;
 
         // The release values are the gain smoother's time constants. The peak detector's own
         // 60 ms decay adds to them, so they are set below the release the band shows from the
@@ -83,6 +89,9 @@ namespace roar
         }
 
         m_amountCoeff = dsp::onePoleCoeff (c_smoothSeconds, m_fs);
+        m_fullMsCoeff = dsp::onePoleCoeff (c_rmsSeconds, m_fs);
+        m_topFallPerSample = c_topFallDbPerSecond / m_fs;
+        m_dt = 1.0 / m_fs;
         m_holdSamples = dsp::samplesFor (c_holdSeconds, m_fs, 1);
 
         m_fade.prepare (m_fs, m_maxBlock, 0);
@@ -94,6 +103,11 @@ namespace roar
         for (auto& b : m_bands)
             b.resetState();
         m_amount = m_amountTarget;
+        m_fullMs = 0.0;
+        m_topDb = -120.0;
+        m_slowFullPow = std::pow (10.0, c_slowStartDb / 10.0);
+        m_slowFullDb = c_slowStartDb;
+        m_fullSeconds = 0.0;
     }
 
     void TameModule::reset()
@@ -121,7 +135,7 @@ namespace roar
         m_forcedH = std::min (0.0, highDb);
     }
 
-    double TameModule::runBand (BandDynamics& b, double power, double absPeak)
+    double TameModule::runBand (BandDynamics& b, double power, double absPeak, bool active, double fullDb)
     {
         // Smart detector.
         b.peak = std::max (absPeak, b.peak * b.peakRelease);
@@ -133,8 +147,24 @@ namespace roar
         const double w = dsp::smoothstep01 ((pk - rm - c_crestLowDb) / (c_crestHighDb - c_crestLowDb));
         const double level = rm + w * (pk - rm);
 
-        // Static curve.
-        const double target = curve (level, b.baseThreshold + b.thresholdPerT * m_amount, b.depthPerT * m_amount, b.slopeS);
+        // The band's usual share of the whole signal.
+        if (active)
+        {
+            const double memory = std::min (c_startWeightSeconds + b.refSeconds, c_memorySeconds);
+            b.refDb += (std::clamp (level - fullDb, -60.0, 12.0) - b.refDb) * m_dt / (memory + m_dt);
+            b.refSeconds = std::min (b.refSeconds + m_dt, c_memorySeconds);
+        }
+
+        // Static curve, on a threshold that the guard may lift.
+        double threshold = b.baseThreshold;
+        if (m_guard)
+        {
+            const double beta = std::clamp ((c_betaT1 - m_amount) / c_betaWidth, 0.0, 1.0);
+            const double levelRef = m_slowFullDb + beta * (fullDb - m_slowFullDb);
+            const double margin = c_marginHighDb + beta * (c_marginLowDb - c_marginHighDb);
+            threshold = std::max (threshold, levelRef + b.refDb + margin);
+        }
+        const double target = curve (level, threshold + b.thresholdPerT * m_amount, b.depthPerT * m_amount, b.slopeS);
 
         // Attack + dual release.
         b.fast += (target < b.fast ? b.attackCoeff : b.releaseCoeff) * (target - b.fast);
@@ -219,8 +249,23 @@ namespace roar
                     aHm = std::max (aHm, std::abs (rHm));
                     aH = std::max (aH, std::abs (rH));
                 }
-                grHm = runBand (m_bands[0], pHm, aHm);
-                grH = runBand (m_bands[1], pH, aH);
+                // The whole signal (the allpass sum, before the band gains) and the voice's usual level.
+                double pf = static_cast<double> (l[i]) * static_cast<double> (l[i]);
+                if (stereo)
+                    pf = std::max (pf, static_cast<double> (r[i]) * static_cast<double> (r[i]));
+                m_fullMs = dsp::flushTiny (m_fullMs + m_fullMsCoeff * (pf - m_fullMs));
+                const double fullDb = 10.0 * std::log10 (m_fullMs + c_tinyPower);
+                m_topDb = std::max (fullDb, m_topDb - m_topFallPerSample);
+                const bool active = fullDb > m_topDb - c_activeWindowDb && fullDb > c_activeFloorDb;
+                if (active)
+                {
+                    const double memory = std::min (c_startWeightSeconds + m_fullSeconds, c_memorySeconds);
+                    m_slowFullPow += (m_fullMs - m_slowFullPow) * m_dt / (memory + m_dt);
+                    m_fullSeconds = std::min (m_fullSeconds + m_dt, c_memorySeconds);
+                    m_slowFullDb = 10.0 * std::log10 (m_slowFullPow + c_tinyPower);
+                }
+                grHm = runBand (m_bands[0], pHm, aHm, active, fullDb);
+                grH = runBand (m_bands[1], pH, aH, active, fullDb);
             }
 
             const double kHm = grHm == 0.0 ? 0.0 : std::exp (grHm * c_lnTenOver20) - 1.0;
@@ -243,6 +288,12 @@ namespace roar
             m_bands[k].copyStateFrom (o.m_bands[k]);
         m_amountTarget = o.m_amountTarget;
         m_amount = o.m_amount;
+        m_fullMs = o.m_fullMs;
+        m_topDb = o.m_topDb;
+        m_slowFullPow = o.m_slowFullPow;
+        m_slowFullDb = o.m_slowFullDb;
+        m_fullSeconds = o.m_fullSeconds;
+        m_guard = o.m_guard;
         m_forced = o.m_forced;
         m_forcedHm = o.m_forcedHm;
         m_forcedH = o.m_forcedH;

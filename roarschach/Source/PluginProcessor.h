@@ -67,6 +67,25 @@ public:
     juce::var getViewValue(const juce::Identifier& option, const juce::var& defaultValue) const;
     void setViewValue(const juce::Identifier& option, const juce::var& value);
 
+    /** The modules held in Randomise All (a module die's right-click menu): view state, not
+        parameters. Saved with the session as it is carried along, without telling the host that the
+        session changed. Message thread. */
+    std::array<bool, Params::numModules> getRollHolds() const;
+    void setRollHolds(const std::array<bool, Params::numModules>& holds);
+
+    /** Solo (Alt-click on a module's On switch, message thread). Soloing a module turns it on and
+        every other module off, and remembers which were on; soloing it again while the switches show
+        that module alone turns back on exactly what was on. Soloing another module meanwhile moves the
+        solo and keeps the same memory. While a hand, a roll or the host has changed the switches there
+        is no solo to come back from (Alt-click starts a new one), but the memory is kept: when the
+        switches show the soloed module alone again (by hand, or by undoing a roll), Alt-click comes
+        back to it. It lives in this instance only: a preset or session load lets it go (it is not
+        saved with the session). Every switch that changes is written in one gesture (begun together,
+        set, ended together). */
+    void toggleSolo(int module);
+    /** The soloed module, or -1 when there is no solo to come back from. */
+    int getSoloModule() const;
+
     PresetManager& getPresetManager() { return m_presetManager; }
     /** The preset, ROLL ALL and module dice, with their undo history (message thread). */
     DiceRoller& getDice() { return m_dice; }
@@ -106,6 +125,15 @@ public:
     /** The chain settings the parameters describe right now (any thread; atomics only). */
     roar::ChainSettings readSettings() const;
 
+    /** Posts OUTPUT's level match hint to the audio thread (what a preset load does; any thread
+        but the audio thread). Applied at the start of the next block, in order with restores. */
+    void postLevelHint(double matchDb);
+    /** Posts learnt levels to the audio thread, as a session restore does (tests). */
+    void postLevelRestore(const roar::LevelState& levels);
+    /** The learnt levels a save writes (message thread): what the audio thread published, with
+        any restore or hint still on its way to it applied on top, in the order they were posted. */
+    roar::LevelState levelsForSave();
+
     // Parameters
     juce::AudioProcessorValueTreeState m_parameters;
 
@@ -134,6 +162,14 @@ private:
     PresetManager m_presetManager;                // after m_parameters: it listens to them
     DiceRoller m_dice;                            // after m_presetManager: it loads and restores presets
 
+    // Solo (message thread): the module soloed, the switches as they were, and the presets' load
+    // generation then (a load lets the memory go).
+    int m_soloModule = -1;
+    std::array<bool, Params::numModules> m_soloWasOn {};
+    std::uint32_t m_soloGeneration = 0;
+    std::array<bool, Params::numModules> modulesOn() const;
+    void writeModulesOn(const std::array<bool, Params::numModules>& on);
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     /**
@@ -160,6 +196,8 @@ private:
     int choice(ParamIndex p) const;
 
     void render(juce::AudioBuffer<float>& buffer, bool bypassed);
+    void applyLevelRequests(const roar::ChainSettings& settings);
+    void checkPassBoundary(int numSamples);
     void handlePendingReset(bool bypassed);
     void delayDry(const juce::AudioBuffer<float>& buffer, int start, int numSamples, int numInputs, int numOutChannels);
     void applyBypassFade(juce::AudioBuffer<float>& buffer, int start, int numSamples, int numChannels, float target);
@@ -190,6 +228,48 @@ private:
     // acts on new requests at the start of the next block.
     std::atomic<juce::uint32> m_resetRequests { 0 };
     juce::uint32 m_resetRequestsHandled = 0;     // audio thread
+
+    // The learnt levels: session restores and preset hints go to the audio thread through two
+    // slots, each stamped with a number from one shared counter (0 while being written), and are
+    // applied at the start of a block in that order. Writers are serialised by the lock; the audio
+    // thread only reads atomics.
+    struct LevelRestoreSlot
+    {
+        std::atomic<juce::uint32> seq { 0 };
+        std::atomic<int> inLearnt { 0 }, inPitched { 1 };
+        std::atomic<double> inDb { -150.0 }, inEvidence { 0.0 };
+        std::atomic<double> outDb { 0.0 }, outSeconds { 0.0 }, outDry { 0.0 }, outWet { 0.0 }, outData { 0.0 };
+        std::atomic<int> outHaveGainRef { 0 };
+        std::atomic<double> outGainRefDb { 0.0 };
+        std::atomic<int> outHaveKey { 0 };
+        std::atomic<std::uint64_t> outKey { 0 };
+        std::atomic<double> outPriorDb { 0.0 }, outPriorWeight { 0.0 };
+        std::atomic<int> outKind { 0 };          // roar::LevelState::OutKind
+        std::atomic<int> roarHave { 0 };         // ROAR's learnt makeup (RoarModule::LevelLearning::toValues)
+        std::array<std::atomic<double>, roar::RoarModule::LevelLearning::numValues> roar {};
+    };
+    struct LevelHintSlot
+    {
+        std::atomic<juce::uint32> seq { 0 };
+        std::atomic<double> matchDb { 0.0 };
+        std::atomic<std::uint64_t> key { 0 };    // the settings key when the hint was posted
+    };
+    juce::CriticalSection m_levelRequestLock;
+    juce::uint32 m_levelRequestCounter = 0;                 // under m_levelRequestLock
+    // ROAR's learnt makeup as levelsForSave last read it (under m_levelRequestLock): kept when the
+    // audio thread is in the middle of publishing a new one.
+    std::array<double, roar::RoarModule::LevelLearning::numValues> m_lastLevelRoar {};
+    bool m_haveLastLevelRoar = false;
+    LevelRestoreSlot m_levelRestore;
+    LevelHintSlot m_levelHint;
+    juce::uint32 m_levelApplied = 0;                        // audio thread: the last request applied
+    std::atomic<juce::uint32> m_levelAppliedPublished { 0 }; // ... once a chunk has published its result
+
+    // Passes (audio thread): the transport starting, or the playhead jumping, begins one.
+    bool m_wasPlaying = false;
+    bool m_haveLastTime = false;
+    juce::int64 m_lastTime = 0;
+    int m_lastBlockSize = 0;
 
     // Raw parameter values, in Params::all order (looked up once).
     std::array<std::atomic<float>*, Params::numParameters> m_values {};

@@ -140,6 +140,10 @@ private:
     void setupDice();
     void afterRoll();
     void showDiceMenu(juce::Component& die);
+    /** A die's right-click menu: undo and redo, and for a module's die Hold in Randomise All. */
+    juce::PopupMenu buildDiceMenu(juce::Component& die);
+    void applyDiceMenu(juce::Component& die, int result);
+    int moduleOfDie(const juce::Component& die) const;
     bool diceUndoKey(bool redo);
 
     /** A die or a preset bar button keeps the keyboard focus after a click (knobs never take it),

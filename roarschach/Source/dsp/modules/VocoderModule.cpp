@@ -105,8 +105,7 @@ namespace roar
     void VocoderModule::reset()
     {
         m_fade.reset();
-        m_engine.clearState();
-        m_engine.resetPitchGate();
+        m_engine.resetToStart();
     }
 
     void VocoderModule::setParams (const VocoderSettings& s)
@@ -325,22 +324,31 @@ namespace roar
         m_characterCoeff = 1.0f - (float) std::exp (-(double) c_subBlock / (static_cast<double> (c_characterSeconds) * fs));
         m_makeup = c_makeup;
         m_pitchGate.prepare (fs, c_subBlock);
-        m_gatePeak = 0.0f;
         m_prepared = true;
+        resetToStart();
+    }
 
+    void VocoderModule::Engine::resetToStart()
+    {
+        // Exactly what prepare() leaves: idle, wet 0, the character and formant shift on their
+        // targets, filters and followers flushed, the pitch gate and the carrier motion at their
+        // start values. The next active chunk then starts the engine as a new instance does
+        // (activate(): the same first gate tick, the same wet fade).
         m_active = false;
         m_wet = 0.0f;
         m_characterTarget = m_targetGravel;
         m_gravel = m_targetGravel;
         updateCharacter();
         m_shift = m_targetShift;
+        resetPitchGate();
+        resetMotion();
         clearState();
     }
 
     void VocoderModule::Engine::clearState()
     {
-        // Flushes the filters and followers; the wet fade and the active state carry on, so a
-        // host reset mid-stream does not jump the dry/wet balance.
+        // Flushes the filters and followers; the wet fade and the active state carry on (a
+        // non-finite recovery must not jump the dry/wet balance; a host reset uses resetToStart).
         m_analysis.clear();
         m_synth.clear();
         m_env.fill (0.0f);
@@ -348,6 +356,7 @@ namespace roar
         // Start the whitening at the expected unit level so the first frames are not boosted.
         m_whiten.fill (1.0f);
         m_noiseMix = m_breathNoise;
+        m_levelTrim.fill (1.0f);
         m_envPad.fill (0.0f);
         m_bandLevels.fill (0.0f);
         m_unvoiced = false;
@@ -412,6 +421,20 @@ namespace roar
         m_active = true;
     }
 
+    void VocoderModule::Engine::resetMotion()
+    {
+        // What a new instance starts from: vibrato and drift at their start phases, the noise at
+        // its seed, the held pitch at 110 Hz and the carrier on the target that follows from it.
+        // The wet fade and the active state carry on (clearState).
+        m_vibratoPhase = 0.0f;
+        m_driftPhase = m_driftPhaseStart;
+        m_noiseState = c_noiseSeed;
+        m_heldF0 = 110.0f;
+        const float octave = m_octaveIndex == 0 ? 0.5f : 0.25f;
+        m_carrierTargetHz = std::clamp (m_heldF0 * octave, c_minCarrierHz, c_maxCarrierHz);
+        m_carrierHz = m_carrierTargetHz;
+    }
+
     void VocoderModule::Engine::holdPitch (const float* left, const float* right, int numSamples, const VoiceFrameView& voice)
     {
         // The same gate on the same control grid as the active path, so the pitch the carrier
@@ -453,6 +476,11 @@ namespace roar
         // 1-9 kHz): ~0.2 at 50 % (gritty, words intact), ~0.9 at 100 % (rough, not chopped).
         m_rippleBoost = 2.0f * std::pow (g, 1.3f);
         m_satAmount = 1.0f + 3.0f * g * g * g;   // a single band saturates at 1 / sat
+        // A noise band's follower reads further above its RMS than a harmonic's (more so with the
+        // faster followers and the ripple boost at high Gravel), and the whitened synthesis takes
+        // its level from the follower alone: the noise-carried share of a band is trimmed by this.
+        const float trimDb = m_noiseTrimOn ? 1.7f + 1.4f * g * g : 0.0f;
+        m_noiseTrim = 1.0f - std::pow (10.0f, -trimDb / 20.0f);
     }
 
     void VocoderModule::Engine::updateSubBlock()
@@ -521,6 +549,7 @@ namespace roar
             const float target = std::max (m_breathNoise[(size_t) b], m_uv * m_uvRamp[(size_t) b]);
             float& n = m_noiseMix[(size_t) b];
             n += (target - n) * uvCoeff;
+            m_levelTrim[(size_t) b] = 1.0f - m_noiseTrim * n;
             m_pulseGain[(size_t) b] = m_pulseGainBase[(size_t) b] * pulseScale * std::sqrt (std::max (0.0f, 1.0f - n));
             m_noiseGain[(size_t) b] = m_noiseGainBase[(size_t) b] * std::sqrt (std::max (0.0f, n));
         }
@@ -559,11 +588,13 @@ namespace roar
         const float wc = m_whitenCoeff;
         const float sat = m_satAmount;
         float* ms = m_whiten.data();
+        const float* trim = m_levelTrim.data();
         for (int b = 0; b < c_numBands; ++b)
         {
             const float c = lanes[b];
             ms[b] += wc * (c * c - ms[b]);
-            const float env = pad[b] + frac * (pad[b + 1] - pad[b]);
+            // The trim is on the envelope: a carrier gain would be divided out again by the whitening.
+            const float env = (pad[b] + frac * (pad[b + 1] - pad[b])) * trim[b];
             const float y = c * env / std::sqrt (ms[b] + c_whitenFloor);
             // Soft VCA saturation: transparent at low band levels, rounds loud bands at high gravel.
             lanes[b] = y / std::sqrt (1.0f + sat * sat * y * y);

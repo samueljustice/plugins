@@ -75,14 +75,16 @@ namespace roar
     {
         // Pink noise (1/f, 20 Hz - 20 kHz): wet (W = 0) RMS = dry RMS, measured per motion. The
         // longer delays of the slower motions comb deeper into the low octaves, so they need more.
+        // Six voices Vibrato sits 0.1 dB under its wet-alone match, which keeps the whole output
+        // within 0.6 dB of the dry over the Amount travel.
         const bool six = numVoices >= 6;
         switch (motion)
         {
-            case Params::EnsembleMotion::slow:    return six ? 0.547f : 0.895f;
-            case Params::EnsembleMotion::fast:    return six ? 0.491f : 0.821f;
-            case Params::EnsembleMotion::vibrato: return six ? 0.471f : 0.802f;
+            case Params::EnsembleMotion::slow:    return six ? 0.669f : 0.999f;
+            case Params::EnsembleMotion::fast:    return six ? 0.625f : 0.941f;
+            case Params::EnsembleMotion::vibrato: return six ? 0.594f : 0.919f;
             case Params::EnsembleMotion::medium:
-            default:                              return six ? 0.519f : 0.863f;
+            default:                              return six ? 0.646f : 0.982f;
         }
     }
 
@@ -98,10 +100,17 @@ namespace roar
         m_gainCoeff = dsp::onePoleCoeff (0.5 * c_gainSmoothingSeconds, controlRate);
         m_readoutCoeff = dsp::onePoleCoeff (c_readoutSeconds, controlRate);
         m_amountCoeff = static_cast<float> (dsp::onePoleCoeff (0.5 * c_amountSmoothingSeconds, m_fs));
+        m_capCoeff = dsp::onePoleCoeff (c_sideCapSeconds, m_fs);
 
         m_minDelay = static_cast<float> (c_minDelayMs * 0.001 * m_fs);
         m_maxDelay = static_cast<float> (c_maxDelayMs * 0.001 * m_fs);
         m_line.prepare (static_cast<int> (std::ceil (m_maxDelay)) + 4);
+        m_lowL.prepare (m_fs);
+        m_lowL.setCutoff (c_lowSplitHz);
+        m_lowR.prepare (m_fs);
+        m_lowR.setCutoff (c_lowSplitHz);
+        m_sideHp.prepare (m_fs);
+        m_sideHp.setParams (c_sideHighpassHz, 0.70710678118654752);
 
         for (int v = 0; v < c_maxVoices; ++v)
         {
@@ -120,6 +129,9 @@ namespace roar
         m_fade.setOn (m_settings.on);
         m_fade.reset();
         m_line.reset();
+        m_lowL.reset();
+        m_lowR.reset();
+        m_sideHp.reset();
         for (int v = 0; v < c_maxVoices; ++v)
             m_random[static_cast<size_t> (v)].seed (0x2545f491u + 0x9e3779b9u * static_cast<std::uint32_t> (v + 1));
         m_state = State {};
@@ -261,13 +273,19 @@ namespace roar
             // Restarting from an empty line would make every voice start with a step once its
             // delay has passed: an audible click under the rising fade.
             for (int i = 0; i < n; ++i)
-                m_line.push (stereo ? 0.5f * (dsp::finiteOrZero (l[i]) + dsp::finiteOrZero (r[i])) : l[i]);
+            {
+                const float xl = dsp::finiteOrZero (l[i]);
+                const float xr = stereo ? dsp::finiteOrZero (r[i]) : xl;
+                const float lowL = m_lowL.processLowpass (xl);
+                const float lowR = stereo ? m_lowR.processLowpass (xr) : lowL;
+                m_line.push (0.5f * ((xl - lowL) + (xr - lowR)));
+            }
             m_fade.outputDry (l, r, n, stereo);
             return;
         }
-        m_fade.consumeRestart();
-
         auto& st = m_state;
+        if (m_fade.consumeRestart())
+            st.capMid = st.capSide = 0.0;   // the side cap's powers belong to the wet
         const float amountTarget = effectiveAmount();
         const float widthTarget = sideGainForWidth (m_settings.width);
 
@@ -278,7 +296,9 @@ namespace roar
 
             const float xl = dsp::finiteOrZero (l[i]);
             const float xr = stereo ? dsp::finiteOrZero (r[i]) : xl;
-            m_line.push (stereo ? 0.5f * (xl + xr) : xl);
+            const float lowL = m_lowL.processLowpass (xl);
+            const float lowR = stereo ? m_lowR.processLowpass (xr) : lowL;
+            m_line.push (0.5f * ((xl - lowL) + (xr - lowR)));
 
             float wetL = 0.0f, wetR = 0.0f;
             for (int v = 0; v < c_maxVoices; ++v)
@@ -309,13 +329,33 @@ namespace roar
             const float makeup = makeupForAmount (m);
             const float wetGain = makeup * m * st.voiceGain;
             const float dryGain = makeup * (1.0f - m);
+            const float lowGain = 1.0f - dryGain;   // the dry's low part passes whole: exactly 0 at Amount 0
             const float mid = 0.5f * (wetL + wetR);
-            const float side = 0.5f * (wetL - wetR) * (width * st.sideScale);
+            const float sideUnit = m_sideHp.highpass (0.5f * (wetL - wetR)) * st.sideScale;   // before the width gain
 
-            const float outL = dsp::flushTiny (dryGain * xl + wetGain * (mid + side));
+            if (m_diagnostics.wetOnly)
+            {
+                l[i] = st.voiceGain * mid;
+                if (stereo)
+                    r[i] = l[i];
+                --st.controlLeft;
+                continue;
+            }
+
             if (stereo)
             {
-                const float outR = dsp::flushTiny (dryGain * xr + wetGain * (mid - side));
+                // The side cap: the chorus's side (su, at width gain 1) against the output's mid.
+                const float midOut = dryGain * 0.5f * (xl + xr) + lowGain * 0.5f * (lowL + lowR) + wetGain * mid;
+                const float su = wetGain * sideUnit;
+                st.capMid = dsp::flushTiny (st.capMid + m_capCoeff * (static_cast<double> (midOut) * midOut - st.capMid));
+                st.capSide = dsp::flushTiny (st.capSide + m_capCoeff * (static_cast<double> (su) * su - st.capSide));
+                float widthNow = width;
+                if (m_diagnostics.sideCap && st.capSide > 1.0e-18)
+                    widthNow = std::min (widthNow, static_cast<float> (std::sqrt (c_sideCapRatio * st.capMid / st.capSide)));
+                const float dryMidL = dryGain * xl + lowGain * lowL + wetGain * mid;
+                const float dryMidR = dryGain * xr + lowGain * lowR + wetGain * mid;
+                const float outL = dsp::flushTiny (dryMidL + su * widthNow);
+                const float outR = dsp::flushTiny (dryMidR - su * widthNow);
                 l[i] = outL;
                 r[i] = outR;
                 const double om = 0.5 * static_cast<double> (outL + outR);
@@ -325,7 +365,7 @@ namespace roar
             }
             else
             {
-                l[i] = dsp::flushTiny (dryGain * xl + wetGain * mid);
+                l[i] = dsp::flushTiny (dryGain * xl + lowGain * lowL + wetGain * mid);
                 st.midAccum += static_cast<double> (l[i]) * static_cast<double> (l[i]);
             }
             --st.controlLeft;
@@ -343,12 +383,16 @@ namespace roar
         for (size_t v = 0; v < m_random.size(); ++v)
             m_random[v].copyStateFrom (o.m_random[v]);
         m_line.copyStateFrom (o.m_line);
+        m_lowL.copyStateFrom (o.m_lowL);
+        m_lowR.copyStateFrom (o.m_lowR);
+        m_sideHp.copyStateFrom (o.m_sideHp);
         m_fade.copyStateFrom (o.m_fade);
     }
 
     void EnsembleModule::copyLeftStateToRight()
     {
-        // The voices read one shared mono line; only the On fade has a right-channel state.
+        // The voices read one shared mono line; the low split and the On fade have right-channel states.
+        m_lowR.copyStateFrom (m_lowL);
         m_fade.copyLeftStateToRight();
     }
 

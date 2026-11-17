@@ -88,6 +88,77 @@ namespace roar
         constexpr double c_strictWithinSt = 0.5, c_looseBeyondSt = 1.5;
         constexpr double c_minHz = 50.0, c_maxHz = 1000.0;
 
+        // The tail and head of a run of marks (a grain is voiced when its synthesis point lies, in
+        // periods T of its nearest mark, ...):
+        constexpr double c_markInside = 0.5;                  // ... within half a period
+        constexpr double c_bridgeSpan = 3.2;                  // ... towards an adjacent mark at most this far away,
+        constexpr double c_bridgeReach = 1.5;                 //     up to this far from its own
+        constexpr double c_borrowReach = 3.0;                 // ... past the newest mark of a run still open
+        constexpr double c_tailReach = 0.75;                  // ... a little past the last mark of a closed run
+        // ... or further (c_bridgeReach, c_borrowReach past the newest mark) only where the input
+        // still sounds there: the 60..900 Hz band over half a period around the point holds at
+        // least c_liveShare of the power of the mark's own cycle, and no onset lies between.
+        constexpr double c_liveShare = 0.1;
+
+        // Own mark chain (prototype, ROARSCHACH_PITCH_OWN_MARKS): the low band's share of the
+        // full-band power to begin and to go on, the lag search around the run's period, the
+        // correlation a continued cycle needs, how many continued marks in a row, and the restart.
+        constexpr double c_ownAliveShare = 0.2;
+        constexpr double c_ownStopShare = 0.1;
+        constexpr double c_ownLagRange = 0.2;
+        constexpr double c_ownCorrelation = 0.5;
+        constexpr int c_ownMaxInRow = 6;
+        constexpr double c_ownRestartSeconds = 0.005;
+        constexpr double c_ownRestartPeak = 0.6;
+        constexpr double c_letGoSeconds = 0.003;              // a grain past a run's end fades over this
+
+        // Air (sibilants and fricatives) is left at phi in Keep; everything else that is not
+        // marked moves with the pitch. Share of the mid's power below 2.5 kHz (5 ms smoothing):
+        // air under c_airOn, not air over c_airOff, held between and below c_airLevelFloor.
+        constexpr double c_airLowpassHz = 2500.0;
+        constexpr double c_airSmoothSeconds = 0.005;
+        constexpr double c_airOn = 0.20, c_airOff = 0.35;
+        constexpr double c_airLevelFloor = 1.0e-10;
+        constexpr double c_airFadeSeconds = 0.008;
+
+        // The reader (single-head resampling path). A splice crossfades (sin^2) from the previous place
+        // to the new over c_spliceSeconds. Nominal travel: c_readerBound x min (1, |1 - rate| / 0.1)
+        // either side of the output time. Splices are steered so the head reaches the next onset
+        // c_spliceGoalSeconds after the output time does, never move a head across a protected
+        // stretch, are not made shorter than c_minJumpSeconds, and are forced only past the hard
+        // limits (c_hardBehind behind the output time, c_hardAhead ahead of it).
+        constexpr double c_spliceSeconds = 0.004;
+        constexpr double c_readerBound = 0.010;
+        constexpr double c_spliceGoalSeconds = 0.001;
+        constexpr double c_steerTolerance = 0.001;
+        constexpr double c_lastChanceSeconds = 0.001;
+        constexpr double c_minJumpSeconds = 0.002;
+        constexpr double c_hardBehind = 0.020, c_hardAhead = 0.016;
+
+        // Onset detector (input time, on the mid tilted towards the band where bursts live).
+        constexpr double c_onsetHopSeconds = 0.002;
+        constexpr double c_onsetRise = 7.9432823472428150;    // 9 dB over the loudest of the 8 hops before (16 ms)
+        constexpr int c_pulseMemoryHops = 5;                  // pulse memory: 9 dB over the 5 hops before (10 ms)
+        constexpr double c_trainFromSeconds = 0.011, c_trainToSeconds = 0.060;
+        constexpr double c_trainLike = 7.9432823472428150;    // within 9 dB either way
+        constexpr double c_onsetAbsFloor = 1.0e-9, c_onsetRelFloor = 1.0e-5, c_onsetRefFloor = 1.0e-30;
+        constexpr double c_onsetEndShare = 0.063;             // -12 dB from its first hop
+        constexpr double c_onsetMinSeconds = 0.004, c_onsetMaxSeconds = 0.016;
+        constexpr double c_onsetLeadSeconds = 0.002;          // protection starts this far before an onset
+        // An open onset moves to a hop 30 dB louder than its own (it was the faint start of a
+        // fade-in, often the first hop after digital silence): the protected stretch and the
+        // steering then serve the real rise. (20 dB also moved the voicing that leads a burst.)
+        constexpr double c_onsetReanchor = 1000.0;
+        // Steering towards an onset ignores the protected stretches of onsets more than 12 dB
+        // weaker than it: re-reading a faint tick in room tone is not heard, a plosive or click
+        // that comes out early is (30 dB left a click 11 ms early after a run of faint ticks).
+        constexpr double c_onsetWeakShare = 0.063;
+        // Where the band copy finds no match for a splice (content above the band: sibilance, a
+        // tone), the full-band mid is searched +-c_fullAlignSeconds around the nominal place,
+        // compared over +-c_fullAlignWindow; a splice that lands nowhere matched takes the
+        // measured correlation of the two stretches it joins as its gain law.
+        constexpr double c_fullAlignSeconds = 0.001, c_fullAlignWindow = 0.0005;
+
         // Formant model.
         constexpr double c_sizeFormantSt = 6.0;
         constexpr double c_minRate = 0.25, c_maxRate = 1.41421356237309505;
@@ -291,6 +362,12 @@ namespace roar
 
         m_detector.prepare (m_fs);
         m_bandHpCoeff = static_cast<float> (std::exp (-dsp::c_twoPi * 60.0 / m_fs));
+        m_onsetTilt = static_cast<float> (std::pow (0.9, 48000.0 / m_fs));
+        m_onsetHop = std::max (8, static_cast<int> (std::lround (c_onsetHopSeconds * m_fs)));
+        m_letGoStep = static_cast<float> (1.0 / (c_letGoSeconds * m_fs));
+        m_airCoeff = dsp::onePoleCoeff (c_airSmoothSeconds, m_fs);
+        m_airStep = static_cast<float> (1.0 / (c_airFadeSeconds * m_fs));
+        m_onsetRefFall = std::exp (-static_cast<double> (m_onsetHop) / m_fs);   // 4.3 dB per second
 
         m_knobCoeff = dsp::onePoleCoeff (c_knobSmoothSeconds, m_fs);
         m_slewCoeff = dsp::onePoleCoeff (c_slewSeconds, m_fs);
@@ -310,11 +387,6 @@ namespace roar
         m_driveDelayR.prepare (Oversampler2x::c_latency);
         m_driveDelayL.setFixedDelay (Oversampler2x::c_latency);
         m_driveDelayR.setFixedDelay (Oversampler2x::c_latency);
-
-        const int frames = VoiceStream::maxFramesFor (m_maxBlock);
-        m_frameLogRatio.assign (static_cast<size_t> (frames), 0.0f);
-        m_frameTargetHz.assign (static_cast<size_t> (frames), 0.0f);
-        m_frameCount = 0;
 
         m_fade.prepare (m_fs, m_maxBlock, m_latency);
         reset();
@@ -341,6 +413,7 @@ namespace roar
         c.mode = mode;
         c.formant = formant;
         c.bandLp.setCoeffs (Biquad::lowpass (m_fs, 900.0, Biquad::c_butterworthQ));
+        c.airLp.setCoeffs (Biquad::lowpass (m_fs, c_airLowpassHz, Biquad::c_butterworthQ));
 
         c.prevSyn = -static_cast<double> (m_psolaLatency);
         c.nextSyn = c.prevSyn + m_unvoicedHalfWidth;
@@ -373,10 +446,6 @@ namespace roar
         m_driveDelayL.reset();
         m_driveDelayR.reset();
         m_fade.reset();
-
-        std::fill (m_frameLogRatio.begin(), m_frameLogRatio.end(), 0.0f);
-        std::fill (m_frameTargetHz.begin(), m_frameTargetHz.end(), 0.0f);
-        m_frameCount = 0;
 
         m_readShiftSt.store (0.0f, std::memory_order_relaxed);
         m_readFormantSt.store (0.0f, std::memory_order_relaxed);
@@ -413,14 +482,15 @@ namespace roar
 
         const float fadeWeight = m_fade.getValue();
         const bool fullyOn = m_fade.isFullyOn();
-        const int frames = std::min (static_cast<int> (m_frameLogRatio.size()), voice.frameIndexForSample (std::max (0, n - 1)) + 1);
-        m_frameCount = frames;
 
         for (int i = 0; i < n;)
         {
             const int end = voice.frameEnd (i, n);
             for (; i < end; ++i)
             {
+                if (((voice.startOffset() + i) & (c_voiceFrameSize - 1)) == 0)
+                    recordFrame (voice.firstFrameIndex() + ((voice.startOffset() + i) >> c_voiceFrameShift), active, fadeWeight, fullyOn);
+
                 const float xl = sanitize (l[i]);
                 const float xr = stereo ? sanitize (r[i]) : 0.0f;
                 analyse (xl, xr, stereo);
@@ -443,24 +513,6 @@ namespace roar
                 l[i] = yl;
                 if (stereo)
                     r[i] = yr;
-            }
-
-            // What the stream downstream should say for this frame (rewriteVoice).
-            const int k = std::min (voice.frameIndexForSample (std::max (0, end - 1)), frames - 1);
-            if (k >= 0)
-            {
-                const Core& c = m_core;
-                const double w = active ? static_cast<double> (fadeWeight) * static_cast<double> (c.wet) : 0.0;
-                m_frameLogRatio[static_cast<size_t> (k)] = static_cast<float> (w * c.logRatio);
-                float target = 0.0f;
-                if (active && fullyOn && c.wet >= 1.0f && c.voicedShare > 0.5)
-                {
-                    if (c.mode == Params::PitchMode::snap && c.haveSnapNote)
-                        target = static_cast<float> (440.0 * std::exp2 ((c.snapNote - 69) / 12.0));
-                    else if (c.mode == Params::PitchMode::mono && c.monoInRange)
-                        target = static_cast<float> (c_monoBaseHz * std::exp2 (c.knobSt / 12.0));
-                }
-                m_frameTargetHz[static_cast<size_t> (k)] = target;
             }
         }
 
@@ -485,23 +537,47 @@ namespace roar
                         std::memory_order_relaxed);
     }
 
-    void PitchModule::rewriteVoice (VoiceFrame* frames, int numFrames)
+    void PitchModule::recordFrame (std::int64_t g, bool active, float fadeWeight, bool fullyOn)
     {
-        if (frames == nullptr || m_frameCount <= 0)
+        // What the stream downstream should say for the audio of global frame g: the ratio
+        // applied to it, and the Snap / Mono target where the output is clearly the shifted voice.
+        Core& c = m_core;
+        const auto at = static_cast<size_t> (g & (c_frameRing - 1));
+        const double w = active ? static_cast<double> (fadeWeight) * static_cast<double> (c.wet) : 0.0;
+        c.ringLogRatio[at] = static_cast<float> (w * c.logRatio);
+        float target = 0.0f;
+        if (active && fullyOn && c.wet >= 1.0f && c.voicedShare > 0.5)
+        {
+            if (c.mode == Params::PitchMode::snap && c.haveSnapNote)
+                target = static_cast<float> (440.0 * std::exp2 ((c.snapNote - 69) / 12.0));
+            else if (c.mode == Params::PitchMode::mono && c.monoInRange)
+                target = static_cast<float> (c_monoBaseHz * std::exp2 (c.knobSt / 12.0));
+        }
+        c.ringTargetHz[at] = target;
+    }
+
+    void PitchModule::rewriteVoice (VoiceFrame* frames, int numFrames, std::int64_t firstFrame, int skewSamples)
+    {
+        if (frames == nullptr)
             return;
 
+        // Frame firstFrame + k describes the audio skewSamples before that output frame: it takes
+        // what was recorded for the output frame that many samples earlier.
+        const std::int64_t lag = std::clamp ((skewSamples + c_voiceFrameSize / 2) >> c_voiceFrameShift, 0, c_maxRewriteLag);
+        const Core& c = m_core;
         for (int k = 0; k < numFrames; ++k)
         {
             VoiceFrame& f = frames[k];
-            if (! (f.f0Hz > 0.0f))
+            const std::int64_t g = firstFrame + k - lag;
+            if (! (f.f0Hz > 0.0f) || g < 0)
                 continue;
 
-            const int j = std::min (k, m_frameCount - 1);
-            const float target = m_frameTargetHz[static_cast<size_t> (j)];
+            const auto at = static_cast<size_t> (g & (c_frameRing - 1));
+            const float target = c.ringTargetHz[at];
             if (target > 0.0f && f.voiced)
                 f.f0Hz = target;
             else
-                f.f0Hz *= std::exp (m_frameLogRatio[static_cast<size_t> (j)]);
+                f.f0Hz *= std::exp (c.ringLogRatio[at]);
         }
     }
 
@@ -524,9 +600,6 @@ namespace roar
         copyRing (m_band, o.m_band);
         copyRing (m_throatL, o.m_throatL);
         copyRing (m_throatR, o.m_throatR);
-        copyRing (m_frameLogRatio, o.m_frameLogRatio);
-        copyRing (m_frameTargetHz, o.m_frameTargetHz);
-        m_frameCount = std::min (o.m_frameCount, static_cast<int> (m_frameLogRatio.size()));
 
         m_body = o.m_body;
         m_driveCh = o.m_driveCh;
@@ -558,6 +631,12 @@ namespace roar
         c.prevHalfWidth = m_unvoicedHalfWidth;
         c.prevVoiced = false;
         c.voicedShare = 0.0;
+        c.airMix = airTarget (c.writePos - 1 - m_psolaLatency);   // no fade from a stale value
+        for (auto& rd : c.readers)
+        {
+            rd.started = false;   // each reader starts again on the output time
+            rd.xfLeft = 0;
+        }
 
         for (auto& ch : m_body)
             for (auto& b : ch)
@@ -592,6 +671,7 @@ namespace roar
             m_inR[at] = xr;
 
         const float mid = stereo ? 0.5f * (xl + xr) : xl;
+        c.stereoIn = stereo;
 
         // Band-limited copy for the peak search: the glottal pulse shows as one clear peak per
         // period once the upper formants are gone.
@@ -600,6 +680,24 @@ namespace roar
         c.bandHpY1 = dsp::flushTiny (hp);
         m_band[at] = c.bandLp.process (hp);
 
+        // Air: how much of the mid's power sits below 2.5 kHz, stored once per frame.
+        {
+            const double lo = static_cast<double> (c.airLp.process (mid));
+            c.airLo = dsp::flushTiny (c.airLo + m_airCoeff * (lo * lo - c.airLo));
+            c.airAll = dsp::flushTiny (c.airAll + m_airCoeff * (static_cast<double> (mid) * static_cast<double> (mid) - c.airAll));
+            if (c.airAll > c_airLevelFloor)
+            {
+                const double share = c.airLo / c.airAll;
+                if (share < c_airOn)
+                    c.airNow = true;
+                else if (share > c_airOff)
+                    c.airNow = false;
+            }
+            if ((n & (c_voiceFrameSize - 1)) == 0)
+                c.airRing[static_cast<size_t> ((n >> c_voiceFrameShift) & (c_airRing - 1))] = c.airNow ? 1 : 0;
+        }
+
+        detectOnsets (mid);
         m_detector.pushSample (mid);
         ++c.writePos;
         findMarks();
@@ -640,12 +738,20 @@ namespace roar
 
     void PitchModule::updateRate()
     {
+        // phi, and the rate phi would have in Follow (the voice read's rate). Recomputed only when
+        // what they follow has moved (this runs every sample).
         Core& c = m_core;
-        double formantSt = 0.0;
-        if (c.formant == Params::PitchFormant::follow)
-            formantSt = c.mode == Params::PitchMode::mono ? c.knobSt : 12.0 * c.logRatio / c_ln2;
-        formantSt -= c_sizeFormantSt * c.size;
-        c.rate = std::clamp (std::exp (c_ln2 * formantSt / 12.0), c_minRate, c_maxRate);
+        const double shiftSt = c.mode == Params::PitchMode::mono ? c.knobSt : 12.0 * c.logRatio / c_ln2;
+        const bool follow = c.formant == Params::PitchFormant::follow;
+        if (c.rateKeyValid && shiftSt == c.rateKeyShiftSt && c.size == c.rateKeySize && follow == c.rateKeyFollow)
+            return;
+        c.rateKeyValid = true;
+        c.rateKeyShiftSt = shiftSt;
+        c.rateKeySize = c.size;
+        c.rateKeyFollow = follow;
+        const double sizeSt = c_sizeFormantSt * c.size;
+        c.followRate = std::clamp (std::exp (c_ln2 * (shiftSt - sizeSt) / 12.0), c_minRate, c_maxRate);
+        c.rate = follow ? c.followRate : std::clamp (std::exp (c_ln2 * -sizeSt / 12.0), c_minRate, c_maxRate);
     }
 
     float PitchModule::synthesise (float& right, bool stereo)
@@ -776,6 +882,10 @@ namespace roar
         m_core.driveEnv = 0.0f;
         m_core.driveHeat = 0.0f;
         updateDriveCoeffs();
+        // The curve rests at its bias (envelope 0): its smoothing memory starts there, so the
+        // curve's output is exactly 0 on silence from the first sample.
+        for (auto& ch : m_driveCh)
+            ch.previous = static_cast<double> (c_biasStatic * m_core.driveBiasScale);
     }
 
     void PitchModule::applyDrive (float& yl, float& yr, bool stereo)
@@ -1016,6 +1126,155 @@ namespace roar
         ++c.markCount;
     }
 
+    void PitchModule::closeRun()
+    {
+        // The run of marks ends here. Grains already placed from its last mark further than
+        // c_tailReach periods past it would repeat the last cycle into whatever follows: they let
+        // go, unless the input still sounds where they play.
+        Core& c = m_core;
+        if (! c.haveLastMark)
+            return;
+        c.haveLastMark = false;
+        const double period = c.markPeriod > 0.0 ? c.markPeriod : static_cast<double> (m_maxPeriod);
+        const double limit = c.lastFine + c_tailReach * period;
+        for (int i = 0; i < c.grainCount; ++i)
+        {
+            Grain& g = c.grains[static_cast<size_t> (i)];
+            if (g.voiced && g.anaCentre >= c.lastFine - 0.5 && g.synCentre > limit
+                && ! (g.synCentre <= c.lastFine + c_borrowReach * period && liveAt (g.synCentre, c.lastFine, period)))
+                g.fadeStep = m_letGoStep;
+        }
+    }
+
+    double PitchModule::bandPower (std::int64_t from, std::int64_t to) const
+    {
+        // Mean square of the 60..900 Hz copy over [from, to].
+        if (to < from)
+            return 0.0;
+        double sum = 0.0;
+        for (std::int64_t t = from; t <= to; ++t)
+        {
+            const auto v = static_cast<double> (m_band[static_cast<size_t> (t & m_mask)]);
+            sum += v * v;
+        }
+        return sum / static_cast<double> (to - from + 1);
+    }
+
+    bool PitchModule::protectedNear (double lo, double hi) const
+    {
+        // Does the protected stretch of an onset ([pos - 2 ms, end], the end "everything after"
+        // until it is known) overlap [lo, hi]?
+        const double lead = c_onsetLeadSeconds * m_fs;
+        for (const Onset& o : m_core.onsets)
+            if (o.pos >= 0 && static_cast<double> (o.pos) - lead <= hi && (o.end < 0 || static_cast<double> (o.end) >= lo))
+                return true;
+        return false;
+    }
+
+    bool PitchModule::onsetStartsIn (double lo, double hi) const
+    {
+        for (const Onset& o : m_core.onsets)
+            if (o.pos >= 0 && static_cast<double> (o.pos) > lo && static_cast<double> (o.pos) <= hi)
+                return true;
+        return false;
+    }
+
+    bool PitchModule::liveAt (double syn, double markPos, double period) const
+    {
+        // Is the input still sounding where a grain past the end of a run would play? Band power
+        // over half a period around that point against the mark's own cycle; never across an
+        // onset (what follows is another sound, not this voice).
+        const std::int64_t newest = m_core.writePos - 1;
+        const auto a = static_cast<std::int64_t> (std::floor (syn - 0.25 * period));
+        const auto b = std::min (newest, static_cast<std::int64_t> (std::floor (syn + 0.25 * period)));
+        if (static_cast<double> (b - a) < 0.25 * period)
+            return false;   // the input there has not arrived
+        if (protectedNear (std::min (syn, markPos) - 0.5 * period, std::max (syn, markPos) + 0.5 * period))
+            return false;
+        const auto m = static_cast<std::int64_t> (markPos);
+        const auto half = static_cast<std::int64_t> (0.5 * period);
+        return bandPower (a, b) >= c_liveShare * bandPower (m - half + 1, m + half);
+    }
+
+    void PitchModule::detectOnsets (float mid)
+    {
+        // Onsets for the splices and the tail rule, found at input time (spec: bursts once, not
+        // doubled or smeared). Energy of the tilted mid per 2 ms hop; an onset is a hop 9 dB over
+        // the loudest of the 16 ms before it, unless it is one pulse of a train (the last pulse
+        // remembered 11 to 60 ms back, within 9 dB): a slow train is one onset, its first pulse.
+        Core& c = m_core;
+        const std::int64_t n = c.writePos;   // this sample's index
+        const float d = mid - m_onsetTilt * c.onsetPrev;
+        c.onsetPrev = mid;
+        c.hopSum += static_cast<double> (d) * static_cast<double> (d);
+        if (++c.hopCount < m_onsetHop)
+            return;
+
+        const double e = c.hopSum / m_onsetHop;
+        c.hopSum = 0.0;
+        c.hopCount = 0;
+        const std::int64_t hopStart = n - m_onsetHop + 1;
+        const bool floors = e > c_onsetAbsFloor && e > c_onsetRelFloor * c.onsetRef;
+
+        if (c.onsetOpen)
+        {
+            Onset& o = c.onsets[static_cast<size_t> ((c.onsetWrite + c_maxOnsets - 1) % c_maxOnsets)];
+            if (e > c_onsetReanchor * o.energy)
+            {
+                o.pos = hopStart;
+                o.energy = e;
+                c.onsetEndLevel = e * c_onsetEndShare;
+            }
+            const std::int64_t since = hopStart - o.pos;
+            if ((e < c.onsetEndLevel && since >= static_cast<std::int64_t> (c_onsetMinSeconds * m_fs))
+                || since >= static_cast<std::int64_t> (c_onsetMaxSeconds * m_fs))
+            {
+                o.end = hopStart;
+                c.onsetOpen = false;
+            }
+        }
+        else if (floors)
+        {
+            double before = 0.0;
+            for (double h : c.hopEnergy)
+                before = std::max (before, h);
+            if (e > c_onsetRise * before)
+            {
+                const std::int64_t since = hopStart - c.pulsePos;
+                const bool train = since >= static_cast<std::int64_t> (c_trainFromSeconds * m_fs)
+                                && since <= static_cast<std::int64_t> (c_trainToSeconds * m_fs)
+                                && e <= c_trainLike * c.pulseEnergy && e * c_trainLike >= c.pulseEnergy;
+                if (! train)
+                {
+                    Onset& o = c.onsets[static_cast<size_t> (c.onsetWrite)];
+                    o.pos = hopStart;
+                    o.end = -1;
+                    o.energy = e;
+                    c.onsetWrite = (c.onsetWrite + 1) % c_maxOnsets;
+                    c.onsetEndLevel = e * c_onsetEndShare;
+                    c.onsetOpen = true;
+                    ++c.onsetCount;
+                }
+            }
+        }
+
+        // Pulse memory, on every hop: a hop 9 dB over the 10 ms before it.
+        if (floors)
+        {
+            double recent = 0.0;
+            for (int j = 1; j <= c_pulseMemoryHops; ++j)
+                recent = std::max (recent, c.hopEnergy[static_cast<size_t> ((c.hopIndex - j + 8) & 7)]);
+            if (e > c_onsetRise * recent)
+            {
+                c.pulsePos = hopStart;
+                c.pulseEnergy = e;
+            }
+        }
+        c.onsetRef = std::max ({ e, c.onsetRef * m_onsetRefFall, c_onsetRefFloor });
+        c.hopEnergy[static_cast<size_t> (c.hopIndex)] = e;
+        c.hopIndex = (c.hopIndex + 1) & 7;
+    }
+
     void PitchModule::pruneMarks (std::int64_t outPos)
     {
         // Forget marks no grain can use any more.
@@ -1032,19 +1291,35 @@ namespace roar
     {
         Core& c = m_core;
         const VoiceInfo& v = m_detector.getVoiceInfo();
-        if (! v.voiced || v.f0Hz <= 0.0f)
+        double detectorPeriod = 0.0;
+        const bool detectorVoiced = v.voiced && v.f0Hz > 0.0f;
+        if (detectorVoiced)
+            detectorPeriod = m_fs / static_cast<double> (v.f0Hz);
+        else
         {
-            c.haveLastMark = false;
+           #if ROARSCHACH_PITCH_OWN_MARKS
+            // The detector let go: a run goes on at its own rhythm while the low band is alive,
+            // and a new one may start from the band copy's own periodicity.
+            if (! c.haveLastMark)
+            {
+                ownRestart();
+                return;
+            }
+            if (! ownMarksAllowed (c.markPeriod))
+            {
+                closeRun();
+                return;
+            }
+            detectorPeriod = c.markPeriod;
+           #else
+            closeRun();
             return;
+           #endif
         }
 
         const std::int64_t newest = c.writePos - 1;
         const double threshold = markThreshold();
-        const double period = std::clamp (m_fs / static_cast<double> (v.f0Hz), static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod));
-        const double tolerance = c_markTolerance * period;
-        const std::int64_t newestMark = c.markCount > 0
-                                          ? c.marks[static_cast<size_t> ((c.markHead + c.markCount - 1) % c_maxMarks)].pos
-                                          : std::numeric_limits<std::int64_t>::min() / 2;
+        const double period = std::clamp (detectorPeriod, static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod));
 
         // Continue a run. The mark rhythm (the spacing of the last two marks) is trusted over the
         // detector when the two disagree by about an octave: YIN can slip an octave down for a few
@@ -1091,9 +1366,14 @@ namespace roar
                         c.shortTriedFor = c.lastMark;   // fall back to the rhythm for this mark
                         return;
                     }
-                    c.haveLastMark = false;
+                   #if ROARSCHACH_PITCH_OWN_MARKS
+                    if (ownContinue (runPeriod))
+                        return;
+                   #endif
+                    closeRun();
                     return;
                 }
+                c.ownInRow = 0;
 
                 // The peak proposes the cycle; the mark itself goes one best-matching lag after
                 // the previous mark, so consecutive grains are cut at the same place in the
@@ -1117,9 +1397,28 @@ namespace roar
             }
         }
 
+       #if ROARSCHACH_PITCH_OWN_MARKS
+        if (! detectorVoiced)
+        {
+            closeRun();
+            ownRestart();
+            return;
+        }
+       #endif
+        startRun (period, threshold);
+    }
+
+    void PitchModule::startRun (double period, double threshold)
+    {
         // Start of a voiced run: the strongest peak in the last-but-one half period..1.5 periods,
         // then walk back towards the onset so the first grains of the vowel are voiced too.
         // A failed start is retried half a period later, not on every sample.
+        Core& c = m_core;
+        const std::int64_t newest = c.writePos - 1;
+        const double tolerance = c_markTolerance * period;
+        const std::int64_t newestMark = c.markCount > 0
+                                          ? c.marks[static_cast<size_t> ((c.markHead + c.markCount - 1) % c_maxMarks)].pos
+                                          : std::numeric_limits<std::int64_t>::min() / 2;
         if (newest < c.startRetry)
             return;
         c.startRetry = newest + static_cast<std::int64_t> (0.5 * period);
@@ -1197,6 +1496,120 @@ namespace roar
         c.lastMark = first;
         c.lastFine = static_cast<double> (first);
         c.haveLastMark = true;
+        c.ownInRow = 0;
+    }
+
+    bool PitchModule::ownMarksAllowed (double period) const
+    {
+        // The own chain runs only on sound that is not air and whose 60..900 Hz copy holds a fair
+        // share of the full-band power over the last period: 20 % to begin, 10 % to go on.
+        const Core& c = m_core;
+        if (c.airNow)
+            return false;
+        const std::int64_t newest = c.writePos - 1;
+        const auto length = static_cast<std::int64_t> (std::clamp (period, static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod)));
+        double full = 0.0;
+        for (std::int64_t t = newest - length + 1; t <= newest; ++t)
+        {
+            const auto at = static_cast<size_t> (t & m_mask);
+            const double x = c.stereoIn ? 0.5 * (static_cast<double> (m_inL[at]) + static_cast<double> (m_inR[at])) : static_cast<double> (m_inL[at]);
+            full += x * x;
+        }
+        full /= static_cast<double> (length);
+        if (! (full > 1.0e-12))
+            return false;
+        return bandPower (newest - length + 1, newest) >= (c.ownInRow > 0 ? c_ownStopShare : c_ownAliveShare) * full;
+    }
+
+    bool PitchModule::ownContinue (double period)
+    {
+        // Keep the run going one cycle at the chain's own lag (+-20 % of the run's period), when
+        // that lag is bracketed and the two cycles correlate at c_ownCorrelation or more; at most
+        // c_ownMaxInRow such marks before a peak-confirmed one is needed again.
+        Core& c = m_core;
+        if (c.ownInRow >= c_ownMaxInRow || ! ownMarksAllowed (period))
+            return false;
+        bool found = false;
+        const double lag = similarityLag (c.lastFine, period, 1.0, 0.0, period, c_ownLagRange, found);
+        if (! found)
+            return false;
+        const auto previous = static_cast<std::int64_t> (std::llround (c.lastFine));
+        const auto chained = static_cast<std::int64_t> (std::llround (c.lastFine + lag));
+        if (markCorrelation (chained, previous) < c_ownCorrelation)
+            return false;
+        pushMark (c.lastFine + lag, static_cast<float> (period));
+        c.markPeriod = lag;
+        c.lastMark = chained;
+        c.lastFine += lag;
+        ++c.ownInRow;
+        ++c.ownMarks;
+        return true;
+    }
+
+    void PitchModule::ownRestart()
+    {
+        // While the detector says unvoiced, every 5 ms: normalised autocorrelation of the band copy
+        // over the last 20 ms at lags of 2 to 20 ms (a 6 kHz grid, then single samples). A peak of
+        // c_ownRestartPeak or more, bracketed, starts a run at that period with the usual walk back.
+        Core& c = m_core;
+        const std::int64_t newest = c.writePos - 1;
+        if (newest < c.ownRestartAt)
+            return;
+        c.ownRestartAt = newest + static_cast<std::int64_t> (c_ownRestartSeconds * m_fs);
+
+        const int lagLo = std::max (m_minPeriod, static_cast<int> (0.002 * m_fs));
+        const int lagHi = std::min (m_maxPeriod, static_cast<int> (0.020 * m_fs));
+        const int window = static_cast<int> (0.020 * m_fs);
+        if (newest < static_cast<std::int64_t> (window + lagHi + 2) || lagHi - lagLo < 4)
+            return;
+        if (! ownMarksAllowed (0.010 * m_fs))
+            return;
+
+        const int step = std::max (1, static_cast<int> (m_fs / c_markLagGridHz));
+        const int count = window / step;
+        const auto similarity = [&] (int lag)
+        {
+            double xy = 0.0, xx = 1.0e-20, yy = 1.0e-20;
+            for (int k = 0; k < count; ++k)
+            {
+                const std::int64_t at = newest - static_cast<std::int64_t> (k) * step;
+                const auto u = static_cast<double> (m_band[static_cast<size_t> (at & m_mask)]);
+                const auto w = static_cast<double> (m_band[static_cast<size_t> ((at - lag) & m_mask)]);
+                xy += u * w;
+                xx += u * u;
+                yy += w * w;
+            }
+            return xy / std::sqrt (xx * yy);
+        };
+
+        int best = lagLo;
+        double bestValue = -2.0;
+        for (int lag = lagLo; lag <= lagHi; lag += step)
+        {
+            const double value = similarity (lag);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                best = lag;
+            }
+        }
+        const int coarse = best;
+        for (int lag = std::max (lagLo, coarse - step + 1); lag <= std::min (lagHi, coarse + step - 1); ++lag)
+        {
+            const double value = lag == coarse ? bestValue : similarity (lag);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                best = lag;
+            }
+        }
+        if (bestValue < c_ownRestartPeak || best <= lagLo || best >= lagHi)
+            return;
+
+        c.startRetry = 0;
+        startRun (static_cast<double> (best), markThreshold());
+        if (c.haveLastMark)
+            ++c.ownMarks;
     }
 
     //==============================================================================
@@ -1290,10 +1703,32 @@ namespace roar
             mark = c.marks[static_cast<size_t> ((c.markHead + nearest) % c_maxMarks)];
             const double distance = syn - static_cast<double> (mark.pos);
             const bool newest = nearest == c.markCount - 1;
-            if (std::abs (distance) <= 1.5 * static_cast<double> (mark.period))
+            const double T = static_cast<double> (mark.period);
+            const auto posOf = [&] (int i) { return static_cast<double> (c.marks[static_cast<size_t> ((c.markHead + i) % c_maxMarks)].pos); };
+            if (std::abs (distance) <= c_markInside * T)
                 voiced = true;
-            else if (newest && distance > 0.0 && distance <= 3.0 * static_cast<double> (mark.period) && m_detector.getVoiceInfo().voiced)
-                voiced = true;   // marks lag behind at low pitch: borrow the latest one
+            else if (distance > 0.0)
+            {
+                // Past the mark: towards the next one (a missed cycle), the newest mark of a run
+                // still open (marks lag at low pitch), a little way past a run's end, or further
+                // only where the input still sounds there.
+                const bool bridge = ! newest && posOf (nearest + 1) - static_cast<double> (mark.pos) <= c_bridgeSpan * T;
+                if (bridge && distance <= c_bridgeReach * T)
+                    voiced = true;
+                else if (newest && c.haveLastMark && distance <= c_borrowReach * T)
+                    voiced = true;
+                else if (distance <= c_tailReach * T)
+                    voiced = true;
+                else if (distance <= (newest ? c_borrowReach : c_bridgeReach) * T && liveAt (syn, static_cast<double> (mark.pos), T))
+                    voiced = true;
+            }
+            else
+            {
+                // Before the mark: only towards an earlier mark close enough to bridge.
+                const bool bridge = nearest > 0 && static_cast<double> (mark.pos) - posOf (nearest - 1) <= c_bridgeSpan * T;
+                if (bridge && -distance <= c_bridgeReach * T)
+                    voiced = true;
+            }
         }
 
         if (voiced)
@@ -1322,6 +1757,26 @@ namespace roar
 
             --nearest;
             mark = c.marks[static_cast<size_t> ((c.markHead + nearest) % c_maxMarks)];
+            if (voicedSyn - static_cast<double> (mark.pos) > 3.0 * static_cast<double> (mark.period))
+                voiced = false;
+        }
+
+        // A grain placed before its mark plays the mark's cycle that much early. Where an onset
+        // starts inside the stretch it reads, the onset would sound ahead of its time (a faint
+        // early copy before a hard word start): take the mark before, whose cycle lies before the
+        // onset, or leave this stretch to the resampling path, which is steered to the onset.
+        while (voiced && static_cast<double> (mark.pos) - voicedSyn > c_spliceGoalSeconds * m_fs
+               && onsetStartsIn (static_cast<double> (mark.pos) - period, static_cast<double> (mark.pos) + period))
+        {
+            if (nearest == 0)
+            {
+                voiced = false;
+                break;
+            }
+            --nearest;
+            mark = c.marks[static_cast<size_t> ((c.markHead + nearest) % c_maxMarks)];
+            period = std::clamp (localPeriod (nearest), static_cast<double> (m_minPeriod), static_cast<double> (m_maxPeriod));
+            halfWidth = period / c.rate;
             if (voicedSyn - static_cast<double> (mark.pos) > 3.0 * static_cast<double> (mark.period))
                 voiced = false;
         }
@@ -1417,7 +1872,7 @@ namespace roar
 
         for (int i = 0; i < c.grainCount;)
         {
-            const Grain& g = c.grains[static_cast<size_t> (i)];
+            Grain& g = c.grains[static_cast<size_t> (i)];
             const double d = now - g.synCentre;
 
             if (d >= g.halfWidth)
@@ -1433,22 +1888,43 @@ namespace roar
                 totalWeight += w;
                 if (g.voiced)
                 {
-                    const double pos = g.anaCentre + d * g.rate;
-                    const float gw = g.gain * w;
-                    float sr = 0.0f;
-                    yl += gw * readRings (pos, g.rate, sr, stereo);
-                    yr += gw * sr;
-                    voicedWeight += w;
+                    // A grain that lets go hands its weight to the resampling path over 3 ms.
+                    g.fade = std::max (0.0f, g.fade - g.fadeStep);
+                    const float gw = g.gain * w * g.fade;
+                    if (gw > 0.0f)
+                    {
+                        const double pos = g.anaCentre + d * g.rate;
+                        float sr = 0.0f;
+                        yl += gw * readRings (pos, g.rate, sr, stereo);
+                        yr += gw * sr;
+                    }
+                    voicedWeight += w * g.fade;
                 }
             }
 
             ++i;
         }
 
-        // Where no voiced grain covers the output, the resampling path does.
+        // Where no voiced grain covers the output, the resampling path does: the voice read at the
+        // Follow rate, crossfaded (8 ms) to the air read at phi where the input is air. In Follow
+        // (and wherever the two rates are equal) it is one path: only the air read runs. A read
+        // whose weight is 0 and stays 0 is idle (it costs nothing) and starts again on the output
+        // time when it is next wanted, at zero weight, so the restart is not heard.
         const float tapeWeight = totalWeight - voicedWeight;
-        float tl = 0.0f, tr = 0.0f;
-        readTape (now, tapeWeight > 0.0f, tl, tr, stereo);
+        const float target = airTarget (outPos);
+        c.airMix = target > c.airMix ? std::min (target, c.airMix + m_airStep) : std::max (target, c.airMix - m_airStep);
+        const bool needed = tapeWeight > 0.0f;
+        float vl = 0.0f, vr = 0.0f, al = 0.0f, ar = 0.0f;
+        if (c.airMix < 1.0f || target < 1.0f)
+            readResampled (0, followRate(), now, needed && c.airMix < 1.0f, vl, vr, stereo);
+        else
+            idleResampled (0);
+        if (c.airMix > 0.0f || target > 0.0f)
+            readResampled (1, c.rate, now, needed && c.airMix > 0.0f, al, ar, stereo);
+        else
+            idleResampled (1);
+        const float tl = vl + c.airMix * (al - vl);
+        const float tr = vr + c.airMix * (ar - vr);
         yl += tapeWeight * tl;
         yr += tapeWeight * tr;
 
@@ -1535,8 +2011,10 @@ namespace roar
         return l * norm;
     }
 
-    double PitchModule::alignTapeHead (double other, double nominal, double share, bool stereo) const
+    double PitchModule::alignTapeHead (double other, double nominal, double share, bool stereo, double* matchOut) const
     {
+        if (matchOut != nullptr)
+            *matchOut = 0.0;
         // The offset from `nominal` (samples, fractional) at which the band-limited input around
         // the wrapping head best matches the input around `other`, the position of the head that
         // is at full weight; 0 where nothing matches. Coarse grid, then single samples, then the
@@ -1601,6 +2079,8 @@ namespace roar
 
         if (bestMatch < c_tapeAlignMatch)
             return 0.0;
+        if (matchOut != nullptr)
+            *matchOut = bestMatch;
 
         double offset = static_cast<double> (best);
         if (best > lo && best < hi)
@@ -1613,7 +2093,23 @@ namespace roar
         return offset;
     }
 
-    void PitchModule::readTape (double now, bool needed, float& left, float& right, bool stereo)
+    double PitchModule::followRate() const
+    {
+        // The rate phi would have in Follow: the applied shift (the knob in Mono) and Size.
+        return m_core.followRate;
+    }
+
+    float PitchModule::airTarget (std::int64_t outPos) const
+    {
+        const Core& c = m_core;
+        if (c.formant == Params::PitchFormant::follow || std::abs (followRate() - c.rate) < 1.0e-9)
+            return 1.0f;
+        const bool air = m_airForTests >= 0 ? m_airForTests > 0
+                                            : c.airRing[static_cast<size_t> ((outPos >> c_voiceFrameShift) & (c_airRing - 1))] != 0;
+        return air ? 1.0f : 0.0f;
+    }
+
+    void PitchModule::readTape (Tape& t, double rate, double now, bool needed, float& left, float& right, bool stereo)
     {
         // The resampling path for everything the voiced grains do not cover (consonants, breaths,
         // irregular voice): two read heads half a cycle apart sweep +-c_tapeSeconds / 2 around
@@ -1630,33 +2126,32 @@ namespace roar
         // crossfade joins like to like instead of combing, and a head that can start on the very
         // samples the other is reading does so. The offset shrinks with the sweep, so the path
         // is still the aligned input at phi = 1.
-        Core& c = m_core;
-        const double deviation = 1.0 - c.rate;
+        const double deviation = 1.0 - rate;
         const double share = std::min (1.0, std::abs (deviation) / c_tapeFullDeviation);
         const double sweep = c_tapeSeconds * m_fs;
         if (share > 0.0)
-            c.tapePhase += deviation / (sweep * share);
-        c.tapePhase -= std::floor (c.tapePhase);
+            t.phase += deviation / (sweep * share);
+        t.phase -= std::floor (t.phase);
 
         const double width = sweep * share;
         const auto offsetOf = [&] (int head)
         {
-            const double chosenAt = c.tapeOffsetShare[static_cast<size_t> (head)];
-            return chosenAt > 0.0 ? c.tapeOffset[static_cast<size_t> (head)] * std::min (1.0, share / chosenAt) : 0.0;
+            const double chosenAt = t.offsetShare[static_cast<size_t> (head)];
+            return chosenAt > 0.0 ? t.offset[static_cast<size_t> (head)] * std::min (1.0, share / chosenAt) : 0.0;
         };
 
         for (int head = 0; head < 2; ++head)
         {
-            double phase = c.tapePhase + 0.5 * head;
+            double phase = t.phase + 0.5 * head;
             phase -= std::floor (phase);
-            if (std::abs (phase - c.tapeLastPhase[static_cast<size_t> (head)]) > 0.5 && share > 0.0)
+            if (std::abs (phase - t.lastPhase[static_cast<size_t> (head)]) > 0.5 && share > 0.0)
             {
                 // Wrapped: the other head is half a cycle away, at the output time plus its offset.
                 const double other = now + offsetOf (1 - head);
-                c.tapeOffset[static_cast<size_t> (head)] = alignTapeHead (other, now + (0.5 - phase) * width, share, stereo);
-                c.tapeOffsetShare[static_cast<size_t> (head)] = share;
+                t.offset[static_cast<size_t> (head)] = alignTapeHead (other, now + (0.5 - phase) * width, share, stereo);
+                t.offsetShare[static_cast<size_t> (head)] = share;
             }
-            c.tapeLastPhase[static_cast<size_t> (head)] = phase;
+            t.lastPhase[static_cast<size_t> (head)] = phase;
         }
 
         if (! needed)
@@ -1665,11 +2160,11 @@ namespace roar
         std::array<float, 2> hl {}, hr {}, w {};
         for (int head = 0; head < 2; ++head)
         {
-            double phase = c.tapePhase + 0.5 * head;
+            double phase = t.phase + 0.5 * head;
             phase -= std::floor (phase);
             const double pos = now + (0.5 - phase) * width + offsetOf (head);
             w[static_cast<size_t> (head)] = window (2.0 * phase - 1.0);
-            hl[static_cast<size_t> (head)] = readRings (pos, c.rate, hr[static_cast<size_t> (head)], stereo);
+            hl[static_cast<size_t> (head)] = readRings (pos, rate, hr[static_cast<size_t> (head)], stereo);
         }
 
         // How alike the two heads are (10 ms running correlation): the crossfade keeps the power
@@ -1678,16 +2173,305 @@ namespace roar
         // Correlation of the mid ((L + R) / 2 is exactly L when R == L, so mono == stereo L == R).
         const double a = static_cast<double> (stereo ? 0.5f * (hl[0] + hr[0]) : hl[0]);
         const double b = static_cast<double> (stereo ? 0.5f * (hl[1] + hr[1]) : hl[1]);
-        c.tapeXY = dsp::flushTiny (c.tapeXY + m_tapeCorrCoeff * (a * b - c.tapeXY));
-        c.tapeXX = dsp::flushTiny (c.tapeXX + m_tapeCorrCoeff * (a * a - c.tapeXX));
-        c.tapeYY = dsp::flushTiny (c.tapeYY + m_tapeCorrCoeff * (b * b - c.tapeYY));
-        const double den = std::sqrt (c.tapeXX * c.tapeYY);
-        const float rho = den > 1.0e-20 ? static_cast<float> (std::clamp (c.tapeXY / den, c_tapeMinCorrelation, 1.0)) : 0.0f;
+        t.xy = dsp::flushTiny (t.xy + m_tapeCorrCoeff * (a * b - t.xy));
+        t.xx = dsp::flushTiny (t.xx + m_tapeCorrCoeff * (a * a - t.xx));
+        t.yy = dsp::flushTiny (t.yy + m_tapeCorrCoeff * (b * b - t.yy));
+        const double den = std::sqrt (t.xx * t.yy);
+        const float rho = den > 1.0e-20 ? static_cast<float> (std::clamp (t.xy / den, c_tapeMinCorrelation, 1.0)) : 0.0f;
 
         const float power = w[0] * w[0] + w[1] * w[1] + 2.0f * rho * w[0] * w[1];
         const float norm = 1.0f + static_cast<float> (share) * (1.0f / std::sqrt (std::max (power, 0.25f)) - 1.0f);
         left = (w[0] * hl[0] + w[1] * hl[1]) * norm;
         right = (w[0] * hr[0] + w[1] * hr[1]) * norm;
+    }
+
+    void PitchModule::readResampled (int which, double rate, double now, bool needed, float& left, float& right, bool stereo)
+    {
+        Core& c = m_core;
+       #if ROARSCHACH_PITCH_READER
+        readReader (c.readers[static_cast<size_t> (which)], rate, now, needed, left, right, stereo);
+       #else
+        readTape (c.tapes[static_cast<size_t> (which)], rate, now, needed, left, right, stereo);
+       #endif
+    }
+
+    void PitchModule::idleResampled (int which)
+    {
+        // Back to the start values: the read begins again on the output time when it is wanted.
+        Core& c = m_core;
+       #if ROARSCHACH_PITCH_READER
+        c.readers[static_cast<size_t> (which)] = Reader {};
+       #else
+        c.tapes[static_cast<size_t> (which)] = Tape {};
+       #endif
+    }
+
+    void PitchModule::decideSplice (Reader& t, double rate, double now, bool stereo)
+    {
+        // Two rules decide every splice (only while no crossfade runs): 1. arrive at the next onset
+        // on time; 2. stay within the nominal travel without reading a protected stretch twice or
+        // skipping one, waiting (up to the hard limits) where a jump would.
+        Core& c = m_core;
+        const double fs = m_fs;
+        const int xf = std::max (8, static_cast<int> (std::lround (c_spliceSeconds * fs)));
+        const double span = rate * xf;                       // input one crossfade covers
+        const double lead = c_onsetLeadSeconds * fs;
+        const double newest = static_cast<double> (c.writePos - 1);
+        const double share = std::min (1.0, std::abs (1.0 - rate) / c_tapeFullDeviation);
+        const double bound = c_readerBound * fs * share;
+        const double lag = now - t.pos;
+        const auto protEnd = [&] (const Onset& o) { return o.end >= 0 ? static_cast<double> (o.end) : newest + 1.0e9; };
+        const auto start = [&] (double target, float join)
+        {
+            t.oldPos = t.pos;
+            t.pos = target;
+            t.xfLen = t.xfLeft = xf;
+            t.join = join;
+            ++c.splices;
+        };
+
+        // 1. Arrive at the next onset on time: the place from which a head moving at `rate`
+        // reaches it 1 ms after the output time does.
+        const Onset* next = nullptr;
+        for (const Onset& o : c.onsets)
+            if (o.pos >= 0 && static_cast<double> (o.pos) - lead > t.pos && (next == nullptr || o.pos < next->pos))
+                next = &o;
+        if (next != nullptr)
+        {
+            double prevEnd = -1.0e18;
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0 && &o != next && static_cast<double> (o.pos) - lead <= t.pos && o.energy >= c_onsetWeakShare * next->energy)
+                    prevEnd = std::max (prevEnd, protEnd (o));
+            const double edge = static_cast<double> (next->pos) - lead;
+            const double toOnset = static_cast<double> (next->pos) - now;
+            const double goal = c_spliceGoalSeconds * fs;
+            double target = toOnset + goal > 0.0 ? static_cast<double> (next->pos) - rate * (toOnset + goal) : edge - span - 2.0;
+            target = std::min (target, edge - span - 1.0);
+            if (std::abs (t.pos - target) <= c_steerTolerance * fs)
+                return;   // on its way to the onset: nothing may move it now
+            const bool outside = lag > bound + 0.5 || lag < -bound - 0.5;
+            if (next->pos != t.handledOnset
+                && (outside || std::min (edge - t.pos, edge - target) - span <= rate * (xf + c_lastChanceSeconds * fs)))
+            {
+                t.handledOnset = next->pos;
+                if (t.pos >= prevEnd && target >= prevEnd && edge - t.pos - span >= 0.0 && target + span + c_readAhead < newest)
+                {
+                    start (target, joinCorrelation (t.pos, target, span, stereo));
+                    ++c.steered;
+                    return;
+                }
+            }
+        }
+
+        // 2. Stay in bounds.
+        const bool behind = lag > bound + 0.5, ahead = lag < -bound - 0.5;
+        if (! behind && ! ahead)
+            return;
+        double target = behind ? now + bound : now - bound;
+        const bool hard = lag > c_hardBehind * fs || lag < -c_hardAhead * fs;
+        bool blocked = false;
+        if (target > t.pos)
+        {
+            // Forward: nothing protected may be skipped or cut by a crossfade.
+            const Onset* first = nullptr;
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0 && protEnd (o) > t.pos && static_cast<double> (o.pos) - lead < target + span)
+                    if (first == nullptr || o.pos < first->pos)
+                        first = &o;
+            if (first != nullptr)
+            {
+                const double edge = static_cast<double> (first->pos) - lead;
+                if (t.pos + span >= edge)
+                    blocked = true;
+                else
+                    target = std::min (target, edge - span - 1.0);
+            }
+        }
+        else
+        {
+            // Back: nothing protected may be read twice.
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0 && static_cast<double> (o.pos) - lead <= t.pos + span && protEnd (o) >= target)
+                {
+                    if (protEnd (o) >= t.pos)
+                        blocked = true;
+                    else
+                        target = std::max (target, protEnd (o) + 1.0);
+                }
+        }
+        // A jump shorter than 2 ms is not made (where the travel itself is longer than 1 ms:
+        // near rate 1 every jump is short).
+        if (std::abs (target - t.pos) < c_minJumpSeconds * fs && bound > 0.001 * fs)
+            blocked = true;
+        if (blocked)
+        {
+            if (! hard)
+                return;
+            target = behind ? now + bound : now - bound;
+            ++c.forced;
+        }
+        target = std::min (target, newest - span - c_readAhead - 1.0);
+
+        // Where the waveform matches, the head lands there, carrying its fraction of a sample
+        // (the match is found between whole samples), so periodic sound stays periodic.
+        double match = 0.0;
+        double offset = alignTapeHead (t.pos, target, share, stereo, &match);
+        if (offset == 0.0 && ! blocked)
+            offset = alignFullBand (t.pos, target, stereo, &match);
+        double landing = target;
+        if (offset != 0.0 && ! blocked)
+        {
+            landing = std::round (target) + offset + (t.pos - std::round (t.pos));
+            bool ok = landing + span + c_readAhead < newest;
+            for (const Onset& o : c.onsets)
+                if (o.pos >= 0)
+                {
+                    const double lo = static_cast<double> (o.pos) - lead, hi = protEnd (o);
+                    if (std::min (t.pos, landing) < hi && std::max (t.pos, landing) + span > lo)
+                        ok = false;
+                }
+            if (! ok)
+            {
+                landing = target;
+                match = 0.0;
+            }
+        }
+        else
+            match = 0.0;
+        start (landing, match > 0.0 ? 1.0f : joinCorrelation (t.pos, landing, span, stereo));
+    }
+
+    double PitchModule::alignFullBand (double other, double nominal, bool stereo, double* matchOut) const
+    {
+        // As alignTapeHead, on the full-band mid at single samples over a short range: for joins
+        // whose content the band copy does not hold.
+        *matchOut = 0.0;
+        const std::int64_t newest = m_core.writePos - 1;
+        const int half = std::max (2, static_cast<int> (c_fullAlignWindow * m_fs));
+        const int range = std::max (2, static_cast<int> (c_fullAlignSeconds * m_fs));
+        const auto a = static_cast<std::int64_t> (std::llround (other));
+        const auto b = static_cast<std::int64_t> (std::llround (nominal));
+        const int hi = static_cast<int> (std::min<std::int64_t> (range, newest - half - b));
+        const int lo = -range;
+        if (a + half > newest || hi - lo < 2)
+            return 0.0;
+        const auto mid = [&] (std::int64_t i)
+        {
+            const auto at = static_cast<size_t> (i & m_mask);
+            return static_cast<double> (stereo ? 0.5f * (m_inL[at] + m_inR[at]) : m_inL[at]);
+        };
+        double xx = 1.0e-20;
+        for (int j = -half; j <= half; ++j)
+            xx += mid (a + j) * mid (a + j);
+        const auto match = [&] (int d)
+        {
+            double xy = 0.0, yy = 1.0e-20;
+            for (int j = -half; j <= half; ++j)
+            {
+                const double u = mid (a + j), v = mid (b + d + j);
+                xy += u * v;
+                yy += v * v;
+            }
+            return xy / std::sqrt (xx * yy);
+        };
+        const double bias = c_tapeAlignBias / static_cast<double> (hi - lo);
+        int best = 0;
+        double bestScore = -1.0e9, bestMatch = 0.0;
+        for (int d = lo; d <= hi; ++d)
+        {
+            const double m = match (d);
+            const double score = m - bias * std::abs (static_cast<double> (d));
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMatch = m;
+                best = d;
+            }
+        }
+        if (bestMatch < c_tapeAlignMatch)
+            return 0.0;
+        *matchOut = bestMatch;
+        double offset = static_cast<double> (best);
+        if (best > lo && best < hi)
+        {
+            const double below = match (best - 1), above = match (best + 1);
+            const double curvature = below - 2.0 * bestMatch + above;
+            if (curvature < -1.0e-12)
+                offset += std::clamp (0.5 * (below - above) / curvature, -0.5, 0.5);
+        }
+        // A zero offset means "no match" to the caller: a match exactly on the nominal place is
+        // the nominal place anyway.
+        return offset;
+    }
+
+    float PitchModule::joinCorrelation (double a, double b, double length, bool stereo) const
+    {
+        // Correlation of the input the two heads of a splice will read (whole samples, as far as
+        // the input exists): the crossfade then keeps the level of like and unlike sound alike.
+        const std::int64_t newest = m_core.writePos - 1;
+        const auto ia = static_cast<std::int64_t> (std::llround (a));
+        const auto ib = static_cast<std::int64_t> (std::llround (b));
+        const auto n = static_cast<std::int64_t> (std::min<double> (length, static_cast<double> (newest - std::max (ia, ib))));
+        if (n < 8)
+            return 0.0f;
+        double xy = 0.0, xx = 1.0e-30, yy = 1.0e-30;
+        for (std::int64_t k = 0; k < n; ++k)
+        {
+            const auto pa = static_cast<size_t> ((ia + k) & m_mask), pb = static_cast<size_t> ((ib + k) & m_mask);
+            const double u = stereo ? 0.5 * (static_cast<double> (m_inL[pa]) + m_inR[pa]) : m_inL[pa];
+            const double v = stereo ? 0.5 * (static_cast<double> (m_inL[pb]) + m_inR[pb]) : m_inL[pb];
+            xy += u * v;
+            xx += u * u;
+            yy += v * v;
+        }
+        return static_cast<float> (std::clamp (xy / std::sqrt (xx * yy), -1.0, 1.0));
+    }
+
+    void PitchModule::readReader (Reader& t, double rate, double now, bool needed, float& left, float& right, bool stereo)
+    {
+        // The resampling path as one read head at `rate` (see decideSplice for where it jumps).
+        // At rate 1 the travel is 0 and the head sits on the output time: the aligned input.
+        Core& c = m_core;
+        if (! t.started)
+        {
+            t.pos = now;
+            t.started = true;
+        }
+        if (t.xfLeft == 0)
+            decideSplice (t, rate, now, stereo);
+
+        if (needed)
+        {
+            const double newest = static_cast<double> (c.writePos - 1);
+            if (std::max (t.pos, t.xfLeft > 0 ? t.oldPos : t.pos) + c_readAhead > newest + 1.0e-6)
+                ++c.readsPastNewest;
+            float r1 = 0.0f;
+            const float l1 = readRings (t.pos, rate, r1, stereo);
+            if (t.xfLeft > 0)
+            {
+                float r0 = 0.0f;
+                const float l0 = readRings (t.oldPos, rate, r0, stereo);
+                const double u = 1.0 - static_cast<double> (t.xfLeft) / static_cast<double> (t.xfLen);
+                const float w1 = 1.0f - window (u);   // sin^2 (pi u / 2)
+                const float w0 = 1.0f - w1;
+                // Like joined to like: a plain crossfade; unrelated sound keeps its power.
+                const float power = w0 * w0 + w1 * w1 + 2.0f * t.join * w0 * w1;
+                const float norm = 1.0f / std::sqrt (std::max (power, 0.25f));
+                left = (w0 * l0 + w1 * l1) * norm;
+                right = (w0 * r0 + w1 * r1) * norm;
+            }
+            else
+            {
+                left = l1;
+                right = r1;
+            }
+        }
+        t.pos += rate;
+        if (t.xfLeft > 0)
+        {
+            t.oldPos += rate;
+            --t.xfLeft;
+        }
     }
 
     float PitchModule::window (double u) const

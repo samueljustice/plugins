@@ -2,6 +2,7 @@
 
 #include "Params.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -325,6 +326,76 @@ namespace Params::Random
             out.emplace_back (modules[static_cast<size_t> (m)].onId, on[static_cast<size_t> (m)] ? 1.0f : 0.0f);
             rollModule (rng, m, out);
         }
+    }
+
+    using ModuleSet = std::array<bool, numModules>;
+
+    /** ROLL ALL with some modules held: a held module keeps its On switch and its settings (nothing is
+        rolled for it); the others are rolled as ROLL ALL rolls them. The number of modules on stays
+        inside minModulesOn..maxModulesOn counting the held ones that are on (as far as the free modules
+        allow), with at least minCharacterModules character modules among all those on where the free
+        ones can make it so. With nothing held this draws different numbers from rollAll: call rollAll. */
+    template <typename Rng>
+    void rollAllHolding (Rng& rng, const ModuleSet& held, const ModuleSet& isOn, Values& out)
+    {
+        std::array<int, numModules> pick {};
+        int numFree = 0, heldOn = 0, heldCharacter = 0;
+        for (int m = 0; m < numModules; ++m)
+        {
+            if (held[static_cast<size_t> (m)])
+            {
+                heldOn += isOn[static_cast<size_t> (m)] ? 1 : 0;
+                heldCharacter += isOn[static_cast<size_t> (m)] && ! isUtility (m) ? 1 : 0;
+            }
+            else
+            {
+                pick[static_cast<size_t> (numFree++)] = m;
+            }
+        }
+        for (int i = numFree - 1; i > 0; --i)   // Fisher-Yates over the free modules
+        {
+            const int j = uniformInt (rng, i + 1);
+            std::swap (pick[static_cast<size_t> (i)], pick[static_cast<size_t> (j)]);
+        }
+
+        const int lo = std::min (numFree, std::max (0, minModulesOn - heldOn));
+        const int hi = std::min (numFree, std::max (lo, maxModulesOn - heldOn));
+        const int count = lo + uniformInt (rng, hi - lo + 1);
+        int character = heldCharacter;
+        for (int i = 0; i < count; ++i)
+            character += isUtility (pick[static_cast<size_t> (i)]) ? 0 : 1;
+        for (int i = count - 1, j = count; character < minCharacterModules && i >= 0; --i)
+        {
+            if (! isUtility (pick[static_cast<size_t> (i)]))
+                continue;
+            while (j < numFree && isUtility (pick[static_cast<size_t> (j)]))
+                ++j;
+            if (j >= numFree)
+                break;
+            std::swap (pick[static_cast<size_t> (i)], pick[static_cast<size_t> (j)]);
+            ++character;
+        }
+
+        ModuleSet on {};
+        for (int i = 0; i < count; ++i)
+            on[static_cast<size_t> (pick[static_cast<size_t> (i)])] = true;
+        for (int m = 0; m < numModules; ++m)
+        {
+            if (held[static_cast<size_t> (m)])
+                continue;
+            out.emplace_back (modules[static_cast<size_t> (m)].onId, on[static_cast<size_t> (m)] ? 1.0f : 0.0f);
+            rollModule (rng, m, out);
+        }
+    }
+
+    /** ROLL ALL for the modules that are on only (Shift-click): each of them, unless held, gets new
+        knobs and choices; every On switch and every module that is off stays as it is. */
+    template <typename Rng>
+    void rollModulesOn (Rng& rng, const ModuleSet& held, const ModuleSet& isOn, Values& out)
+    {
+        for (int m = 0; m < numModules; ++m)
+            if (isOn[static_cast<size_t> (m)] && ! held[static_cast<size_t> (m)])
+                rollModule (rng, m, out);
     }
 
     //==============================================================================================

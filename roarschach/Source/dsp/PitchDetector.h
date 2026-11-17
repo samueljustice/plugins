@@ -5,6 +5,13 @@
 #include <array>
 #include <vector>
 
+// Prototype (audit D6): a causal lattice of up to five dips per hop plus an unvoiced state, with a
+// short-lag preference and a sub-multiple guard, in place of the first-dip estimate and its
+// tracker. Off by default; 1 makes every detector start with it. Tests switch it per instance.
+#ifndef ROARSCHACH_DETECTOR_LATTICE
+ #define ROARSCHACH_DETECTOR_LATTICE 0
+#endif
+
 namespace roar
 {
     /**
@@ -58,6 +65,20 @@ namespace roar
 
         /** How far back (full-rate samples) the centre of the analysed window lies. */
         int getAnalysisDelaySamples() const { return m_analysisDelay; }
+        /** The whole analysed stretch (full-rate samples): how long after an onset the tracker can
+            answer, so how late its answers are against the audio. About 40.4 ms at every rate. */
+        int getReactionSamples() const { return (m_window + m_tauMax) * m_decimation; }
+
+        /** Test hook: the lattice tracker (prototype) on or off for this instance, and its
+            sub-multiple guard (a dip is reported only while the 1.2 kHz band holds at least
+            `guardShare` of the full-band power of the analysed stretch; 0 turns the guard off).
+            Call before prepare() or reset(). */
+        void setLatticeForTests (bool on, float guardShare = c_latticeGuardShare)
+        {
+            m_lattice = on;
+            m_latticeGuard = guardShare;
+        }
+        bool usesLattice() const { return m_lattice; }
 
         static constexpr float c_minFrequency = 50.0f;
         static constexpr float c_maxFrequency = 1000.0f;
@@ -81,6 +102,7 @@ namespace roar
         };
 
         void analyse();
+        void latticeStep (const float* d, bool loudEnough, double bandEnergy);
         static float dipDepth (const float* d, int tau);
         void track (float hz, float confidence);
 
@@ -105,6 +127,19 @@ namespace roar
         int m_ringFilled = 0;
         std::vector<float> m_frame;
         std::vector<float> m_diff;
+
+        // Full-band power beside the band ring (the lattice's sub-multiple guard): the mean square
+        // of the high-passed input over each decimation group, one value per decimated sample.
+        std::vector<float> m_fullRing;
+        float m_fullAcc = 0.0f;
+
+        // Lattice prototype: the states of the previous hop (the unvoiced state first).
+        bool m_lattice = ROARSCHACH_DETECTOR_LATTICE != 0;
+        float m_latticeGuard = c_latticeGuardShare;
+        static constexpr int c_latticeStates = 6;
+        std::array<float, c_latticeStates> m_latSt {}, m_latCost {};
+        std::array<bool, c_latticeStates> m_latVoiced {};
+        int m_latCount = 0;
 
         // Median-of-three on periodic estimates rejects isolated octave errors.
         std::array<float, 3> m_history { 0.0f, 0.0f, 0.0f };
@@ -132,5 +167,13 @@ namespace roar
         static constexpr int c_offHops = 3;
         static constexpr int c_jumpHops = 2;
         static constexpr int c_octaveHops = 4;
+
+        static constexpr float c_latticeGuardShare = 0.10f;
+        static constexpr float c_latticeDipCeiling = 0.45f;   // the fallback threshold: deeper dips only
+        static constexpr float c_latticeUnvoicedCost = 0.60f;
+        static constexpr float c_latticeLagPrior = 0.08f;     // cost per octave of lag above the shortest
+        static constexpr float c_latticeCostPerSt = 0.03f;    // pitch move between hops
+        static constexpr float c_latticeJumpCap = 0.40f;
+        static constexpr float c_latticeSwitchCost = 0.30f;   // voiced <-> unvoiced
     };
 }

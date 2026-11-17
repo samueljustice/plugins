@@ -62,19 +62,41 @@ public:
     juce::PopupMenu buildMoveMenu(int module) const;
     void applyMove(int module, int item);
 
-    /** The mode chip's menu. itemMap[itemId] = (choice parameter, choice index). */
+    /** The mode chip's menu: one flat list, a section (headed with the module and the caption) for each
+        of its choice parameters. itemMap[itemId] = (choice parameter, choice index). */
     juce::PopupMenu buildModeMenu(int module, std::vector<std::pair<const char*, int>>& itemMap) const;
+    /** Steps the mode chip's first choice parameter to the next (direction > 0) or previous choice, as
+        the mouse wheel and Up / Down on the chip do (one gesture, stopping at either end). True if it moved. */
+    bool stepModeChoice(int module, int direction);
     /** The mode chip's text: the current choices, compact. */
     juce::String modeChipText(int module, float maxWidth) const;
 
     void showMoveMenu(int module);
     void showModeMenu(int module);
 
+    /** A knob's right-click menu: Reset to Default (with the default's value), Type a Value, and the
+        host's own items for the parameter when the host offers them. */
+    enum KnobMenuItem { knobReset = 0x5245, knobType = 0x5246 };
+    juce::PopupMenu buildKnobMenu(const char* paramId) const;
+    void applyKnobMenu(const char* paramId, int item);
+    void showKnobMenu(const char* paramId);
+    /** The knob slider of a parameter (nullptr when none). */
+    juce::Slider* getKnobFor(const char* paramId) const;
+
     //==============================================================================
     // The dice: ROLL ALL (in the empty slot after the last module) and one per module tile. The
     // editor connects them to the processor's DiceRoller.
-    std::function<void()> onRollAll;
+    /** Randomise All: onlyOn is true for a Shift-click (roll only the modules that are on). */
+    std::function<void(bool onlyOn)> onRollAll;
     std::function<void(int module)> onRollModule;
+    /** What a click on Randomise All does with these modifier keys (the die calls it). */
+    void rollAllClicked(juce::ModifierKeys modifiers) { if (onRollAll) onRollAll(modifiers.isShiftDown()); }
+    /** The modules held in Randomise All: their dice show the held mark. */
+    void setHeldModules(const std::array<bool, Params::numModules>& held);
+    std::array<bool, Params::numModules> getHeldModules() const { return m_held; }
+    /** An Alt-click on a module's On switch: solo it, or come back from its solo (the editor connects
+        it to the processor). */
+    std::function<void(int module)> onSolo;
     /** A right-click on any die (the undo menu), with the die it came from. */
     std::function<void(juce::Component& die)> onDiceMenu;
     /** Cmd+Z (redo false) or Shift+Cmd+Z (redo true) on a die that has the keyboard focus. True if
@@ -133,6 +155,9 @@ private:
     class InTile;
     class OutputTile;
     class MoveChip;
+    class ModeChip;
+    class OnSwitch;
+    class KnobSlider;
     class DragShadow;
 
     void timerCallback() override;
@@ -192,6 +217,7 @@ private:
     AnimationTimer m_animationTimer { *this };
 
     juce::Component* m_menuParent = nullptr;
+    std::array<bool, Params::numModules> m_held {};
     float m_titlePoint = Theme::Type::tileTitle;   // the module names' size: the largest at which every name fits its tile
     double m_lastTickMs = 0.0;
 };

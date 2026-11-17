@@ -62,7 +62,7 @@ namespace roar
         m_firstFrame = m_clock >> c_voiceFrameShift;
         m_startOffset = static_cast<int> (m_clock & (c_voiceFrameSize - 1));
         m_numFrames = std::min (framesFor (m_startOffset, numSamples), static_cast<int> (m_frames.size()));
-        m_skew = 0;
+        m_skew = m_lateness;
         m_clock += std::max (0, numSamples);
 
         std::fill (m_frames.begin(), m_frames.begin() + m_numFrames, held);
@@ -175,7 +175,7 @@ namespace roar
             return delayed;
 
         m_scratch.assign (delayed);
-        rewriter->rewriteVoice (m_scratch.frames(), m_scratch.numFrames());
+        rewriter->rewriteVoice (m_scratch.frames(), m_scratch.numFrames(), delayed.firstFrameIndex(), delayed.skewSamples());
         return m_scratch.view();
     }
 

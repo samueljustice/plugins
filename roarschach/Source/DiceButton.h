@@ -64,6 +64,27 @@ public:
     }
     bool isMuted() const noexcept { return m_muted; }
 
+    /** A die whose module is held in Randomise All: a small ink pin at the die's upper right corner. */
+    void setHeld(bool held)
+    {
+        if (held != m_held)
+        {
+            m_held = held;
+            repaint();
+        }
+    }
+    bool isHeld() const noexcept { return m_held; }
+
+    /** Where the held mark is drawn (its paper ring included), inside the pill. */
+    juce::Rectangle<float> getHeldMarkBounds() const
+    {
+        const auto pill = getPillBounds();
+        const auto die = juce::Rectangle<float>(dieSideFor(pill.getWidth() + 1.0f), dieSideFor(pill.getWidth() + 1.0f)).withCentre(pill.getCentre());
+        const float ring = c_heldPin + 2.0f;
+        return juce::Rectangle<float>(ring, ring).withCentre({ die.getRight() - 0.5f, die.getY() + 0.5f })
+                   .constrainedWithin(pill);
+    }
+
     /** The pill's side (0: the whole button). A smaller pill leaves a margin that still clicks. */
     void setPillSize(int side) { m_pillSize = side; repaint(); }
     int getPillSize() const noexcept { return m_pillSize; }
@@ -190,6 +211,17 @@ public:
         const auto area = juce::Rectangle<float>(side, side).withCentre(pill.getCentre().translated(0.0f, isDown ? 0.5f : 0.0f));
         drawDie(g, area, m_face, body, pips, g.getInternalContext().getPhysicalPixelScaleFactor());
 
+        if (m_held)
+        {
+            // Held in Randomise All: a pin of ink on the die's corner, set off from the outline by a
+            // ring of paper (it sinks with the die when pressed).
+            const auto mark = getHeldMarkBounds().translated(0.0f, isDown ? 0.5f : 0.0f);
+            g.setColour(Theme::Colours::sheet);
+            g.fillEllipse(mark);
+            g.setColour(enabled ? Theme::Colours::ink : Theme::Colours::inkFaint);
+            g.fillEllipse(mark.withSizeKeepingCentre(c_heldPin, c_heldPin));
+        }
+
         if (m_caption.isNotEmpty())
         {
             if (m_captionFont != nullptr)
@@ -197,6 +229,15 @@ public:
             g.setColour(!enabled ? Theme::Colours::inkFaint : isDown || isMouseOver ? Theme::Colours::ink : Theme::Colours::inkDim);
             g.drawText(m_caption, getCaptionBounds(), juce::Justification::centred, false);
         }
+    }
+
+    /** The modifier keys held at the last click (Shift-click on Randomise All). */
+    juce::ModifierKeys getClickModifiers() const noexcept { return m_clickModifiers; }
+
+    void clicked(const juce::ModifierKeys& modifiers) override
+    {
+        m_clickModifiers = modifiers;
+        juce::Button::clicked(modifiers);
     }
 
     void mouseDown(const juce::MouseEvent& e) override
@@ -266,8 +307,11 @@ private:
         DiceButton& m_button;
     };
 
+    static constexpr float c_heldPin = 5.0f;   // the held mark's ink dot (design px)
+
     int m_face = 5;
-    bool m_muted = false;
+    bool m_muted = false, m_held = false;
+    juce::ModifierKeys m_clickModifiers;
     int m_pillSize = 0;
     juce::String m_caption;
     std::unique_ptr<juce::Font> m_captionFont;   // (a theme font, given with the caption)

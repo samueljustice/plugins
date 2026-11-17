@@ -14,13 +14,26 @@ namespace roar
     {
         constexpr double c_smoothSeconds = 0.020 / 4.6;     // Push, Ceiling, Mix, Clip, Shape settle within 20 ms
 
-        // Auto gain
-        constexpr double c_meterSeconds = 0.400;
-        constexpr double c_glideSeconds = 0.400;
-        constexpr double c_learnAboveDb = -50.0;
-        constexpr double c_maxBoostDb = 6.0, c_maxCutDb = -12.0;
-        constexpr double c_guardAboveCeilingDb = 3.0;
-        constexpr double c_peakReleaseSeconds = 1.0;
+        // Level match
+        constexpr double c_level20Seconds = 0.020;
+        constexpr double c_wetWindowDb = 24.0;               // the wet is present: no more than this under the dry
+        constexpr double c_holdSeconds = 0.15;
+        constexpr double c_phase1Seconds = 0.5, c_phase1DbPerSecond = 24.0;
+        constexpr double c_phase2Seconds = 2.0, c_phase2DbPerSecond = 6.0;
+        constexpr double c_slowDbPerSecond = 0.5;
+        constexpr double c_stopSeconds = 10.0;
+        constexpr double c_minMatchDb = -12.0, c_maxMatchDb = 15.0;
+        constexpr double c_inMovedDb = 2.0, c_inMovedDataSeconds = 4.0;
+        constexpr double c_hintWeightSeconds = OutputModule::hintWeightSeconds;
+        constexpr double c_matchBlendSeconds = 0.020;
+        constexpr double c_minTraceGain = 1.0e-3;
+
+        // Mix law
+        constexpr double c_mixPowerSeconds = 0.400;
+
+        double clampMatch (double db) { return std::clamp (db, c_minMatchDb, c_maxMatchDb); }
+        double ratioDb (double dry, double wet) { return clampMatch (10.0 * std::log10 ((dry + 1.0e-30) / (wet + 1.0e-30))); }
+
         constexpr double c_weightHpHz = 80.0, c_wetHpHz = 20.0, c_wetLowShelfHz = 80.0, c_wetLowShelfDb = -6.0;
         constexpr double c_weightShelfHz = 1500.0, c_weightShelfDb = 4.0;
 
@@ -335,10 +348,9 @@ namespace roar
         const double frameRate = m_fs / static_cast<double> (c_frame);
         m_smoothCoeff = dsp::onePoleCoeff (c_smoothSeconds, m_fs);
         m_rideMsCoeff = dsp::onePoleCoeff (c_rideRmsSeconds, m_fs);
-        m_peakRelease = dsp::poleFromTau (c_peakReleaseSeconds, m_fs);
-        m_meterCoeff = dsp::onePoleCoeff (c_meterSeconds, frameRate);
-        m_glideCoeff = dsp::onePoleCoeff (c_glideSeconds, frameRate);
-        m_meanFrames = std::max (1, static_cast<int> (std::lround (c_meterSeconds * frameRate)));
+        m_level20Coeff = dsp::onePoleCoeff (c_level20Seconds, frameRate);
+        m_matchBlendStep = 1.0 / std::max (1.0, c_matchBlendSeconds * m_fs);
+        m_rhoCoeff = dsp::onePoleCoeff (c_mixPowerSeconds, m_fs);
         m_slowCoeff = dsp::onePoleCoeff (c_autoSlowSeconds, m_fs);
         m_safetyRelease = dsp::onePoleCoeff (c_safetyReleaseSeconds, m_fs);
         m_holdMin = dsp::samplesFor (c_holdMinSeconds, m_fs, 1);
@@ -463,8 +475,23 @@ namespace roar
         m_s.filters = keep.filters;
         m_s.autoGainOn = keep.autoGainOn;
         m_s.ride = keep.ride;
+        m_s.invertWet = keep.invertWet;
         m_s.holdLength = m_holdMin;
         m_s.snap = true;
+        // The match: its switch and the applied gain snap; probe, prior and the counters are kept.
+        m_s.matchOn = keep.matchOn;
+        m_s.matchBlend = keep.matchOn ? 1.0 : 0.0;
+        m_s.matchApplied = m_m.matchDb;
+        m_s.probing = keep.probing;
+        m_s.probeSeconds = keep.probeSeconds;
+        m_s.probeDry = keep.probeDry;
+        m_s.probeWet = keep.probeWet;
+        m_s.priorDb = keep.priorDb;
+        m_s.priorWeight = keep.priorWeight;
+        m_s.settleFrames = keep.settleFrames;
+        m_s.probeAdoptions = keep.probeAdoptions;
+        m_s.matchedFrames = keep.matchedFrames;
+        m_s.wetRejectedFrames = keep.wetRejectedFrames;
 
         fillCeilingRing();
         m_envelopeRing.reset();
@@ -486,10 +513,15 @@ namespace roar
         const double release = std::isfinite (s.releaseMs) ? static_cast<double> (s.releaseMs) : 60.0;
         m_s.releaseMs = std::clamp (release, c_minReleaseMs, c_maxReleaseMs);
         m_s.autoRelease = s.autoRelease;
+        // Level Match Off to On: a fresh learn (M is kept until new evidence moves it).
+        if (s.levelMatch && ! m_s.matchOn)
+            freshLearn();
+        m_s.matchOn = s.levelMatch;
 
         if (m_s.snap)
         {
             m_s.snap = false;
+            m_s.matchBlend = m_s.matchOn ? 1.0 : 0.0;
             m_s.pushDb = m_s.pushTarget;
             m_s.ceilingDb = m_s.ceilingTarget;
             m_s.pushGain = std::exp (laws::pushGainDb (m_s.pushDb, m_s.ceilingDb) * c_dbToLog);
@@ -509,11 +541,96 @@ namespace roar
         m_s.filters = filters;
         m_s.autoGainOn = autoGain;
         m_s.ride = ride;
-        if (! autoGain)
+    }
+
+    void OutputModule::freshLearn()
+    {
+        auto& m = m_m;
+        m.seconds = 0.0;
+        m.dataSeconds = 0.0;
+        m.dryPower = m.wetPower = 0.0;
+        m.haveGainRef = false;
+        m.gainRefDb = 0.0;
+        m_s.probing = false;
+        m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
+        m_s.priorDb = 0.0;
+        m_s.priorWeight = 0.0;
+    }
+
+    void OutputModule::clearLearning()
+    {
+        freshLearn();
+        m_m.matchDb = 0.0;
+    }
+
+    void OutputModule::applyHint (double matchDb, int settleSamples)
+    {
+        if (! std::isfinite (matchDb))
+            return;
+        freshLearn();
+        m_m.matchDb = clampMatch (matchDb);
+        m_s.priorDb = m_m.matchDb;
+        m_s.priorWeight = c_hintWeightSeconds;
+        m_s.settleFrames = std::max (0, settleSamples + c_frame - 1) / c_frame;
+    }
+
+    OutputModule::MatchState OutputModule::getMatchState() const
+    {
+        auto m = m_m;
+        m.priorDb = m_s.priorDb;
+        m.priorWeight = m_s.priorWeight;
+        return m;
+    }
+
+    void OutputModule::restoreLearning (const MatchState& in)
+    {
+        const auto finiteOr = [] (double x, double fallback) { return std::isfinite (x) ? x : fallback; };
+        MatchState m;
+        m.matchDb = clampMatch (finiteOr (in.matchDb, 0.0));
+        m.seconds = std::clamp (finiteOr (in.seconds, 0.0), 0.0, c_stopSeconds);
+        m.dryPower = std::max (0.0, finiteOr (in.dryPower, 0.0));
+        m.wetPower = std::max (0.0, finiteOr (in.wetPower, 0.0));
+        m.dataSeconds = std::clamp (finiteOr (in.dataSeconds, 0.0), 0.0, 10000.0);
+        m.haveGainRef = in.haveGainRef && std::isfinite (in.gainRefDb);
+        m.gainRefDb = m.haveGainRef ? std::clamp (in.gainRefDb, -18.0, 48.0) : 0.0;
+        m.haveKey = in.haveKey;
+        m.key = in.key;
+        m_m = m;
+        m_s.probing = false;
+        m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
+        // The hint's prior goes on as it would have in the saved instance (a young match is still
+        // weighed against it); missing or damaged: none.
+        const double weight = finiteOr (in.priorWeight, 0.0);
+        m_s.priorWeight = weight > 0.0 ? std::min (weight, c_hintWeightSeconds) : 0.0;
+        m_s.priorDb = m_s.priorWeight > 0.0 ? clampMatch (finiteOr (in.priorDb, 0.0)) : 0.0;
+        m_s.matchApplied = m_m.matchDb;
+    }
+
+    void OutputModule::setSettingsKey (std::uint64_t key, bool adopt)
+    {
+        auto& m = m_m;
+        if (! m.haveKey || adopt)
         {
-            m_s.autoGainDb = 0.0;
-            m_s.gainPrev = m_s.gainNext = 1.0;
+            m.haveKey = true;
+            m.key = key;
+            return;
         }
+        if (key == m.key)
+            return;
+        m.key = key;
+        if (m.dataSeconds <= 0.0)
+        {
+            // Nothing heard since the hint (or the clear): there is nothing to weigh, and a hint
+            // describes the settings it came with. M stays as the starting point and the next
+            // matched sound is learnt with the hold and both fast phases.
+            m_s.probing = false;
+            m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
+            m_s.priorWeight = 0.0;
+            return;
+        }
+        // A settings change: weigh new evidence beside the held match; M does not move meanwhile.
+        m_s.probing = true;
+        m_s.probeSeconds = m_s.probeDry = m_s.probeWet = 0.0;
     }
 
     float OutputModule::truePeakDetect (TruePeakHistory& hist, float x) const
@@ -574,46 +691,120 @@ namespace roar
         return decimate (c, ra, rb);
     }
 
-    void OutputModule::endFrame()
+    void OutputModule::endFrame (bool learn)
     {
         auto& s = m_s;
+        auto& m = m_m;
+        const double dt = static_cast<double> (c_frame) / m_fs;
         const double wetMs = s.wetSum / static_cast<double> (c_frame);
         const double dryMs = s.drySum / static_cast<double> (c_frame);
         s.wetSum = s.drySum = 0.0;
         s.framePhase = 0;
 
-        if (s.autoGainOn && 10.0 * std::log10 (dryMs + 1.0e-30) > c_learnAboveDb)
+        // The mix law's gain for the next frame (section "Mix" of the class comment).
         {
-            ++s.learnedFrames;
-            const double k = s.learnedFrames < m_meanFrames ? 1.0 / static_cast<double> (s.learnedFrames) : m_meterCoeff;
-            s.wetMeter += k * (wetMs - s.wetMeter);
-            s.dryMeter += k * (dryMs - s.dryMeter);
-
-            double target = std::clamp (10.0 * std::log10 ((s.dryMeter + 1.0e-30) / (s.wetMeter + 1.0e-30)), c_maxCutDb, c_maxBoostDb);
-            if (target > 0.0)
-            {
-                const double guard = s.ceilingDb + c_guardAboveCeilingDb - 20.0 * std::log10 (s.wetPeak + 1.0e-30);
-                target = std::max (0.0, std::min (target, guard));
-            }
-            s.autoGainDb += m_glideCoeff * (target - s.autoGainDb);
+            s.mixKPrev = s.mixK;
+            const double c = s.mixDry, sn = s.mixWet;
+            const double x = std::clamp (s.mixDw, 0.0, std::sqrt (std::max (0.0, s.mixDd * s.mixWw)));
+            const double pt = c * c * s.mixDd + sn * sn * s.mixWw;
+            if (pt > 1.0e-12)
+                s.mixK = std::sqrt (pt / (pt + 2.0 * c * sn * x));
         }
 
-        s.gainPrev = s.gainNext;
-        s.gainNext = s.autoGainOn ? std::exp (s.autoGainDb * c_dbToLog) : 1.0;
+        s.dry20 = dsp::flushTiny (s.dry20 + m_level20Coeff * (dryMs - s.dry20));
+        s.wet20 = dsp::flushTiny (s.wet20 + m_level20Coeff * (wetMs - s.wet20));
+        if (s.settleFrames > 0)
+        {
+            --s.settleFrames;   // after a hint: the chain is still settling into the loaded settings
+            return;
+        }
+        if (! learn || s.lastActive <= 0.5f)
+            return;
+        if (10.0 * std::log10 (s.wet20 + 1.0e-30) <= 10.0 * std::log10 (s.dry20 + 1.0e-30) - c_wetWindowDb)
+        {
+            ++s.wetRejectedFrames;   // a shut gate is not a level to correct
+            return;
+        }
+
+        // A matched frame.
+        ++s.matchedFrames;
+        const double g = 20.0 * std::log10 (std::max (static_cast<double> (s.lastGain), c_minTraceGain));
+        if (m.haveGainRef && std::abs (g - m.gainRefDb) > c_inMovedDb)
+        {
+            // IN moved: what was learnt belongs to another drive level; it can no longer outweigh 4 s.
+            m.seconds = std::min (m.seconds, c_phase2Seconds);
+            m.dataSeconds = std::min (m.dataSeconds, c_inMovedDataSeconds);
+            s.priorWeight = 0.0;
+            m.gainRefDb = g;
+        }
+        if (! m.haveGainRef)
+        {
+            m.haveGainRef = true;
+            m.gainRefDb = g;
+        }
+
+        if (s.probing)
+        {
+            s.probeSeconds += dt;
+            const double k = dt / s.probeSeconds;
+            s.probeDry += k * (dryMs - s.probeDry);
+            s.probeWet += k * (wetMs - s.probeWet);
+            const double t = s.probeSeconds;
+            const double thr = t >= 2.0 ? 2.0 : (t >= 1.0 ? 3.0 : (t >= 0.5 ? 4.0 : -1.0));
+            if (thr > 0.0 && std::abs (ratioDb (s.probeDry, s.probeWet) - m.matchDb) > thr)
+            {
+                // Adopt: the settings changed what the chain does at the working level.
+                m.dryPower = s.probeDry;
+                m.wetPower = s.probeWet;
+                m.dataSeconds = s.probeSeconds;
+                m.seconds = c_phase1Seconds;
+                s.priorWeight = 0.0;
+                m.gainRefDb = g;
+                m.haveGainRef = true;
+                s.probing = false;
+                ++s.probeAdoptions;
+            }
+            else if (t >= 2.0)
+            {
+                s.probing = false;   // nothing changed
+            }
+        }
+        else if (m.seconds < c_stopSeconds)
+        {
+            m.seconds += dt;
+            m.dataSeconds += dt;
+            const double k = dt / m.dataSeconds;
+            m.dryPower += k * (dryMs - m.dryPower);
+            m.wetPower += k * (wetMs - m.wetPower);
+            const double r = 10.0 * std::log10 ((m.dryPower + 1.0e-30) / (m.wetPower + 1.0e-30));
+            // The hint's weight fades out over the learn, so the stopped match is the data's own.
+            const double pw = s.priorWeight * std::max (0.0, 1.0 - m.seconds / c_stopSeconds);
+            const double rt = clampMatch ((m.dataSeconds * r + pw * s.priorDb) / (m.dataSeconds + pw));
+            double rate = m.seconds < c_holdSeconds ? 0.0
+                        : (m.seconds < c_phase1Seconds ? c_phase1DbPerSecond
+                        : (m.seconds < c_phase2Seconds ? c_phase2DbPerSecond : c_slowDbPerSecond));
+            if (s.priorWeight > 0.0)
+                rate = std::min (rate, c_phase2DbPerSecond);   // a hint is in force: no fast phase over it
+            m.matchDb += std::clamp (rt - m.matchDb, -rate * dt, rate * dt);
+        }
     }
 
     void OutputModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& /*voice*/)
     {
-        processWithDry (l, r, nullptr, nullptr, n, stereo);
+        processWithDry (l, r, nullptr, nullptr, nullptr, nullptr, n, stereo);
     }
 
-    void OutputModule::processWithDry (float* l, float* r, const float* dryL, const float* dryR, int n, bool stereo)
+    void OutputModule::processWithDry (float* l, float* r, const float* dryL, const float* dryR,
+                                       const float* gainTrace, const float* activeTrace, int n, bool stereo)
     {
         auto& s = m_s;
         const int numCh = stereo ? 2 : 1;
         float* io[2] = { l, r };
         const float* dry[2] = { dryL, dryR != nullptr ? dryR : dryL };
         const bool hasDry = dryL != nullptr;
+        const bool compOn = hasDry && s.autoGainOn;     // comp and the match (the test hook switches both off)
+        const bool learn = compOn;
+        const double matchBlendTarget = s.matchOn && s.autoGainOn ? 1.0 : 0.0;
 
         // Block rate: release coefficient, and one Attack change at a time (primed, then crossfaded).
         const double releaseSeconds = s.releaseMs * 1.0e-3;
@@ -651,9 +842,24 @@ namespace roar
             s.shape = smooth (s.shape, s.shapeTarget, m_smoothCoeff);
             m_ceilingRing.push (static_cast<float> (s.ceilingDb));
 
+            // IN's working level comes back off (comp), and the held match.
+            double comp = 1.0;
+            if (compOn)
+            {
+                const float gt = gainTrace != nullptr ? gainTrace[i] : 1.0f;
+                s.lastGain = std::isfinite (gt) ? gt : 1.0f;
+                s.lastActive = activeTrace != nullptr ? activeTrace[i] : 0.0f;
+                comp = 1.0 / std::max (static_cast<double> (s.lastGain), c_minTraceGain);
+            }
+            s.matchBlend = matchBlendTarget > s.matchBlend ? std::min (matchBlendTarget, s.matchBlend + m_matchBlendStep)
+                                                           : std::max (matchBlendTarget, s.matchBlend - m_matchBlendStep);
+            s.matchApplied = smooth (s.matchApplied, m_m.matchDb, m_smoothCoeff);
+            const double matchGain = s.matchBlend > 0.0 ? std::exp (s.matchBlend * s.matchApplied * c_dbToLog) : 1.0;
+            const double levelGain = comp * matchGain;
+
             // 1. Filters, loudness and peak measurement of the wet.
             float w[2] = { 0.0f, 0.0f };
-            double wetPow = 0.0, dryPow = 0.0, wetAbs = 0.0, ridePow = 0.0;
+            double wetPow = 0.0, dryPow = 0.0, ridePow = 0.0;
             for (int c = 0; c < numCh; ++c)
             {
                 auto& ch = m_ch[static_cast<size_t> (c)];
@@ -662,7 +868,6 @@ namespace roar
                     x = ch.lp.process (ch.hp2.process (ch.hp1.process (x)));
                 x = dsp::flushTiny (x);
                 w[c] = x;
-                wetAbs = std::max (wetAbs, static_cast<double> (std::abs (x)));
                 const double ww = ch.wetShelf.process (ch.wetLowShelf.process (ch.wetHp.process (static_cast<double> (x))));
                 wetPow += ww * ww;
                 if (hasDry)
@@ -673,15 +878,13 @@ namespace roar
                 }
             }
             const double chScale = 1.0 / static_cast<double> (numCh);
-            s.wetSum += wetPow * chScale;
+            s.wetSum += wetPow * chScale * comp * comp;
             s.drySum += dryPow * chScale;
-            s.wetPeak = std::max (wetAbs, s.wetPeak * m_peakRelease);
 
-            // 2. Auto gain (interpolated across the control frame), 3. Ride, 4. Push.
-            const double autoGain = s.gainPrev + (s.gainNext - s.gainPrev) * static_cast<double> (s.framePhase + 1) * invFrame;
+            // 2. Comp and match, 3. Ride, 4. Push.
             for (int c = 0; c < numCh; ++c)
             {
-                const double v = static_cast<double> (w[c]) * autoGain;
+                const double v = static_cast<double> (w[c]) * levelGain;
                 ridePow = std::max (ridePow, v * v);
             }
             double rideGain = 1.0;
@@ -692,25 +895,43 @@ namespace roar
                 const double gr = GainComputer::compress (levelDb, c_rideThresholdDb, rideSlope, c_rideKneeDb, c_rideDepthDb);
                 rideGain = std::exp (m_ride.process (gr) * c_dbToLog);
             }
-            const auto gain = static_cast<float> (autoGain * rideGain * s.pushGain);
+            const auto gain = static_cast<float> (levelGain * rideGain * s.pushGain);
 
-            // 5. Mix with the dry (both aligned with OUTPUT's input): the dry gets Push too, equal power.
+            // 5. Mix with the dry (both aligned with OUTPUT's input): the dry gets Push too; cos / sin
+            //    gains times k, which follows the dry / wet correlation (power interpolation).
             if (s.mix != s.mixGainsFor)
             {
                 s.mixGainsFor = s.mix;
                 s.mixDry = laws::mixDryGain (s.mix);
                 s.mixWet = laws::mixWetGain (s.mix);
             }
+            const double mixK = s.mixKPrev + (s.mixK - s.mixKPrev) * static_cast<double> (s.framePhase + 1) * invFrame;
             float z[2] = { 0.0f, 0.0f };
+            double sumDd = 0.0, sumWw = 0.0, sumDw = 0.0;
             for (int c = 0; c < numCh; ++c)
             {
                 float v = w[c] * gain;
-                if (hasDry && s.mix < 1.0)
+                if (s.invertWet)
+                    v = -v;
+                if (hasDry)
                 {
                     const double d = static_cast<double> (safeInput (dry[c][i])) * s.pushGain;
-                    v = static_cast<float> (s.mixDry * d + s.mixWet * static_cast<double> (v));
+                    const double wv = static_cast<double> (v);
+                    sumDd += d * d;
+                    sumWw += wv * wv;
+                    sumDw += d * wv;
+                    if (s.mix < 1.0)
+                        v = static_cast<float> (mixK * (s.mixDry * d + s.mixWet * wv));
                 }
                 z[c] = v;
+            }
+            if (hasDry)
+            {
+                s.mixCount = std::min (s.mixCount + 1.0, 1.0e9);
+                const double kr = std::max (m_rhoCoeff, 1.0 / s.mixCount);
+                s.mixDd = dsp::flushTiny (s.mixDd + kr * (sumDd - s.mixDd));
+                s.mixWw = dsp::flushTiny (s.mixWw + kr * (sumWw - s.mixWw));
+                s.mixDw = dsp::flushTiny (s.mixDw + kr * (sumDw - s.mixDw));
             }
 
             // 6. Main maximizer: detector against theta + Clip.
@@ -854,7 +1075,7 @@ namespace roar
             }
 
             if (++s.framePhase >= c_frame)
-                endFrame();
+                endFrame (learn);
         }
 
         if (n > 0)
@@ -880,6 +1101,7 @@ namespace roar
         m_safetyRamp.copyStateFrom (o.m_safetyRamp);
         m_ride.copyStateFrom (o.m_ride);
         m_s = o.m_s;
+        m_m = o.m_m;
     }
 
     void OutputModule::copyLeftStateToRight()

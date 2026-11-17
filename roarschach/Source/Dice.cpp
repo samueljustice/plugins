@@ -245,13 +245,31 @@ int DiceRoller::rollPreset()
     return pick;
 }
 
-void DiceRoller::rollAll()
+bool DiceRoller::rollAll(const Params::Random::ModuleSet& held, bool onlyOn)
 {
+    Params::Random::ModuleSet isOn {};
+    bool anyHeld = false, anyToRoll = false;
+    for (int m = 0; m < Params::numModules; ++m)
+    {
+        const auto* on = m_parameters.getRawParameterValue(Params::modules[static_cast<size_t>(m)].onId);
+        isOn[static_cast<size_t>(m)] = on != nullptr && on->load() >= 0.5f;
+        anyHeld = anyHeld || held[static_cast<size_t>(m)];
+        anyToRoll = anyToRoll || (!held[static_cast<size_t>(m)] && (!onlyOn || isOn[static_cast<size_t>(m)]));
+    }
+    if (!anyToRoll)
+        return false;
+
     auto before = begin();
     Params::Random::Values values;
-    Params::Random::rollAll(m_rng, values);
+    if (onlyOn)
+        Params::Random::rollModulesOn(m_rng, held, isOn, values);
+    else if (anyHeld)
+        Params::Random::rollAllHolding(m_rng, held, isOn, values);
+    else
+        Params::Random::rollAll(m_rng, values);   // (nothing held: the same numbers as ever for a seed)
     applyRealValues(values);
-    commit(std::move(before), "Roll All");
+    commit(std::move(before), onlyOn ? "Roll Modules On" : "Roll All");
+    return true;
 }
 
 void DiceRoller::rollModule(int module)

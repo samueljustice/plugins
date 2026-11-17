@@ -67,8 +67,8 @@ namespace
         { Params::cleanContain, "CONTAIN", "Evens out the level and catches peaks before the creature stages. It starts working at the bottom of the travel." },
         { Params::cleanGate, "GATE", "Closes on room noise between words; higher settings close further and harder. 25-40 % suits dialogue." },
         { Params::cleanTone, "TONE", "The voice EQ. Flat leaves the voice as it is, Voice cleans up the low mids, Heavy cuts the boom and low mids hard for a tight, forward chest (it thins the lows), Radio is a narrow, lo-fi band." },
-        { Params::deess, "AMOUNT", "Softens harsh S and T sounds: more travel takes them down further." },
-        { Params::deessMode, "MODE", "Split turns down only the hiss above about 3.5 kHz on each S. Wide turns down the whole voice for the length of the S, which also tames lisps and mouth noise but dips the words." },
+        { Params::deess, "AMOUNT", "How far sibilance is turned down: about 9 dB at 50 %, 20 dB at 100 % on a normal ess. It follows the voice: a steady rasp passes, an ess that jumps out is caught." },
+        { Params::deessMode, "MODE", "Split dips only the top of the voice, from about 3 kHz up. Wide turns the whole voice down for the length of the ess, which also tames lisps and mouth noise but dips the words; it lets go after about a third of a second." },
         { Params::detailLow, "LOW", "Lifts the quiet parts (breaths, consonants, tails) while the loud syllables stay where they are. 40-60 % is a clear lift; it never lifts the room tone the gate is taking out." },
         { Params::detailHigh, "HIGH", "Pushes the loud parts up into a soft ceiling: denser and more forward. 30-60 % is a strong, even level." },
         { Params::detailSpeed, "SPEED", "How quickly the level follows the voice. Natural is smooth; Snappy recovers faster and sounds more lively." },
@@ -85,28 +85,28 @@ namespace
         { Params::shimmerRate, "RATE", "How fast the wobble beats. 0.5-2 Hz is a liquid swell, 3-9 Hz a warble, 13 Hz and up rough." },
         { Params::shimmerMode, "MODE", "Which way the copy is moved. Up and Down wobble differently, Up+Down uses both, Stereo puts one on each side (summed to mono, Stereo wobbles less)." },
         { Params::growl, "DEPTH", "How deeply the voice is chopped. 15-35 % adds texture; 45-100 % is an obvious growl." },
-        { Params::growlRate, "RATE", "How fast the voice is chopped. 5-7 Hz stutters, 20-35 Hz growls, 60-100 Hz buzzes. Not used by the Throat shape." },
-        { Params::growlShape, "SHAPE", "The chop's shape. Sine is smooth, Opto pulses like a lamp, Square switches hard, Throat locks to half the voice's pitch (Rate is not used), Rattle speeds up as the voice gets louder." },
-        { Params::growlCharacter, "CHARACTER", "What the chop does to the tone. Clean only changes the level, Warm rounds the low end, Grind adds a gritty edge." },
+        { Params::growlRate, "RATE", "The average rate of the pulses. 5-7 Hz stutters, 20-35 Hz growls, 60-100 Hz buzzes. Not used by the Throat shape." },
+        { Params::growlShape, "SHAPE", "The pulse's shape. Sine is smooth, Opto pulses like a lamp, Square switches hard; from about 10 Hz up these three vary a little from cycle to cycle, for a rough voice rather than a steady chop. Rattle speeds up as the voice gets louder. Throat locks to half the voice's pitch (Rate is not used)." },
+        { Params::growlCharacter, "CHARACTER", "How much the pulse distorts the tone. Clean only changes the level, Warm rounds the low end, Grind adds a gritty edge. Grind is as loud as Warm at working level; a very hot voice comes out a few dB under." },
         { Params::swirl, "AMOUNT", "How much of the sweeping phaser is mixed in." },
         { Params::swirlRate, "RATE", "How fast the phaser sweeps. 0.15-0.5 Hz is slow and liquid, 1-2.5 Hz animated, 4 Hz and up a warble." },
         { Params::swirlCircuit, "CIRCUIT", "The phaser's circuit: how many notches it has and how deep they cut, from a liquid four-stage to a dense twelve-stage sweep." },
         { Params::swirlMotion, "MOTION", "What moves the sweep. LFO is steady, LFO+Level sweeps further on loud words, Random wanders." },
-        { Params::roar, "DRIVE", "Tube saturation. 25-45 % gives warmth and presence; 70-100 % grit." },
+        { Params::roar, "DRIVE", "Tube saturation. 25-45 % gives warmth and presence; 70-100 % grit. Drive changes the tone, not the level: ROAR learns the level for each setting and holds it." },
         { Params::roarTone, "TONE", "Tilts what the tube drives harder: the bass or the treble. It works at any Drive." },
         { Params::roarVoicing, "VOICING", "Line drives the tube flat. Mic first trims the boom and the air, as from a close microphone." },
-        { Params::ensemble, "AMOUNT", "How much of the chorus of voices is mixed in." },
-        { Params::ensembleWidth, "WIDTH", "How far the chorus spreads to the sides. Past about 100 % the chorus thins when the mix is summed to mono." },
+        { Params::ensemble, "AMOUNT", "How much of the chorus of voices is mixed in. The chorus works above about 120 Hz; below that the voice passes straight through, so the low end stays solid." },
+        { Params::ensembleWidth, "WIDTH", "How far the chorus spreads to the sides. Past about 100 % the chorus thins when the mix is summed to mono. Width is held back whenever the sides would outweigh the voice in the middle, so the image stays in phase." },
         { Params::ensembleVoices, "VOICES", "How many voices sing along: 3 is tight, 6 is a crowd." },
         { Params::ensembleMotion, "MOTION", "How the voices drift. Slow, Medium and Fast set the movement; Vibrato makes them waver in pitch." },
-        { Params::tame, "AMOUNT", "Holds back harsh top end when it gets loud; higher settings start lower and hold back harder." },
-        { Params::sub, "LEVEL", "Level of the octave underneath the voice. 40-65 % is a solid octave. With Overtone in Replace, Sub Level also adds weight through the overtones." },
+        { Params::tame, "AMOUNT", "Holds back harsh top end when it jumps out. Low settings leave a bright voice alone; higher settings hold back its loud moments, then its whole top end. 15-25 % holds back a scream's edge." },
+        { Params::sub, "LEVEL", "How much of the octave layer is added. 40-65 % is a solid octave. It follows the voice's own level: at the default it sits a little under the voice at most. With Overtone in Replace, Sub Level also adds weight through the overtones." },
         { Params::subDrive, "DRIVE", "Drive on the octave. Up to about 20 % it stays clean; above that it gets thicker and growlier." },
-        { Params::subRegister, "REGISTER", "Where the octave sits. Follow tracks the voice an octave down, Tight keeps it at 55 Hz or above, Deep goes a full octave down to about 32 Hz." },
+        { Params::subRegister, "REGISTER", "Where the layer sits. Follow is one octave under the voice. Tight is one octave under, kept at 55 Hz or above. Deep goes as many octaves under as it takes to land between about 46 and 131 Hz: a true sub under any voice." },
         { Params::subCharacter, "CHARACTER", "The octave's colour. Clean is a pure low tone, Resonant rings and drives harder, Thick adds a second, fuller layer." },
-        { Params::overtone, "AMOUNT", "How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. In Lean and Replace the original low end is cut more as Amount rises." },
+        { Params::overtone, "AMOUNT", "How much of the overtone layer is added: the voice's weight, heard on small speakers without more bass. In Add it is heard from about a third of the way up; in Lean and Replace the original low end is cut more as Amount rises. The layer never comes out louder than the voice." },
         { Params::overtoneFreq, "FREQ", "Moves the overtone bands up or down together. Higher translates better to small speakers; lower is warmer." },
-        { Params::overtonePattern, "PATTERN", "Which low regions are turned into overtones. Chest: body and octave. Throat: gruff upper growl. Beast: hollow, odd-heavy snarl. Speaker: high overtones for small or radio-like creatures. Broad: one wide low band. Tracked: follows the voice's pitch exactly." },
+        { Params::overtonePattern, "PATTERN", "Which low regions are turned into overtones. Chest: body and octave. Throat: gruff upper growl. Beast: hollow, odd-heavy snarl. Speaker: high overtones for small or radio-like creatures. Broad: one wide low band. With a higher voice these five move up by whole octaves (two at most), chosen at the start of each phrase. Tracked: follows the voice's pitch exactly." },
         { Params::overtoneMode, "MODE", "Add keeps the original low end. Lean lowers it. Replace removes it, so the low end is heard only through its overtones." },
         { Params::outPush, "PUSH", "Drives the voice into the ceiling. Push 8-12 is clean and dense; for loud, Push 14-18 with Clip 6-9. The peaks never pass the ceiling." },
         { Params::outCeiling, "CEILING", "The highest level the output can reach, true-peak safe. It sets the output level only: Push decides how hard the limiter works." },
@@ -115,11 +115,12 @@ namespace
         { Params::outAttack, "ATTACK", "How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3-3 ms crunches the low end. With Auto on it changes little." },
         { Params::outRelease, "RELEASE", "How fast the limiter recovers. With Auto off: 2-10 ms crunch, 25-60 ms grit, 200 ms and up clean." },
         { Params::outAuto, "AUTO", "Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes." },
+        { Params::outMatch, "MATCH", "Level match: holds the processed voice at the level of the input, so turning modules on and off does not make it much louder or quieter. It learns one gain and holds it; it does not ride the level. Off: the voice leaves at the level the modules give it, and Push still drives it into the ceiling." },
         { Params::mix, "MIX", "Blends the processed voice with the dry voice at the same loudness, so only the character changes." },
-        { Params::chamber, "AMT", "AMT (Chamber in the host): how much of the voice played into the room is blended under the dry voice. 15-35 % adds a subtle edge, 45-65 % is a clear chamber; around 80 % the two are equal; at 100 % the room leads." },
-        { Params::chamberResonance, "TAIL", "TAIL (Resonance in the host): how much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
+        { Params::chamber, "AMT", "AMT (CHAMBER Amount in the host): how much of the voice played into the room is blended under the dry voice. 15-35 % adds a subtle edge, 45-65 % is a clear chamber; around 80 % the two are equal; at 100 % the room leads." },
+        { Params::chamberResonance, "TAIL", "TAIL (CHAMBER Resonance in the host): how much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
         { Params::chamberDrive, "EDGE", "Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more." },
-        { Params::chamberWidth, "WIDE", "WIDE (Chamber Width in the host): how far the room spreads to the sides. 0 % keeps it centred; 100 % is the room's full stereo. Summed to mono it sounds the same at any setting." },
+        { Params::chamberWidth, "WIDE", "WIDE (CHAMBER Width in the host): how far the room spreads to the sides. 0 % keeps it centred; 100 % is the room's full stereo. Summed to mono it sounds the same at any setting." },
         { Params::chamberRoom, "ROOM", "The room the speaker plays into. Steel Box: bright and metallic. Resonant Chamber: long and ringing. Concrete Room: hard and dense. Tin Booth: thin, with a sharp ring. Padded Cell: dark and short. Wood Chamber: warm. Timber Room: sparse and soft. Soft Bloom: a diffuse swell. Party Wall: a big concrete room through the wall, dark and booming. Tower Block: further down the hall, darker still." },
         { Params::chamberSpeaker, "SPEAKER", "The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn." },
         { Params::chamberBoom, "BOOM", "Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB." },
@@ -137,6 +138,16 @@ namespace
     {
         const auto* c = findControl(id);
         return c != nullptr ? juce::String(c->caption) : juce::String(Params::spec(id).name).toUpperCase();
+    }
+
+    /** The second line of every knob's tooltip: how the knob handles. */
+    juce::String knobHandlingTip(const char* id)
+    {
+        const bool semitones = Params::spec(id).kind == Params::Kind::semitones;
+        return juce::String("Shift-drag for fine control. ")
+             + (semitones ? "The mouse wheel moves it a semitone at a time, with Shift a cent at a time. "
+                          : "The mouse wheel moves it in small steps, with Shift in finer ones. ")
+             + "Right-click to reset it or type a value; double-click also resets it.";
     }
 
     // Short forms the mode chip falls back to when the full names do not fit.
@@ -309,13 +320,186 @@ namespace
     }
 
     constexpr const char* c_stereoTag = "ST";
+
+    /** Mouse wheel movement in whole steps: one step per notch of a wheel, and one per stretch of a
+        trackpad's smooth scroll (its fractions are kept until they make a step). Positive: the wheel
+        turned up (or away), whichever way the system scrolls. */
+    class WheelSteps
+    {
+    public:
+        int take(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+        {
+            // (some systems send a wheel event twice: one step per event time)
+            if (e.eventTime == m_lastEvent)
+                return 0;
+            m_lastEvent = e.eventTime;
+            // (with Shift held a mouse wheel scrolls sideways on some systems: the same turn of the wheel)
+            const bool sideways = std::abs(wheel.deltaX) > std::abs(wheel.deltaY);
+            const float raw = sideways ? (e.mods.isShiftDown() && wheel.deltaY == 0.0f ? wheel.deltaX : -wheel.deltaX) : wheel.deltaY;
+            const float d = raw * (wheel.isReversed ? -1.0f : 1.0f);
+            if (!std::isfinite(d) || d == 0.0f)
+                return 0;
+            if (!wheel.isSmooth)
+            {
+                m_pending = 0.0f;
+                return d > 0.0f ? 1 : -1;
+            }
+            if (wheel.isInertial)
+                return 0;   // (a trackpad's glide after the fingers lift: no steps the hand did not make)
+            if ((d > 0.0f) != (m_pending > 0.0f))
+                m_pending = 0.0f;   // a change of direction starts afresh
+            m_pending += d;
+            const int steps = static_cast<int>(m_pending / c_smoothStep);
+            m_pending -= static_cast<float>(steps) * c_smoothStep;
+            return steps;
+        }
+
+        /** How far a trackpad scrolls for one step (in JUCE's wheel units: about 25 points). */
+        static constexpr float c_smoothStep = 0.05f;
+
+    private:
+        float m_pending = 0.0f;
+        juce::Time m_lastEvent;
+    };
 }
 
 //==============================================================================
+/** A knob: JUCE's rotary slider with the house's handling on top.
+    - Shift while dragging: fine steps (the drag counts a fraction of the mouse's travel, and Shift can
+      be pressed or let go in the middle of a drag without the knob jumping).
+    - The mouse wheel: small steps on a grid (PITCH a semitone, other knobs one unit of their scale or a
+      hundredth of their travel); with Shift finer ones (a cent, a tenth of a unit, a thousandth).
+      Each step is one gesture.
+    - Right-click: a menu with Reset to Default and Type a Value, and the host's own menu for the
+      parameter when the host offers one. */
+class SignalFlowStrip::KnobSlider : public juce::Slider
+{
+public:
+    void attach(juce::RangedAudioParameter* parameter, const Params::Spec& spec)
+    {
+        m_parameter = parameter;
+        m_spec = &spec;
+    }
+
+    /** The drag's share of the mouse's travel with Shift held. */
+    float fineFactor() const { return m_spec != nullptr && m_spec->kind == Params::Kind::semitones ? c_fineSemitones : c_fine; }
+
+    /** The value the wheel moves to from `value`, `steps` steps on (fine: with Shift). */
+    float wheelTarget(float value, int steps, bool fine) const
+    {
+        if (m_spec == nullptr || m_parameter == nullptr || steps == 0)
+            return value;
+        const auto& s = *m_spec;
+        const float dir = steps > 0 ? 1.0f : -1.0f;
+        const auto onGrid = [&](float v, float step)
+        {
+            // To the next point of the grid in the wheel's direction (a value between two lands on one).
+            for (int k = 0; k < std::abs(steps); ++k)
+                v = (dir > 0.0f ? std::floor(v / step + 1.0e-3f) + 1.0f : std::ceil(v / step - 1.0e-3f) - 1.0f) * step;
+            return v;
+        };
+        float target = value;
+        switch (s.kind)
+        {
+            case Params::Kind::semitones:    target = onGrid(value, fine ? 0.01f : 1.0f); break;
+            case Params::Kind::percent:
+            case Params::Kind::bipolar:      target = onGrid(value, fine ? 0.1f : 1.0f); break;
+            case Params::Kind::decibels:     target = onGrid(value, fine ? 0.1f : 0.5f); break;
+            case Params::Kind::octaves:      target = onGrid(value, fine ? 0.01f : 0.05f); break;
+            case Params::Kind::hertz:
+            case Params::Kind::ratio:
+            case Params::Kind::milliseconds:
+            {
+                // Steps of the knob's travel (its log taper), on that grid.
+                const float n = onGrid(m_parameter->convertTo0to1(value), fine ? 0.001f : 0.01f);
+                target = m_parameter->convertFrom0to1(juce::jlimit(0.0f, 1.0f, n));
+                break;
+            }
+            case Params::Kind::choice:
+            case Params::Kind::toggle:
+            case Params::Kind::position:     break;
+        }
+        const auto legal = [&](float v) { return m_parameter->convertFrom0to1(m_parameter->convertTo0to1(juce::jlimit(s.minValue, s.maxValue, v))); };
+        float result = legal(target);
+        // A log knob with a value step (RING Ratio, 0.01): where a step of the travel is smaller than the
+        // value step, the snap lands back on the start. Move by whole value steps instead, so every notch
+        // goes on until the end of the travel.
+        if (s.step > 0.0f && (dir > 0.0f ? result <= value : result >= value))
+            result = legal(value + dir * s.step * static_cast<float>(std::abs(steps)));
+        return result;
+    }
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (!isEnabled() || m_parameter == nullptr || e.mods.isAnyMouseButtonDown())
+            return;
+        const int steps = m_wheel.take(e, wheel);
+        if (steps == 0)
+            return;
+        const float from = m_parameter->convertFrom0to1(m_parameter->getValue());
+        const float to = wheelTarget(from, steps, e.mods.isShiftDown());
+        if (juce::exactlyEqual(to, from))
+            return;
+        m_parameter->beginChangeGesture();
+        m_parameter->setValueNotifyingHost(m_parameter->convertTo0to1(to));
+        m_parameter->endChangeGesture();
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        m_menuPress = e.mods.isPopupMenu();
+        if (m_menuPress)
+        {
+            if (onMenu != nullptr)
+                onMenu();
+            return;
+        }
+        m_lastMouse = m_virtualMouse = e.position;
+        juce::Slider::mouseDown(e);
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (m_menuPress)
+            return;
+        // The drag as the knob sees it: the mouse's own movement, a fraction of it while Shift is held.
+        const auto moved = e.position - m_lastMouse;
+        m_lastMouse = e.position;
+        m_virtualMouse += moved * (e.mods.isShiftDown() ? fineFactor() : 1.0f);
+        juce::Slider::mouseDrag(e.withNewPosition(m_virtualMouse));
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (std::exchange(m_menuPress, false))
+            return;
+        juce::Slider::mouseUp(e.withNewPosition(m_virtualMouse));
+    }
+
+    void mouseDoubleClick(const juce::MouseEvent& e) override
+    {
+        if (!e.mods.isPopupMenu())
+            juce::Slider::mouseDoubleClick(e);
+    }
+
+    /** A right-click (the knob's menu). */
+    std::function<void()> onMenu;
+
+    static constexpr float c_fine = 0.1f;            // Shift: a tenth of the travel per pixel
+    static constexpr float c_fineSemitones = 0.03f;  // PITCH with Shift: under half a cent per pixel
+
+private:
+    juce::RangedAudioParameter* m_parameter = nullptr;
+    const Params::Spec* m_spec = nullptr;
+    WheelSteps m_wheel;
+    juce::Point<float> m_lastMouse, m_virtualMouse;
+    bool m_menuPress = false;
+};
+
 struct SignalFlowStrip::Knob
 {
     const char* paramId = nullptr;
-    juce::Slider slider;
+    KnobSlider slider;
     juce::Label caption;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
@@ -352,6 +536,88 @@ public:
             g.fillEllipse(juce::Rectangle<float>(d, d).withCentre(r.getCentre().translated(static_cast<float>(k) * 5.0f, 0.0f)));
         }
     }
+};
+
+//==============================================================================
+/** A mode chip: a click opens its menu; the mouse wheel over it, or Up and Down while it has the
+    keyboard focus from Tab, step its first choice without opening the menu (onStep). */
+class SignalFlowStrip::ModeChip : public juce::TextButton
+{
+public:
+    /** direction: +1 the next choice, -1 the previous one. Returns whether the choice moved. */
+    std::function<bool(int direction)> onStep;
+
+    void focusGained(FocusChangeType cause) override
+    {
+        // A click focuses the chip too (and its menu hands the focus back when it closes), but then
+        // Up and Down belong to the host: only a focus that came by Tab takes them. The menu's
+        // hand-back (focusChangedDirectly) keeps how the focus first came.
+        if (cause == focusChangedByTabKey)
+            m_keyboardFocus = true;
+        else if (cause == focusChangedByMouseClick)
+            m_keyboardFocus = false;
+        juce::TextButton::focusGained(cause);
+    }
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        // Wheel down (towards you) is the next choice, as in the menu, which lists them downwards.
+        const int steps = m_wheel.take(e, wheel);
+        if (onStep != nullptr)
+            for (int k = 0; k < std::abs(steps); ++k)
+                onStep(steps > 0 ? -1 : 1);
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (m_keyboardFocus && !key.getModifiers().isAnyModifierKeyDown()
+            && (key.isKeyCode(juce::KeyPress::upKey) || key.isKeyCode(juce::KeyPress::downKey)))
+        {
+            // At either end of the list the key goes on to the host.
+            return onStep != nullptr && onStep(key.isKeyCode(juce::KeyPress::downKey) ? 1 : -1);
+        }
+        return juce::TextButton::keyPressed(key);
+    }
+
+private:
+    WheelSteps m_wheel;
+    bool m_keyboardFocus = false;
+};
+
+//==============================================================================
+/** A module's On switch: a click turns the module on or off; an Alt-click (onAltClick) solos it
+    instead, and never toggles the switch itself. */
+class SignalFlowStrip::OnSwitch : public juce::ToggleButton
+{
+public:
+    std::function<void()> onAltClick;
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        m_altPress = e.mods.isAltDown() && e.mods.isLeftButtonDown() && onAltClick != nullptr;
+        if (!m_altPress)
+            juce::ToggleButton::mouseDown(e);
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (!m_altPress)
+            juce::ToggleButton::mouseDrag(e);
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (!std::exchange(m_altPress, false))
+        {
+            juce::ToggleButton::mouseUp(e);
+            return;
+        }
+        if (getLocalBounds().contains(e.getPosition()) && onAltClick != nullptr)
+            onAltClick();
+    }
+
+private:
+    bool m_altPress = false;
 };
 
 //==============================================================================
@@ -394,13 +660,15 @@ public:
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 18);
         slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
-        slider.setTooltip(tooltipFor(id));
-        slider.setTitle(Params::spec(id).name);
+        slider.setTooltip(tooltipFor(id) + "\n" + knobHandlingTip(id));
+        slider.setTitle(juce::String(Params::hostName(id)));   // the name a host shows ("PITCH Size")
         RoarschachLookAndFeel::setValueFontHeight(slider, Type::value);
         knob->attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_owner.m_parameters, id, slider);
 
         if (auto* param = m_owner.m_parameters.getParameter(id))
         {
+            slider.attach(param, Params::spec(id));
+            slider.onMenu = [this, id] { m_owner.showKnobMenu(id); };
             // The value box shows the parameter's own text, and typed values go through its parser,
             // so the box reads exactly as the host does.
             slider.textFromValueFunction = [param](double v) { return param->getText(param->convertTo0to1(static_cast<float>(v)), 0); };
@@ -581,7 +849,10 @@ public:
     {
         const juce::String name(m_spec.uiName);
 
-        m_onButton.setTooltip("Turns " + name + " on or off. Off passes the voice through unchanged.");
+        m_onButton.setTooltip("Turns " + name + " on or off. Off passes the voice through unchanged. Alt-click to hear " + name
+                              + " alone: every other module goes off. Alt-click it again to turn back on the modules that were on, "
+                                "until another preset or the session is loaded.");
+        m_onButton.onAltClick = [this] { if (m_owner.onSolo) m_owner.onSolo(m_module); };
         m_onButton.setTitle(name + " On");
         addAndMakeVisible(m_onButton);
         m_onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, m_spec.onId, m_onButton);
@@ -593,13 +864,22 @@ public:
         if (m_spec.chipIds[0] != nullptr)
         {
             juce::StringArray tips;
+            int numChoices = 0;
             for (const char* id : m_spec.chipIds)
                 if (id != nullptr)
+                {
                     tips.add(juce::String(Params::spec(id).name) + ": " + tooltipFor(id));
+                    ++numChoices;
+                }
+            tips.add(numChoices > 1 ? "Scroll over the chip, or move to it with Tab and press Up or Down, to step "
+                                          + captionFor(m_spec.chipIds[0]) + " to the next or previous choice without opening the menu."
+                                    : juce::String("Scroll over the chip, or move to it with Tab and press Up or Down, to step to "
+                                                   "the next or previous choice without opening the menu."));
             m_modeChip.setTooltip(tips.joinIntoString("\n"));
             m_modeChip.setTitle(name + " Modes");
             RoarschachLookAndFeel::setMenuChip(m_modeChip);
             m_modeChip.onClick = [this] { m_owner.showModeMenu(m_module); };
+            m_modeChip.onStep = [this](int direction) { return m_owner.stepModeChoice(m_module, direction); };
             addAndMakeVisible(m_modeChip);
         }
 
@@ -610,8 +890,7 @@ public:
         m_moveChip.onClick = [this] { m_owner.showMoveMenu(m_module); };
         addAndMakeVisible(m_moveChip);
 
-        m_dice.setTooltip("Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
-                          "Its On switch and its place in the chain stay as they are. " + diceUndoHint());
+        setHeld(false);
         m_dice.setTitle("Randomise " + name);
         m_dice.setPillSize(c_diceSize);
         m_dice.onClick = [this] { if (m_owner.onRollModule) m_owner.onRollModule(m_module); };
@@ -650,7 +929,7 @@ public:
             case Params::ModuleId::swirl:    return "NOTCH: where the swirl's sweep is right now, from low to high.";
             case Params::ModuleId::roar:     return "HEAT: how hard the drive is working right now.";
             case Params::ModuleId::ensemble: return "WIDTH: how wide the ensemble makes the sound right now. ST: the chain is stereo from here on.";
-            case Params::ModuleId::sub:      return "SUB: the level and frequency of the octave below right now.";
+            case Params::ModuleId::sub:      return "SUB: the level and frequency of the layer under the voice right now.";
             case Params::ModuleId::overtone: return "BANDS: the centre and level of the two overtone bands right now (TRACK when they follow the voice). R: Replace, the original low end is taken out.";
             case Params::ModuleId::chamber:  return "The room in use and how long it rings (its decay with TAIL). The bar shows how strongly it is ringing right now. ST: the chain is stereo from here on.";
         }
@@ -696,6 +975,19 @@ public:
         // and the chip's label take the faint ink.
         RoarschachLookAndFeel::setMenuChip(m_modeChip, !m_on);
         m_dice.setMuted(!m_on);
+    }
+
+    /** Held in Randomise All: the die shows the held mark and its tooltip says so. */
+    void setHeld(bool held)
+    {
+        const juce::String name(m_spec.uiName);
+        m_dice.setHeld(held);
+        m_dice.setTitle("Randomise " + name + (held ? ", held" : ""));
+        m_dice.setTooltip((held ? "Held: Randomise All leaves " + name + " as it is, its On switch and its settings. " : juce::String())
+                          + "Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
+                          "Its On switch and its place in the chain stay as they are. "
+                          "Right-click it and choose Hold in Randomise All to keep " + name + " as it is when Randomise All rolls the rest. "
+                          + diceUndoHint());
     }
 
     void setSlot(int slot)
@@ -1155,9 +1447,9 @@ public:
     juce::String m_dragTip, m_footerTip;
     float m_blinkPhase = 0.0f;
 
-    juce::ToggleButton m_onButton;
+    OnSwitch m_onButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_onAttachment;
-    juce::TextButton m_modeChip;
+    ModeChip m_modeChip;
     MoveChip m_moveChip;
     DiceButton m_dice { "Randomise" };
     std::array<float, 34> m_values {};
@@ -1294,7 +1586,18 @@ public:
         m_autoCaption.setBorderSize({ 0, 0, 0, 0 });
         addAndMakeVisible(m_autoCaption);
         m_autoAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::outAuto, m_auto);
+
+        // Level Match: a switch with its name, in the header across from the title (as IN's AUTO).
+        m_match.setButtonText(captionFor(Params::outMatch));
+        m_match.setClickingTogglesState(true);
+        RoarschachLookAndFeel::setSwitch(m_match);
+        m_match.setTooltip(tooltipFor(Params::outMatch));
+        m_match.setTitle("Level Match");
+        addAndMakeVisible(m_match);
+        m_matchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::outMatch, m_match);
     }
+
+    static constexpr int c_matchWidth = 84;
 
     static constexpr int c_rowHeight = c_captionHeight + 80;
     static constexpr int c_rowGap = 14;   // between row 1's values and row 2's captions: the rows read apart
@@ -1321,6 +1624,8 @@ public:
         fitCaptions();
         const int captionWidth = static_cast<int>(std::ceil(textWidth(m_owner.m_fonts.caption(c_captionFont), m_autoCaption.getText()) + 2.0f));
         m_autoCaption.setBounds(m_auto.getBounds().getCentreX() - captionWidth / 2, y2, captionWidth, c_captionHeight);
+        // In the header across from the title, on its line and clear of row 1's captions below.
+        m_match.setBounds(getWidth() - 12 - c_matchWidth, 2, c_matchWidth, c_hit);
     }
 
     void paint(juce::Graphics& g) override
@@ -1424,9 +1729,9 @@ public:
         }
     }
 
-    juce::TextButton m_auto;
+    juce::TextButton m_auto, m_match;
     juce::Label m_autoCaption;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_autoAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_autoAttachment, m_matchAttachment;
     float m_out = 0.0f, m_gr = 0.0f, m_heldGr = 0.0f, m_clip = 0.0f, m_ceiling = -1.0f, m_clipHeld = 0.0f;
     double m_holdStartMs = 0.0, m_clipUntilMs = 0.0, m_clipPeakMs = 0.0;
     std::array<float, 6> m_last {};
@@ -1446,9 +1751,10 @@ SignalFlowStrip::SignalFlowStrip(juce::AudioProcessorValueTreeState& parameters,
     m_rollAll = std::make_unique<DiceButton>("Randomise All");
     m_rollAll->setTitle("Randomise All");
     m_rollAll->setTooltip("Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs "
-                          "and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, "
-                          "so the level stays safe. " + diceUndoHint());
-    m_rollAll->onClick = [this] { if (onRollAll) onRollAll(); };
+                          "and modes new settings, each inside its useful range. Shift-click to roll only the modules that are on: "
+                          "every On switch stays as it is. A module held from its die's right-click menu is left as it is. "
+                          "The module order, IN and OUTPUT stay as they are, so the level stays safe. " + diceUndoHint());
+    m_rollAll->onClick = [this] { rollAllClicked(m_rollAll->getClickModifiers()); };
     m_rollAll->onSecondaryClick = [this] { if (onDiceMenu) onDiceMenu(*m_rollAll); };
     m_rollAll->onUndoKey = [this](bool redo) { return onDiceUndoKey != nullptr && onDiceUndoKey(redo); };
     // The caption is part of the button: it clicks, hovers and shows the tooltip with the die.
@@ -1686,48 +1992,40 @@ juce::PopupMenu SignalFlowStrip::buildModeMenu(int module, std::vector<std::pair
     const auto& spec = Params::modules[static_cast<size_t>(module)];
     itemMap.assign(1, { nullptr, 0 });   // item IDs start at 1
 
-    int numChoices = 0;
-    for (const char* id : spec.chipIds)
-        numChoices += id != nullptr ? 1 : 0;
-
+    // One flat list: every choice of every choice parameter is a single click away, each parameter's
+    // choices under a header with the module's name and the parameter's caption.
     juce::PopupMenu menu;
     menu.setLookAndFeel(&getLookAndFeel());
-    // Several choice parameters: the menu opens under the module's name (one: under the parameter's, below).
-    if (numChoices > 1)
-        menu.addSectionHeader(juce::String(spec.uiName) + " MODES");
-
     for (const char* id : spec.chipIds)
     {
         if (id == nullptr)
             continue;
         const auto& s = Params::spec(id);
         const int current = juce::jlimit(0, s.numChoices - 1, juce::roundToInt(rawValue(id)));
-        const auto caption = captionFor(id);
-
-        if (numChoices == 1)
-        {
-            // One choice parameter: its items straight in the menu, under its name.
-            menu.addSectionHeader(juce::String(spec.uiName) + " " + caption);
-            for (int c = 0; c < s.numChoices; ++c)
-            {
-                menu.addItem(static_cast<int>(itemMap.size()), s.choices[c], true, c == current);
-                itemMap.emplace_back(id, c);
-            }
-            break;
-        }
-
-        // Several: one submenu each, named with its current choice.
-        juce::PopupMenu items;
-        items.addSectionHeader(caption);
+        menu.addSectionHeader(juce::String(spec.uiName) + " " + captionFor(id));
         for (int c = 0; c < s.numChoices; ++c)
         {
-            items.addItem(static_cast<int>(itemMap.size()), s.choices[c], true, c == current);
+            menu.addItem(static_cast<int>(itemMap.size()), s.choices[c], true, c == current);
             itemMap.emplace_back(id, c);
         }
-        const auto title = caption.substring(0, 1) + caption.substring(1).toLowerCase();
-        menu.addSubMenu(title + " (" + s.choices[current] + ")", items);
     }
     return menu;
+}
+
+bool SignalFlowStrip::stepModeChoice(int module, int direction)
+{
+    if (!juce::isPositiveAndBelow(module, Params::numModules) || direction == 0)
+        return false;
+    const char* id = Params::modules[static_cast<size_t>(module)].chipIds[0];
+    if (id == nullptr)
+        return false;
+    const auto& s = Params::spec(id);
+    const int current = juce::jlimit(0, s.numChoices - 1, juce::roundToInt(rawValue(id)));
+    const int next = juce::jlimit(0, s.numChoices - 1, current + (direction > 0 ? 1 : -1));
+    if (next == current)
+        return false;
+    setParameter(id, static_cast<float>(next));
+    return true;
 }
 
 juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const
@@ -1804,6 +2102,79 @@ void SignalFlowStrip::showModeMenu(int module)
 }
 
 //==============================================================================
+juce::Slider* SignalFlowStrip::getKnobFor(const char* paramId) const
+{
+    std::vector<Tile*> tiles { m_inTile.get(), m_outTile.get() };
+    for (const auto& t : m_tiles)
+        tiles.push_back(t.get());
+    for (auto* t : tiles)
+        for (const auto& k : t->m_knobs)
+            if (std::string_view(k->paramId) == paramId)
+                return &k->slider;
+    return nullptr;
+}
+
+juce::PopupMenu SignalFlowStrip::buildKnobMenu(const char* paramId) const
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&getLookAndFeel());
+    auto* param = m_parameters.getParameter(paramId);
+    if (param == nullptr)
+        return menu;
+    // (compared as values: a value set from the default's knob position lands on the parameter's own steps)
+    const float value = param->convertFrom0to1(param->getValue()), defaultValue = param->convertFrom0to1(param->getDefaultValue());
+    const bool atDefault = std::abs(value - defaultValue) <= 1.0e-5f * std::max(1.0f, std::abs(defaultValue));
+    menu.addItem(knobReset, "Reset to Default (" + param->getText(param->getDefaultValue(), 0) + ")", !atDefault);
+    menu.addItem(knobType, "Type a Value");
+
+    // The host's own menu for this parameter (automation and the like), where it offers one.
+    juce::AudioProcessorEditor* editor = nullptr;
+    for (auto* c = getParentComponent(); c != nullptr && editor == nullptr; c = c->getParentComponent())
+        editor = dynamic_cast<juce::AudioProcessorEditor*>(c);
+    if (editor != nullptr)
+        if (auto* host = editor->getHostContext())
+            if (const auto hostMenu = host->getContextMenuForParameter(param))
+                if (const auto items = hostMenu->getEquivalentPopupMenu(); items.getNumItems() > 0)
+                {
+                    menu.addSectionHeader("HOST");
+                    for (juce::PopupMenu::MenuItemIterator it(items); it.next();)
+                        menu.addItem(juce::PopupMenu::Item(it.getItem()));
+                }
+    return menu;
+}
+
+void SignalFlowStrip::applyKnobMenu(const char* paramId, int item)
+{
+    auto* param = m_parameters.getParameter(paramId);
+    if (param == nullptr)
+        return;
+    if (item == knobReset)
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(param->getDefaultValue());
+        param->endChangeGesture();
+    }
+    else if (item == knobType)
+    {
+        if (auto* knob = getKnobFor(paramId))
+            knob->showTextBox();
+    }
+}
+
+void SignalFlowStrip::showKnobMenu(const char* paramId)
+{
+    auto* knob = getKnobFor(paramId);
+    if (knob == nullptr)
+        return;
+    buildKnobMenu(paramId).showMenuAsync(menuOptions(*knob),
+                                         [safe = juce::Component::SafePointer<SignalFlowStrip>(this), paramId](int item)
+                                         {
+                                             if (safe != nullptr && (item == knobReset || item == knobType))
+                                                 safe->applyKnobMenu(paramId, item);
+                                         });
+}
+
+//==============================================================================
 int SignalFlowStrip::stereoSplitSlot(const Params::Order& order) const
 {
     // The same rule as the chain: the first ENSEMBLE that is On, SHIMMER On in Stereo mode, or
@@ -1857,6 +2228,14 @@ juce::String SignalFlowStrip::diceUndoHint()
 DiceButton* SignalFlowStrip::getModuleDice(int module) const
 {
     return juce::isPositiveAndBelow(module, Params::numModules) ? &m_tiles[static_cast<size_t>(module)]->m_dice : nullptr;
+}
+
+void SignalFlowStrip::setHeldModules(const std::array<bool, Params::numModules>& held)
+{
+    for (int m = 0; m < Params::numModules; ++m)
+        if (held[static_cast<size_t>(m)] != m_held[static_cast<size_t>(m)])
+            m_tiles[static_cast<size_t>(m)]->setHeld(held[static_cast<size_t>(m)]);
+    m_held = held;
 }
 
 void SignalFlowStrip::setDiceFace(int face)

@@ -12,6 +12,10 @@ namespace roar
     {
         constexpr double c_lookaheadSeconds = 0.001333;
         constexpr double c_fastReleaseSeconds = 0.0007;
+        // The fast envelope's hold on pitched sound: 1.1 periods of the stream's f0 (40 Hz at the
+        // longest) while voiced with confidence above 0.6; a peak within 1 % re-arms it.
+        constexpr double c_holdPeriods = 1.1, c_holdFloorHz = 40.0, c_holdMinF0Hz = 20.0, c_holdRearm = 0.99;
+        constexpr float c_holdConfidence = 0.6f;
         constexpr double c_slowChargeSeconds = 0.095;
         constexpr double c_slowReleaseNaturalSeconds = 0.500;
         constexpr double c_slowReleaseSnappySeconds = 0.080;   // a breath right after a syllable comes up fully
@@ -142,6 +146,7 @@ namespace roar
     {
         // Fresh detectors when the module comes back on; the delay lines kept running.
         m_s.fast = 0.0;
+        m_s.fastHoldLeft = m_s.holdSamples = 0;
         m_s.slowDb = c_slowFloorDb;
         m_s.highSlow = 0.0;
         m_s.gainDb = 0.0;
@@ -294,7 +299,7 @@ namespace roar
         s.boostCapDb = c_boostPerDbAboveFloor * std::max (0.0, aboveFloor - c_noBoostAboveFloorDb);
     }
 
-    void DetailModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& /*voice*/)
+    void DetailModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& voice)
     {
         m_fade.captureDry (l, r, n, stereo);
 
@@ -322,9 +327,23 @@ namespace roar
 
         const double slowRelease = s.snappy ? m_slowReleaseSnappy : m_slowReleaseNatural;
         double gMax = -1.0e9, gMin = 1.0e9;
+        int nextFrame = 0;   // the next sample that starts a voice frame (the stream's own grid)
 
         for (int i = 0; i < n; ++i)
         {
+            if (i == nextFrame)
+            {
+                // On a confident pitch the fast envelope holds each peak for 1.1 periods, so the
+                // gain follows the syllable and not each cycle of a low note.
+                const VoiceFrame& f = voice.atSample (i);
+                const double f0 = static_cast<double> (f.f0Hz);
+                s.holdSamples = (f.voiced && f.confidence > c_holdConfidence && std::isfinite (f0) && f0 >= c_holdMinF0Hz)
+                                    ? static_cast<int> (std::lround (c_holdPeriods * m_fs / std::max (f0, c_holdFloorHz)))
+                                    : 0;
+                s.fastHoldLeft = std::min (s.fastHoldLeft, s.holdSamples);
+                nextFrame = voice.frameEnd (i, n);
+            }
+
             const float xl = dsp::finiteOrZero (l[i]);
             const float xr = stereo ? dsp::finiteOrZero (r[i]) : 0.0f;
             const float af = stereo ? std::max (std::abs (xl), std::abs (xr)) : std::abs (xl);
@@ -334,9 +353,18 @@ namespace roar
             const float dl = m_delayL.processFixed (xl);
             const float dr = stereo ? m_delayR.processFixed (xr) : 0.0f;
 
-            // Detector: instant-attack peak with a 0.7 ms release, then the program-dependent
+            // Detector: instant-attack peak with a 0.7 ms release (held over a period on pitched
+            // sound; a peak within 1 % of the held one re-arms the hold), then the program-dependent
             // slow stage in dB.
-            s.fast = std::max (pk, s.fast * m_fastRelease);
+            if (pk >= s.fast * (s.holdSamples > 0 ? c_holdRearm : 1.0))
+            {
+                s.fast = std::max (pk, s.fast);
+                s.fastHoldLeft = s.holdSamples;
+            }
+            else if (s.fastHoldLeft > 0)
+                --s.fastHoldLeft;
+            else
+                s.fast = std::max (pk, s.fast * m_fastRelease);
             const double fastDb = 20.0 * std::log10 (s.fast + 1.0e-9);
             const double toSlow = std::max (fastDb, c_slowFloorDb);
             s.slowDb += (toSlow > s.slowDb ? m_slowCharge : slowRelease) * (toSlow - s.slowDb);

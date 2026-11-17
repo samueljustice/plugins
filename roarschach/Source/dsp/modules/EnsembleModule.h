@@ -4,6 +4,8 @@
 #include "../common/DelayLine.h"
 #include "../common/Module.h"
 #include "../common/SmoothRandom.h"
+#include "../common/TptOnePole.h"
+#include "../common/TptSvf.h"
 
 #include <array>
 #include <cmath>
@@ -35,13 +37,24 @@ namespace roar
      *   (laws::ensembleAmount, laws::ensembleSideGain: past m = 0.7 and w = 0.859 the chorus turns
      *   seasick and out of phase, so the travel ends there)
      *
-     *   - The input of the voices is the mid of the module's input; the dry is the input itself,
-     *     undelayed, so it keeps any stereo it already has.
-     *   - The wet is never high-passed: the slow comb movement in the low end is the point.
+     *   - The low end stays out of the chorus: a first-order low-pass at 120 Hz splits each input
+     *     channel, the voices read the mid of what is above it (x - low), and the dry's low part
+     *     passes whole: out = (1 - m') x + m' low + wet = low + chorus (x - low), written so that
+     *     Amount 0 is an exact pass-through. The split is exactly complementary, so there is no
+     *     crossover dip. The dry is the input itself, undelayed, so it keeps any stereo it has.
+     *   - The chorus's side is high-passed at 120 Hz (second order, before the width gain): the
+     *     side is 32 dB or more down at and below 60 Hz, so the low end stays mono.
+     *   - The side cannot outrun the mid: the chorus's side power (at width gain 1) and the
+     *     output's mid power are followed over 100 ms, and the width gain is held at or under
+     *     sqrt (0.5 mid / side), so the chorus's side stays at or under half the mid's power (a
+     *     correlation of +1/3 or more on a mono source steady over 100 ms). How much side the
+     *     voices make varies three- to four-fold with the source and the motion, so a fixed law of
+     *     Amount cannot do this. It only ever narrows, a stereo input's own side is not counted,
+     *     and a mono output skips it.
      *   - Width law: the voices share most of their low end, so (Lw - Rw) is small and needs the
      *     scale k_N (2.08 for 3 voices, 2.55 for 6).
      *   - g_N is calibrated per voice count and motion so the wet (W = 0) of pink noise has the
-     *     dry's RMS; a motion change glides it over 50 ms. c(m) =
+     *     RMS of what the voices are fed (x - low); a motion change glides it over 50 ms. c(m) =
      *     1 / sqrt ((1 - m)^2 + m^2) is the static mix-law makeup (the dry and a voice 7-25 ms
      *     later are incoherent over most of the band); it is 1 at m = 0, so Amount 0 is an exact
      *     pass-through.
@@ -65,6 +78,8 @@ namespace roar
         {
             int soloVoice = -1;     // >= 0: only that voice is heard, at unity gain
             bool random = true;     // false: S = 0
+            bool wetOnly = false;   // true: the output is g_N mid_w alone (the calibration's wet, W = 0)
+            bool sideCap = true;    // false: the width gain is never held under the knob's
         };
 
         void prepare (double fs, int maxBlock) override;
@@ -127,6 +142,10 @@ namespace roar
         };
 
         static constexpr double c_fastRateHz = 6.2;
+        static constexpr double c_lowSplitHz = 120.0;      // below this the dry passes and the voices read nothing
+        static constexpr double c_sideHighpassHz = 120.0;  // the chorus's side, second order
+        static constexpr double c_sideCapRatio = 0.5;      // the chorus's side power at most this times the mid's
+        static constexpr double c_sideCapSeconds = 0.100;  // mean-square time of the two powers
         static constexpr double c_minDelayMs = 3.0;
         static constexpr double c_maxDelayMs = 30.0;
 
@@ -152,6 +171,7 @@ namespace roar
             float voiceGainStage = 1.0f, sideScaleStage = 2.08f;
             Glide amount, width;                       // smoothed per sample
             double midPower = 0.0, sidePower = 0.0;    // readout trackers
+            double capMid = 0.0, capSide = 0.0;        // side cap: the output's mid and the chorus's side powers
             double midAccum = 0.0, sideAccum = 0.0;
             int controlLeft = 0;
             std::array<Voice, c_maxVoices> voices {};
@@ -171,6 +191,7 @@ namespace roar
         double m_gainCoeff = 0.0;      // control rate, per stage (50 ms in all)
         double m_readoutCoeff = 0.0;   // control rate, 300 ms
         float m_amountCoeff = 0.0f;    // per sample, per Glide stage (20 ms in all)
+        double m_capCoeff = 0.0;       // per sample, the side cap's 100 ms
         float m_minDelay = 0.0f, m_maxDelay = 0.0f;   // samples
 
         EnsembleSettings m_settings;
@@ -178,6 +199,8 @@ namespace roar
         State m_state;
         std::array<SmoothRandom, c_maxVoices> m_random;
         DelayLine m_line;
+        TptOnePole m_lowL, m_lowR;     // the low split, per input channel
+        TptSvf m_sideHp;               // the chorus's side high-pass
         OnFade m_fade;
     };
 }

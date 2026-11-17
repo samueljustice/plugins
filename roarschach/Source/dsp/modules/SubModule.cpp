@@ -26,7 +26,18 @@ namespace roar
         constexpr double c_followFloorHz = 42.0;        // Follow: sub = f0 / 2 below 42 Hz -> divide 2 f0
         constexpr double c_tightFloorHz = 55.0;         // Tight: the lowest sub of f0 / 2, f0, 2 f0 at or above 55 Hz
         constexpr double c_deepFloorHz = 32.0;          // Deep: f0 / 2 down to 32 Hz
-        constexpr double c_registerHysteresis = 1.03;
+        constexpr double c_registerHysteresis = 1.19;   // 3 semitones each side of a floor
+        constexpr double c_deepCeilingHz = 131.0;       // Deep: one more division when the layer would sit above this
+        constexpr double c_deepReturnBelowHz = 92.0;    // ... one fewer when the layer an octave up would sit below this
+        constexpr int c_maxDivisions = 4;               // f0 / 16: a 1500 Hz voice lands at 94 Hz
+        constexpr double c_repickSeconds = 0.150;       // a pitch that returns after this long picks afresh
+        constexpr double c_repickSettleSeconds = 0.040; // ... and keeps picking afresh for this long of usable frames,
+                                                        // because the stream's first frames after a gap can still
+                                                        // carry the previous phrase's pitch
+        constexpr double c_divisionWaitSeconds = 0.040; // a pending change of division waits this long for a toggle
+        constexpr double c_voiceSeconds = 0.008;        // mean-square time of the voice reference
+        constexpr double c_voiceCapDb = -4.4;           // the divided harmonic counts as at most this much of the whole voice
+        constexpr double c_thickCapDb = 0.8;            // Thick: margin on the power sum of the two bands
         constexpr double c_estimateRange = 0.68;        // octaves (x 1.6) a divider toggle rate may differ from fIn
         constexpr double c_estimateCoeff = 0.25;
 
@@ -149,6 +160,27 @@ namespace roar
             }
             m_dividedFundamental = static_cast<float> (2.0 * std::abs (acc) / points);
         }
+        // Deeper divisions: a square at f / 2^k times the rectified band. c_k = F_1 / F_k, F_k its
+        // fundamental per unit band amplitude (one layer period, 2048 points per input cycle).
+        m_divisionScale.fill (1.0f);
+        for (int k = 2; k <= c_maxDivisions; ++k)
+        {
+            const int cycles = 1 << k;   // input cycles per layer period
+            const int total = points * cycles;
+            std::complex<double> acc { 0.0, 0.0 };
+            for (int m = 0; m < total; ++m)
+            {
+                const double t = (m + 0.5) / total;
+                const double u = (t < 0.5 ? 1.0 : -1.0) * std::abs (std::sin (dsp::c_twoPi * cycles * t));
+                acc += u * std::polar (1.0, -dsp::c_twoPi * t);
+            }
+            m_divisionScale[static_cast<size_t> (k)] = static_cast<float> (static_cast<double> (m_dividedFundamental) / (2.0 * std::abs (acc) / total));
+        }
+        m_divisionWaitMax = dsp::samplesFor (c_divisionWaitSeconds, m_fs, 1);
+        m_repickSamples = dsp::samplesFor (c_repickSeconds, m_fs, 1);
+        m_repickSettleSamples = dsp::samplesFor (c_repickSettleSeconds, m_fs, 1);
+        m_voiceCoeff = dsp::onePoleCoeff (c_voiceSeconds, m_fs);
+
         for (int bi = 0; bi < 2; ++bi)
         {
             const double beta = bi == 0 ? c_betaClean : c_betaBiased;
@@ -179,19 +211,34 @@ namespace roar
         // The doubler's 2nd harmonic for a band amplitude of 1 (normaliser = 1): u's harmonics
         // (odd multiples of fsub) through the SVF's low-pass and band-pass at fsub, the rotated
         // doubler, its 2 fsub component. And the output filters' tilt between fsub and 2 fsub.
+        // Row 0: u = q b (one division). Row 1: the deeper divisions' wave, taken at 8 input cycles
+        // per layer period, with the normaliser at the wave's peak (c_k).
+        for (int wave = 0; wave < 2; ++wave)
         {
             constexpr int harmonics = 15;
             std::array<std::complex<double>, harmonics + 1> uHarmonic {};   // complex amplitudes, k x fsub
+            const int cycles = wave == 0 ? 2 : 8;
+            const int total = points * cycles / 2;
+            double peak = 0.0;
             for (int k = 1; k <= harmonics; k += 2)
             {
                 std::complex<double> acc { 0.0, 0.0 };
-                for (int m = 0; m < points; ++m)
+                for (int m = 0; m < total; ++m)
                 {
-                    const double phase = 2.0 * dsp::c_twoPi * (m + 0.5) / points;
-                    const double u = (m < points / 2 ? 1.0 : -1.0) * std::sin (phase);
-                    acc += u * std::polar (1.0, -dsp::c_twoPi * k * (m + 0.5) / points);
+                    if (wave == 0)
+                    {
+                        // (the expressions as they always were, so row 0 is bit for bit the same)
+                        const double phase = 2.0 * dsp::c_twoPi * (m + 0.5) / points;
+                        const double u = (m < points / 2 ? 1.0 : -1.0) * std::sin (phase);
+                        acc += u * std::polar (1.0, -dsp::c_twoPi * k * (m + 0.5) / points);
+                        continue;
+                    }
+                    const double t = (m + 0.5) / total;   // one layer period
+                    const double u = (t < 0.5 ? 1.0 : -1.0) * std::abs (std::sin (dsp::c_twoPi * cycles * t)) * static_cast<double> (m_divisionScale[3]);
+                    peak = std::max (peak, std::abs (u));
+                    acc += u * std::polar (1.0, -dsp::c_twoPi * k * t);
                 }
-                uHarmonic[static_cast<size_t> (k)] = acc * (2.0 / points);
+                uHarmonic[static_cast<size_t> (k)] = acc * (2.0 / total);
             }
             std::complex<double> h2 { 0.0, 0.0 };
             for (int m = 0; m < points; ++m)
@@ -200,15 +247,16 @@ namespace roar
                 double lpv = 0.0, bpv = 0.0;
                 for (int k = 1; k <= harmonics; k += 2)
                 {
-                    const std::complex<double> s { 0.0, static_cast<double> (k) };
-                    const std::complex<double> den = s * s + s / c_evenQ + 1.0;
+                    const std::complex<double> sk { 0.0, static_cast<double> (k) };
+                    const std::complex<double> den = sk * sk + sk / c_evenQ + 1.0;
                     const std::complex<double> c = uHarmonic[static_cast<size_t> (k)] * std::polar (1.0, dsp::c_twoPi * k * t);
                     lpv += std::real (c / den);
-                    bpv += std::real (c * s / den);
+                    bpv += std::real (c * sk / den);
                 }
                 h2 += (c_evenCos * (lpv * lpv - bpv * bpv) + c_evenSin * 2.0 * lpv * bpv) * std::polar (1.0, -dsp::c_twoPi * 2.0 * t);
             }
-            const double unitH2 = std::max (2.0 * std::abs (h2) / points, 1.0e-6);
+            const double normaliser = wave == 0 ? 1.0 : peak;   // row 0 exactly as before
+            const double unitH2 = std::max (2.0 * std::abs (h2) / points / normaliser, 1.0e-6);
             const auto post = [] (double ratio, double hpQ)
             {
                 return hpMagnitude (ratio / c_hpRatio, hpQ) * lpMagnitude (ratio / c_lpRatio, c_lpQ1) * lpMagnitude (ratio / c_lpRatio, c_lpQ2)
@@ -217,7 +265,7 @@ namespace roar
             for (int c = 0; c < 3; ++c)
             {
                 const double hpQ = c == 1 ? c_hpQResonant : c_hpQClean;
-                m_evenScale[static_cast<size_t> (c)] = static_cast<float> (post (1.0, hpQ) / post (2.0, hpQ) / unitH2);
+                m_evenScale[static_cast<size_t> (wave)][static_cast<size_t> (c)] = static_cast<float> (post (1.0, hpQ) / post (2.0, hpQ) / unitH2);
             }
         }
 
@@ -236,6 +284,10 @@ namespace roar
         m_candidateSamples = 0;
         m_tracked = false;
         m_multiplier = 1;
+        m_divisionsWanted = m_divisions = 1;
+        m_divisionWait = 0;
+        m_untrackedSamples = 1 << 30;
+        m_repickSettleLeft = 0;
         m_inLog = m_f0Log;
         m_subLog = m_f0Log - 1.0;
         m_estimateLog = m_inLog;
@@ -263,6 +315,8 @@ namespace roar
         m_adaaF1 = antiderivative (0.0);
         m_expGain = 0.0f;
         m_levelEnv = 0.0f;
+        m_voicePower = 0.0;
+        m_capGain = 1.0f;
         m_estimateLog = m_inLog;
         m_gainTarget = gainTarget();
         m_gain = m_gainTarget;
@@ -299,7 +353,7 @@ namespace roar
         // Relative to the divided layer's fundamental (m_dividedFundamental per unit band
         // amplitude), which the drive's makeup keeps at its level; the filters' tilt is in m_evenScale.
         return static_cast<float> (dsp::dbToGain (evenDbFor (static_cast<double> (m_driveDb)))
-                                   * static_cast<double> (m_evenScale[static_cast<size_t> (m_settings.character)])
+                                   * static_cast<double> (m_evenScale[m_divisions > 1 ? 1 : 0][static_cast<size_t> (m_settings.character)])
                                    * static_cast<double> (m_dividedFundamental));
     }
 
@@ -308,7 +362,24 @@ namespace roar
         return static_cast<float> (levelLawGain (static_cast<double> (m_settings.level))
                                    * driveMakeup (static_cast<double> (m_driveDb), betaIndex())
                                    * static_cast<double> (m_filterMakeup[static_cast<size_t> (m_settings.character)])
-                                   / static_cast<double> (m_dividedFundamental));
+                                   / static_cast<double> (m_dividedFundamental) * static_cast<double> (m_capGain));
+    }
+
+    void SubModule::updateVoiceCap()
+    {
+        // The divided harmonic (band 1's amplitude; Thick: the power sum with band 2's share, plus
+        // 0.8 dB) counts as at most -4.4 dB of the whole voice, read as a sine's amplitude.
+        if (! m_diagnostics.voiceCap)
+        {
+            m_capGain = 1.0f;
+            return;
+        }
+        const bool thick = m_settings.character == Params::SubCharacter::thick;
+        const double e1 = static_cast<double> (m_div1.env);
+        const double e2 = thick ? static_cast<double> (c_band2Gain) * static_cast<double> (m_div2.env) : 0.0;
+        const double h1 = thick ? dsp::dbToGain (c_thickCapDb) * std::sqrt (e1 * e1 + e2 * e2) : e1;
+        const double voice = std::sqrt (2.0 * std::max (m_voicePower, 0.0)) * dsp::dbToGain (c_voiceCapDb);
+        m_capGain = h1 > voice ? static_cast<float> (voice / std::max (h1, 1.0e-9)) : 1.0f;
     }
 
     void SubModule::updateTracker (const VoiceFrame& frame)
@@ -318,10 +389,21 @@ namespace roar
                             && static_cast<double> (frame.confidence) >= c_minConfidence;
         m_tracked = usable;
 
+        // A voiced pitch returning after a gap starts a settle window in which every usable frame
+        // is taken as it is and the register is picked afresh (the first frames can be stale).
+        // The gap counts frames the stream does not call voiced: across a breath or noise it keeps
+        // reporting the last phrase's pitch, sometimes with fair confidence.
+        const bool voicedPitch = usable && frame.voiced;
+        if (voicedPitch && m_untrackedSamples >= m_repickSamples)
+            m_repickSettleLeft = m_repickSettleSamples;
+        const bool settling = usable && m_repickSettleLeft > 0;
+        if (settling)
+            m_repickSettleLeft = std::max (m_repickSettleLeft - c_voiceFrameSize, 0);
+
         if (usable)
         {
             const double lg = std::log2 (f0);
-            if (! m_hasPitch)
+            if (! m_hasPitch || settling)
             {
                 m_f0Log = lg;
                 m_hasPitch = true;
@@ -358,42 +440,63 @@ namespace roar
             m_candidateSamples = 0;
         }
 
-        // Register: which harmonic band 1 divides (sub = multiplier f0 / 2): the lowest multiplier
-        // whose sub is at or above the register's floor, with 3 % hysteresis.
+        // Register: which harmonic band 1 divides, and how many times (sub = multiplier f0 / 2^divisions).
         const double f0Followed = std::exp2 (m_f0Log);
         double floorHz = c_followFloorHz;
         int maxMultiplier = 2;
+        const bool deep = m_settings.reg == Params::SubRegister::deep;
         if (m_settings.reg == Params::SubRegister::tight)
         {
             floorHz = c_tightFloorHz;
             maxMultiplier = 4;
         }
-        else if (m_settings.reg == Params::SubRegister::deep)
+        else if (deep)
             floorHz = c_deepFloorHz;
+        const int maxDivisions = deep ? c_maxDivisions : 1;
 
-        const auto subFor = [f0Followed] (int multiplier) { return 0.5 * f0Followed * multiplier; };
-        if (! m_controlsValid || m_multiplier > maxMultiplier)
+        const auto subFor = [f0Followed] (int multiplier, int divisions) { return f0Followed * multiplier / static_cast<double> (1 << divisions); };
+        // No hold on a change: it acts on the frame the pitch crosses (a pitch-stream octave error
+        // is then absorbed by the register and the layer stays put).
+        const bool fresh = ! m_controlsValid || m_multiplier > maxMultiplier || settling;
+        m_untrackedSamples = voicedPitch ? 0 : std::min (m_untrackedSamples + c_voiceFrameSize, 1 << 30);
+        if (fresh)
         {
             m_multiplier = 1;
-            while (m_multiplier < maxMultiplier && subFor (m_multiplier) < floorHz)
+            m_divisionsWanted = 1;
+            while (m_multiplier < maxMultiplier && subFor (m_multiplier, 1) < floorHz)
                 m_multiplier *= 2;
+            while (m_divisionsWanted < maxDivisions && subFor (m_multiplier, m_divisionsWanted) > c_deepCeilingHz)
+                ++m_divisionsWanted;
         }
         else
         {
-            while (m_multiplier < maxMultiplier && subFor (m_multiplier) < floorHz / c_registerHysteresis)
-                m_multiplier *= 2;
-            while (m_multiplier > 1 && subFor (m_multiplier / 2) > floorHz * c_registerHysteresis)
-                m_multiplier /= 2;
+            m_divisionsWanted = std::min (m_divisionsWanted, maxDivisions);
+            if (m_divisionsWanted == 1)
+            {
+                while (m_multiplier < maxMultiplier && subFor (m_multiplier, 1) < floorHz / c_registerHysteresis)
+                    m_multiplier *= 2;
+                while (m_multiplier > 1 && subFor (m_multiplier / 2, 1) > floorHz * c_registerHysteresis)
+                    m_multiplier /= 2;
+            }
+            if (m_multiplier == 1)
+            {
+                while (m_divisionsWanted < maxDivisions && subFor (1, m_divisionsWanted) > c_deepCeilingHz)
+                    ++m_divisionsWanted;
+                while (m_divisionsWanted > 1 && subFor (1, m_divisionsWanted - 1) < c_deepReturnBelowHz)
+                    --m_divisionsWanted;
+            }
         }
+        if (! m_controlsValid)
+            m_divisions = m_divisionsWanted;
 
         const double inTarget = std::clamp (m_f0Log + (m_multiplier == 4 ? 2.0 : (m_multiplier == 2 ? 1.0 : 0.0)),
                                             std::log2 (c_minInputHz), std::log2 (c_maxInputHz));
 
-        double subTarget = inTarget - 1.0;
+        double subTarget = inTarget - static_cast<double> (m_divisions);
         if (! m_tracked)
         {
             // Not confident: the output filters follow what the dividers are actually dividing.
-            subTarget = std::clamp (m_estimateLog, m_inLog - 0.5, m_inLog + 0.5) - 1.0;
+            subTarget = std::clamp (m_estimateLog, m_inLog - 0.5, m_inLog + 0.5) - static_cast<double> (m_divisions);
         }
 
         if (! m_controlsValid)
@@ -445,6 +548,7 @@ namespace roar
             m_adaaF1 = antiderivative (m_adaaX1);   // keep the ADAA step consistent
         }
 
+        updateVoiceCap();
         m_gainTarget = gainTarget();
         m_evenGain = evenGainTarget();
         updateFilters();
@@ -473,7 +577,10 @@ namespace roar
         if (d.armed && d.prev < 0.0f && b >= 0.0f)
         {
             d.q = -d.q;
+            ++d.count;
             d.armed = false;
+            if (estimate)
+                m_divisions = m_divisionsWanted;   // a change of division lands on a toggle (the band is at zero)
             if (estimate)
             {
                 const double lg = std::log2 (m_fs / static_cast<double> (d.sinceToggle));
@@ -483,7 +590,15 @@ namespace roar
             d.sinceToggle = 0;
         }
         d.prev = b;
-        return d.q * b;
+        return waveFor (d, b);
+    }
+
+    float SubModule::waveFor (const Divider& d, float b) const
+    {
+        if (m_divisions <= 1)
+            return d.q * b;   // one division: unchanged, bit for bit
+        const float q = ((d.count >> (m_divisions - 1)) & 1u) != 0u ? -1.0f : 1.0f;
+        return q * std::abs (b) * m_divisionScale[static_cast<size_t> (m_divisions)];
     }
 
     void SubModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& voice)
@@ -532,6 +647,11 @@ namespace roar
             for (int k = i; k < end; ++k)
             {
                 const float x = stereo ? sanitizeInput (0.5f * (l[k] + r[k])) : sanitizeInput (l[k]);
+                m_voicePower = dsp::flushTiny (m_voicePower + m_voiceCoeff * (static_cast<double> (x) * static_cast<double> (x) - m_voicePower));
+                if (m_divisions != m_divisionsWanted && ++m_divisionWait >= m_divisionWaitMax)
+                    m_divisions = m_divisionsWanted;   // no toggle came: apply it anyway
+                if (m_divisions == m_divisionsWanted)
+                    m_divisionWait = 0;
 
                 // Band 1 (and band 2) and the dividers.
                 const float b1 = m_band1b.bandpassNormalised (m_band1a.bandpassNormalised (x));
@@ -605,6 +725,7 @@ namespace roar
     {
         const auto& o = sameType<SubModule> (other);
         m_settings = o.m_settings;
+        m_diagnostics = o.m_diagnostics;
         m_fade.copyStateFrom (o.m_fade);
         m_band1a.copyStateFrom (o.m_band1a);
         m_band1b.copyStateFrom (o.m_band1b);
@@ -636,6 +757,13 @@ namespace roar
         m_candidateSamples = o.m_candidateSamples;
         m_tracked = o.m_tracked;
         m_multiplier = o.m_multiplier;
+        m_divisionsWanted = o.m_divisionsWanted;
+        m_divisions = o.m_divisions;
+        m_divisionWait = o.m_divisionWait;
+        m_untrackedSamples = o.m_untrackedSamples;
+        m_repickSettleLeft = o.m_repickSettleLeft;
+        m_voicePower = o.m_voicePower;
+        m_capGain = o.m_capGain;
         m_inLog = o.m_inLog;
         m_subLog = o.m_subLog;
         m_estimateLog = o.m_estimateLog;

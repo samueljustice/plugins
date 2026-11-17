@@ -12,13 +12,13 @@ Roarschach is a chain of fifteen modules. Each has an On switch and can sit anyw
 
 PITCH shifts the voice from two octaves down to one octave up, with Shift, Snap and Mono modes, and SIZE gives it a bigger throat. The audio is never resampled, so at 96 or 192 kHz a two-octave drop brings the recording's ultrasonic content down into the audible band. For texture there is GROWL, which chops the voice into a growl, SHIMMER, a liquid wobble, SWIRL, a sweeping phaser, ROAR, two-stage tube saturation, and ENSEMBLE, a chorus of voices that makes the chain stereo. CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice; it has ten bundled rooms, three speakers, speaker breakup, stereo width and a low-end Boom. VOCODER is a 32-band vocoder on a pulse carrier one or two octaves below the voice, and RING is a ring modulator with a fixed or pitch-tracking carrier and a small resonant body. SUB adds a tracked octave below the voice, and OVERTONE turns the low end into overtones so the weight carries on small speakers. The rest keep things under control: CLEAN (tone EQ, a gate and a leveller), DE-ESS, DETAIL (lifts the quiet parts and pushes the loud parts into a soft ceiling) and TAME (holds back harsh top end).
 
-OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
+IN brings each take to one working level, and OUTPUT matches the level back to the input; both learn one gain for the take and hold it, and keep it with the session, so a bounce matches what you heard. Then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
 
 Above the chain is an abstract ink blot drawn in OpenGL. It gathers out of lit cloud when the voice comes in, swirls and tears open with it, ripples on hits and dissolves back into smoke when it stops. Every module leaves its own trace on it, every session grows a different one, it slowly evolves with sustained intensity, and its clouds drift towards a colour that suits your settings. The whole window takes that colour with it: the paper behind the controls and their one accent colour follow the cloud, while the text, knobs and marks stay in near-black ink.
 
-There are three kinds of dice: one loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone. There are 51 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility), and SAVE stores your own as plain files that are easy to back up and share. Every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
+There are three kinds of dice: one loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. A module can be held so that a full roll leaves it alone, and every roll can be undone. There are 51 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility), and SAVE stores your own as plain files that are easy to back up and share. Every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
 
-The window scales from 65% to 125% by dragging its corner (never larger than the screen). A new window opens as large as the display comfortably allows, and the size you choose is remembered. Latency is constant at about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, and is reported to the host so it is compensated. Host bypass stays in time and switches without clicks. It runs mono or stereo, with full DAW automation.
+The window scales from 65% to 125% by dragging its corner (never larger than the screen). A new window opens as large as the display comfortably allows, and the size you choose is remembered. Latency is constant at about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, and is reported to the host so it is compensated. Host bypass stays in time and switches without clicks. It runs mono or stereo, with full DAW automation; in the host every parameter is named with its module first (PITCH Size, ROAR Drive), so each automation lane says where it belongs.
 
 ## How it works
 
@@ -58,15 +58,15 @@ The order is saved with the session and with presets, and the host can automate 
 
 <img src="docs/strip-dragging.png" alt="GROWL lifted out of the second row and carried into the first, with the space it will drop into outlined and the other tiles moved aside" width="1744">
 
-<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu under a RING MODES heading: Carrier (Sine), Track (Fixed), Mode (Ring) and Body (Box), each opening its own list" width="280">
+<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu, one list under four headings: RING CARRIER with Sine (ticked), Triangle and Square; RING TRACK with Fixed (ticked) and Follow; RING MODE with Ring (ticked) and AM; RING BODY with Off, Box (ticked) and Can" width="280">
 
 ### The output stage
 
 OUTPUT always ends the chain. In order, it:
 
-1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. The matching never drives the voice into the ceiling by itself: that is Push's job.
+1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. It learns what the modules do to the level of the voice and then holds that one gain: it does not ride the level, does not duck after a loud sound and leaves what CLEAN's leveller and the other dynamics do. After a settings change it follows only once the voice has shown a clear difference. The **MATCH** switch at the top of the OUTPUT tile (Level Match in the host, on by default) switches it off. The matching never drives the voice into the ceiling by itself: that is Push's job.
 2. **Pushes** the voice by up to +24 dB. Push is measured against the ceiling, so lowering the Ceiling lowers the output without driving the limiter harder.
-3. **Mixes** in the dry voice at the same loudness as the processed one (the dry is pushed too, and the two are blended at equal power), so the limiter and the clipper hold the ceiling at any Mix and Mix changes the character, not the level.
+3. **Mixes** in the dry voice at the same loudness as the processed one (the dry is pushed too, and the blend follows how alike the two are, so a processed voice close to the dry adds no level at mid Mix), so the limiter and the clipper hold the ceiling at any Mix and Mix changes the character, not the level. The blend is judged over the last 0.4 s, so on a chain that follows the dry on vowels but not on esses (heavy drive, the vocoder) an ess straight after a loud vowel can sit up to about 3 dB under at mid Mix: a mild de-essing.
 4. **Limits** at the **Ceiling** with a look-ahead limiter. More Push is louder and denser; the peaks never pass the ceiling, which is true-peak safe.
 5. **Clips** what the limiter leaves for it. **Clip** sets how many dB of each peak above the ceiling are clipped instead of limited (Off by default), and **Shape** sets the clipper from Soft (rounded peaks) to Hard (flat peaks, brighter and more aggressive). The clipper is oversampled, so it does not add aliasing.
 
@@ -76,6 +76,8 @@ OUTPUT always ends the chain. In order, it:
 - **Attack** sets which frequencies can crunch. The limiter starts turning down this long before each peak, and only notes whose waveform peaks are further apart than that can crunch: roughly everything below 1 / (2 × Attack). At 2 ms (the default) that is everything below about 250 Hz, the whole low end of a creature voice; at 5 ms only the lowest notes; at 10 ms almost nothing. 0.3 to 3 ms is the crunchy range. Shorter attacks are also punchier on transients.
 - **Auto** (on by default) adapts the release to the material and holds the gain steady between bass peaks, so the low end stays clean whatever the Attack. Release still sets how quickly Auto breathes, across its whole range. Turn Auto off to use Release directly.
 
+**The learnt levels are kept.** What IN, ROAR and the level match have learnt is kept when playback stops and saved with the session, so a region plays the same from wherever playback starts and a bounce matches what you heard. They are learnt on the first play of a take: play it through once, loudest part included, before bouncing. A preset starts from a match measured on dialogue, so the first play is already close. A settings change during playback is heard as it is until the match has heard enough of the voice to weigh it.
+
 For crunch, turn Auto off, set Release to a few milliseconds, and raise Push until you hear it. Lower Mix to blend the crunched voice with the clean one. The Utility presets Crunch Lift and Smashed are starting points.
 
 ### Native sample rate
@@ -84,9 +86,27 @@ Roarschach runs at the host's sample rate and never resamples the audio. PITCH r
 
 ## Controls
 
-Every control has a tooltip: hover over it to see what it does, and where its useful range is. A knob the current settings do not use is dimmed, and still turns (SHIMMER's Rate at Amount 0, for example, or GROWL's Rate with the Throat shape); one that does only a little is half-dimmed. A module that is Off shows a hollow light, open knobs and OFF in its footer. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices, and the die beside it rolls the module; the ••• button moves the module.
+Every control has a tooltip: hover over it to see what it does, and where its useful range is. A knob the current settings do not use is dimmed, and still turns (SHIMMER's Rate at Amount 0, for example, or GROWL's Rate with the Throat shape); one that does only a little is half-dimmed. A module that is Off shows a hollow light, open knobs and OFF in its footer. The footer of each module shows what the module is doing right now (hover over it for an explanation). The die beside the mode chip rolls the module, and the ••• button moves it.
 
-<img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks." width="583">
+**Knobs.** Drag a knob up and down; hold Shift while dragging for fine control (a tenth of the travel, and on PITCH under half a cent a pixel). Shift can be pressed or let go in the middle of a drag without a jump. The mouse wheel moves a knob in steps that land on round values:
+
+| Knob | Wheel step | With Shift |
+|---|---|---|
+| PITCH (semitones) | 1 st | 1 cent |
+| Percent | 1% | 0.1% |
+| Decibels | 0.5 dB | 0.1 dB |
+| Octaves (OVERTONE Freq) | 0.05 oct | 0.01 oct |
+| Hz, ratio, ms | 1% of the travel | 0.1% of the travel |
+
+Right-click a knob for **Reset to Default** (it shows the default, and is greyed out when the knob is already there) and **Type a Value**; where the host offers its own options for the parameter, they follow under a HOST heading. Double-click also resets a knob.
+
+**Mode chips.** The chip under the knobs opens one list with all of the module's choices, each under a heading such as SWIRL CIRCUIT and SWIRL MOTION, the current ones ticked. To step the first choice the chip shows without opening the list, scroll over the chip, or move to it with Tab and press Up or Down. It stops at either end.
+
+**Solo.** Alt-click a module's On switch to hear it alone: every other module goes off. Alt-click it again to turn back on the modules that were on. Alt-clicking another module's switch moves the solo there. The modules that were on are remembered until another preset or the session is loaded; after that, Alt-click starts a new solo. The switches change as one edit, so the host records one step per click.
+
+**Names in the host.** Each parameter's name in the host starts with its module: PITCH Size, ROAR Drive, ENSEMBLE Width, OUTPUT Clip Shape, IN Gain. A host that shows short names gets the longest form that fits, such as PI Size.
+
+<img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks. Shift-drag for fine control. The mouse wheel moves it in small steps, with Shift in finer ones. Right-click to reset it or type a value; double-click also resets it." width="618">
 
 ### The dice
 
@@ -94,25 +114,28 @@ Three kinds of die roll new settings: one beside the preset name, one after the 
 
 <img src="docs/dice-preset-tooltip.png" alt="The preset bar showing Kaiju, with the pointer on the die after the next-preset arrow and its tooltip: Loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="456">
 
-<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, so the level stays safe." width="546">
+<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. Shift-click to roll only the modules that are on: every On switch stays as it is. A module held from its die's right-click menu is left as it is. The module order, IN and OUTPUT stay as they are, so the level stays safe. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="537">
 
-<img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are." width="556">
+<img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are. Right-click it and choose Hold in Randomise All to keep PITCH as it is when Randomise All rolls the rest. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="556">
 
 Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. A preset loaded from the preset bar (the list, the arrows or the preset die) is a step in the same history (see [Presets](#presets)); a preset or session loaded any other way, from the host's program list or a session recall, even the same one again, ends it. The host sees every control a roll changes, so it records the roll and its automation follows.
 
 - **Random preset** (the die beside the preset name): loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again.
-- **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. A dot appears after the preset name, as for any edit.
+- **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. A dot appears after the preset name, as for any edit. **Shift-click** it to roll new settings for the modules that are on only: every On switch, and every module that is off, stays as it is.
 - **A module's die** (beside its mode chip): new settings for that module's knobs and modes only. Its On switch and its place in the chain stay as they are.
+- **Hold in Randomise All**: right-click a module's die and choose it to keep that module (its On switch and its settings) as it is when Randomise All rolls the rest. A held die carries a small ink pin on its corner. Held modules that are on count towards the three to seven. The holds are saved with the session and stay through preset loads; they are not parameters, so the host does not record them.
+
+<img src="docs/dice-held.png" alt="PITCH held: its die carries a small ink pin on its top corner, beside CHAMBER's plain die, and the die's right-click menu shows Undo Roll, Redo Roll and Hold in Randomise All (ticked)" width="331">
 
 <img src="docs/dice-undo-menu.png" alt="The menu from right-clicking RANDOMISE ALL straight after a roll: Undo Roll All, and Redo Roll greyed out" width="200">
 
-One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE are on; after, CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are, every module has new settings, a dot follows the preset name, and the ink blot has taken a new shape and the window a new colour. The module order, IN and OUTPUT are as they were.
+One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB are on; after, CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are, every module has new settings, a dot follows the preset name, and the ink blot has taken a new shape and the window a new colour. The module order, IN and OUTPUT are as they were.
 
-<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE switched on, a dark mirrored ink blot with two heavy wings hanging low in pale blue-grey cloud, and the sheet and controls in the same cool grey" width="880">
+<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB switched on, a dark mirrored ink blot with two heavy legs hanging low and thin tendrils curling out to the sides, in pale blue-grey cloud with a warm blush, and the sheet and controls in the same cool grey" width="880">
 
-<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: a dot follows the name Big Bad Narrator, and CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are on with new settings while the other modules are off; the cloud has drifted to a clear blue lit with straw-yellow light, the sheet and the controls' accent have turned blue with it, and the blot has gathered into a broad mass with wide, smoky wings" width="880">
+<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: a dot follows the name Big Bad Narrator, and CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are on with new settings while the other modules are off; the cloud has drifted to a clear blue lit with straw-yellow light, the sheet and the controls' accent have turned blue with it, and the blot has gathered into two broad, smoky wings either side of a small dark head" width="880">
 
-A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
+A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 993 of the 1,000 rolls played within 3 LU of Init (the other seven, all on one take, 3.0 to 4.0 LU louder), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
 
 The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander, and the CHAMBER tiles from the presets named under them. Every knob's travel was measured on real voice recordings and mapped so that all of it does something; the measurements are in [docs/parameter-audit.md](docs/parameter-audit.md).
 
@@ -123,9 +146,11 @@ The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Co
 | Control | Range | Default | Description |
 |---|---|---|---|
 | **Input** | −24 to +24 dB | 0 dB | Level into the plug-in, before everything else. With Auto on, it raises or lowers the levelled voice by half as much. |
-| **Auto** | on / off | On | Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take. |
+| **Auto** | on / off | On | Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take. It learns one gain per take from the performance itself (not from room tone, hum or noise before it) and holds it, so a whisper stays a whisper and a roar a roar; OUTPUT takes the same gain back. Turn it off and on again to learn a new take. |
 
 The meter shows the input level and the readout the voice's pitch. A stereo input is summed to mono here.
+
+Auto holds one working level per instance, set by the loud end of what it has heard: it turns down when a louder passage arrives, and once learnt it does not turn up again by itself. On a track that carries several takes at different levels, the loudest of them sets the gain for all; turn Auto off and on to learn again from the next one, or use one instance per take. A take heard only as unpitched sound (breath, hiss, a whispered rasp) is raised by at most 12 dB until some pitched voice comes in.
 
 ### PITCH
 
@@ -139,6 +164,8 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 | **Mode** | Shift / Snap / Mono | Shift | Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note, set by Pitch (0 st = C3). |
 | **Formant** | Follow / Keep | Follow | Follow moves the throat with the pitch, for a bigger or smaller creature. Keep leaves the throat where it is, so only the pitch changes. |
 
+PITCH moves each word start and plosive once, cleanly, and leaves silence silent after a start or a reset. In Keep, rough and breathy sound (growls, croaks, breath, weak consonants) moves with the pitch too, while esses stay where they are; at large shifts a rough voice can flutter in tone between its pitched and unpitched parts. Modules that follow the voice's pitch after PITCH (the VOCODER, RING Follow, SUB, OVERTONE Tracked and GROWL Throat) take each phrase's pitch in time with the shifted voice.
+
 ### CLEAN
 
 <img src="docs/panel-clean.png" alt="The CLEAN tile with Contain 22% and Gate 40% and the Voice tone, the gate open" width="151">
@@ -149,14 +176,20 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 | **Gate** | 0 to 100% | 47% | Closes on room noise between words; higher settings close further and harder. 25–40% suits dialogue. |
 | **Tone** | Flat / Voice / Heavy / Radio | Voice | The voice EQ. Flat leaves the voice as it is, Voice cleans up the low mids, Heavy cuts the boom and low mids hard for a tight, forward chest (it thins the lows), Radio is a narrow, lo-fi band. |
 
+The gate closes on room tone that sits at least 30 dB under the loud part of the take. A noisier recording than that is only partly reduced at the default; raising Gate closes further but starts to take the quiet edges of words. Clean a very noisy recording before it reaches the plug-in.
+
 ### DE-ESS
 
-<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 51% in Split" width="151">
+<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 54% in Split" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 49% | Softens harsh S and T sounds: more travel takes them down further. |
-| **Mode** | Split / Wide | Split | Split turns down only the hiss above about 3.5 kHz on each S. Wide turns down the whole voice for the length of the S, which also tames lisps and mouth noise but dips the words. |
+| **Amount** | 0 to 100% | 51% | How far sibilance is turned down: about 5 dB at 25%, 9 dB at 50%, 15 dB at 75% and 20 dB at 100% on a normal ess. It follows the voice: a steady rasp or hiss passes, an ess that jumps out is caught. |
+| **Mode** | Split / Wide | Split | Split dips only the top of the voice, from about 3 kHz up. Wide turns the whole voice down for the length of the ess, which also tames lisps and mouth noise but dips the words; if the sound lasts longer than a third of a second Wide lets go, so it never sits on a long hiss. |
+
+DE-ESS dips a shelf only while an ess sounds and lets go within about 20 ms, so the vowel after it keeps its brightness. It measures how bright the voice normally is over the last couple of seconds and acts on sounds that jump above that, so a breathy or rasping performance keeps its top end. A sound as bright as an ess is always treated as one, however long it lasts, so a pure hiss is turned down. Above about 75% it reaches into a steady rasp too (2 to 4 dB at 75%, 5 to 11 dB at 100%), and at 100% speech loses some vowel brightness above 3 kHz (3 to 6 dB).
+
+When a rasp follows speech with no pause, its first half second is dipped by about 4 to 5 dB at the top while DE-ESS learns that this is the voice now. An ess straight after a long rasp, or the first ess after playback starts, is reduced a little less than usual (7 to 8 dB instead of 9 to 10 at 50%).
 
 ### DETAIL
 
@@ -168,7 +201,7 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 | **High** | 0 to 100% | 19% | Pushes the loud parts up into a soft ceiling: denser and more forward. 30–60% is a strong, even level. |
 | **Speed** | Natural / Snappy | Natural | How quickly the level follows the voice. Natural is smooth; Snappy recovers faster and sounds more lively. |
 
-DETAIL leaves the room tone between lines alone, so it lifts the voice, not the noise floor.
+DETAIL leaves the room tone between lines alone, so it lifts the voice, not the noise floor. On pitched sound it follows the syllable rather than each cycle of the voice, so low notes (and a voice after PITCH down or SUB) come through clean.
 
 ### VOCODER
 
@@ -178,6 +211,8 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 |---|---|---|---|
 | **Gravel** | 0 to 100% | 41% | How much of the pulse-carrier vocoder is heard. About 30% is gritty with the words fully intact; about 70% is a dominant buzz. |
 | **Octave** | −1 Oct / −2 Oct | −1 Oct | Register of the vocoder's pulse carrier: −1 Oct is low and buzzy, −2 Oct lower and rougher. The filter bank keeps its weight above the deepest bass. |
+
+Esses and breath come out of the vocoder at the level they went in, level with the vowels, at every Gravel setting.
 
 ### RING
 
@@ -207,14 +242,14 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### GROWL
 
-<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 27 Hz, Rattle and Warm" width="151">
+<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 24 Hz, Rattle and Warm" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
 | **Depth** | 0 to 100% | 25% | How deeply the voice is chopped. 15–35% adds texture; 45–100% is an obvious growl. |
-| **Rate** | 2 to 150 Hz | 27 Hz | How fast the voice is chopped. 5–7 Hz stutters, 20–35 Hz growls, 60–100 Hz buzzes. Not used by the Throat shape. |
-| **Shape** | Sine / Opto / Square / Throat / Rattle | Sine | Sine is smooth, Opto pulses like a lamp, Square switches hard, Throat locks to half the voice's pitch (Rate is not used), Rattle speeds up as the voice gets louder. |
-| **Character** | Clean / Warm / Grind | Warm | What the chop does to the tone. Clean only changes the level, Warm rounds the low end, Grind adds a gritty edge. |
+| **Rate** | 2 to 150 Hz | 27 Hz | The average rate of the pulses. 5–7 Hz stutters, 20–35 Hz growls, 60–100 Hz buzzes. Not used by the Throat shape. |
+| **Shape** | Sine / Opto / Square / Throat / Rattle | Sine | Sine is smooth, Opto pulses like a lamp, Square switches hard. From about 10 Hz up, each cycle of these three differs a little in length and depth, so the result is a rough voice rather than a steady chop; slower settings are a regular tremolo. Rattle speeds up as the voice gets louder. Throat locks to half the voice's pitch (Rate is not used). |
+| **Character** | Clean / Warm / Grind | Warm | How much the pulse distorts the tone. Clean only changes the level, Warm rounds the low end, Grind adds a gritty edge. Grind has a ceiling: at working level it is as loud as Warm, while a very hot voice comes out 3 to 5 dB under Warm and a very quiet one 1 to 2 dB over. |
 
 ### SWIRL
 
@@ -224,7 +259,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 |---|---|---|---|
 | **Amount** | 0 to 100% | 21% | How much of the sweeping phaser is mixed in. |
 | **Rate** | 0.05 to 10 Hz | 0.35 Hz | How fast the phaser sweeps. 0.15–0.5 Hz is slow and liquid, 1–2.5 Hz animated, 4 Hz and up a warble. |
-| **Circuit** | Liquid 4 / Smooth 4 / Talky 4 / Deep 6 / Deep 12 / Dark 5 | Liquid 4 | The phaser's circuit: how many notches it has and how deep they cut, from a liquid four-stage to a dense twelve-stage sweep. |
+| **Circuit** | Liquid 4 / Smooth 4 / Talky 4 / Deep 6 / Deep 12 / Dark 5 | Liquid 4 | The phaser's circuit: how many notches it has and how deep they cut, from a liquid four-stage to a dense twelve-stage sweep. Deep 6 holds its level over the whole Amount travel. |
 | **Motion** | LFO / LFO+Level / Random | LFO+Level | What moves the sweep. LFO is steady, LFO+Level sweeps further on loud words, Random wanders. |
 
 ### ROAR
@@ -233,9 +268,15 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Drive** | 0 to 100% | 45% | Tube saturation. 25–45% gives warmth and presence; 70–100% grit. |
+| **Drive** | 0 to 100% | 45% | Tube saturation. 25–45% gives warmth and presence; 70–100% grit. Drive changes the tone, not the level: ROAR learns the level for each setting and holds it. |
 | **Tone** | Bass 100% to Treble 100% | Treble 3% | Tilts what the tube drives harder: the bass or the treble. It works at any Drive. |
 | **Voicing** | Line / Mic | Line | Line drives the tube flat. Mic first trims the boom and the air, as from a close microphone. |
+
+ROAR learns one makeup gain for the setting it is on, from the loud end of the voice going in against what comes out, and then holds it. Within a line, loud words are still pushed harder into the tube than quiet ones. The learnt gain is saved with the session.
+
+The first time a take plays at a new Drive, Tone or Voicing, ROAR is learning: the level settles over the first seconds, and again when the take reaches a louder passage than it has shown so far. From the second pass the gain does not move, and a region, a punch-in or a bounce matches playback, so play the loudest part of the take once before committing. Moving Drive by more than 2% (Tone by 4%) starts a new learn, and so does changing anything before ROAR in the chain (Input, Auto, or a module before it switched, edited or moved); it holds its current level while it learns. While Drive is automated the gain holds, and afterwards it settles over the following seconds of the take: a quick step of up to about 2.5 dB after a large move, then, on that pass only, a slow ride of up to about 2 dB.
+
+At high Drive the tube compresses: quiet passages, breaths and room tone between loud words come up (a passage 20 dB down rises about 4 dB at 80% and 7 dB at 100%), so gate before ROAR if that matters. Through Push, a driven ROAR can read up to about 1 LU louder than the dry voice on dense material such as screams and rasp; the level match takes that up.
 
 ### ENSEMBLE
 
@@ -243,10 +284,12 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 10% | How much of the chorus of voices is mixed in. |
-| **Width** | 0 to 150% | 10% | How far the chorus spreads to the sides. Past about 100% the chorus thins when the mix is summed to mono. |
+| **Amount** | 0 to 100% | 10% | How much of the chorus of voices is mixed in. The chorus works above about 120 Hz; below that the voice passes straight through, so the low end stays solid. |
+| **Width** | 0 to 150% | 10% | How far the chorus spreads to the sides. Past about 100% the chorus thins when the mix is summed to mono. Width is held back whenever the chorus's sides would outweigh the voice in the middle, so the image never turns out of phase. |
 | **Voices** | 3 / 6 | 3 | How many voices sing along: 3 is tight, 6 is a crowd. |
 | **Motion** | Slow / Medium / Fast / Vibrato | Medium | How the voices drift. Slow, Medium and Fast set the movement; Vibrato makes them waver in pitch. |
+
+Below about 60 Hz the voice stays mono, narrowing from 120 Hz down. The width is held back sooner at high Amount with wide settings, on bright or noisy voices and with Vibrato. Vibrato on a low voice can sit about 1 dB under the dry level. With six voices on a low sustained note (about 100 to 120 Hz), a mono fold can dip deeply for a moment as the voices sweep through the low crossover; three voices are steadier there.
 
 ### TAME
 
@@ -254,7 +297,9 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 6% | Holds back harsh top end when it gets loud; higher settings start lower and hold back harder. |
+| **Amount** | 0 to 100% | 6% | Holds back harsh top end when it jumps out. Low settings leave a bright voice alone; higher settings hold back its loud moments, then its whole top end. |
+
+TAME watches the top two bands (2.5 to 6.5 kHz, and above 6.5 kHz) and holds them back when they jump out: harsh consonants, a scream's edge, the fizz of a driven stage. It compares each band with its usual share of the voice, so a performance that is bright all the way through keeps its top end at low settings, also when it gets louder. Below about 7% it does not act on a voice simply because it is loud, so a screech keeps its edge there. From about 7% to 25% it turns to the voice's usual level as well, the loud moments first: a swell 10 dB above the usual level loses about 8 dB at 25%, the sound between swells about 3. Higher settings reach further in: a steady rasp is down 5 to 8 dB at 25%, 10 to 13 dB at 50% and 17 to 20 dB at 100%. To hold a scream's top back, use 15 to 25%.
 
 ### SUB
 
@@ -262,21 +307,25 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Level** | 0 to 100% | 49% | Level of the octave underneath the voice. 40–65% is a solid octave. With Overtone in Replace, Sub Level also adds weight through the overtones. |
+| **Level** | 0 to 100% | 49% | How much of the octave layer is added. 40–65% is a solid octave. It follows the voice's own level: at the default it sits a little under the voice at most. With Overtone in Replace, Sub Level also adds weight through the overtones. |
 | **Drive** | 0 to 100% | 20% | Drive on the octave. Up to about 20% it stays clean; above that it gets thicker and growlier. |
-| **Register** | Follow / Tight / Deep | Follow | Where the octave sits. Follow tracks the voice an octave down, Tight keeps it at 55 Hz or above, Deep goes a full octave down to about 32 Hz. |
+| **Register** | Follow / Tight / Deep | Follow | Where the layer sits. Follow is one octave under the voice. Tight is one octave under, kept at 55 Hz or above. Deep goes as many octaves under the voice as it takes to land between about 46 and 131 Hz: a true sub under any voice, howls and screeches included. |
 | **Character** | Clean / Resonant / Thick | Clean | The octave's colour. Clean is a pure low tone, Resonant rings and drives harder, Thick adds a second, fuller layer. |
+
+The readout shows the layer's frequency. Each phrase after a pause (about 150 ms without a voiced pitch, breaths and noise included) picks its octave from its own pitch, so a line plays the same wherever playback starts from a pause. The Level figure is for a phrase as a whole: the layer rings a little longer than the voice, so at the very start and end of a sound it can be the louder of the two for a moment, and with Drive turned up its added harmonics can lift it slightly past the voice. SUB followed by a strong OVERTONE can add up to slightly more than the voice, since each module limits its own layer.
 
 ### OVERTONE
 
-<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 10% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="151">
+<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 35% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="151">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 4% | How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. In Lean and Replace the original low end is cut more as Amount rises. |
+| **Amount** | 0 to 100% | 4% | How much of the overtone layer is added. The overtones let the voice's weight be heard on small speakers without adding more bass. In Add the layer starts to be heard from about a third of the way up; in Lean and Replace the original low end is cut more as Amount rises. The layer never comes out louder than the voice. |
 | **Freq** | −1 to +1 oct | 0 oct | Moves the overtone bands up or down together. Higher translates better to small speakers; lower is warmer. |
 | **Pattern** | Chest / Throat / Beast / Speaker / Broad / Tracked | Chest | Which low regions are turned into overtones. Chest: body and octave. Throat: gruff upper growl. Beast: hollow, odd-heavy snarl. Speaker: high overtones for small or radio-like creatures. Broad: one wide low band. Tracked: follows the voice's pitch exactly. |
 | **Mode** | Add / Lean / Replace | Add | Add keeps the original low end. Lean lowers it. Replace removes it, so the low end is heard only through its overtones. |
+
+Chest, Throat, Beast, Speaker and Broad are fixed sets of bands. With a higher voice a set moves up by whole octaves (two at most), so it still has something to work on on howls and higher voices; the readout shows where the bands are. The octave is chosen at the start of each phrase and moves inside a phrase only when the voice has clearly left it, so playing from the middle of a phrase can give a different octave from playing the whole line: bounce from a pause. Tracked follows the pitch itself and suits very high voices.
 
 Placed after SUB (the default), OVERTONE also makes SUB's octave audible on small speakers.
 
@@ -286,23 +335,23 @@ CHAMBER plays the voice through a small speaker into a tight, resonant room, the
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **AMT** (Chamber) | 0 to 100% | 50% | How much of the voice played into the room is blended under the dry voice. 15–35% adds a subtle edge, 45–65% is a clear chamber; around 80% the two are equal; at 100% the room leads. |
-| **TAIL** (Resonance) | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
-| **EDGE** | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once AMT is about 60% or more. |
-| **WIDE** (Chamber Width) | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any setting. |
+| **AMT** (CHAMBER Amount) | 0 to 100% | 50% | How much of the voice played into the room is blended under the dry voice. 15–35% adds a subtle edge, 45–65% is a clear chamber; around 80% the two are equal; at 100% the room leads. |
+| **TAIL** (CHAMBER Resonance) | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
+| **EDGE** (CHAMBER Edge) | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once AMT is about 60% or more. |
+| **WIDE** (CHAMBER Width) | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any setting. |
 | **Room** | 10 rooms (below) | Concrete Room | The room the speaker plays into. |
 | **Speaker** | Tiny / Small / Horn | Small | The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn. |
 | **Boom** | Off / Light / Medium / Heavy | Light | Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB. |
 
-The mode chip shows the room; click it for a menu with one list each for the room, the speaker and the Boom, the current choice ticked. When CHAMBER is on, its footer shows the room and how long it rings at the current TAIL.
+The names in brackets are the ones the host shows. The mode chip shows the room; click it for one list with the rooms, the speakers and the Boom settings under their own headings, the current choices ticked (the wheel over the chip steps the room). When CHAMBER is on, its footer shows the room and how long it rings at the current TAIL.
 
 <img src="docs/chamber-off.png" alt="CHAMBER Off, as in Init: a hollow light, open knobs at AMT 50%, TAIL 40%, EDGE 30% and WIDE 35%, the chip reading CONCRETE and the footer OFF" width="151"> <img src="docs/chamber-simple-size.png" alt="CHAMBER in Simple Size: AMT 30%, TAIL 30%, EDGE 15%, WIDE 70%, the chip reading RESONANT (Resonant Chamber, with the Small speaker and Medium Boom in its menu), the footer showing the room ringing for 0.62 s and the ST tag" width="151"> <img src="docs/chamber-tin-can-drone.png" alt="CHAMBER in Tin Can Drone: AMT 75%, TAIL 90%, EDGE 40%, WIDE 30%, the chip reading TIN BOOTH (with the Tiny speaker and Boom Off), the footer showing 0.82 s and the ST tag" width="151"> <img src="docs/panel-chamber.png" alt="CHAMBER in Iron Tyrant, sixth in the chain: AMT 60%, TAIL 65%, EDGE 60%, WIDE 50%, the chip reading STEEL BOX (with the Horn speaker and Heavy Boom), the footer showing the room's decay and the ST tag" width="151">
 
-<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its ROOM list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; the main menu, under CHAMBER MODES, lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
+<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu, one list under three headings: CHAMBER ROOM with Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; CHAMBER SPEAKER with Tiny, Small (ticked) and Horn; CHAMBER BOOM with Off, Light, Medium (ticked) and Heavy" width="441">
 
-<img src="docs/chamber-menu-speaker.png" alt="CHAMBER's SPEAKER list: Tiny, Small (ticked) and Horn" width="387"> <img src="docs/chamber-menu-boom.png" alt="CHAMBER's BOOM list: Off, Light, Medium (ticked) and Heavy" width="376">
+<img src="docs/chamber-menu-speaker.png" alt="The CHAMBER SPEAKER section of the same list: Tiny, Small (ticked) and Horn" width="224"> <img src="docs/chamber-menu-boom.png" alt="The CHAMBER BOOM section at the foot of the same list, above the mode chip: Off, Light, Medium (ticked) and Heavy" width="224">
 
-<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's EDGE knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more." width="591"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="353">
+<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's EDGE knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once AMT is about 60 % or more. Shift-drag for fine control. The mouse wheel moves it in small steps, with Shift in finer ones. Right-click to reset it or type a value; double-click also resets it." width="601"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="353">
 
 | Room | Character | Decay (about) |
 |---|---|---|
@@ -317,7 +366,7 @@ The mode chip shows the room; click it for a menu with one list each for the roo
 | **Party Wall** | A big concrete room heard through the wall: dark and booming | 0.8 s |
 | **Tower Block** | Further down the hall: darker still, a low body that hangs | 0.8 s |
 
-The decays are at Resonance 40%, which plays each room as captured; Resonance stretches them to about half or up to 1.6 times (as far as each room allows).
+The decays are at Resonance 40%, which plays each room as captured; Resonance stretches them to about half or up to 1.6 times (as far as each room allows). The rooms are small: the ring ends within about 0.4 to 0.7 s. For a long space, follow the plug-in with a reverb.
 
 Every room has headroom at every setting: each was measured at the extremes of every CHAMBER control, in every position in the chain and in every preset that uses it, and none clips or gets past OUTPUT's ceiling. Party Wall and Tower Block peak within about 0.5 dB of the other rooms, and from Resonance 40% up they peak lower than any of them. At Chamber 100% a room gives OUTPUT's limiter a few dB more to do, most with Resonance low and the Tiny or Horn speaker.
 
@@ -328,17 +377,18 @@ Every room has headroom at every setting: each was measured at the extremes of e
 
 ### OUTPUT
 
-<img src="docs/panel-out.png" alt="The OUTPUT tile with Push +10.5 dB, Ceiling -2.5 dB, Clip 3 dB, Shape Soft, Attack 2 ms, Release 60 ms, Auto on and Mix 100%, with the output, gain reduction and clip meters" width="292">
+<img src="docs/panel-out.png" alt="The OUTPUT tile with the MATCH switch on in its header, Push +8.0 dB, Ceiling -2.5 dB, Clip 3 dB, Shape Soft, Attack 2 ms, Release 60 ms, Auto on and Mix 100%, with the output, gain reduction and clip meters" width="292">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Push** | 0 to +24 dB | +8 dB | Drives the voice into the ceiling. Push 8–12 is clean and dense; for loud, Push 14–18 with Clip 6–9. The peaks never pass the ceiling. |
+| **Push** | 0 to +24 dB | +6.5 dB | Drives the voice into the ceiling. Push 8–12 is clean and dense; for loud, Push 14–18 with Clip 6–9. The peaks never pass the ceiling. |
 | **Ceiling** | −12 to 0 dB | −1 dB | The highest level the output can reach, true-peak safe. It sets the output level only: Push decides how hard the limiter works. |
 | **Clip** | Off to 18 dB | Off | How many dB of each peak above the ceiling are clipped instead of limited. Raise Push to drive into it. |
 | **Shape** | Soft to Hard | Soft | Clip shape. Soft rounds the peaks gently; Hard clips them flat, which is brighter and more aggressive. |
 | **Attack** | 0.2 to 10 ms | 2 ms | How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3–3 ms crunches the low end. |
 | **Release** | 1 ms to 1 s | 60 ms | How fast the limiter recovers. With Auto off: 2–10 ms crunch, 25–60 ms grit, 200 ms and up clean. |
 | **Auto** | on / off | On | Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes. |
+| **Match** | on / off | On | Level match, the switch at the top of the tile: holds the processed voice at the level of the input (see [The output stage](#the-output-stage)). Off: the voice leaves at the level the modules give it, and Push still drives it into the ceiling. |
 | **Mix** | 0 to 100% | 100% | Blends the processed voice with the dry voice, which is delayed and phase-matched to line up with it. The two are matched in loudness, so Mix changes the character, not the level. |
 
 The meters show the output level (with the ceiling marked), the limiter's gain reduction (GR) and how much the clipper takes (CLIP). See [The output stage](#the-output-stage) for how Attack and Release shape the crunch.
@@ -448,7 +498,7 @@ A few contrasting presets, each playing the same voice, with the colour settled 
 <img src="docs/preset-upside-down.gif" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a body between two curling wings, in teal-grey cloud on a sea-green sheet" width="440"> <img src="docs/preset-spore-throat.gif" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a wide blot on long legs that curl at their feet, in crimson rose cloud on a rose sheet" width="440">
 <img src="docs/preset-ball-bearing.gif" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a broad blot with two horned arms swept up, in pale sky-blue cloud" width="440"> <img src="docs/preset-stairwell-stalker.gif" alt="Stairwell Stalker: PITCH at -4 st, CLEAN, DE-ESS, DETAIL, SHIMMER, GROWL on Rattle, SWIRL, ROAR, ENSEMBLE, TAME, SUB and CHAMBER last in Tower Block at full width; a dense blot with feathered wings spread across its top, in slate-blue cloud" width="440">
 
-Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
+Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 0.6 LU of Init on dialogue once the level stages have learnt the take (measured as the median over seven dialogue takes, on the fourth play). Each preset also carries the level match measured for it on that dialogue, so its first play starts close.
 
 Thirteen presets use CHAMBER:
 

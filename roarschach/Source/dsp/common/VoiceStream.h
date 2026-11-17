@@ -116,6 +116,13 @@ namespace roar
 
         void fill (const VoiceFrame& f);
 
+        /** How late the producer's frames are against its audio (samples): every chunk starts with
+            this skew, so the delays downstream use it up before they add any (a constant of the rate). */
+        void setLateness (int samples) { m_lateness = samples > 0 ? samples : 0; }
+
+        /** True when chunk sample i is the first sample of a frame on the global grid. */
+        bool isFrameStart (int sample) const { return ((m_startOffset + sample) & (c_voiceFrameSize - 1)) == 0; }
+
         VoiceFrameView view() const;
 
     private:
@@ -125,6 +132,7 @@ namespace roar
         std::int64_t m_firstFrame = 0;
         std::int64_t m_clock = 0;
         int m_skew = 0;
+        int m_lateness = 0;
     };
 
     /**
@@ -159,15 +167,18 @@ namespace roar
 
     /**
      * The PITCH-rewrite hook. A module that changes the pitch of its audio implements this; the
-     * chain's VoicePass calls it on the stream after the latency delay, so frames[k] describes
-     * the module's output for chunk frame k (the same frame grid as the chunk it just processed).
+     * chain's VoicePass calls it on the stream after the latency delay. frames[k] is global frame
+     * firstFrame + k of the module's output and describes the audio skewSamples before it, so
+     * the rewriter applies what it did to that audio: what it recorded on its own frame clock,
+     * (skewSamples + 16) >> 5 frames earlier. Keyed to the global frame index, never to the
+     * chunk, so the result does not depend on the host block size.
      * PITCH Shift multiplies f0 by 2^(P/12); Snap and Mono write the target pitch.
      */
     class VoiceRewriter
     {
     public:
         virtual ~VoiceRewriter() = default;
-        virtual void rewriteVoice (VoiceFrame* frames, int numFrames) = 0;
+        virtual void rewriteVoice (VoiceFrame* frames, int numFrames, std::int64_t firstFrame, int skewSamples) = 0;
     };
 
     /**
@@ -175,7 +186,7 @@ namespace roar
      * rewrite. process() returns the stream downstream of the module:
      *   latency 0 and no rewriter  ->  the input view itself (no copy)
      *   latency L                  ->  delayed by L
-     *   rewriter                   ->  copied, then rewriter->rewriteVoice (frames, numFrames)
+     *   rewriter                   ->  copied, then rewriter->rewriteVoice (frames, numFrames, first frame, skew)
      */
     class VoicePass
     {

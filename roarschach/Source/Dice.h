@@ -52,8 +52,11 @@ public:
         once before any comes up again (a shuffled bag). Returns its factory index, -1 if none. */
     int rollPreset();
     /** Turns a random set of modules on and rolls every module's knobs and choices (see
-        Params::Random). The order, IN and OUTPUT are left alone. */
-    void rollAll();
+        Params::Random). The order, IN and OUTPUT are left alone.
+        held: modules Randomise All leaves exactly as they are (their On switch and settings).
+        onlyOn: roll the knobs and choices of the modules that are on and leave every On switch (and
+        every module that is off) as it is (Shift-click). Returns false when there was nothing to roll. */
+    bool rollAll(const Params::Random::ModuleSet& held = {}, bool onlyOn = false);
     /** Rolls one module's knobs and choices (not its On switch or its position). */
     void rollModule(int module);
 

@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 // Parameter IDs, ranges, defaults, choice names and the module table: the single source of truth
@@ -130,6 +131,8 @@ namespace Params
     inline constexpr const char* chamberRoom = "chamberRoom";
     inline constexpr const char* chamberSpeaker = "chamberSpeaker";
     inline constexpr const char* chamberBoom = "chamberBoom";
+    // OUTPUT's Level Match (appended later, version hint 3)
+    inline constexpr const char* outMatch = "outMatch";
 
     // ---------------------------------------------------------------------------------- choice names
     inline constexpr std::array<const char*, 3> pitchModeNames { "Shift", "Snap", "Mono" };
@@ -215,7 +218,7 @@ namespace Params
                                  // decibels: 0 = linear, else the value at mid travel (a skewed taper)
         const char* const* choices;
         int numChoices;
-        int version = versionHint;   // the ParameterID version hint: 1 for 1.0's rows, 2 for 1.1's
+        int version = versionHint;   // the ParameterID version hint: 1 for 1.0's rows, 2 for 1.1's, 3 for Level Match
     };
 
     // The movable modules. Declared here because the position ranges depend on it. The first 14
@@ -248,6 +251,13 @@ namespace Params
             return s;
         }
 
+        /** A version-3 row (Level Match, appended after CHAMBER). */
+        constexpr Spec v3 (Spec s)
+        {
+            s.version = 3;
+            return s;
+        }
+
         template <size_t N>
         constexpr Spec choice (const char* id, const char* name, const std::array<const char*, N>& names, int def)
         {
@@ -271,7 +281,7 @@ namespace Params
         }
     }
 
-    inline constexpr int numParameters = 96;
+    inline constexpr int numParameters = 97;
     inline constexpr int numLegacyParameters = 87;   // 1.0's rows: indices 0..86
 
     inline constexpr std::array<Spec, numParameters> all {
@@ -295,7 +305,7 @@ namespace Params
         // DE-ESS
         detail::toggle (deessOn, "De-ess On", true),
         detail::position (deessPos, "De-ess Position", 2),
-        detail::percent (deess, "De-ess", 49.0f),
+        detail::percent (deess, "De-ess", 50.9f),
         detail::choice (deessMode, "De-ess Mode", deessModeNames, 0),
         // DETAIL
         detail::toggle (detailOn, "Detail On", true),
@@ -370,7 +380,7 @@ namespace Params
         detail::choice (ringMode, "Ring Mode", ringModeNames, 0),
         detail::choice (ringBody, "Ring Body", ringBodyNames, 0),
         // OUTPUT
-        detail::decibels (outPush, "Push", 0.0f, 24.0f, 8.0f, 10.0f),
+        detail::decibels (outPush, "Push", 0.0f, 24.0f, 6.5f, 10.0f),
         detail::decibels (outCeiling, "Ceiling", -12.0f, 0.0f, -1.0f),
         detail::decibels (outClip, "Clip", 0.0f, 18.0f, 0.0f, 5.0f),
         detail::percent (outClipShape, "Clip Shape", 0.0f),
@@ -388,6 +398,8 @@ namespace Params
         detail::v2 (detail::choice (chamberRoom, "Chamber Room", chamberRoomNames, 2)),
         detail::v2 (detail::choice (chamberSpeaker, "Chamber Speaker", chamberSpeakerNames, 1)),
         detail::v2 (detail::choice (chamberBoom, "Chamber Boom", chamberBoomNames, 1)),
+        // OUTPUT's Level Match (version hint 3).
+        detail::v3 (detail::toggle (outMatch, "Level Match", true)),
     };
 
     /** Index of a parameter in `all` (the AU index), -1 if unknown. */
@@ -397,6 +409,171 @@ namespace Params
             if (id == all[static_cast<size_t> (i)].id)
                 return i;
         return -1;
+    }
+
+    // ---------------------------------------------------------------------------------- host names
+    // What a host shows for each parameter (automation lanes, control surfaces): the module's name in
+    // capitals, then the control ("PITCH Size", "ROAR Drive", "SWIRL Width"). Display names only: the
+    // IDs and the order above never change, so sessions saved with the shorter names still load.
+    // A host that asks for a name of at most n characters (AAX's control surfaces, VST3's short title)
+    // gets the longest of these that fits: "PITCH Drive", "PI Drive", "PI Drv", then the code and the
+    // short form run together and cut to n ("PIDr").
+    struct HostName
+    {
+        const char* id;
+        const char* module;   // the module, in capitals
+        const char* code;     // its code: two letters, IN, OUT
+        const char* name;     // the control, in words
+        const char* shortName;   // the control in four letters at most
+    };
+
+    inline constexpr std::array<HostName, numParameters> hostNames {
+        HostName { inTrim, "IN", "IN", "Gain", "Gain" },
+        HostName { inAuto, "IN", "IN", "Auto Level", "Auto" },
+        HostName { pitchOn, "PITCH", "PI", "On", "On" },
+        HostName { pitchPos, "PITCH", "PI", "Position", "Pos" },
+        HostName { pitch, "PITCH", "PI", "Shift", "Shft" },
+        HostName { pitchSize, "PITCH", "PI", "Size", "Size" },
+        HostName { pitchDrive, "PITCH", "PI", "Drive", "Drv" },
+        HostName { pitchMode, "PITCH", "PI", "Mode", "Mode" },
+        HostName { pitchFormant, "PITCH", "PI", "Formant", "Fmnt" },
+        HostName { cleanOn, "CLEAN", "CL", "On", "On" },
+        HostName { cleanPos, "CLEAN", "CL", "Position", "Pos" },
+        HostName { cleanContain, "CLEAN", "CL", "Contain", "Cont" },
+        HostName { cleanGate, "CLEAN", "CL", "Gate", "Gate" },
+        HostName { cleanTone, "CLEAN", "CL", "Tone", "Tone" },
+        HostName { deessOn, "DE-ESS", "DS", "On", "On" },
+        HostName { deessPos, "DE-ESS", "DS", "Position", "Pos" },
+        HostName { deess, "DE-ESS", "DS", "Amount", "Amt" },
+        HostName { deessMode, "DE-ESS", "DS", "Mode", "Mode" },
+        HostName { detailOn, "DETAIL", "DT", "On", "On" },
+        HostName { detailPos, "DETAIL", "DT", "Position", "Pos" },
+        HostName { detailLow, "DETAIL", "DT", "Low", "Low" },
+        HostName { detailHigh, "DETAIL", "DT", "High", "High" },
+        HostName { detailSpeed, "DETAIL", "DT", "Speed", "Spd" },
+        HostName { vocoderOn, "VOCODER", "VO", "On", "On" },
+        HostName { vocoderPos, "VOCODER", "VO", "Position", "Pos" },
+        HostName { gravel, "VOCODER", "VO", "Gravel", "Grvl" },
+        HostName { vocoderOctave, "VOCODER", "VO", "Octave", "Oct" },
+        HostName { shimmerOn, "SHIMMER", "SH", "On", "On" },
+        HostName { shimmerPos, "SHIMMER", "SH", "Position", "Pos" },
+        HostName { shimmer, "SHIMMER", "SH", "Amount", "Amt" },
+        HostName { shimmerRate, "SHIMMER", "SH", "Rate", "Rate" },
+        HostName { shimmerMode, "SHIMMER", "SH", "Mode", "Mode" },
+        HostName { growlOn, "GROWL", "GR", "On", "On" },
+        HostName { growlPos, "GROWL", "GR", "Position", "Pos" },
+        HostName { growl, "GROWL", "GR", "Depth", "Dpth" },
+        HostName { growlRate, "GROWL", "GR", "Rate", "Rate" },
+        HostName { growlShape, "GROWL", "GR", "Shape", "Shp" },
+        HostName { growlCharacter, "GROWL", "GR", "Character", "Char" },
+        HostName { swirlOn, "SWIRL", "SW", "On", "On" },
+        HostName { swirlPos, "SWIRL", "SW", "Position", "Pos" },
+        HostName { swirl, "SWIRL", "SW", "Amount", "Amt" },
+        HostName { swirlRate, "SWIRL", "SW", "Rate", "Rate" },
+        HostName { swirlCircuit, "SWIRL", "SW", "Circuit", "Circ" },
+        HostName { swirlMotion, "SWIRL", "SW", "Motion", "Motn" },
+        HostName { roarOn, "ROAR", "RO", "On", "On" },
+        HostName { roarPos, "ROAR", "RO", "Position", "Pos" },
+        HostName { roar, "ROAR", "RO", "Drive", "Drv" },
+        HostName { roarTone, "ROAR", "RO", "Tone", "Tone" },
+        HostName { roarVoicing, "ROAR", "RO", "Voicing", "Voic" },
+        HostName { ensembleOn, "ENSEMBLE", "EN", "On", "On" },
+        HostName { ensemblePos, "ENSEMBLE", "EN", "Position", "Pos" },
+        HostName { ensemble, "ENSEMBLE", "EN", "Amount", "Amt" },
+        HostName { ensembleWidth, "ENSEMBLE", "EN", "Width", "Wdth" },
+        HostName { ensembleVoices, "ENSEMBLE", "EN", "Voices", "Vcs" },
+        HostName { ensembleMotion, "ENSEMBLE", "EN", "Motion", "Motn" },
+        HostName { tameOn, "TAME", "TA", "On", "On" },
+        HostName { tamePos, "TAME", "TA", "Position", "Pos" },
+        HostName { tame, "TAME", "TA", "Amount", "Amt" },
+        HostName { subOn, "SUB", "SU", "On", "On" },
+        HostName { subPos, "SUB", "SU", "Position", "Pos" },
+        HostName { sub, "SUB", "SU", "Level", "Lvl" },
+        HostName { subDrive, "SUB", "SU", "Drive", "Drv" },
+        HostName { subRegister, "SUB", "SU", "Register", "Reg" },
+        HostName { subCharacter, "SUB", "SU", "Character", "Char" },
+        HostName { overtoneOn, "OVERTONE", "OV", "On", "On" },
+        HostName { overtonePos, "OVERTONE", "OV", "Position", "Pos" },
+        HostName { overtone, "OVERTONE", "OV", "Amount", "Amt" },
+        HostName { overtoneFreq, "OVERTONE", "OV", "Frequency", "Freq" },
+        HostName { overtonePattern, "OVERTONE", "OV", "Pattern", "Patt" },
+        HostName { overtoneMode, "OVERTONE", "OV", "Mode", "Mode" },
+        HostName { ringOn, "RING", "RM", "On", "On" },
+        HostName { ringPos, "RING", "RM", "Position", "Pos" },
+        HostName { ring, "RING", "RM", "Amount", "Amt" },
+        HostName { ringFreq, "RING", "RM", "Freq", "Freq" },
+        HostName { ringRatio, "RING", "RM", "Ratio", "Rtio" },
+        HostName { ringCarrier, "RING", "RM", "Carrier", "Carr" },
+        HostName { ringTrack, "RING", "RM", "Track", "Trck" },
+        HostName { ringMode, "RING", "RM", "Mode", "Mode" },
+        HostName { ringBody, "RING", "RM", "Body", "Body" },
+        HostName { outPush, "OUTPUT", "OUT", "Push", "Push" },
+        HostName { outCeiling, "OUTPUT", "OUT", "Ceiling", "Ceil" },
+        HostName { outClip, "OUTPUT", "OUT", "Clip", "Clip" },
+        HostName { outClipShape, "OUTPUT", "OUT", "Clip Shape", "CShp" },
+        HostName { outAttack, "OUTPUT", "OUT", "Attack", "Atk" },
+        HostName { outRelease, "OUTPUT", "OUT", "Release", "Rel" },
+        HostName { outAuto, "OUTPUT", "OUT", "Auto Release", "ARel" },
+        HostName { mix, "OUTPUT", "OUT", "Mix", "Mix" },
+        HostName { chamberOn, "CHAMBER", "CH", "On", "On" },
+        HostName { chamberPos, "CHAMBER", "CH", "Position", "Pos" },
+        HostName { chamber, "CHAMBER", "CH", "Amount", "Amt" },
+        HostName { chamberResonance, "CHAMBER", "CH", "Resonance", "Res" },
+        HostName { chamberDrive, "CHAMBER", "CH", "Edge", "Edge" },
+        HostName { chamberWidth, "CHAMBER", "CH", "Width", "Wdth" },
+        HostName { chamberRoom, "CHAMBER", "CH", "Room", "Room" },
+        HostName { chamberSpeaker, "CHAMBER", "CH", "Speaker", "Spkr" },
+        HostName { chamberBoom, "CHAMBER", "CH", "Boom", "Boom" },
+        HostName { outMatch, "OUTPUT", "OUT", "Level Match", "Mtch" },
+    };
+
+    /** The longest name a host can be given (AAX: 31 characters). */
+    inline constexpr int maxHostNameLength = 31;
+
+    namespace detail
+    {
+        constexpr int length (const char* t)
+        {
+            int n = 0;
+            while (t[n] != 0)
+                ++n;
+            return n;
+        }
+
+        constexpr bool hostNamesAreConsistent()
+        {
+            for (int i = 0; i < numParameters; ++i)
+            {
+                const auto& h = hostNames[static_cast<size_t> (i)];
+                if (std::string_view (h.id) != all[static_cast<size_t> (i)].id)
+                    return false;
+                if (length (h.module) + 1 + length (h.name) > maxHostNameLength || length (h.shortName) > 4 || length (h.shortName) == 0
+                    || length (h.code) < 2 || length (h.code) > 3)
+                    return false;
+            }
+            return true;
+        }
+    }
+
+    static_assert (detail::hostNamesAreConsistent(), "every parameter has a host name, in the order of `all`, short enough for every host");
+
+    /** The name a host shows for a parameter, at most maxLength characters (see hostNames). */
+    inline std::string hostName (std::string_view id, int maxLength = maxHostNameLength)
+    {
+        const int i = indexOf (id);
+        if (i < 0 || maxLength <= 0)
+            return {};
+        const auto& h = hostNames[static_cast<size_t> (i)];
+        const std::string full = std::string (h.module) + " " + h.name;
+        if (static_cast<int> (full.size()) <= maxLength)
+            return full;
+        const std::string coded = std::string (h.code) + " " + h.name;
+        if (static_cast<int> (coded.size()) <= maxLength)
+            return coded;
+        const std::string brief = std::string (h.code) + " " + h.shortName;
+        if (static_cast<int> (brief.size()) <= maxLength)
+            return brief;
+        return (std::string (h.code).substr (0, 2) + h.shortName).substr (0, static_cast<size_t> (maxLength));
     }
 
     /** The spec of a known ID (the first entry for an unknown one; check indexOf first). */
@@ -612,9 +789,9 @@ namespace Params
                     if (c != nullptr && (indexOf (c) < 0 || spec (c).kind != Kind::choice))
                         return false;
             }
-            // 1.0's rows have version 1, the appended ones 2.
+            // 1.0's rows have version 1, 1.1's (CHAMBER) 2, Level Match 3.
             for (int i = 0; i < numParameters; ++i)
-                if (all[static_cast<size_t> (i)].version != (i < numLegacyParameters ? 1 : 2))
+                if (all[static_cast<size_t> (i)].version != (i < numLegacyParameters ? 1 : (i < 96 ? 2 : 3)))
                     return false;
             // Every position parameter belongs to exactly one module.
             int positions = 0;
@@ -669,12 +846,13 @@ namespace Params
         }
     }
 
-    static_assert (all.size() == 96, "the parameter table has 96 parameters (87 from 1.0, 9 appended in 1.1)");
+    static_assert (all.size() == 97, "the parameter table has 97 parameters (87 from 1.0, 9 appended in 1.1, Level Match)");
     static_assert (detail::tableIsConsistent(), "module table and parameter table disagree");
     static_assert (detail::defaultOrderIsReference(), "the default positions resolve to the reference order");
     static_assert (indexOf (inTrim) == 0 && indexOf (outPush) == 79 && indexOf (mix) == 86, "AU index order is frozen");
     static_assert (indexOf (overtoneOn) == 64 && indexOf (ringOn) == 70, "AU index order is frozen");
     static_assert (indexOf (chamberOn) == 87 && indexOf (chamberBoom) == 95, "1.1's rows are appended");
+    static_assert (indexOf (outMatch) == 96, "Level Match is appended");
     static_assert (moduleIndexForCode ("CH") == static_cast<int> (ModuleId::chamber), "module codes");
     static_assert (moduleIndexForCode ("RM") == static_cast<int> (ModuleId::ring)
                    && moduleIndexForCode ("OV") == static_cast<int> (ModuleId::overtone), "module codes");

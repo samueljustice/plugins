@@ -32,6 +32,18 @@ namespace roar
      *     So at 100 %: HM -50.4 dBFS, 26.4 dB; H -56.4 dBFS, 35.2 dB; the steps stay audible on a
      *     quiet top band too. t = 0 gives no reduction (the module is the allpass).
      *
+     * The threshold follows the voice (a guard, so a voice whose top end is normally high keeps it):
+     *   T = max (T0, levelRef + ref_b + margin) - 12 t, T0 = -24 (HM) / -30 (H) dBFS, where
+     *   ref_b    = the band's usual share of the whole signal: the mean in dB of (band level - full
+     *              level), clamped -60..12, over the sounding part of the last 2.5 s;
+     *   levelRef = slow + beta (full - slow), margin = 6 + 4 beta dB, beta = clamp ((0.85 - t) / 0.5, 0, 1):
+     *              at low settings (beta = 1, up to Tame 7 %) the moment's level (full: 25 ms mean
+     *              square of the summed signal) with 10 dB of margin, so a bright voice keeps its top
+     *              however loud it gets; from Tame 26 % (beta = 0) the voice's usual level (slow: the
+     *              2.5 s power mean while sounding, from -16 dBFS) with 6 dB, so a top end that swells
+     *              above what this voice usually does is tamed again.
+     *   Sounding: within 30 dB of a loud end falling 3 dB/s, and above -60 dBFS.
+     *
      * Off still runs the split and the sum, so the phase (AP_A AP_B, matched by DryPhaseMatch)
      * never jumps; only the band gains fade to 1. Linked detection (max of L and R).
      */
@@ -59,7 +71,11 @@ namespace roar
         /** Test hook: force the band gains (dB) instead of the dynamics; NaN-free values only. */
         void setForcedGainsForTest (bool forced, double highMidDb = 0.0, double highDb = 0.0);
 
-        /** Static gain reduction (dB) of a band for detector level x (dB) at curve position t (0..2.2). band 0 = HM, 1 = H. */
+        /** Test hook: false puts the threshold back on the fixed law T0 - 12 t (default true). */
+        void setGuardForTests (bool on) { m_guard = on; }
+
+        /** Static gain reduction (dB) of a band for detector level x (dB) at curve position t (0..2.2), on the
+            fixed threshold (no guard). band 0 = HM, 1 = H. */
         static double staticCurveDb (int band, double t, double levelDb);
 
     private:
@@ -75,6 +91,8 @@ namespace roar
             double fast = 0.0, slow = 0.0;
             int heldSamples = 0;
             double grDb = 0.0;
+            // the band's usual share of the whole signal (dB) and how long it has been heard
+            double refDb = -18.0, refSeconds = 0.0;
 
             void resetState()
             {
@@ -82,6 +100,8 @@ namespace roar
                 fast = slow = 0.0;
                 heldSamples = 0;
                 grDb = 0.0;
+                refDb = baseThreshold + 6.0;   // with the slow level's start value the guard sits on T0
+                refSeconds = 0.0;
             }
 
             void copyStateFrom (const BandDynamics& o)
@@ -92,6 +112,8 @@ namespace roar
                 slow = o.slow;
                 heldSamples = o.heldSamples;
                 grDb = o.grDb;
+                refDb = o.refDb;
+                refSeconds = o.refSeconds;
             }
         };
 
@@ -109,7 +131,7 @@ namespace roar
         };
 
         void resetWet();
-        double runBand (BandDynamics& b, double power, double absPeak);
+        double runBand (BandDynamics& b, double power, double absPeak, bool active, double fullDb);
 
         double m_fs = 48000.0;
         OnFade m_fade;
@@ -118,6 +140,13 @@ namespace roar
 
         double m_amountTarget = 0.5, m_amount = 0.5, m_amountCoeff = 0.0;
         int m_holdSamples = 4800;
+
+        // The whole signal's level, the voice's usual level and the loud end (for the guard).
+        double m_fullMs = 0.0, m_fullMsCoeff = 0.0;
+        double m_topDb = -120.0, m_topFallPerSample = 0.0;
+        double m_slowFullPow = 0.025118864315095794, m_slowFullDb = -16.0, m_fullSeconds = 0.0;
+        double m_dt = 1.0 / 48000.0;
+        bool m_guard = true;
 
         bool m_forced = false;
         double m_forcedHm = 0.0, m_forcedH = 0.0;

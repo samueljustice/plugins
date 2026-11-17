@@ -14,8 +14,9 @@ namespace
     const juce::Identifier c_nameAttr       { "name" };
     const juce::Identifier c_versionAttr    { "pluginVersion" };
     const juce::Identifier c_formatAttr     { "version" };   // the preset format: 2 = the 14-module chain,
-                                                             // 3 = the knob laws of dsp/KnobLaws.h (2 is converted on load)
-    constexpr int c_currentFormat = 3;
+                                                             // 3 = the knob laws of dsp/KnobLaws.h, 4 = De-ess on
+                                                             // the shelf law (older formats are converted on load)
+    constexpr int c_currentFormat = 4;
 
     const juce::Identifier c_statePresetName     { "presetName" };
     const juce::Identifier c_statePresetFactory  { "presetIsFactory" };
@@ -492,6 +493,25 @@ bool PresetManager::loadFactoryPresetForHost(int factoryIndex)
     return applyFactory(factoryIndex, Origin::host);
 }
 
+void PresetManager::setLevelHooks(std::function<void(double)> postHint, std::function<double()> currentMatch)
+{
+    const juce::ScopedLock op(m_operationLock);
+    m_postHint = std::move(postHint);
+    m_currentMatch = std::move(currentMatch);
+}
+
+void PresetManager::postHintFrom(const Values& values) const
+{
+    if (!m_postHint)
+        return;
+    for (const auto& [id, value] : values)
+        if (id == c_levelMatchKey && std::isfinite(value))
+        {
+            m_postHint(static_cast<double>(value));
+            return;
+        }
+}
+
 bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 {
     if (!juce::isPositiveAndBelow(factoryIndex, getNumFactory()))
@@ -503,7 +523,9 @@ bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 
     {
         const ScopedApply applying(*this);
-        applyValues(Values(preset.values.begin(), preset.values.end()));
+        const Values values(preset.values.begin(), preset.values.end());
+        applyValues(values);
+        postHintFrom(values);   // after the last parameter
 
         const juce::ScopedLock sl(m_lock);
         m_kind = Kind::factory;
@@ -536,6 +558,7 @@ bool PresetManager::applyUserFile(const juce::File& file, Origin origin)
     {
         const ScopedApply applying(*this);
         applyValues(values);
+        postHintFrom(values);   // after the last parameter
 
         const juce::ScopedLock sl(m_lock);
         m_kind = Kind::user;
@@ -690,6 +713,17 @@ bool PresetManager::saveUserPreset(const juce::String& rawName)
         child->setAttribute(c_idAttr.toString(), id);
         child->setAttribute(c_valueAttr.toString(), static_cast<double>(value));
     }
+    // The instance's level match travels with the sound (not a parameter: applyValues ignores it).
+    if (m_currentMatch)
+    {
+        const double match = m_currentMatch();
+        if (std::isfinite(match))
+        {
+            auto* child = xml.createNewChildElement(c_paramTag.toString());
+            child->setAttribute(c_idAttr.toString(), juce::String(c_levelMatchKey));
+            child->setAttribute(c_valueAttr.toString(), std::round(match * 100.0) / 100.0);
+        }
+    }
 
     // Written to a hidden temporary file first, then moved over the target in one step.
     bool written = false;
@@ -836,14 +870,14 @@ bool PresetManager::readPresetFile(const juce::File& file, Values& values, juce:
         values.emplace_back(id, static_cast<float>(value));
     }
 
-    // A preset saved with the first release's knob laws: convert its values to the nearest setting under
-    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
-    if (xml->getIntAttribute(c_formatAttr.toString(), 0) < c_currentFormat)
+    // A preset saved with earlier knob laws: convert its values to the nearest setting under the
+    // current laws (close, not identical: see migrateFromV1 for what cannot be carried over).
+    if (const int format = xml->getIntAttribute(c_formatAttr.toString(), 0); format < c_currentFormat)
     {
         std::map<std::string, double> byId;
         for (const auto& [id, value] : values)
             byId[id.toStdString()] = static_cast<double>(value);
-        roar::laws::migrateFromV1(byId);
+        roar::laws::migrateFromFormat(format, byId);
         for (auto& [id, value] : values)
             value = static_cast<float>(byId[id.toStdString()]);
     }

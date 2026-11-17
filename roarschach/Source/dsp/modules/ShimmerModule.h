@@ -62,6 +62,7 @@ namespace roar
         {
             float feedback = -1.0f;   // < 0: the Amount macro; otherwise g, clamped to 0..0.95
             bool drift = true;
+            bool sameAtEveryRate = true;   // false: the per-rate Hilbert design (set before prepare)
         };
 
         void prepare (double fs, int maxBlock) override;
@@ -80,6 +81,8 @@ namespace roar
         float getPhase() const { return static_cast<float> (std::fmod (m_state.theta, dsp::c_twoPi) / dsp::c_twoPi); }
         float getShiftHz() const { return static_cast<float> (m_state.shiftHz); }
         float getFeedback() const { return m_state.g; }
+        /** Samples the feedback loop is delayed: round (fs / 48000), so the same time at every rate. */
+        int getLoopDelay() const { return m_loopDelay; }
         float getOnValue() const { return m_fade.getValue(); }
 
         static float feedbackForAmount (float m);
@@ -119,6 +122,8 @@ namespace roar
             TptOnePole loopHighpass;
             TptOnePole loopLowpass;
             float feedback = 0.0f;   // y_fb[n-1]
+            std::array<float, 4> fbRing {};   // the last feedback values; the loop reads m_loopDelay back
+            int fbWrite = 0;
             Glide wUp, wDown;        // smoothed sideband weights
         };
 
@@ -156,6 +161,7 @@ namespace roar
 
         ShimmerSettings m_settings;
         Diagnostics m_diagnostics;
+        int m_loopDelay = 1;
         State m_state;
         Gains m_gains;
         std::array<Channel, 2> m_channels;
