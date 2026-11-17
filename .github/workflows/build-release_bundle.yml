@@ -419,7 +419,24 @@ jobs:
         # the previous files for a while, and those links must keep working.
         old=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[].tagName' \
                 | { grep -E '^bundle-v' || true; } | { grep -vxF "bundle-v$VERSION" || true; } | tail -n +2)
+        # A deleted release takes its download count with it, so the website's download count (see
+        # .github/pages/build.py) would drop. Add each one's downloads to bundle/retired-downloads.txt as it goes.
+        gone=0
         for t in $old; do
-          echo "Deleting $t"
-          gh release delete "$t" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          n=$(gh release view "$t" -R "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].downloadCount] | add // 0')
+          echo "Deleting $t ($n downloads)"
+          if gh release delete "$t" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag; then gone=$((gone + n)); fi
         done
+        [ "$gone" -gt 0 ] || exit 0
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        for attempt in 1 2 3 4 5; do
+          git fetch -q origin main && git reset -q --hard origin/main
+          echo $(( $(cat bundle/retired-downloads.txt 2>/dev/null || echo 0) + gone )) > bundle/retired-downloads.txt
+          git add bundle/retired-downloads.txt
+          git commit -q -m "Downloads of deleted installer releases: $(cat bundle/retired-downloads.txt)"
+          if git push origin HEAD:main; then exit 0; fi
+          echo "Push failed (attempt $attempt of 5), retrying"
+          sleep $((attempt * 10))
+        done
+        exit 1

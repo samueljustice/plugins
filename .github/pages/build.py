@@ -9,10 +9,13 @@ and the "Made by" footer, and lays them out as a designed page. A section it can
 it is, so a README edit can't break the site.
 """
 import html
+import json
 import math
+import os
 import pathlib
 import re
 import sys
+import urllib.request
 
 rendered, out, repo = sys.argv[1:4]
 doc = pathlib.Path(rendered).read_text(encoding="utf-8")
@@ -166,6 +169,36 @@ def _inside_item(v: str) -> str:
 
 inside_html = "".join(_inside_item(v) for v in inside)
 
+# The download count: every file on every release, plus the downloads of installer releases that have been
+# deleted since (the installer workflow adds those to bundle/retired-downloads.txt before they go). The page
+# asks GitHub again when it opens; this is the number it shows until then, or if that fails.
+try:
+    retired = int(pathlib.Path("bundle/retired-downloads.txt").read_text().split()[0])
+except (OSError, ValueError, IndexError):
+    retired = 0
+
+
+def count_downloads() -> int | None:
+    total, page = 0, 1
+    headers = {"Accept": "application/vnd.github+json"}
+    if os.environ.get("GH_TOKEN"):
+        headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
+    try:
+        while True:
+            req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}", headers=headers)
+            releases = json.load(urllib.request.urlopen(req, timeout=20))
+            total += sum(a.get("download_count", 0) for r in releases for a in r.get("assets", []))
+            if len(releases) < 100:
+                return total
+            page += 1
+    except Exception as e:  # no network: the page still shows the live count once it loads
+        print(f"Couldn't count downloads: {e}", file=sys.stderr)
+        return None
+
+
+counted = count_downloads()
+downloads = f"{counted + retired:,}" if counted is not None else ""
+
 # A drawn waveform for the rule under the title: a few decaying bursts, the same every build.
 points = []
 for x in range(0, 1201, 4):
@@ -209,6 +242,10 @@ page = f"""<!doctype html>
   .tagline {{ font-size: clamp(22px, 2.6vw, 30px); line-height: 1.25; margin: 0; max-width: 20em; }}
   .tagline a {{ color: inherit; text-decoration: none; border-bottom: 2px solid var(--red); }}
   .tagline a:hover {{ color: var(--red); }}
+  .count {{ display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; margin: 30px 0 0; }}
+  .count .n {{ font: 800 clamp(40px, 5.4vw, 64px)/1 var(--display); letter-spacing: -.035em; color: var(--red); font-variant-numeric: tabular-nums; }}
+  .count .label {{ color: var(--dim); margin: 0; }}
+  .count:not(.ready) {{ visibility: hidden; }}
 
   .get {{ display: grid; grid-template-columns: auto 1fr; gap: 28px 56px; align-items: start; padding: 40px 0 48px; border-top: 1px solid var(--rule); margin-top: 44px; }}
   .buttons {{ display: flex; flex-wrap: wrap; gap: 12px; }}
@@ -292,6 +329,7 @@ page = f"""<!doctype html>
     <h1>Sammy J's<br><em>Plugins</em></h1>
     {wave}
     <p class="tagline">{tagline_html}</p>
+    <p class="count{' ready' if downloads else ''}" id="count" data-retired="{retired}"><span class="n">{downloads}</span><span class="label">downloads so far</span></p>
   </div>
 
   <div class="get" id="get">
@@ -349,6 +387,38 @@ page = f"""<!doctype html>
       }});
     }})
     .catch(function () {{}});
+}})();
+</script>
+<script>
+// The download count: GitHub's count for every release's files, plus the deleted installers' downloads (built
+// into the page). It ticks up to the number on load, or is set at once for anyone who prefers less motion.
+(function () {{
+  var box = document.getElementById('count'), n = box.querySelector('.n');
+  var retired = parseInt(box.dataset.retired, 10) || 0;
+  var shown = parseInt(n.textContent.replace(/[^0-9]/g, ''), 10) || 0;
+  function set(v) {{ n.textContent = Math.round(v).toLocaleString('en-GB'); }}
+  function to(total) {{
+    box.classList.add('ready');
+    total = Math.max(total, shown);
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {{ set(total); return; }}
+    var from = Math.round(total * 0.9), start = null, ms = 1400;
+    requestAnimationFrame(function step(t) {{
+      if (start === null) start = t;
+      var k = Math.min(1, (t - start) / ms);
+      set(from + (total - from) * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(step);
+    }});
+  }}
+  if (!window.fetch) {{ if (shown) box.classList.add('ready'); return; }}
+  function page(p, sum) {{
+    return fetch('https://api.github.com/repos/{repo}/releases?per_page=100&page=' + p, {{ headers: {{ Accept: 'application/vnd.github+json' }} }})
+      .then(function (r) {{ if (!r.ok) throw r; return r.json(); }})
+      .then(function (rs) {{
+        rs.forEach(function (r) {{ (r.assets || []).forEach(function (a) {{ sum += a.download_count || 0; }}); }});
+        return rs.length < 100 ? sum : page(p + 1, sum);
+      }});
+  }}
+  page(1, 0).then(function (sum) {{ to(sum + retired); }}).catch(function () {{ if (shown) box.classList.add('ready'); }});
 }})();
 </script>
 <script>
