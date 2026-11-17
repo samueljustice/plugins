@@ -1,5 +1,9 @@
 # Sound Advice changelog
 
+## 1.1.1
+
+- The cover looks like an old, worn book: the leather is blotchy and coarse-grained, the edges and corners are rubbed pale, there are scratches, stains and cracks along the spine, and the gold has flaked away in patches.
+
 ## 1.1.0
 
 ### The book
