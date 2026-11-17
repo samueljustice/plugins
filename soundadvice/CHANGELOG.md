@@ -14,5 +14,5 @@
 - Every entry taken from an article was re-read against its source. 110 were corrected (wrong person credited, a changed fact, a detail the source doesn't give) and 25 were cut because the source didn't support them.
 - Every entry taken from a video was re-read against its transcript. 29 were corrected and 2 were cut.
 - 50 entries were added from those videos: techniques that had been passed over the first time.
-- A new category, Sweet Justice Tips: 48 working tips from Sweet Justice Sound on trailers, music editing and mixing.
+- A new category, Sweet Justice Tips: 48 working tips from Sweet Justice Sound on trailers, music editing and mixing. Behind each one the studio's grenade-and-cherry mark is sketched in, large and faint, as the tip is written.
 - One credits line was corrected.

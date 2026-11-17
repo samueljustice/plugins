@@ -86,6 +86,7 @@ target_compile_definitions(SoundAdvice
 juce_add_binary_data(SoundAdviceBinaryData
     SOURCES
     Resources/quotes.json
+    Resources/sj-logo.svg
     Resources/Fonts/CormorantGaramond-Medium.ttf
     Resources/Fonts/CormorantGaramond-MediumItalic.ttf
     Resources/Fonts/CormorantGaramond-SemiBold.ttf

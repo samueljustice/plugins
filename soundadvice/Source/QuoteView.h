@@ -68,6 +68,7 @@ private:
     void paintWriting (juce::Graphics&, double inkTime);
     void paintBodyInk (juce::Graphics&, juce::Point<float> origin, float inkTime);
     void paintFlourish (juce::Graphics&, float grow, float alpha);
+    void paintWatermark (juce::Graphics&, float inkTime, float alpha);
     void paintFurniture (juce::Graphics&, float labelAlpha, float nameAlpha, float roleAlpha, float sourceAlpha, float drift);
     double currentInk() const;
     enum class Hover { none, name, source };
@@ -87,6 +88,16 @@ private:
     double lastTick = 0.0;
     Hover hover = Hover::none;
     Layout layout;
+
+    /** The Sweet Justice mark, sketched large behind the studio's own tips: its outlines as
+        polylines in a unit square, drawn twice with a slightly different hand. */
+    struct Sketch
+    {
+        std::vector<std::vector<juce::Point<float>>> contours;
+        std::vector<float> lengths, starts;   // starts: when each contour begins, 0..1 of the drawing
+        float aspect = 1.0f;                  // width / height of the artwork
+    };
+    Sketch watermark;
 
     juce::VBlankAttachment vblank { this, [this] { tick(); } };
 

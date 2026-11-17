@@ -42,6 +42,51 @@ namespace
 
 QuoteView::QuoteView (const QuoteLibrary& lib) : library (lib)
 {
+    // The studio mark: every outline of the artwork, flattened and scaled to a unit-height box.
+    if (auto drawable = juce::Drawable::createFromImageData (BinaryData::sjlogo_svg, BinaryData::sjlogo_svgSize))
+    {
+        const auto outline = drawable->getOutlineAsPath();
+        const auto box = outline.getBounds();
+        if (box.getHeight() > 0.0f)
+        {
+            watermark.aspect = box.getWidth() / box.getHeight();
+            const auto toUnit = juce::AffineTransform::translation (-box.getX(), -box.getY()).scaled (1.0f / box.getHeight());
+            juce::PathFlatteningIterator it (outline, toUnit, 0.0015f);
+            std::vector<juce::Point<float>> current;
+            auto finish = [this, &current]
+            {
+                if (current.size() > 2)
+                {
+                    float length = 0.0f;
+                    for (size_t i = 1; i < current.size(); ++i)
+                        length += current[i - 1].getDistanceFrom (current[i]);
+                    watermark.contours.push_back (current);
+                    watermark.lengths.push_back (length);
+                }
+                current.clear();
+            };
+            while (it.next())
+            {
+                if (current.empty())
+                    current.push_back ({ it.x1, it.y1 });
+                current.push_back ({ it.x2, it.y2 });
+                if (it.isLastInSubpath())
+                    finish();
+            }
+            finish();
+
+            // Each outline starts a little after the one before, in proportion to their lengths.
+            float total = 0.0f, sofar = 0.0f;
+            for (auto l : watermark.lengths)
+                total += l;
+            for (auto l : watermark.lengths)
+            {
+                watermark.starts.push_back (total > 0.0f ? 0.55f * sofar / total : 0.0f);
+                sofar += l;
+            }
+        }
+    }
+
     setOpaque (false);
     setRepaintsOnMouseActivity (false);
 }
@@ -281,10 +326,74 @@ void QuoteView::paint (juce::Graphics& g)
     if (shown < 0)
         return;
 
+    const bool studioTip = library.getEntries()[(size_t) shown].categories.contains ("sjtips");
+
     if (phase < 1.0f)
+    {
+        if (studioTip)
+            paintWatermark (g, 1.0e6f, 1.0f - easeOut (phase));
         paintEntry (g, 1.0f - easeOut (phase), -3.0f * easeOut (phase));
+    }
     else
+    {
+        if (studioTip)
+            paintWatermark (g, (float) currentInk(), 1.0f);
         paintWriting (g, currentInk());
+    }
+}
+
+void QuoteView::paintWatermark (juce::Graphics& g, float inkTime, float alpha)
+{
+    if (watermark.contours.empty() || inkTime <= 0.0f || alpha <= 0.0f)
+        return;
+
+    // Larger than the page is tall, so it runs just off the top and bottom (or to the sides on a narrow page).
+    const auto area = getLocalBounds().toFloat();
+    const auto height = juce::jmin (area.getHeight() * 1.2f, area.getWidth() * 1.04f / watermark.aspect);
+    const auto width = height * watermark.aspect;
+    const juce::Point<float> origin (area.getCentreX() - width * 0.5f, area.getCentreY() - height * 0.5f);
+
+    constexpr float drawSeconds = 1.9f;
+    const auto progress = inkTime / drawSeconds;
+    const juce::PathStrokeType pen (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+
+    // Two passes with a slightly different wobble, like a line gone over twice in pencil.
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        juce::Path sketch;
+        const auto seed = pass == 0 ? 0.0f : 2.7f;
+        const auto wobble = pass == 0 ? 1.3f : 2.1f;
+
+        for (size_t c = 0; c < watermark.contours.size(); ++c)
+        {
+            const auto drawn = juce::jlimit (0.0f, 1.0f, (progress - watermark.starts[c]) / 0.45f);
+            if (drawn <= 0.0f)
+                continue;
+
+            const auto& points = watermark.contours[c];
+            auto remaining = watermark.lengths[c] * smooth (drawn);
+            auto along = 0.0f;
+            auto place = [&] (juce::Point<float> p, float distance)
+            {
+                const auto phaseAlong = distance * 38.0f + (float) c * 1.9f + seed;
+                return juce::Point<float> (origin.x + p.x * height + wobble * std::sin (phaseAlong),
+                                           origin.y + p.y * height + wobble * std::cos (phaseAlong * 1.31f + seed));
+            };
+
+            sketch.startNewSubPath (place (points.front(), 0.0f));
+            for (size_t i = 1; i < points.size() && remaining > 0.0f; ++i)
+            {
+                const auto segment = points[i - 1].getDistanceFrom (points[i]);
+                const auto take = juce::jmin (segment, remaining);
+                along += take;
+                sketch.lineTo (place (segment > 0.0f ? points[i - 1] + (points[i] - points[i - 1]) * (take / segment) : points[i], along));
+                remaining -= segment;
+            }
+        }
+
+        g.setColour (palette.accent.withMultipliedAlpha ((pass == 0 ? 0.17f : 0.09f) * alpha));
+        g.strokePath (sketch, pen);
+    }
 }
 
 void QuoteView::paintFlourish (juce::Graphics& g, float grow, float alpha)
