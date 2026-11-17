@@ -162,7 +162,7 @@ A real-time reverser. It recreates the three effects of Backwards Machine (Rever
 ## Sound Advice
 
 <p align="center">
-  <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
+  <img src="soundadvice/docs/hero.gif" alt="Sound Advice: the cover opens and an entry is written in" width="640">
 </p>
 
 Not an effect: a page of advice. Pick what you're working on (mixing, creatures, dialogue, silence, running a team) and roll the die, and it shows you something a working sound person said or did about it, with the production it came from and a link to the source. There are 910 entries from 147 people: mixers, sound designers, editors, game audio directors, and a Disney Imagineer on leading creative work, plus a category of working tips from Sweet Justice Sound. It behaves like a book: it opens on a closed cover, each entry is written in, and rolling the die shuts the book and opens it at a new page.

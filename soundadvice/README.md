@@ -6,7 +6,11 @@ It behaves like a book. It opens on a closed cover, which swings open onto an en
 
 It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standalone app (no audio device at all), so it can sit on a mix bus or on a second screen. It has a light theme and a dark one.
 
-![Sound Advice](docs/screenshot.png)
+<p align="center">
+  <img src="docs/hero.gif" alt="Sound Advice: the cover opens and an entry is written in" width="640">
+</p>
+
+![Sound Advice, in the paper and night themes](docs/screenshot.png)
 
 It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins: on macOS the app, VST3, AU and AAX (signed and notarised, universal, macOS 11+), on Windows the app, VST3 and AAX.
 
@@ -84,7 +88,7 @@ cmake --build build --config Release
 ./build/SoundAdvicePreview_artefacts/Release/SoundAdvicePreview --hero docs/screenshot.png <paper-entry-id> <night-entry-id>
 ```
 
-`--ink`, `--turn` and `--cover` (each `<out.png> <entry-id>`, with `night` after it for the dark theme) render frames of the writing, the page turn and the cover opening, for checking the animations without a window. `--icon Resources/icon.png` redraws the app icon (and `icon.ico` beside it). The `--hero` form makes the image at the top of this page; entry ids are in `Resources/quotes.json`.
+`--ink`, `--turn` and `--cover` (each `<out.png> <entry-id>`, with `night` after it for the dark theme) render frames of the writing, the page turn and the cover opening, for checking the animations without a window. `--icon Resources/icon.png` redraws the app icon (and `icon.ico` beside it). `--film <out-dir> <entry-id>` writes the frames of the animated picture at the top of this page (the cover opening, the entry written in, the book shutting), which `ffmpeg` turns into `docs/hero.gif`. The `--hero` form makes the still image below it; entry ids are in `Resources/quotes.json`.
 
 ## Changes
 
