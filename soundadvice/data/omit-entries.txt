@@ -669,3 +669,34 @@ albrechtsen-7e84e0  # Peter Albrechtsen: Wanting something weightier than a stoc
 murch-b5076b  # Walter Murch: On a William Kentridge series with very reverberant — production never named
 rohde-bb28ba  # Joe Rohde: When the brief kept shifting, Rohde kept asking — park-specific
 farmer-823ffa  # David Farmer: Farmer delights in casting a sound against type, — pre-2005 film
+
+# Source audit: every article entry re-read against its page. Not supported, wrong person, or unverifiable.
+jenkins-3543a1  # Chris Jenkins: Jenkins on dialogue editor Kira Roessler’s work on — 'Rebuilt' breathing is embellished; source only says Roessler worked with Theron on breath
+bridgett-148c31  # Rob Bridgett: When talking to narrative designers, Bridgett suggests not — Supported, but communication/career advice, not a sound technique.
+farmer-0e4b0c  # David Farmer: To train his ears, Farmer studied Ben Burtt — About pre-2005 films (Empire, Raiders, T2); career training anecdote.
+farmer-e517aa  # David Farmer: Learn to decode the brief. Harry Cohen taught — Early-career anecdote about interpreting clients; not a concrete technique.
+lievsay-6b26e8  # Skip Lievsay: Lievsay fully built the 20-second stillness after No — Journalist's description of the No Country scene, not Lievsay's own account.
+lievsay-93944d  # Skip Lievsay: Audiences hear what they’re conditioned to hear: movie — Bacon/lion line is the journalist's general statement, not attributed to Lievsay.
+burtt-20de54  # Ben Burtt: Burtt plans like a scientist: he breaks a — Supported, but planning/logistics, no sound technique.
+anderson-4774d6  # Coll Anderson: Anderson records effects outdoors whenever he can, using — Gear list and mix-room biography, no production or concrete technique.
+boyes-6326be  # Christopher Boyes: Productions often reach the climactic moment having already — About Broken Arrow (1996), pre-2005; source is a Dolby quote.
+hirschberg-0cb685  # Lora Hirschberg: In World War Z Hirschberg removed the percussion — Composer Beltrami avoided the percussion, not Hirschberg; it is mainly about the score.
+summers-c91f49  # Gary Summers: Mixing Avatar’s dialogue, Summers was sometimes asked by — Checked via WebFetch; it is Gwen Whittle's account of Cameron's wishes, not Summers' own w
+shatz-0b7165  # Leslie Shatz: Shatz and the director sit together, put up — About collaboration logistics, not a technique; the example given is Elephant (2003).
+ryn-169847  # Ethan Van der Ryn: To ‘world-ize’ Godzilla, Van der Ryn’s team blasted — The backlot world-izing account is Aadahl's quote, not Van der Ryn's.
+shatz-0b03e7  # Leslie Shatz: For Immortals, Shatz plucked an upright bass, slowed — source could not be reached to verify
+shatz-314b15  # Leslie Shatz: Shatz maps different sounds to the keys of — source could not be reached to verify
+jerden-d32011  # Bryan Jerden: Jerden lays out his tracks so they work — Abstract working philosophy, no concrete technique or production.
+jerden-a0ed23  # Bryan Jerden: Jerden’s trailer hierarchy: lock the music first, then — Source lists three priorities, not a work order; generic advice, no technique.
+albrechtsen-83b324  # Peter Albrechtsen: Because home viewers fight traffic and air-conditioning noise, — Deliverables logistics; causation from home noise is reordered; no creative technique.
+deenen-127683  # Charles Deenen: For the Star Wars Battlefront trailer, Deenen’s team — Words are teammate TB's, not Deenen's: wrong person.
+oconnell-25c86a  # Kevin O'Connell: On his very first mix O’Connell was told — Dead Men Don't Wear Plaid (1982) anecdote; details changed; career lesson, not technique.
+oconnell-590e5f  # Kevin O'Connell: O’Connell treats the temp mix as a pre-final: — 'Locked' should be 'developed'; observation about temp mixes, not a technique.
+anderson-d24db2  # Coll Anderson: Anderson works on two levels at once: a — Abstract philosophy, no concrete technique or production.
+wood-71930a  # Matthew Wood: Wood on Kylo Ren’s mask voice: it was — source could not be reached to verify
+wood-85cd68  # Matthew Wood: Wood on BB-8: it was voiced through a — source could not be reached to verify
+shatz-024817  # Leslie Shatz: Expecting changes after the mix, Shatz asked the — source could not be reached to verify
+
+# Video audit: every video entry re-read against its transcript. Speaker uncertain or someone else.
+files-833756  # Files has trouble cutting without mixing. As he dr — Speaker could be Files or Slater; no production named.
+orlando-c9d68f  # For Vision and the twins glitching apart in WandaV — Speaker is the dialogue editor addressed as Kim, not Orlando.

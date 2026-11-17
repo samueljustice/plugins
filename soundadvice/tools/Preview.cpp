@@ -204,6 +204,128 @@ namespace
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc >= 4 && juce::String (argv[1]) == "--film")
+    {
+        // Frames of the book opening on an entry, the entry being written, and the book shutting,
+        // for an animated picture: --film <out-dir> <entry-id> [night]. 20 frames a second, at 2x.
+        SoundAdviceProcessor proc;
+        const auto& lib = proc.getLibrary();
+        const auto index = lib.findEntry (argv[3]);
+        if (index < 0) { std::cout << "unknown entry id\n"; return 1; }
+        showEntry (proc, lib.getEntries()[(size_t) index].categories[0], argv[3], argc > 4);
+        const juce::File dir { juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) };
+        dir.createDirectory();
+
+        auto ease = [] (double t)
+        {
+            t = juce::jlimit (0.0, 1.0, t);
+            return t < 0.5 ? 4.0 * t * t * t : 1.0 - std::pow (-2.0 * t + 2.0, 3.0) * 0.5;
+        };
+        const double fps = 20.0, shut = 0.8, opening = BookCover::openSeconds, reading = 5.6, closing = BookCover::shutSeconds;
+        const auto frames = (int) std::ceil ((shut + opening + reading + closing + 0.3) * fps);
+        std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+        editor->setSize (560, 360);
+        auto& page = dynamic_cast<SoundAdviceEditor&> (*editor);
+
+        for (int i = 0; i < frames; ++i)
+        {
+            const auto t = (double) i / fps;
+            double openness = 0.0;
+            if (t >= shut + opening + reading)   openness = 1.0 - ease ((t - shut - opening - reading) / closing);
+            else if (t >= shut + opening)        openness = 1.0;
+            else if (t >= shut)                  openness = ease ((t - shut) / opening);
+            page.previewCover ((float) openness);
+            page.setInkTimeForPreview (juce::jmax (0.0, t - shut - (double) BookCover::writeDelaySeconds));
+
+            const auto file = dir.getChildFile (juce::String::formatted ("f%04d.png", i));
+            file.deleteFile();
+            juce::FileOutputStream out { file };
+            juce::PNGImageFormat().writeImageToStream (editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f), out);
+        }
+        std::cout << frames << " frames\n";
+        return 0;
+    }
+    if (argc >= 4 && juce::String (argv[1]) == "--cover")
+    {
+        // The cover, shut and at a few points as it opens: --cover <out.png> <entry-id> [night]
+        SoundAdviceProcessor proc;
+        const auto& lib = proc.getLibrary();
+        const auto index = lib.findEntry (argv[3]);
+        if (index < 0) { std::cout << "unknown entry id\n"; return 1; }
+        showEntry (proc, lib.getEntries()[(size_t) index].categories[0], argv[3], argc > 4);
+        const float moments[] = { 0.0f, 0.25f, 0.45f, 0.62f, 0.8f, 0.93f };
+        const int w = 560, h = 360;
+        juce::Image strip (juce::Image::ARGB, w * 2 * 3, h * 2 * 2, true);
+        juce::Graphics g (strip);
+        int n = 0;
+        for (auto moment : moments)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            editor->setSize (w, h);
+            dynamic_cast<SoundAdviceEditor&> (*editor).previewCover (moment);
+            g.drawImageAt (editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f), (n % 3) * w * 2, (n / 3) * h * 2);
+            ++n;
+        }
+        const juce::File file { juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) };
+        file.deleteFile();
+        juce::FileOutputStream out { file };
+        juce::PNGImageFormat().writeImageToStream (strip, out);
+        return 0;
+    }
+    if (argc >= 4 && juce::String (argv[1]) == "--turn")
+    {
+        // The page turn, frozen at a few moments: --turn <out.png> <entry-id> [back]
+        SoundAdviceProcessor proc;
+        const auto& lib = proc.getLibrary();
+        const auto index = lib.findEntry (argv[3]);
+        if (index < 0) { std::cout << "unknown entry id\n"; return 1; }
+        const float moments[] = { 0.12f, 0.3f, 0.45f, 0.6f, 0.78f, 0.93f };
+        const int w = 560, h = 360;
+        juce::Image strip (juce::Image::ARGB, w * 2 * 3, h * 2 * 2, true);
+        juce::Graphics g (strip);
+        int n = 0;
+        for (auto moment : moments)
+        {
+            showEntry (proc, lib.getEntries()[(size_t) index].categories[0], argv[3], false);
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            editor->setSize (w, h);
+            dynamic_cast<SoundAdviceEditor&> (*editor).previewPageTurn (moment, argc > 4);
+            g.drawImageAt (editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f), (n % 3) * w * 2, (n / 3) * h * 2);
+            ++n;
+        }
+        const juce::File file { juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) };
+        file.deleteFile();
+        juce::FileOutputStream out { file };
+        juce::PNGImageFormat().writeImageToStream (strip, out);
+        return 0;
+    }
+    if (argc >= 4 && juce::String (argv[1]) == "--ink")
+    {
+        // The writing-in animation, frozen at a few moments: --ink <out.png> <entry-id> [night]
+        SoundAdviceProcessor proc;
+        const auto& lib = proc.getLibrary();
+        const auto index = lib.findEntry (argv[3]);
+        if (index < 0) { std::cout << "unknown entry id\n"; return 1; }
+        showEntry (proc, lib.getEntries()[(size_t) index].categories[0], argv[3], argc > 4);
+        const double times[] = { 0.12, 0.35, 0.6, 0.9, 1.2, 1.0e6 };
+        const int w = 560, h = 360;
+        juce::Image strip (juce::Image::ARGB, w * 2 * 3, h * 2 * 2, true);
+        juce::Graphics g (strip);
+        int n = 0;
+        for (auto time : times)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            editor->setSize (w, h);
+            dynamic_cast<SoundAdviceEditor&> (*editor).setInkTimeForPreview (time);
+            g.drawImageAt (editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f), (n % 3) * w * 2, (n / 3) * h * 2);
+            ++n;
+        }
+        const juce::File file { juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) };
+        file.deleteFile();
+        juce::FileOutputStream out { file };
+        juce::PNGImageFormat().writeImageToStream (strip, out);
+        return 0;
+    }
     if (argc == 3 && juce::String (argv[1]) == "--icon")
         return icon (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
     if (argc == 5 && juce::String (argv[1]) == "--hero")

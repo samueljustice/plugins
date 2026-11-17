@@ -1,0 +1,785 @@
+{
+ "people": [
+  {
+   "name": "Michael Kent",
+   "role": "Supervising sound designer",
+   "credits": "God of War Ragnarök, Mass Effect: Andromeda, Mass Effect",
+   "imdb": "https://www.imdb.com/name/nm1981699/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "text": "For H.E.R.B.I.E. in The Fantastic Four: First Steps, which could sound like neither Pixar nor Star Wars, Collins sent a batch of eight versions, some from his own voice, some pure synthesis. The one chosen was built on the idea of a battle droid impersonating WALL-E, using some of his Chopper techniques.",
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con (YouTube)",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Tony Solis",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "silence"
+   ],
+   "text": "For Woman of the Hour's parking-lot scene, Solis's team thinned everything out and kept the production footsteps: great shoes on a slightly wet floor gave a gritty heel-toe. The level of Rodney's muttered threat was argued over a single dB, so the audience is never quite sure what he said.",
+   "source": {
+    "title": "The Sound of Woman of the Hour with Director Anna Kendrick",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=7h65Y0iQAV8",
+    "year": 2024
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "text": "Farmer has had his best luck on monitors that were underpowered or not the flattest, because they make him work harder. On flattering speakers like Mackie HR824s he stopped working on a sound too soon, since it already sounded good in his room, and it fell apart on the mix stage.",
+   "source": {
+    "title": "Sound Design and Re-Recording Mixing with David Farmer and Marc Fishman",
+    "publication": "Full Sail University (YouTube)",
+    "url": "https://www.youtube.com/watch?v=2fSW4uEOYt4",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Dan Hiland",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "text": "Hiland on The Midnight Sky's sinking-shelter sequence: snowmobile and ice cracking aren't string-friendly, so Todd Beckett's panning in Atmos, choosing where each effect plays in the room as well as which plays, is what left space for the score to get through.",
+   "source": {
+    "title": "The Midnight Sky - Mix Presents Award Season 2021",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=4VaJq8jICb8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "categories": [
+    "worlds",
+    "recording"
+   ],
+   "text": "For the ambience inside the mind in Inside Out, Klyce put microphones in sand and recorded crabs moving through it: a strange sound with movement and character that never sticks out.",
+   "source": {
+    "title": "The Sound of Inside Out",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=bPzQk2zL73o",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Nicholas Allen",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "music"
+   ],
+   "text": "On Parenthood, where storylines often have a band starting up or stopping mid-scene, Allen records the music live on set rather than relying on playback: a multitrack session through a Tascam DM-3200 with extra preamps, the room mic'd rock-and-roll style, so editors cut between angles with consistent live sound.",
+   "source": {
+    "title": "SoundWorks Collection: Production Sound Mixer Nicholas Allen",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=4HQIgpznmq8",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Kimberly Patrick",
+   "kind": "insight",
+   "categories": [
+    "action",
+    "craft"
+   ],
+   "text": "To stop The Falcon and the Winter Soldier's hand-to-hand fights becoming a repetitive string of impacts, Patrick gave every hit its own sound and laid cloth layers over everything for the movement between blows. Without that Foley glue, she found, punches read as just a sound effect.",
+   "source": {
+    "title": "The Sound for The Falcon and The Winter Soldier - Mix Sessions",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=KJ2sPdJT8Vc",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Will Files",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "text": "Starting The Batman while the Warner Bros. lot was nearly empty during the pandemic, Files's crew recorded guerrilla effects around it: stomping on the catwalks, and Batman's footsteps echoing in a cavernous, unfinished concrete bunker beneath a new building.",
+   "source": {
+    "title": "Mix Magazine Sound for Film & TV 2022 - Sound Changes w/Will Files, Craig Henighan and Julian Slater",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=kDuiTonaoRg",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "text": "On Judas and the Black Messiah, Lievsay mixed Fred Hampton's church rally, the film's hardest scene, first. His rule: always start a film with the hardest thing, because once that works and people are happy, the rest of the mix turns the corner.",
+   "source": {
+    "title": "Judas and the Black Messiah - Mix Presents Award Season 2021",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=EUqnoVHow20",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music",
+    "collaboration"
+   ],
+   "text": "On David Fincher's films since Zodiac, Klyce mixes the music himself. Holding the music faders, he studies each layer Reznor and Ross deliver against picture, and finds that is the best way to make his sound design work with the score rather than favouring his own effects.",
+   "source": {
+    "title": "The Music in Sound with Ren Klyce",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=KXzbu0oGMM0",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ron Bartlett",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "scifi"
+   ],
+   "text": "For the baseline-test interrogator in Blade Runner 2049, Bartlett put the voice's direct signal in the Atmos overheads, with its reverb spread everywhere, so the voice sits on top of K and feels oppressive and claustrophobic. He finds sparse scenes show off Atmos more than dense action does.",
+   "source": {
+    "title": "Oscar Podcast - Blade Runner 2049 - Atmos",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=qGp95ybcLAo",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "music",
+    "mixing"
+   ],
+   "text": "On the Star Wars films, Wood's team cuts complete sound effects coverage under every scene, even where music is temped wall to wall, because the mix may try a section without music. Acord and his editors have to have all that material in place.",
+   "source": {
+    "title": "Conversations With Sound Artists: Star Wars | Podcast | Dolby",
+    "publication": "Dolby (YouTube)",
+    "url": "https://www.youtube.com/watch?v=jkh2K6Y3_M4",
+    "year": 2019
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "text": "Baby Yoda's vocals in The Mandalorian are partly Acord's own human voice, with recordings of a bat-eared fox and a kinkajou mixed in: a little bit of everything.",
+   "source": {
+    "title": "Conversations With Sound Artists: Star Wars | Podcast | Dolby",
+    "publication": "Dolby (YouTube)",
+    "url": "https://www.youtube.com/watch?v=jkh2K6Y3_M4",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Eugenio Battaglia",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music",
+    "horror"
+   ],
+   "text": "When Mary enters the Backrooms, the rumbly, almost horse-like heartbeat is actually score. Battaglia, who wants music and sound design to merge rather than just dance together, gave that cue sound-effect treatment in the mix so the two act as one element.",
+   "source": {
+    "title": "The Sound of Backrooms",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=Uh6RScdEz2I",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Eugenio Battaglia",
+   "kind": "insight",
+   "categories": [
+    "horror",
+    "mixing"
+   ],
+   "text": "Backrooms is found footage with no music and little beyond buzzing lights, so Battaglia emphasised the Foley of the person holding the camera. Leaning on the operator's movement keeps it from feeling like a floating camera and keeps the audience in a visceral, diegetic experience.",
+   "source": {
+    "title": "The Sound of Backrooms",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=Uh6RScdEz2I",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "story",
+    "mixing",
+    "silence"
+   ],
+   "text": "In Sound of Metal, the opening morning in Ruben's Airstream is mixed close and detailed, with the grinder right in your ear and single coffee drops. Becker describes the next day as a mirror: the same shots return, totally muffled, after Ruben loses his hearing.",
+   "source": {
+    "title": "The Sound of Metal - Mix Presents Award Season 2021",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=0EawcVnkA9c",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "text": "When Ken first sees Barbie in Toy Story 3 he freezes and the song begins in mono; Semanick spreads it around the room as the camera zooms in, so it wraps around the audience as if everything else has gone for Ken.",
+   "source": {
+    "title": "The Sound of “Toy Story 3”",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=Wr1XbXSoP0g",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "text": "For General Grievous in Revenge of the Sith, Wood's team set one voice process before casting, a little ring modulation and some distortion, pitching each auditioning actor up or down as needed, so every candidate Lucas heard went through the same chain.",
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (YouTube)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "categories": [
+    "worlds",
+    "action"
+   ],
+   "text": "For the Mustafar lava duel in Revenge of the Sith, Burtt started from real volcano recordings a scientist made in Hawaii, sweetened the lava bursts with explosions, and added a Niagara Falls roar, EQ'd different ways for its liquid feel, while keeping the lightsaber fight articulate on top.",
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (YouTube)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "categories": [
+    "silence",
+    "scifi"
+   ],
+   "text": "Wood on the seismic charge in Attack of the Clones: after many effects were tried for the initial blast over ILM's reverse-style visual, Burtt suggested in the mix playing nothing at all there, so the first sound was removed and only the big explosion lands.",
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "carly king (YouTube)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Jon Taylor",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "text": "Mixing F9's score from Brian Tyler's 60 to 80 stereo pairs, Taylor keeps only the drum kit fixed up front; everything else moves around the room in rhythm, horns and strings always spatially separated, so the music stays clear under busy effects without added reverb.",
+   "source": {
+    "title": "The Sound of F9: The Fast Saga",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=VfmhE6FXvV4",
+    "year": 2021
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "worlds"
+   ],
+   "text": "For the Ferrix funeral procession in Andor's season 1 finale, Acord made the band sound different wherever the cut landed, shaped by distance and buildings, drawing closer until it filled the street, then stopping; the anvil striker earlier got the same treatment.",
+   "source": {
+    "title": "The Sound of Andor - Season 1 with David Acord, Margit Pfeiffer and John Gilroy",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=QCuw2r0Oklo",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Kim Foscato",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "text": "For Vision and the twins breaking apart in WandaVision's finale, Foscato reused an earlier treatment of Vision straining against the Hex: two Dehumanizer presets, one glitchy, layered with the regular voices, so the dialogue broke up while the performances stayed intact.",
+   "source": {
+    "title": "The Sound for WandaVision - Mix Sessions",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=nAKoVwljWj0",
+    "year": 2021
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "categories": [
+    "scifi",
+    "recording"
+   ],
+   "text": "For R5-D4's fear in The Mandalorian season 3, worked out with Favreau during the mix, the sound that won for the droid shaking was Collins's own: a couple of pairs of his kids' shoes knocking around in a dryer.",
+   "source": {
+    "title": "Behind the Sound of The Mandalorian (Season 3) & Obi-Wan Kenobi",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=1K4D4zTxM5U",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "text": "On TRON: Legacy, the light-up costumes put a whine on production dialogue that shifted pitch per actor. Whittle's team had the dialogue editors cut with the whine in, then sent the edits out for spectral noise removal, keeping the original edit on hand for the 15 to 20% it couldn't fix.",
+   "source": {
+    "title": "TRON: Legacy Sound Panel",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_VKhYVmv2ng",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Steve Boeddeker",
+   "kind": "insight",
+   "categories": [
+    "scifi",
+    "weapons"
+   ],
+   "text": "To make TRON: Legacy's discs sound dangerous, Boeddeker didn't layer in metal blades. He ran the disc tone through his resonator process, pitching in minute, very sharp frequencies that gave it an edge while keeping the pulse that let its Doppler read.",
+   "source": {
+    "title": "TRON: Legacy Sound Panel",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_VKhYVmv2ng",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "text": "In The Bear's family-dinner blow-up, Giammaria had the fork throw covered three ways: clean production, Foley and an extreme designed version. Mapping the dynamics of throw, table flip and car crash, he dialed the throw back to mostly production, a little Foley and one small whip for air, so the table hit could land.",
+   "source": {
+    "title": "The Sound of The Bear",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=e9SMxr5K_e0",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Julian Slater",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "text": "In Scott Pilgrim vs. the World, Slater's team didn't accompany whip pans with generic whooshes. Each pan got a diegetic sound from its location instead: a cappuccino-machine whoosh in the coffee shop, a car passing when the scene is on the street.",
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Scott Pilgrim vs. the World",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=sKgOddeBsp4",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Jo Rossi",
+   "kind": "insight",
+   "categories": [
+    "worlds",
+    "scifi",
+    "craft"
+   ],
+   "text": "For the volumetric-capture simulation scenes in Demonic, Rossi built the ambiences in Atmos and down-mixed them: carefully picked backgrounds made to stutter, and birds played backwards that still read as birds. Heard alone the environment sounds otherworldly; under the sim it glued everything together.",
+   "source": {
+    "title": "The Sound of Demonic with Director Neill Blomkamp",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=ix2TFqpByRc",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Pete Horner",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "worlds",
+    "craft"
+   ],
+   "text": "For the good-luck crystals in the animated feature Luck, Horner recorded a Christmas dog collar covered in tiny bells at a 100k sample rate so it could be pitched without artifacts. The sticky bad-luck crystals came from pill-shaped magnets, which give rhythm and texture instead of a flat click.",
+   "source": {
+    "title": "Mix Magazine Sound for Film & TV 2022 - Sound Design behind animated feature film “Luck”",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=F57F1kSeqXA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "craft",
+    "collaboration"
+   ],
+   "text": "On True Grit, Lievsay had Craig Berkey building sound effects and atmospheres from the very first cuts, alongside the dialogue work. Choosing the cleaner radio-mic takes, which capture little beyond the voice, left scenes sounding naked, so the fill had to be there for every screening.",
+   "source": {
+    "title": "The Sound of True Grit",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=QBp1ewEDe4Y",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Chris Burdon",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "text": "Empire of Light is a quiet film, but when Hillary's outburst comes before the police break into her flat, Burdon let her dialogue play at its absolute loudness rather than reining it in, so it would be properly discomforting and disquieting to hear.",
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "music",
+    "recording"
+   ],
+   "text": "For Arthur's tap-dance fantasy in Joker: Folie à Deux, Aadahl had choreographer Michael Arnold teach him tap's vocabulary, then recorded Arnold performing each move himself, which beat the Foley-stage takes, and edited every tap to land precisely on 16th and 32nd notes to make it hyper-real.",
+   "source": {
+    "title": "The Sound of Joker: Folie à Deux",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=q2w0gWTEHco",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "categories": [
+    "story",
+    "action",
+    "recording"
+   ],
+   "text": "After the explosion in Joker: Folie à Deux, Aadahl and Van der Ryn's team muffled Arthur's breaths so he seems to hear through his chest, then brought frequencies back in steps: a car door first, then a binaural recording of ear canals opening, timed to a small gesture from Phoenix.",
+   "source": {
+    "title": "The Sound of Joker: Folie à Deux",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=q2w0gWTEHco",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "story",
+    "mixing"
+   ],
+   "text": "For the cochlear-implant party scene in Sound of Metal, Becker used IRCAM tools to split each track into transients, noise and harmonics, reprocessing the layers so nothing quite lines up, and gave the mixer all three. He tested mono against constantly shifting spatialisation; the director chose shifting.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "story",
+    "collaboration"
+   ],
+   "text": "On Sound of Metal, Becker built Riz Ahmed an in-ear monitor fed from the production's main microphone through several stages of alteration, so during takes the actor physically heard his hearing deteriorate. They did the same again for the cochlear-implant scenes.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "silence",
+    "recording",
+    "story"
+   ],
+   "text": "For Ruben's deafness in Sound of Metal, Becker pushed everything into the low and low-mid frequencies, the vibration the body still feels without hearing. He put contact mics on Riz Ahmed's chest and recorded his breathing in a silent chamber.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Nicolas Becker",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "story",
+    "music"
+   ],
+   "text": "In Sound of Metal, the playground slide isn't a recording of a slide: Becker made it with a Baschet sound sculpture, large metal sheets linked to glass rods played with wet fingers, the same metal instrument used for the score.",
+   "source": {
+    "title": "Sound Of Metal with Supervising Sound Editor Nicolas Becker",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=UX4Gw1Aw8g8",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "text": "In The Bear, Giammaria treats the kitchen door as a magic curtain: when Richie crosses into the dining room, almost none of the kitchen's yelling comes through unless the door opens on camera. Realism there would muddy the music and dialogue the scene needs.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "text": "For Claire and Carmy's one-take stoop argument in The Bear, which runs from whisper to scream, Giammaria reduced the overall dynamic range rather than compressing individual words, keeping the feeling of going loud without sending viewers for the remote.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Steve Giammaria",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "craft"
+   ],
+   "text": "For a gum-chewing scene between Carmy and Odenkirk's character in The Bear, Giammaria and his mix tech spent about an hour on every chew, deciding to lose it, keep it or enhance it with Foley, because the chewing punctuated the lines almost musically.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Scott D. Smith",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "text": "On The Bear, Smith mics the kitchen staff's 'Yes, chef' responses separately, often in stereo, so post can spread them into the surrounds and build a different environment from the main dialogue.",
+   "source": {
+    "title": "The Sound of The Bear - Season 4",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=3ccOFq-UKGA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gary A. Rizzo",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "recording",
+    "mixing"
+   ],
+   "text": "Rizzo on Tenet's loop group: it was recorded outdoors on Warner Bros. lot exteriors in a six-track format, close mics plus several distant ones, so it arrived naturally worldized. Instead of spending mix time making group sound exterior, he picked the right mic combination for each sequence.",
+   "source": {
+    "title": "The Sound of Tenet",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=zAwNW4cBpc8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "categories": [
+    "action",
+    "weapons",
+    "story"
+   ],
+   "text": "In Tenet's final battle, forward and inverted teams are intercut. King's team hit those cuts with more clearly reversed sounds, including odd, wonky reverse ricochets that didn't sound simply reversed, so the audience always knew which team they were with.",
+   "source": {
+    "title": "The Sound of Tenet",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=zAwNW4cBpc8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Gary A. Rizzo",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "text": "Tenet was mixed in 5.1, built mainly on the screen channels and the sub. For the inverted airport aftermath, Rizzo leaned into the surrounds, with firefighters running past, trucks pulling in and fire everywhere, giving it a different flavour from the scenes around it.",
+   "source": {
+    "title": "The Sound of Tenet",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=zAwNW4cBpc8",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ron Bartlett",
+   "kind": "insight",
+   "categories": [
+    "dialogue",
+    "creatures",
+    "scifi"
+   ],
+   "text": "For the Engineers' language in Prometheus, Bartlett recorded syllables, words and lines at home at night with his deep voice, basing them on ancient Greek and Sanskrit; each morning he and the dialogue editor crafted them into short conversations.",
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Prometheus",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=14C1gaSYvt0",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Ron Bartlett",
+   "kind": "insight",
+   "categories": [
+    "mixing",
+    "music",
+    "scifi"
+   ],
+   "text": "On Prometheus's 7.1 mix, Bartlett brought the music forward, using the mid surrounds rather than the far rear ones for a more cohesive feel, which left the back for Hemphill's effects and gave width and depth. Denser tracks need exaggerated stereo.",
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Prometheus",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=14C1gaSYvt0",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Michael Kent",
+   "kind": "insight",
+   "categories": [
+    "weapons",
+    "action",
+    "mixing"
+   ],
+   "text": "For Thor's hammer in God of War Ragnarök, Kent pushed air with sonic booms used like kick drums, leading into quad thunder. He delayed the thunder as far as he could to make it feel bigger, until it started to sound out of sync, then pulled it back to where it just held.",
+   "source": {
+    "title": "The Sound of God of War Ragnarök",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Michael Kent",
+   "kind": "insight",
+   "categories": [
+    "action",
+    "recording",
+    "weapons"
+   ],
+   "text": "For the clashes of hammer and axe in God of War Ragnarök's Thor fight, Kent's team hit metal hard in the studio and recorded it to a Nagra, overdriving the machine for its tape saturation, then cleaned up the distorted hits.",
+   "source": {
+    "title": "The Sound of God of War Ragnarök",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Michael Kent",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "scifi",
+    "craft"
+   ],
+   "text": "For God of War Ragnarök's Bifrost, Kent bought a seat-shaker transducer and a small amp, fed it an oscillator from his modular rig and swept tones across metal objects to find each one's resonant frequency, then recorded them shaking. The processed results became a shared source library and style guide.",
+   "source": {
+    "title": "The Sound of God of War Ragnarök",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=uwV5GYWPA4w",
+    "year": 2023
+   }
+  }
+ ]
+}

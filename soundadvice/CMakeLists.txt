@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSOUNDADVICE_VERSION=x.y.z (from the
 # soundadvice-vx.y.z tag); it ends up in the bundles, the installers and the footer.
-set(SOUNDADVICE_VERSION "1.0.13" CACHE STRING "Sound Advice version (major.minor.patch)")
+set(SOUNDADVICE_VERSION "1.1.0" CACHE STRING "Sound Advice version (major.minor.patch)")
 project(SoundAdvice VERSION ${SOUNDADVICE_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
@@ -62,6 +62,8 @@ target_sources(SoundAdvice
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/QuoteView.cpp
+    Source/PageTurn.cpp
+    Source/BookCover.cpp
     Source/UpdatePopup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
@@ -84,6 +86,7 @@ target_compile_definitions(SoundAdvice
 juce_add_binary_data(SoundAdviceBinaryData
     SOURCES
     Resources/quotes.json
+    Resources/sj-logo.svg
     Resources/Fonts/CormorantGaramond-Medium.ttf
     Resources/Fonts/CormorantGaramond-MediumItalic.ttf
     Resources/Fonts/CormorantGaramond-SemiBold.ttf
@@ -120,7 +123,7 @@ if(SOUNDADVICE_TOOLS)
     juce_add_console_app(SoundAdvicePreview PRODUCT_NAME "SoundAdvicePreview")
     juce_generate_juce_header(SoundAdvicePreview)
     target_sources(SoundAdvicePreview PRIVATE tools/Preview.cpp Source/QuoteLibrary.cpp Source/PluginProcessor.cpp
-                   Source/PluginEditor.cpp Source/QuoteView.cpp Source/UpdatePopup.cpp
+                   Source/PluginEditor.cpp Source/QuoteView.cpp Source/PageTurn.cpp Source/BookCover.cpp Source/UpdatePopup.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp)
     target_include_directories(SoundAdvicePreview PRIVATE Source ${CMAKE_CURRENT_SOURCE_DIR}/../common)
     # The preview renders offline: no update check, no network.
