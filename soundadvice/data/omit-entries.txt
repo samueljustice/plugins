@@ -696,3 +696,7 @@ anderson-d24db2  # Coll Anderson: Anderson works on two levels at once: a — Ab
 wood-71930a  # Matthew Wood: Wood on Kylo Ren’s mask voice: it was — source could not be reached to verify
 wood-85cd68  # Matthew Wood: Wood on BB-8: it was voiced through a — source could not be reached to verify
 shatz-024817  # Leslie Shatz: Expecting changes after the mix, Shatz asked the — source could not be reached to verify
+
+# Video audit: every video entry re-read against its transcript. Speaker uncertain or someone else.
+files-833756  # Files has trouble cutting without mixing. As he dr — Speaker could be Files or Slater; no production named.
+orlando-c9d68f  # For Vision and the twins glitching apart in WandaV — Speaker is the dialogue editor addressed as Kim, not Orlando.
