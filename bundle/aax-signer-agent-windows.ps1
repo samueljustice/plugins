@@ -71,8 +71,11 @@ try {
   if ($null -eq (Invoke-Gh @('auth', 'status'))) { exit 0 }   # offline or logged out: nothing to ask about
 
   # Runs waiting for the PC that haven't been asked about yet.
-  $runs = Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', 'aax-signing.yml', '--status', 'in_progress',
-                      '--limit', '50', '--json', 'databaseId,displayTitle', '--jq', '.[] | "\(.databaseId)|\(.displayTitle)"')
+  # GitHub's --status filter can miss a run that is plainly in progress (seen with doomeq-v0.0.2),
+  # so list the latest runs and pick the in-progress ones here.
+  $runs = Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', 'aax-signing.yml',
+                      '--limit', '50', '--json', 'databaseId,displayTitle,status', '--jq',
+                      '.[] | select(.status == "in_progress") | "\(.databaseId)|\(.displayTitle)"')
   if (-not $runs) { exit 0 }
   $seen = @(Get-Content $asked)
   $newRuns = @()

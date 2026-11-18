@@ -4,7 +4,8 @@
 # bundle/install-aax-signer-windows.ps1 sets up). It is the PC's twin of bundle/sign-aax.sh.
 #
 #   sign-aax                    sign every release whose "AAX signing" run is waiting at "Sign on the PC"
-#   sign-aax reversinator ...   sign these plug-ins' newest releases, waiting or not
+#   sign-aax reversinator ...   sign these plug-ins' newest releases, waiting or not (for a test build,
+#                               a "#test" line in plugins.txt, its newest pre-release counts too)
 #   sign-aax -Force ...         re-sign even if the release already has a signed Windows AAX
 #   sign-aax -Local ...         sign and verify only: no upload (leaves the zips in .\aax-signed)
 #
@@ -122,20 +123,35 @@ try {
     # Each plug-in's newest published release whose tag is "<prefix>X.Y.Z" (as bundle/resolve-releases.sh).
     $tags = Get-Lines (Invoke-Gh @('release', 'list', '-R', $repo, '--limit', '200', '--exclude-drafts',
                                    '--exclude-pre-releases', '--json', 'tagName', '--jq', '.[].tagName')).Out
+    $allTags = $null # with pre-releases, fetched only if a test build is named
     foreach ($id in $wanted) {
       $line = $plugins | Where-Object { $_.Split('|')[0] -eq $id } | Select-Object -First 1
+      $candidates = $tags
+      if (-not $line) {
+        # A test build ("#test" line): its releases are pre-releases, so look at those too.
+        $line = $testBuilds | Where-Object { $_.Split('|')[0] -eq $id } | Select-Object -First 1
+        if ($line) {
+          if ($null -eq $allTags) {
+            $allTags = Get-Lines (Invoke-Gh @('release', 'list', '-R', $repo, '--limit', '200', '--exclude-drafts',
+                                              '--json', 'tagName', '--jq', '.[].tagName')).Out
+          }
+          $candidates = $allTags
+        }
+      }
       if (-not $line) { Write-Host "Unknown plug-in or no release: $id"; exit 1 }
       $prefix = $line.Split('|')[1]
-      $tag = $tags | Where-Object { $_ -match ('^' + [regex]::Escape($prefix) + '\d+\.\d+\.\d+$') } |
+      $tag = $candidates | Where-Object { $_ -match ('^' + [regex]::Escape($prefix) + '\d+\.\d+\.\d+$') } |
                Sort-Object { [version]$_.Substring($prefix.Length) } | Select-Object -Last 1
       if (-not $tag) { Write-Host "Unknown plug-in or no release: $id"; exit 1 }
       $targets += [pscustomobject]@{ Id = $id; Tag = $tag; Version = $tag.Substring($prefix.Length) }
     }
   } else {
     # Releases whose "AAX signing" run is waiting at this machine's stage. Run titles end with the tag.
-    $runs = Get-Lines (Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', 'aax-signing.yml', '--status', 'in_progress',
-                                   '--limit', '50', '--json', 'databaseId,displayTitle', '--jq',
-                                   '.[] | "\(.databaseId)|\(.displayTitle)"')).Out
+    # GitHub's --status filter can miss a run that is plainly in progress (seen with doomeq-v0.0.2),
+    # so list the latest runs and pick the in-progress ones here.
+    $runs = Get-Lines (Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', 'aax-signing.yml',
+                                   '--limit', '50', '--json', 'databaseId,displayTitle,status', '--jq',
+                                   '.[] | select(.status == "in_progress") | "\(.databaseId)|\(.displayTitle)"')).Out
     foreach ($r in $runs) {
       $run, $title = $r.Split('|', 2)
       $jobs = Get-Lines (Invoke-Gh @('run', 'view', $run, '-R', $repo, '--json', 'jobs', '--jq',
