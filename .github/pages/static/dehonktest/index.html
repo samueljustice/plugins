@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>De-Honk Tester Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@500;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column on cream, like the plug-in window: thin warm-brown lines, small lowercase mono headings, a pastel rule under the title. */
+:root {
+  --paper: #f6efdf;
+  --card: #fffaf0;
+  --ink: #3a2e2a;
+  --muted: #6e5f58;
+  --line: #3a2e2a;
+  --soft: #e7dcc6;
+  --mustard: #f2c14e;
+  --coral: #e5533b;
+  --mint: #a8dcc6;
+  --lavender: #b9a6e3;
+  --pink: #f2b3c6;
+  --sky: #8fd0e0;
+  --display: "Azeret Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #221b18; --card: #2c2420; --ink: #f1e7d6; --muted: #c4b5a6; --line: #8a7a6e; --soft: #43372f;
+    --mustard: #e3b445; --coral: #f07a63; --mint: #7fc4aa; --lavender: #a593d6; --pink: #e39ab0; --sky: #6fb9cc;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #221b18; --card: #2c2420; --ink: #f1e7d6; --muted: #c4b5a6; --line: #8a7a6e; --soft: #43372f;
+  --mustard: #e3b445; --coral: #f07a63; --mint: #7fc4aa; --lavender: #a593d6; --pink: #e39ab0; --sky: #6fb9cc;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+main { max-width: 42rem; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+header { display: flex; flex-direction: column; gap: 10px; }
+.name { font: 700 2.1rem/1.1 var(--display); letter-spacing: -0.01em; margin: 0; text-transform: lowercase; }
+.rainbow { height: 6px; width: 9rem; border-radius: 3px;
+  background: linear-gradient(90deg, var(--coral) 0 20%, var(--mustard) 20% 40%, var(--mint) 40% 60%, var(--sky) 60% 80%, var(--lavender) 80%); }
+.meta { font: 500 0.78rem/1.4 var(--display); color: var(--muted); letter-spacing: 0.06em; text-transform: lowercase; margin: 0; }
+.lede { font-size: 1.08rem; margin: 0; }
+section { display: flex; flex-direction: column; gap: 10px; }
+h2 { font: 700 0.9rem/1.3 var(--display); letter-spacing: 0.08em; text-transform: lowercase; margin: 0;
+  display: flex; align-items: center; gap: 10px; text-wrap: balance; }
+h2::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 1.25px solid var(--line); background: var(--dot, var(--mustard)); flex: none; }
+p { margin: 0; }
+ul, ol { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 8px; }
+li::marker { color: var(--muted); font-family: var(--display); font-size: 0.85em; }
+strong { font-weight: 600; }
+.panel { background: var(--card); border: 1.25px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.listen { --dot: var(--coral); }
+.made { --dot: var(--lavender); }
+.setup { --dot: var(--mint); }
+.pond { --dot: var(--sky); }
+.send { --dot: var(--pink); }
+.known { --dot: var(--soft); }
+.pond-list { list-style: none; padding: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; }
+.pond-list li { display: contents; }
+.pond-list .who { font: 500 0.82rem/1.6 var(--display); text-transform: lowercase; color: var(--muted); }
+.pond-list .what { min-width: 0; }
+.tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 12px; }
+.tool { border: 1.25px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--card); display: flex; flex-direction: column; gap: 6px; }
+.tool .label { font: 700 0.85rem/1.2 var(--display); text-transform: lowercase; letter-spacing: 0.06em; display: flex; align-items: center; gap: 8px; }
+.disc { width: 14px; height: 14px; border-radius: 50%; border: 1.25px solid var(--line); flex: none; }
+.foot { font: 500 0.78rem/1.5 var(--display); color: var(--muted); text-transform: lowercase; letter-spacing: 0.04em; border-top: 1.25px solid var(--soft); padding-top: 14px; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+figure img { width: 100%; height: auto; display: block; border: 1.25px solid var(--line); border-radius: 12px; background: var(--card); }
+figcaption { font-size: 0.88rem; color: var(--muted); }
+.shots { gap: 18px; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 16px; }
+.pair figure { min-width: 0; }
+@media (max-width: 480px) {
+  .name { font-size: 1.7rem; }
+  .pond-list { grid-template-columns: 1fr; gap: 2px; }
+  .pond-list .what { margin-bottom: 8px; }
+}
+</style>
+
+</head>
+<body>
+<main>
+  <header>
+    <h1 class="name">de-honk</h1>
+    <div class="rainbow" aria-hidden="true"></div>
+    <p class="meta">test build 0.0.1 · notes for testers · by samuel justice</p>
+  </header>
+
+  <p class="lede">Thanks for trying De-Honk. It goes on the master bus of a trailer mix, before the limiter. When lots of the sounds and music in a session have each been through a bass enhancer or a saturator, their added harmonics pile up in the low mids as a boxy, nasal build-up. De-Honk listens for that as the mix plays and takes it down with narrow cuts that come and go with it.</p>
+  <p>It's meant to be gentle: a few dB at most, mostly in the busy sections. It works in mono, stereo and surround up to 7.1.4, as AAX, VST3 and AU, and as a standalone app.</p>
+
+
+  <section class="shots">
+    <figure class="hero">
+      <img src="window-busy.png" width="960" height="800" alt="The De-Honk window in a busy passage: geese on the pond where it is cutting, the sound recordist with his boom pole, turtles on a log, a frog on a lily pad and a beaver by its dam; below, the band view with cuts marked in red, then the knobs.">
+      <figcaption>A busy passage: each goose is a cut, and the band view below shows where and how deep.</figcaption>
+    </figure>
+    <div class="pair">
+      <figure>
+        <img src="window-rain.png" width="960" height="800" alt="The De-Honk window with rain over the pond while the low mids stay clogged, and the beaver's dam built up.">
+        <figcaption>The weather turns when the low mids stay clogged, and the beaver builds its dam.</figcaption>
+      </figure>
+      <figure>
+        <img src="window-bypass.png" width="960" height="800" alt="The De-Honk window in Bypass: the recordist sits on the bank with a flask, and the band view reads bypassed.">
+        <figcaption>Bypass: the recordist sits down with a flask.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="made">
+    <h2>how it was made</h2>
+    <p>De-Honk was tuned by ear on trailer mixes, with measurements to back up what we heard:</p>
+    <ul>
+      <li><strong>What causes honk.</strong> We measured what bass enhancers actually add (mostly second and third harmonics, roughly 100 to 300 Hz above the bass) and how that piles up when many sounds in a session each have one.</li>
+      <li><strong>How it decides.</strong> It splits the low mids into narrow bands, one per semitone, and looks for bands that stand out from their neighbours while the mix is loud. It leaves a band alone when there's a real note underneath it, so a note's own pitch is kept and only the harmonics piled on top are reduced.</li>
+      <li><strong>Tuning.</strong> The settings were set by listening to our own trailer mixes that had a bit of honk, comparing them with De-Honk on and off and soloing what it took out, until it removed the build-up without taking the weight. Mixes signed off by clients don't have much honk, so it's gentle by design.</li>
+      <li><strong>Checking it doesn't do harm.</strong> It was run over a library of finished trailer mixes, with their dialogue stems and real hits from their effects stems, to check that it keeps the weight of impacts, leaves dialogue alone and doesn't pump or click. There are also 46 automated tests for things like latency, clicks and surround.</li>
+      <li><strong>What it can't know.</strong> It can't tell low-mid weight you wanted from build-up you didn't. That's a matter of taste, and it's the main thing your listening will tell us. The rules will be adjusted from what you report.</li>
+    </ul>
+  </section>
+
+  <section class="setup">
+    <h2>setting up</h2>
+    <ul>
+      <li>Put it on the master, before your limiter, and start with the <strong>Master bus</strong> preset.</li>
+      <li>Lookahead Off (the default) adds no latency, so it's fine on a live mix.</li>
+      <li>Set <strong>Threshold</strong> so the level bar on the left of the band view goes past the marker in the dense sections and stays under it in the quiet ones. It only works above the threshold.</li>
+      <li>Leave everything else at default for a first pass.</li>
+    </ul>
+  </section>
+
+  <section class="setup">
+    <h2>what it should do</h2>
+    <ul>
+      <li>In the loud, dense parts (big music plus effects), the low mids should open up: less boxy, less honky, the mix feeling less clogged.</li>
+      <li>The bass and the weight should stay where they were.</li>
+      <li>Quiet passages and dialogue on their own should pass through untouched.</li>
+    </ul>
+  </section>
+
+  <section class="listen panel">
+    <h2>what to listen for, most important first</h2>
+    <ol>
+      <li><strong>Lost weight.</strong> Does the bass or the body of the mix get thinner with it on? Use Diff to compare: hold it to hear the untreated mix, or click it to latch.</li>
+      <li><strong>Hits.</strong> Do explosions, slams and big drum hits keep their punch and their tail? Impact Guard is meant to keep the cuts out of them. If a hit sounds smaller, note the time.</li>
+      <li><strong>Rumble and dense textures.</strong> It can sometimes cut into noisy low-mid material (rumbles, wind, dense ambiences) as if it were honk. If something thick suddenly sounds hollow, that's what to report.</li>
+      <li><strong>Audible working.</strong> Can you hear it moving: pumping, a wobble or a ringing in the low mids? Release sets how slowly a cut lets go; longer is steadier.</li>
+      <li><strong>Does it actually help?</strong> On a mix you know has honk, does it get it? If it isn't doing enough, raise Depth or set Max Cut to 8 or 9 dB. If it's too much, bring Depth down.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2 style="--dot: var(--mustard)">listening tools</h2>
+    <div class="tools">
+      <div class="tool">
+        <span class="label"><span class="disc" style="background: var(--mustard)"></span>solo honk</span>
+        <p>Plays only what's being removed. It should sound like ugly, boxy low mids. If you hear wanted bass, notes or dialogue in it, it's taking the wrong thing; tell us what and where.</p>
+      </div>
+      <div class="tool">
+        <span class="label"><span class="disc" style="background: var(--mint)"></span>diff</span>
+        <p>Plays the untreated mix, level-matched, for a quick before and after.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="pond">
+    <h2>the picture</h2>
+    <p>The pond at the top shows what it's doing, so you can glance at it rather than watch it.</p>
+    <ul class="pond-list">
+      <li><span class="who">geese</span><span class="what">The cuts, chased off by the sound recordist.</span></li>
+      <li><span class="who">turtles</span><span class="what">Hide in their shells when Impact Guard holds back for a hit.</span></li>
+      <li><span class="who">frog</span><span class="what">Tenses as a cut nears Max Cut, and leaps off its lily pad when one reaches it.</span></li>
+      <li><span class="who">beaver</span><span class="what">Its dam grows while the low mids stay clogged.</span></li>
+      <li><span class="who">fish</span><span class="what">Jumps when Snap takes out a click.</span></li>
+      <li><span class="who">recordist</span><span class="what">Sits down with a flask in Bypass.</span></li>
+    </ul>
+  </section>
+
+  <section class="send panel">
+    <h2>please send back</h2>
+    <ul>
+      <li>What you used it on: host and version, sample rate, and the layout (stereo, 5.1, 7.1.4 and so on).</li>
+      <li>Your settings, if you changed them.</li>
+      <li>A short bounce of the same section with De-Honk on and off, with the times where it helped or hurt.</li>
+      <li>Anything that glitched: clicks, dropouts, high CPU, the window misbehaving, or Pro Tools refusing to load it.</li>
+    </ul>
+  </section>
+
+  <section class="known">
+    <h2>known in this build</h2>
+    <ul>
+      <li>There's no sidechain input yet.</li>
+      <li>Switching Diff on and off very fast can click.</li>
+      <li>Settings and presets may change before the full release, so sessions saved with this build may not sound the same in a later one.</li>
+    </ul>
+  </section>
+
+  <p class="foot">de-honk 0.0.1 · a plug-in by samuel justice · sammy j</p>
+</main>
+
+</body>
+</html>
