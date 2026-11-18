@@ -84,6 +84,12 @@ figcaption { font-size: 0.88rem; color: var(--muted); }
 .shots { gap: 18px; }
 .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 16px; }
 .pair figure { min-width: 0; }
+a.tool.dl { color: inherit; text-decoration: none; }
+a.tool.dl:hover { background: var(--soft); }
+a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+.file { font: 500 0.78rem/1.4 var(--display); color: var(--muted); overflow-wrap: anywhere; }
+.small { font-size: 0.9rem; color: var(--muted); }
+.small a { color: inherit; }
 @media (max-width: 480px) {
   .name { font-size: 1.7rem; }
   .pond-list { grid-template-columns: 1fr; gap: 2px; }
@@ -103,6 +109,23 @@ figcaption { font-size: 0.88rem; color: var(--muted); }
   <p class="lede">Thanks for trying De-Honk. It goes on the master bus of a trailer mix, before the limiter. When lots of the sounds and music in a session have each been through a bass enhancer or a saturator, their added harmonics pile up in the low mids as a boxy, nasal build-up. De-Honk listens for that as the mix plays and takes it down with narrow cuts that come and go with it.</p>
   <p>It's meant to be gentle: a few dB at most, mostly in the busy sections. It works in mono, stereo and surround up to 7.1.4, as AAX, VST3 and AU, and as a standalone app.</p>
 
+
+  <section class="get">
+    <h2 style="--dot: var(--mint)">download</h2>
+    <div class="tools">
+      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.1/DeHonk-0.0.1-macOS-Installer.pkg">
+        <span class="label"><span class="disc" style="background: var(--sky)"></span>macos installer</span>
+        <span>AAX, VST3, AU and the standalone app. Universal (Apple silicon and Intel), macOS 11 or later. Signed and notarised.</span>
+        <span class="file">DeHonk-0.0.1-macOS-Installer.pkg</span>
+      </a>
+      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.1/DeHonk-0.0.1-Windows-Installer.exe">
+        <span class="label"><span class="disc" style="background: var(--pink)"></span>windows installer</span>
+        <span>AAX, VST3 and the standalone app. 64-bit Windows 10 or later. Windows may warn before running it, because the installer isn't code-signed: choose More info, then Run anyway.</span>
+        <span class="file">DeHonk-0.0.1-Windows-Installer.exe</span>
+      </a>
+    </div>
+    <p class="small">The plug-ins on their own are on the <a href="https://github.com/samueljustice/plugins/releases/tag/dehonk-v0.0.1">release page</a>.</p>
+  </section>
 
   <section class="shots">
     <figure class="hero">
