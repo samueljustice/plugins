@@ -112,6 +112,8 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("sammyj-aax-" + [guid]::NewGuid().
 New-Item -ItemType Directory -Force $work | Out-Null
 $out = Join-Path (Get-Location).Path 'aax-signed'
 $plugins = @(Get-Content (Join-Path $here 'plugins.txt') | Where-Object { $_ -and -not $_.StartsWith('#') })
+# Test builds ("#test " lines in plugins.txt) are signed like the others while their run waits.
+$testBuilds = @(Get-Content (Join-Path $here 'plugins.txt') | Where-Object { $_.StartsWith('#test ') } | ForEach-Object { $_.Substring(6) })
 
 try {
   # What to sign: id, tag and version of each release.
@@ -155,6 +157,7 @@ try {
 
   foreach ($t in $targets) {
     $line = $plugins | Where-Object { $_.Split('|')[0] -eq $t.Id } | Select-Object -First 1
+    if (-not $line) { $line = $testBuilds | Where-Object { $_.Split('|')[0] -eq $t.Id } | Select-Object -First 1 }
     if (-not $line) { Write-Host "== $($t.Tag): not in bundle/plugins.txt"; $skipped += "$($t.Tag): unknown plug-in"; continue }
     $fields = $line.Split('|')
     $name = $fields[2]

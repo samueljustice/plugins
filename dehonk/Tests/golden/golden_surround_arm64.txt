@@ -1,0 +1,43 @@
+# De-Honk golden surround hashes (Tests/src/GoldenCases.h, runAllSurround), one "case hash" line each.
+# Architecture: arm64. Compiler: Apple clang 21.0.0, Release (-O3), as Tests/CMakeLists.txt builds it.
+# Recorded from the core as it was before Max Cut, Release and Impact Guard became controls
+# (Tests/build/ref-dsp2/, the dehonk_golden_ref2 tool): 5.1 and 7.1.4, twelve settings at 48 kHz
+# and three at 44.1 and 96 kHz. At Max Cut 8 dB, the release the Speed control used to give and
+# Impact Guard 0 the current core must give exactly these: the golden_mono_stereo test fails if
+# this file, or any case in it, is missing or different. Replace it only on purpose.
+defaults_6ch_layout_48000 e4b4349a82d4a3a2
+always_all_modules_snap_depth1_6ch_layout_48000 63e09aa532dc2d0d
+link50_sharp_fast_la5_6ch_layout_48000 acb138baca723fb8
+link0_snap_la20_6ch_layout_48000 16ce84d5894b6642
+solo_mix70_trim-3_6ch_layout_48000 2497d720eb20b630
+diff_6ch_layout_48000 ed01458656c393f3
+bypass_6ch_layout_48000 569b73f7dc357ce4
+mix40_trim6_detrend_6ch_layout_48000 46bf5767731b37dd
+automation_6ch_layout_48000 95dcb7b8abf00f64
+key_6ch_layout_48000 1841dcb09ca40c5a
+hostile_6ch_layout_48000 2d08ac816a372965
+static_cuts_6ch_layout_48000 4856a16a270d87c6
+defaults_12ch_layout_48000 9eb0b2a0db0c3ebc
+always_all_modules_snap_depth1_12ch_layout_48000 5283dff72e7bcd31
+link50_sharp_fast_la5_12ch_layout_48000 4bb71379bee0bb25
+link0_snap_la20_12ch_layout_48000 93fbb7e519c069f7
+solo_mix70_trim-3_12ch_layout_48000 5b649eed057cf2b2
+diff_12ch_layout_48000 482747b75967cbad
+bypass_12ch_layout_48000 8272ac7943f077b0
+mix40_trim6_detrend_12ch_layout_48000 2e6105e43d7d565c
+automation_12ch_layout_48000 95d0c02a9b607fc9
+key_12ch_layout_48000 5f52b199bbc879dd
+hostile_12ch_layout_48000 21254644ebcaa0a7
+static_cuts_12ch_layout_48000 dd440c5d52417c01
+defaults_6ch_layout_44100 6b1e55f3ce17fc04
+always_all_modules_snap_depth1_6ch_layout_44100 d213dba534b4ede5
+link50_sharp_fast_la5_6ch_layout_44100 dafb8d201c1e1200
+defaults_12ch_layout_44100 eeae3521e52ccfc3
+always_all_modules_snap_depth1_12ch_layout_44100 e4fc1d3beadcc2a0
+link50_sharp_fast_la5_12ch_layout_44100 65765783294b4d2a
+defaults_6ch_layout_96000 803e30088f12dd2e
+always_all_modules_snap_depth1_6ch_layout_96000 7365aef85e0abf20
+link50_sharp_fast_la5_6ch_layout_96000 680bccbdaf7434c3
+defaults_12ch_layout_96000 6d8746c87f717a38
+always_all_modules_snap_depth1_12ch_layout_96000 d2aea6ee30563ce8
+link50_sharp_fast_la5_12ch_layout_96000 e8fcdf2a098d8b03
