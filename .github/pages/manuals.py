@@ -19,18 +19,23 @@ import re
 import sys
 import urllib.request
 
+import releases
+
 out, repo = sys.argv[1:3]
 root = pathlib.Path(__file__).resolve().parents[2]
 RAW = f"https://raw.githubusercontent.com/{repo}/main/"
 BLOB = f"https://github.com/{repo}/blob/main/"
 TREE = f"https://github.com/{repo}/tree/main/"
 
-plugins = []  # (id, display name)
+plugins = []  # (id, display name, folder)
 for line in (root / "bundle/plugins.txt").read_text(encoding="utf-8").splitlines():
     if line.strip() and not line.startswith("#"):
         fields = line.split("|")
-        plugins.append((fields[0].strip(), fields[2].strip()))
-ids = {i for i, _ in plugins}
+        plugins.append((fields[0].strip(), fields[2].strip(), fields[0].strip()))
+# The toys (toys/<id>), from the landing page's Toys list: each gets a page too, with its own installers.
+TOYS = {pid for pid, _, _ in releases.toys()}
+plugins += releases.toys()
+pages = {folder: pid for pid, _, folder in plugins}   # a folder in the repository -> its manual page
 
 # The version of each plug-in in the installer, from the landing page's "every plug-in: A 1.2.3 · B ..." line.
 versions = {}
@@ -63,9 +68,9 @@ def text_of(fragment: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
 
 
-def resolve(pid: str, url: str) -> str:
-    """A path written in <pid>/README.md, as a path from the repository's root ('' if it climbs out of it)."""
-    parts = [pid]
+def resolve(folder: str, url: str) -> str:
+    """A path written in <folder>/README.md, as a path from the repository's root ('' if it climbs out of it)."""
+    parts = folder.split("/")
     for part in url.split("/"):
         if part == "..":
             if not parts:
@@ -76,8 +81,8 @@ def resolve(pid: str, url: str) -> str:
     return "/".join(parts)
 
 
-def link(pid: str, url: str) -> str:
-    """Where a link in <pid>/README.md goes from its manual page."""
+def link(folder: str, url: str) -> str:
+    """Where a link in <folder>/README.md goes from its manual page."""
     url = html.unescape(url)
     if url.startswith("#"):
         return url
@@ -85,25 +90,25 @@ def link(pid: str, url: str) -> str:
         return "../#get"                      # "It comes in Sammy J's Plugins": the download buttons
     m = re.match(rf"https://github\.com/{re.escape(repo)}/(?:blob|tree)/main/(.*)$", url)
     if m:
-        url, pid = m.group(1), ""
+        url, folder = m.group(1), ""
     elif re.match(r"^(?:[a-z][a-z0-9+.-]*:|//)", url):
         return url
     path, _, frag = url.partition("#")
-    path = resolve(pid, path) if pid else path.strip("/")
+    path = resolve(folder, path) if folder else path.strip("/")
     frag = "#" + frag if frag else ""
     if path in ("", "README.md"):
         return "../" + frag                   # the landing page
-    m = re.match(r"^([^/]+)(?:/README\.md)?$", path)
-    if m and m.group(1) in ids:
-        return f"../{m.group(1)}/{frag}"      # another plug-in's manual
+    m = re.match(r"^(.+?)(?:/README\.md)?$", path)
+    if m and m.group(1) in pages:
+        return f"../{pages[m.group(1)]}/{frag}"   # another plug-in's manual
     return (BLOB if "." in path.rsplit("/", 1)[-1] else TREE) + path + frag
 
 
-def picture(pid: str, url: str) -> str:
+def picture(folder: str, url: str) -> str:
     url = html.unescape(url)
     if re.match(r"^(?:[a-z][a-z0-9+.-]*:|//|data:)", url):
         return url
-    return RAW + resolve(pid, url)
+    return RAW + resolve(folder, url)
 
 
 # ---- the looks ------------------------------------------------------------------------------------------
@@ -273,6 +278,47 @@ THEMES = {
     clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%); }
 """,
     },
+    "doomeq": {
+        "fonts": ["Pixelify+Sans:wght@500;700", "IBM+Plex+Mono:wght@400;600", INTER],
+        "strap": "Six bands. One demon-infested display.",
+        "vars": "--bg:#100e0c; --panel:#1a1613; --ink:#e8dcc0; --dim:#a89870; --line:#2e2822; --a1:#e8b84a; --a2:#d22a1c; --a3:#f4d442; --a4:#e8503c; --link:#f4d442;"
+                " --bl:#a49c8a; --bd:#0a0908; --display:'Pixelify Sans', 'IBM Plex Mono', monospace; --body:'Inter', system-ui, sans-serif; --mono:'IBM Plex Mono', ui-monospace, Menlo, monospace; --radius:0px; --size:17px;",
+        "css": """
+  body { background:
+      radial-gradient(1100px 380px at 50% -120px, rgba(210, 42, 28, .28) 0, transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, .018) 0 2px, transparent 2px 4px),
+      repeating-linear-gradient(90deg, rgba(0, 0, 0, .25) 0 1px, transparent 1px 64px),
+      repeating-linear-gradient(0deg, rgba(0, 0, 0, .25) 0 1px, transparent 1px 64px), var(--bg); }
+  .bar, .toc, .title .strap, .title .version, .foot { font: 600 11px/1.5 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .bar { border-bottom: 2px solid var(--bd); box-shadow: 0 1px 0 #3a332b; }
+  .mark { font: 700 16px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--a1) !important; }
+  .title h1 { font: 700 clamp(46px, 9vw, 108px)/.95 var(--display); letter-spacing: .02em; text-transform: uppercase;
+    background: linear-gradient(180deg, #f4d442 0%, #e8b84a 38%, #d22a1c 72%, #7a120a 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(3px 3px 0 #000); }
+  .title::after { content: ""; display: block; height: 8px; max-width: 420px; margin-top: 22px;
+    background: linear-gradient(90deg, #e8503c 0 16.66%, #f09030 0 33.33%, #eed040 0 50%, #70cc58 0 66.66%, #4cb4e0 0 83.33%, #b078e8 0); box-shadow: 2px 2px 0 #000; }
+  .title .strap { color: var(--a2); }
+  .doc h2 { font: 700 22px/1.25 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--a1); text-shadow: 2px 2px 0 #000;
+    padding: 14px 40px; position: relative; border: 3px solid; border-color: var(--bl) var(--bd) var(--bd) var(--bl);
+    background: radial-gradient(circle at 14px 50%, #c8bfa8 0 3px, #3a332b 3.5px 4.5px, transparent 5px),
+      radial-gradient(circle at calc(100% - 14px) 50%, #c8bfa8 0 3px, #3a332b 3.5px 4.5px, transparent 5px),
+      repeating-linear-gradient(45deg, rgba(255, 255, 255, .025) 0 3px, transparent 3px 7px), linear-gradient(#3b3229, #241e19); }
+  .doc h2.k2, .doc h2.k5 { color: var(--a3); }
+  .doc h2.k3, .doc h2.k6 { color: #e8503c; }
+  .doc h3 { font: 700 17px/1.3 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--a3); }
+  .doc h3::before { content: "\\25B6  "; color: var(--a2); font-size: .8em; white-space: pre; }
+  .doc h4 { font: 600 12px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .doc strong { color: #fff3d6; }
+  .doc code, .doc kbd { color: var(--a3); background: var(--bd); border-color: #3a332b; }
+  .doc img { border: 3px solid; border-color: var(--bl) var(--bd) var(--bd) var(--bl); border-radius: 0; }
+  .doc th { font: 600 11px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--a1); }
+  .doc li::marker { color: var(--a2); }
+  .toc a.on { color: var(--a3); border-color: var(--a2); }
+  .button { font: 700 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: #1a0a04; padding: 13px 18px;
+    background: linear-gradient(#f4d442, #e8b84a 55%, #c8902a); border: 3px solid; border-color: #fff0a8 #6a4a10 #6a4a10 #fff0a8; border-radius: 0; }
+  .button.get-win { background: linear-gradient(#e8503c, #d22a1c 55%, #8a160c); color: #fff3d6; border-color: #ff9a80 #4a0804 #4a0804 #ff9a80; }
+""",
+    },
 }
 PLAIN = {
     "fonts": [INTER],
@@ -301,6 +347,7 @@ BASE = """
   .title { text-wrap: balance; }
   .button { display: inline-block; padding: 12px 18px; border: 1px solid var(--ink); border-radius: var(--radius); background: var(--ink); color: var(--bg); text-decoration: none; font-weight: 600; letter-spacing: inherit; }
   .button:hover { filter: brightness(1.12); }
+  .title .get { display: inline-flex; flex-wrap: wrap; gap: 10px; }
   .toc { position: sticky; top: 76px; align-self: start; max-height: calc(100vh - 96px); overflow: auto; font-size: 13px; padding-bottom: 20px; }
   .toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .toc a { display: block; padding: 5px 0 5px 12px; color: var(--dim); text-decoration: none; border-left: 2px solid var(--line); line-height: 1.35; }
@@ -362,9 +409,9 @@ SCRIPT = """
 """
 
 
-def build(pid: str, name: str) -> str:
+def build(pid: str, name: str, folder: str) -> str:
     theme = THEMES.get(pid, PLAIN)
-    doc = render((root / pid / "README.md").read_text(encoding="utf-8"))
+    doc = render((root / folder / "README.md").read_text(encoding="utf-8"))
 
     # GitHub's headings: <div class="markdown-heading"><hN ...>text</hN><a id="user-content-slug" ...>...</a></div>
     kinds = iter(range(10 ** 6))
@@ -388,8 +435,8 @@ def build(pid: str, name: str) -> str:
             doc = doc.replace(m.group(0), "", 1)
             break
 
-    doc = re.sub(r'(<a\b[^>]*?\bhref=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(link(pid, m.group(2)))}"', doc)
-    doc = re.sub(r'(<(?:img|source|video)\b[^>]*?\bsrc=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(picture(pid, m.group(2)))}"', doc)
+    doc = re.sub(r'(<a\b[^>]*?\bhref=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(link(folder, m.group(2)))}"', doc)
+    doc = re.sub(r'(<(?:img|source|video)\b[^>]*?\bsrc=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(picture(folder, m.group(2)))}"', doc)
     # A picture's own link is to the file in the repository: point it at the picture itself.
     doc = re.sub(r'<a\b[^>]*?href="[^"]*"[^>]*>\s*(<img\b[^>]*?\bsrc="([^"]*)"[^>]*>)\s*</a>',
                  lambda m: f'<a href="{m.group(2)}" target="_blank" rel="noopener">{m.group(1)}</a>', doc)
@@ -403,6 +450,23 @@ def build(pid: str, name: str) -> str:
     title = re.sub(r"^SammyJs\s+", "", name)
     version = versions.get(name, "")
     fonts = "&".join("family=" + f for f in theme["fonts"])
+    live = releases.LIVE_SCRIPT % {"repo": repo} if pid in TOYS else ""
+    if pid in TOYS:
+        # A toy isn't in the installer: its own installers, from its newest release (the page checks again on load).
+        prefix = prefixes.get(pid, pid + "-v")
+        r = releases.newest(RELEASES, prefix)
+        latest = f"https://github.com/{repo}/releases?q={pid}"
+        ver = r.get("version", "")
+        get_it = (f'<span class="get" id="download" data-release-prefix="{html.escape(prefix)}">'
+                  f'<a class="button get-mac" href="{html.escape(r.get("mac") or latest)}">Download for macOS</a>'
+                  f'<a class="button get-win" href="{html.escape(r.get("win") or latest)}">Download for Windows</a></span>'
+                  f'<span>{"Test build" if r.get("test", True) else "Version"} <span class="ver">{html.escape(ver)}</span></span>'
+                  f'<span>A toy: not in the installer</span>')
+        get_link = "#download"
+    else:
+        get_it = (f'<a class="button" href="../#get">Get it in the installer</a>'
+                  + (f"<span>Version {html.escape(version)} in the installer</span>" if version else "") + "<span>The manual</span>")
+        get_link = "../#get"
     dark = theme.get("dark", "")
     first_p = re.search(r"<p>(.*?)</p>", doc, re.S)
     described = text_of(first_p.group(1)) if first_p else f"The manual for {title}."
@@ -429,14 +493,14 @@ def build(pid: str, name: str) -> str:
 <div class="bar">
   <a href="../">&larr; Sammy J's Plugins</a>
   <span class="mark">{html.escape(title)}</span>
-  <a href="../#get">Get it</a>
-  <a href="{BLOB}{pid}/README.md">On GitHub</a>
+  <a href="{get_link}">Get it</a>
+  <a href="{BLOB}{folder}/README.md">On GitHub</a>
 </div>
 <div class="shell">
   <header class="title">
     {f'<p class="strap">{html.escape(theme["strap"])}</p>' if theme["strap"] else ""}
     <h1>{html.escape(title)}</h1>
-    <p class="version"><a class="button" href="../#get">Get it in the installer</a>{f"<span>Version {html.escape(version)} in the installer</span>" if version else ""}<span>The manual</span></p>
+    <p class="version">{get_it}</p>
   </header>
   <nav class="toc" aria-label="Contents"><ol>{toc}</ol></nav>
   <main class="doc">
@@ -448,17 +512,19 @@ def build(pid: str, name: str) -> str:
   <a href="../">Sammy J's Plugins</a>
   <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a>
 </div>
-<script>{SCRIPT}</script>
+<script>{SCRIPT}{live}</script>
 </body>
 </html>
 """
 
 
+prefixes = releases.tag_prefixes()
+RELEASES = releases.all_releases(repo) if TOYS else None
 outdir = pathlib.Path(out)
-for pid, name in plugins:
-    if not (root / pid / "README.md").exists():
+for pid, name, folder in plugins:
+    if not (root / folder / "README.md").exists():
         continue
-    page = build(pid, name)
+    page = build(pid, name, folder)
     (outdir / pid).mkdir(parents=True, exist_ok=True)
     (outdir / pid / "index.html").write_text(page, encoding="utf-8")
     print(f"Wrote {outdir / pid / 'index.html'} ({len(page) // 1024} KB)")

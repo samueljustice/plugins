@@ -17,6 +17,8 @@ import re
 import sys
 import urllib.request
 
+import releases
+
 rendered, out, repo = sys.argv[1:4]
 doc = pathlib.Path(rendered).read_text(encoding="utf-8")
 RAW = f"https://raw.githubusercontent.com/{repo}/main/"
@@ -77,7 +79,7 @@ for level, name, body in chunks:
         for item in re.findall(r"<li>(.*?)</li>", body, re.S):
             m = re.match(r"\s*(?:<p>)?\s*<strong>\s*<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>\s*</strong>\s*:?\s*(.*?)(?:</p>)?\s*$", item, re.S)
             if m:
-                toys.append((html.escape(absolute(m.group(1), BLOB)), m.group(2), fix_links(m.group(3))))
+                toys.append((html.unescape(m.group(1)), m.group(2), fix_links(m.group(3))))
         continue
     if name in SKIP:
         continue
@@ -159,12 +161,33 @@ index = "".join(
 
 toys_html = ""
 if toys:
-    rows = "".join(f'<li><a href="{href}">{name}</a><span>{what}</span></li>' for href, name, what in toys)
+    # A toy with a folder of its own (toys/<id>) has a manual page here (manuals.py) and its own installers,
+    # from its newest release (the page looks again on load: a new test build doesn't rebuild the site).
+    TOY_RELEASES = releases.all_releases(repo)
+    prefixes = releases.tag_prefixes()
+
+    def toy_row(href: str, name: str, what: str) -> str:
+        m = re.match(r"^(?:\./)?toys/([A-Za-z0-9_-]+)/?$", href)
+        if not m:
+            return f'<li><a class="name" href="{html.escape(absolute(href, BLOB))}">{name}</a><span>{what}</span></li>'
+        pid = m.group(1)
+        prefix = prefixes.get(pid, pid + "-v")
+        r = releases.newest(TOY_RELEASES, prefix)
+        fallback = f"https://github.com/{repo}/releases?q={pid}"
+        ver = f'<span class="ver">{html.escape(r["version"])}</span>' if r else '<span class="ver"></span>'
+        return (f'<li data-release-prefix="{html.escape(prefix)}"><a class="name" href="{pid}/">{name}</a>'
+                f'<span>{what}<span class="toylinks"><a href="{pid}/">Manual</a>'
+                f'<a class="get-mac" href="{html.escape(r.get("mac") or fallback)}">macOS</a>'
+                f'<a class="get-win" href="{html.escape(r.get("win") or fallback)}">Windows</a>'
+                f'<em>{"Test build" if r.get("test", True) else "Version"} {ver}</em></span></span></li>')
+
+    rows = "".join(toy_row(href, name, what) for href, name, what in toys)
     toys_html = f'''<section class="toys" id="toys">
   <h2>Toys</h2>
   <div>{toys_intro}<ul>{rows}</ul></div>
 </section>'''
     index += '<li><a href="#toys"><span>+</span>Toys</a></li>'
+toys_live = releases.LIVE_SCRIPT % {"repo": repo} if toys else ""
 
 # ---- the top: downloads, what's in the installer, the donate link ------------------------------------------
 def first(pattern: str, default: str = "") -> str:
@@ -313,10 +336,14 @@ page = f"""<!doctype html>
   .toys p {{ margin: 0 0 18px; color: var(--dim); font-size: 16px; max-width: 40em; }}
   .toys ul {{ list-style: none; margin: 0; padding: 0; max-width: 46em; }}
   .toys li {{ display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 4px 24px; padding: 12px 0; border-top: 1px solid var(--rule); font-size: 16px; }}
-  .toys li a {{ font: 400 12px/1.9 var(--mono); letter-spacing: .08em; text-transform: uppercase; text-decoration: none; color: var(--paper); }}
-  .toys li a::after {{ content: " \\2192"; color: var(--red); }}
-  .toys li a:hover {{ color: var(--red); }}
-  .toys li span::first-letter {{ text-transform: uppercase; }}
+  .toys li a.name {{ font: 400 12px/1.9 var(--mono); letter-spacing: .08em; text-transform: uppercase; text-decoration: none; color: var(--paper); }}
+  .toys li a.name::after {{ content: " \\2192"; color: var(--red); }}
+  .toys li a.name:hover {{ color: var(--red); }}
+  .toys li > span::first-letter {{ text-transform: uppercase; }}
+  .toylinks {{ display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }}
+  .toylinks a {{ color: var(--paper); text-decoration: none; border-bottom: 1px solid var(--dim); }}
+  .toylinks a:hover {{ color: var(--red); border-color: var(--red); }}
+  .toylinks em {{ font-style: normal; color: var(--dim); }}
   footer {{ padding: 64px 0 96px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 48px; }}
   footer h3 {{ font: 800 26px/1 var(--display); letter-spacing: -.02em; margin: 0; }}
   footer p {{ margin: 0 0 1em; max-width: 40em; }}
@@ -423,6 +450,7 @@ page = f"""<!doctype html>
     .catch(function () {{}});
 }})();
 </script>
+<script>{toys_live}</script>
 <script>
 // The download count: GitHub's count for every release's files, plus the deleted installers' downloads (built
 // into the page). It ticks up to the number on load, or is set at once for anyone who prefers less motion.
