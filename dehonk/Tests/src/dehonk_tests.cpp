@@ -52,18 +52,34 @@ void* countedAlloc (std::size_t size, std::size_t align, bool nothrow)
     void* p = nullptr;
     if (align <= alignof (std::max_align_t))
         p = std::malloc (size);
-    else if (posix_memalign (&p, align, size) != 0)
-        p = nullptr;
+    else
+    {
+       #if defined (_WIN32)
+        p = _aligned_malloc (size, align);    // Windows has no posix_memalign; freed with _aligned_free
+       #else
+        if (posix_memalign (&p, align, size) != 0)
+            p = nullptr;
+       #endif
+    }
     if (p == nullptr && ! nothrow)
         throw std::bad_alloc();
     return p;
 }
 
-void countedFree (void* p) noexcept
+void countedFree (void* p, bool aligned = false) noexcept
 {
     if (p == nullptr)
         return;
     gDeallocations.fetch_add (1, std::memory_order_relaxed);
+   #if defined (_WIN32)
+    if (aligned)
+    {
+        _aligned_free (p);
+        return;
+    }
+   #else
+    (void) aligned;
+   #endif
     std::free (p);
 }
 } // namespace
@@ -80,14 +96,14 @@ void operator delete (void* p) noexcept { countedFree (p); }
 void operator delete[] (void* p) noexcept { countedFree (p); }
 void operator delete (void* p, std::size_t) noexcept { countedFree (p); }
 void operator delete[] (void* p, std::size_t) noexcept { countedFree (p); }
-void operator delete (void* p, std::align_val_t) noexcept { countedFree (p); }
-void operator delete[] (void* p, std::align_val_t) noexcept { countedFree (p); }
-void operator delete (void* p, std::size_t, std::align_val_t) noexcept { countedFree (p); }
-void operator delete[] (void* p, std::size_t, std::align_val_t) noexcept { countedFree (p); }
+void operator delete (void* p, std::align_val_t) noexcept { countedFree (p, true); }
+void operator delete[] (void* p, std::align_val_t) noexcept { countedFree (p, true); }
+void operator delete (void* p, std::size_t, std::align_val_t) noexcept { countedFree (p, true); }
+void operator delete[] (void* p, std::size_t, std::align_val_t) noexcept { countedFree (p, true); }
 void operator delete (void* p, const std::nothrow_t&) noexcept { countedFree (p); }
 void operator delete[] (void* p, const std::nothrow_t&) noexcept { countedFree (p); }
-void operator delete (void* p, std::align_val_t, const std::nothrow_t&) noexcept { countedFree (p); }
-void operator delete[] (void* p, std::align_val_t, const std::nothrow_t&) noexcept { countedFree (p); }
+void operator delete (void* p, std::align_val_t, const std::nothrow_t&) noexcept { countedFree (p, true); }
+void operator delete[] (void* p, std::align_val_t, const std::nothrow_t&) noexcept { countedFree (p, true); }
 
 namespace
 {
