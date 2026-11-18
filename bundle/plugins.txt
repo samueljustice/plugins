@@ -16,3 +16,4 @@ tonalrecall|tonalrecall-v|Tonal Recall|SammyJs Tonal Recall|
 # everything else here takes them for comments, so they are in no installer, on no page and not checked
 # by the Release docs workflow. At a plug-in's first full release, replace its line with a normal one above.
 #test dehonk|dehonk-v|De-Honk|De-Honk|De-Honk
+#test doomeq|doomeq-v|DOOM EQ|SammyJs DOOM EQ|SammyJs DOOM EQ
