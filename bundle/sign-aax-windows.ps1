@@ -147,9 +147,11 @@ try {
     }
   } else {
     # Releases whose "AAX signing" run is waiting at this machine's stage. Run titles end with the tag.
-    $runs = Get-Lines (Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', 'aax-signing.yml', '--status', 'in_progress',
-                                   '--limit', '50', '--json', 'databaseId,displayTitle', '--jq',
-                                   '.[] | "\(.databaseId)|\(.displayTitle)"')).Out
+    # GitHub's --status filter can miss a run that is plainly in progress (seen with doomeq-v0.0.2),
+    # so list the latest runs and pick the in-progress ones here.
+    $runs = Get-Lines (Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', 'aax-signing.yml',
+                                   '--limit', '50', '--json', 'databaseId,displayTitle,status', '--jq',
+                                   '.[] | select(.status == "in_progress") | "\(.databaseId)|\(.displayTitle)"')).Out
     foreach ($r in $runs) {
       $run, $title = $r.Split('|', 2)
       $jobs = Get-Lines (Invoke-Gh @('run', 'view', $run, '-R', $repo, '--json', 'jobs', '--jq',

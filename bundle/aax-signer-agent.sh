@@ -32,8 +32,10 @@ trap 'rm -rf "$lock"' EXIT
 gh auth status >/dev/null 2>&1 || exit 0   # offline or logged out: nothing to ask about
 
 # Runs waiting for the Mac that haven't been asked about yet.
-runs=$(gh run list -R "$repo" --workflow aax-signing.yml --status in_progress --limit 50 \
-         --json databaseId,displayTitle --jq '.[] | "\(.databaseId)|\(.displayTitle)"' 2>/dev/null) || exit 0
+# GitHub's --status filter can miss a run that is plainly in progress (seen with doomeq-v0.0.2),
+# so list the latest runs and pick the in-progress ones here.
+runs=$(gh run list -R "$repo" --workflow aax-signing.yml --limit 50 \
+         --json databaseId,displayTitle,status --jq '.[] | select(.status == "in_progress") | "\(.databaseId)|\(.displayTitle)"' 2>/dev/null) || exit 0
 new_runs=()
 releases=()
 while IFS='|' read -r run title; do
