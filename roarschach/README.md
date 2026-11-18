@@ -131,7 +131,7 @@ Each roll is one step you can take back: right-click any die for **Undo** and **
 
 One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB are on; after, CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are, every module has new settings, a dot follows the preset name, and the ink blot has taken a new shape and the window a new colour. The module order, IN and OUTPUT are as they were.
 
-<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB switched on, a dark mirrored ink blot with two heavy legs hanging low and thin tendrils curling out to the sides, in pale blue-grey cloud with a warm blush, and the sheet and controls in the same cool grey" width="880">
+<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME and SUB switched on, a dark mirrored ink blot with two heavy legs hanging low that curl at their feet and a warm light in a gap near its top, in pale blue-grey cloud with a warm blush, and the sheet and controls in the same cool grey" width="880">
 
 <img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: a dot follows the name Big Bad Narrator, and CLEAN, VOCODER, RING, GROWL, ENSEMBLE and SUB are on with new settings while the other modules are off; the cloud has drifted to a clear blue lit with straw-yellow light, the sheet and the controls' accent have turned blue with it, and the blot has gathered into two broad, smoky wings either side of a small dark head" width="880">
 
