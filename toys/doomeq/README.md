@@ -2,6 +2,8 @@
 
 A six-band parametric EQ whose curve display runs DOOM.
 
+<img src="docs/screenshot.png" width="1100" alt="DOOM EQ: six EQ bands and their curve laid over a game of DOOM, with the analyser showing the game's own sound">
+
 ## The EQ
 
 - Six bands. Each one can be a Bell, Low/High Shelf, or Low/High Cut at 12, 24 or 48 dB/oct.
@@ -34,6 +36,8 @@ A six-band parametric EQ whose curve display runs DOOM.
 
 - **The screen** shows the whole frame, as big as fits. The window is resizable (drag the corner) and the screen grows with it.
 - **OVERLAY** fades the grid, analyser and curve over the game, from 0% (pure DOOM) to 100%. Hovering over a node always shows it.
+
+  <img src="docs/overlay.png" width="1084" alt="The DOOM control row (DOOM SOUND, LEVEL, OVERLAY, TAKE COMMAND) above the game with the EQ curve over it">
 - **DOOM SOUND** feeds the game's sound effects and music into the plug-in *before* the EQ, so you're EQing DOOM. **LEVEL** sets how loud it comes in. It's off by default.
   - Sound effects are the original 8-bit samples. The music is Freedoom's MIDI, played on a small built-in synth with distorted guitars, synth bass and drums.
   - There's only one game, so only one EQ instance plays its sound at a time: the first one to turn DOOM SOUND on.
@@ -47,13 +51,15 @@ A six-band parametric EQ whose curve display runs DOOM.
   - Some DAWs keep keys for themselves (Pro Tools, for one). If keys don't reach the game, try the standalone app.
 - DOOM's own Quit returns to the title screen: it can't close your DAW.
 - **The look** is built from the Freedoom IWAD's own flats, HUD font, menu skull and status-bar faces. The marine in the OUTPUT panel gets more beaten up the louder your output is, and says ouch when you clip.
+
+  <img src="docs/output.png" width="138" alt="The OUTPUT panel: the marine's face above the output knob and BYPASS">
 - There is one game per process, shared by every instance. It pauses while no editor is open.
 - Any `exit()` in the engine is caught, so DOOM can't take the DAW down with it.
 - The Freedoom IWAD is embedded and unpacked on first run to `~/Library/Application Support/SammyJs DOOM EQ/`. Config and savegames go there too.
 
 ## Downloads
 
-Test builds are pre-releases tagged `doomeq-v*` on the [releases page](https://github.com/samueljustice/plugins/releases). Each one has a macOS and a Windows installer, plus the plug-ins as zips. Once the AAX is PACE-signed, `doomeq-test-installers.yml` rebuilds both installers with it in. DOOM EQ isn't in the combined installer or on the website.
+Test builds are pre-releases tagged `doomeq-v*` on the [releases page](https://github.com/samueljustice/plugins/releases). Each one has a macOS and a Windows installer, plus the plug-ins as zips. Once the AAX is PACE-signed, `doomeq-test-installers.yml` rebuilds both installers with it in. DOOM EQ is in the Toys section of [the website](https://samueljustice.github.io/plugins/), with its own installers; it isn't in the combined Sammy J installer.
 
 ## Building
 
