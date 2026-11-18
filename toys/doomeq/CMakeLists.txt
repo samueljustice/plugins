@@ -9,9 +9,10 @@ endif()
 
 # The version lives here and nowhere else; the release workflow checks the tag against it.
 # 0.0.x releases are pre-releases (test builds).
-project(DoomEQ VERSION 0.0.1 LANGUAGES C CXX)
+project(DoomEQ VERSION 0.0.2 LANGUAGES C CXX)
 
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
+add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
@@ -66,6 +67,8 @@ endif()
 file(GLOB DOOM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/doomgeneric/*.c)
 add_library(doomgeneric STATIC ${DOOM_SOURCES} Source/DoomShim.c Source/DoomSoundModule.c)
 target_include_directories(doomgeneric PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/doomgeneric)
+# Native 320x200: no 2x upscale inside DOOM (the editor scales it). PUBLIC so DoomEngine.cpp agrees.
+target_compile_definitions(doomgeneric PUBLIC DOOMGENERIC_RESX=320 DOOMGENERIC_RESY=200)
 target_compile_definitions(doomgeneric PRIVATE exit=dg_exit FEATURE_SOUND)
 if(WIN32)
     target_compile_definitions(doomgeneric PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
@@ -91,6 +94,7 @@ juce_add_plugin(DoomEQ
     COMPANY_NAME "Sammy J"
     COMPANY_COPYRIGHT "Copyright ${COPYRIGHT_YEAR} Samuel Justice"
     BUNDLE_ID com.samueljustice.doomeq
+    COMPANY_WEBSITE "https://sweetjusticesound.com"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -119,13 +123,28 @@ target_sources(DoomEQ
         Source/DoomEngine.cpp
         Source/DoomAudio.cpp
         Source/WadArt.cpp
+        Source/PresetManager.cpp
+        Source/DoomOverlays.cpp
+        # The update check shared by every Sammy J plug-in (two levels up: DOOM EQ lives in toys/)
+        ${SAMMYJ_ROOT}/common/SammyJUpdateCheck.cpp
 )
+target_include_directories(DoomEQ PRIVATE ${SAMMYJ_ROOT}/common)
+
+# The contact shown in About, as in the other Sammy J plug-ins.
+target_compile_definitions(DoomEQ PRIVATE SAMMYJ_CONTACT_EMAIL="sam@sweetjusticesound.com")
+
+# Build timestamp (passed from CI, otherwise unset).
+if(BUILD_TIMESTAMP)
+    target_compile_definitions(DoomEQ PRIVATE BUILD_TIMESTAMP="${BUILD_TIMESTAMP}")
+endif()
 
 juce_generate_juce_header(DoomEQ)
 
 juce_add_binary_data(DoomEQBinaryData
     SOURCES
         ${DOOMEQ_WAD_ZIP}
+        LICENSE
+        Resources/FREEDOOM-COPYING.txt
 )
 
 target_compile_definitions(DoomEQ
@@ -141,7 +160,6 @@ target_link_libraries(DoomEQ
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
-        juce::juce_opengl
         DoomEQBinaryData
         doomgeneric
     PUBLIC
@@ -149,3 +167,12 @@ target_link_libraries(DoomEQ
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
+
+# A console host for the processor (Tests/HostCheck.cpp): transparency, click-free type changes and
+# bypass, big blocks, mono -> stereo, extremes, presets, state recall. Not part of the default build:
+#   cmake --build build --config Release --target DoomEQHostCheck
+add_executable(DoomEQHostCheck EXCLUDE_FROM_ALL Tests/HostCheck.cpp)
+target_link_libraries(DoomEQHostCheck PRIVATE DoomEQ)
+target_include_directories(DoomEQHostCheck PRIVATE $<TARGET_PROPERTY:DoomEQ,INCLUDE_DIRECTORIES> ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+target_compile_definitions(DoomEQHostCheck PRIVATE $<TARGET_PROPERTY:DoomEQ,COMPILE_DEFINITIONS>)
+set_target_properties(DoomEQHostCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/DoomEQHostCheck_artefacts")

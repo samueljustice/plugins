@@ -47,10 +47,11 @@ public:
 private:
     struct Lump { int offset = 0, size = 0; };
 
-    const uint8_t* lumpData (const juce::String& name, int& size) const;
+    /** Reads one lump from the WAD file (the WAD itself is never held in memory). */
+    juce::MemoryBlock readLump (const juce::String& name) const;
     juce::Image decodePatch (const uint8_t* data, int size) const;
 
-    juce::MemoryBlock wad;
+    juce::File wadFile;
     std::map<juce::String, Lump> lumps;
     std::array<juce::PixelARGB, 256> palette {};
     PixelFont pixelFont;

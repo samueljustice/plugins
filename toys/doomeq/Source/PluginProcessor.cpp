@@ -46,7 +46,8 @@ DoomEQProcessor::DoomEQProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "DoomEQ", createLayout())
+      apvts (*this, nullptr, "DoomEQ", createLayout()),
+      presets (apvts, [this] (const juce::AudioProcessorListener::ChangeDetails& d) { hostDisplay.post (d); })
 {
     for (int b = 0; b < numBands; ++b)
     {
@@ -59,6 +60,10 @@ DoomEQProcessor::DoomEQProcessor()
     }
 
     outputParam = apvts.getRawParameterValue ("output");
+    bypassParam = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter ("bypass"));
+    eqBypassParam = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter ("eq_bypass"));
+
+    DoomAudio::init(); // the shared mixer is created here, never on the audio thread
     doomSoundParam = apvts.getRawParameterValue ("doom_sound");
     doomLevelParam = apvts.getRawParameterValue ("doom_level");
 }
@@ -68,9 +73,57 @@ DoomEQProcessor::~DoomEQProcessor()
     DoomAudio::release (this);
 }
 
+void DoomEQProcessor::releaseResources()
+{
+    // Deactivated (track off, device off): let another DOOM EQ take DOOM's sound.
+    DoomAudio::release (this);
+}
+
+void DoomEQProcessor::setOverlay (float percent)
+{
+    uiOverlay = percent;
+    hostDisplay.post (juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged (true));
+}
+
+//==============================================================================
+// Host programs: the factory presets, plus a last "User Preset" for every other sound. User
+// presets aren't listed one by one: hosts cache the list and it would go stale as files change.
+int DoomEQProcessor::getNumPrograms()
+{
+    return PresetManager::getNumFactory() + 1;
+}
+
+int DoomEQProcessor::getCurrentProgram()
+{
+    const int factoryIndex = presets.getCurrentFactoryIndex();
+    return factoryIndex >= 0 ? factoryIndex : PresetManager::getNumFactory();
+}
+
+void DoomEQProcessor::setCurrentProgram (int index)
+{
+    if (juce::isPositiveAndBelow (index, PresetManager::getNumFactory()))
+        presets.loadFactoryPresetForHost (index);
+    else if (index == PresetManager::getNumFactory() && getCurrentProgram() != index)
+        hostDisplay.post (juce::AudioProcessorListener::ChangeDetails().withProgramChanged (true)); // snap the host back
+}
+
+const juce::String DoomEQProcessor::getProgramName (int index)
+{
+    if (juce::isPositiveAndBelow (index, PresetManager::getNumFactory()))
+        return PresetManager::getFactoryPresetName (index);
+    if (index == PresetManager::getNumFactory())
+        return "User Preset";
+    return {};
+}
+
 bool DoomEQProcessor::ownsDoomAudio() const
 {
     return DoomAudio::isOwner (this);
+}
+
+bool DoomEQProcessor::doomAudioUsedElsewhere() const
+{
+    return DoomAudio::isOwnedByAnother (this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout DoomEQProcessor::createLayout()
@@ -110,6 +163,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoomEQProcessor::createLayou
         juce::ParameterID { "output", 1 }, "Output", juce::NormalisableRange<float> (-18.0f, 18.0f, 0.01f), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel ("dB").withStringFromValueFunction (dbToString)));
 
+    // Parameters added after 0.0.1 must have a version hint above every hint already shipped (1),
+    // and AU parameters must never be removed, or saved sessions and automation break.
+    layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "bypass", 2 }, "Bypass", false));
+    layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "eq_bypass", 2 }, "EQ Bypass", false));
+
     layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "doom_sound", 1 }, "DOOM Sound", false));
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -121,10 +179,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoomEQProcessor::createLayou
 
 bool DoomEQProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
+    const auto& in = layouts.getMainInputChannelSet();
     const auto& out = layouts.getMainOutputChannelSet();
-    if (out != layouts.getMainInputChannelSet())
-        return false;
-    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+    const auto mono = juce::AudioChannelSet::mono(), stereo = juce::AudioChannelSet::stereo();
+    return (in == mono && out == mono) || (in == stereo && out == stereo) || (in == mono && out == stereo);
 }
 
 void DoomEQProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -137,12 +195,14 @@ void DoomEQProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         b.qs.reset (sampleRate, 0.03);
         b.g.reset (sampleRate, 0.03);
         b.mix.reset (sampleRate, 0.02);
+        b.typeFade.reset (sampleRate, 0.008);
+        b.typeFade.setCurrentAndTargetValue (1.0f);
 
         b.f.setCurrentAndTargetValue (b.freq->load());
         b.qs.setCurrentAndTargetValue (b.q->load());
         b.g.setCurrentAndTargetValue (b.gain->load());
         b.mix.setCurrentAndTargetValue (b.on->load() > 0.5f ? 1.0f : 0.0f);
-        b.currentType = (int) b.type->load();
+        b.currentType = b.pendingType = juce::jlimit (0, eq::numTypes - 1, (int) b.type->load());
         b.dirty = true;
         b.wasSilent = false;
         b.resetState();
@@ -151,8 +211,14 @@ void DoomEQProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     outputGain.reset (sampleRate, 0.03);
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
 
-    monoScratch.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
-    doomBuffer.setSize (2, juce::jmax (1, samplesPerBlock));
+    // Hosts may send bigger blocks than this; processBlock splits them, so nothing is
+    // ever resized on the audio thread.
+    maxChunk = juce::jmax (64, samplesPerBlock);
+    monoScratch.assign ((size_t) maxChunk, 0.0f);
+    doomBuffer.setSize (2, maxChunk);
+    dryBuffer.setSize (maxChannels, maxChunk);
+    wetMix.reset (sampleRate, 0.02);
+    wetMix.setCurrentAndTargetValue ((bypassParam->get() || eqBypassParam->get()) ? 0.0f : 1.0f);
     doomGain.reset (sampleRate, 0.05);
     doomGain.setCurrentAndTargetValue (0.0f);
     analyserFifo.reset();
@@ -163,40 +229,98 @@ void DoomEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     juce::ScopedNoDenormals noDenormals;
 
     const int numSamples = buffer.getNumSamples();
-    const int numIn = getTotalNumInputChannels();
+    const int numIn = getTotalNumInputChannels(), numOut = getTotalNumOutputChannels();
 
-    for (int ch = numIn; ch < getTotalNumOutputChannels(); ++ch)
+    for (int ch = numIn; ch < numOut; ++ch)
         buffer.clear (ch, 0, numSamples);
 
-    const int numCh = juce::jmin (numIn, maxChannels);
+    // Mono in, stereo out: both sides start from the input, so DOOM can be stereo.
+    if (numIn == 1 && numOut >= 2)
+        buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
+
+    const int numCh = juce::jmin (juce::jmax (numIn, numOut), buffer.getNumChannels(), maxChannels);
     const double sr = currentSampleRate.load();
 
-    // DOOM's sound goes in ahead of the EQ, so you're EQing the game.
-    const bool doomOn = doomSoundParam->load() > 0.5f;
+    updateTargets();
+
+    for (int start = 0; start < numSamples; start += maxChunk)
+    {
+        const int len = juce::jmin (maxChunk, numSamples - start);
+        juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, len);
+        processChunk (chunk, numCh, sr);
+    }
+
+    blockCount.fetch_add (1, std::memory_order_relaxed);
+}
+
+void DoomEQProcessor::updateTargets()
+{
+    const bool hostBypass = bypassParam->get();
+    const bool eqOff = hostBypass || eqBypassParam->get();
+    wetMix.setTargetValue (eqOff ? 0.0f : 1.0f);
+    const bool eqFullyOff = eqOff && ! wetMix.isSmoothing();
+
+    // DOOM's sound goes in ahead of the EQ, so you're EQing the game. Host bypass silences
+    // it too, so a bypassed plug-in passes its input through unchanged.
+    const bool doomOn = doomSoundParam->load() > 0.5f && ! hostBypass;
     doomGain.setTargetValue (doomOn ? juce::Decibels::decibelsToGain (doomLevelParam->load()) : 0.0f);
 
-    if ((doomOn || doomGain.isSmoothing()) && numCh > 0)
-    {
-        if (doomBuffer.getNumSamples() < numSamples)
-            doomBuffer.setSize (2, numSamples, false, false, true);
-        doomBuffer.clear();
+    outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
 
+    for (auto& b : bands)
+    {
+        b.f.setTargetValue (b.freq->load());
+        b.qs.setTargetValue (b.q->load());
+        b.g.setTargetValue (b.gain->load());
+        b.mix.setTargetValue (b.on->load() > 0.5f ? 1.0f : 0.0f);
+
+        b.pendingType = juce::jlimit (0, eq::numTypes - 1, (int) b.type->load());
+        if (b.pendingType != b.currentType)
+        {
+            if (b.isSilent() || eqFullyOff)
+            {
+                b.switchToPendingType(); // nothing audible to click
+                b.typeFade.setCurrentAndTargetValue (1.0f);
+            }
+            else if (b.typeFade.getTargetValue() == 1.0f)
+            {
+                b.typeFade.setTargetValue (0.0f);
+            }
+        }
+        else if (b.typeFade.getTargetValue() == 0.0f)
+        {
+            b.typeFade.setTargetValue (1.0f); // changed back before the fade finished
+        }
+    }
+}
+
+void DoomEQProcessor::processChunk (juce::AudioBuffer<float>& buffer, int numCh, double sr)
+{
+    const int numSamples = buffer.getNumSamples();
+
+    // DOOM's sound.
+    if ((doomGain.getTargetValue() > 0.0f || doomGain.isSmoothing()) && numCh > 0)
+    {
         auto* dl = doomBuffer.getWritePointer (0);
         auto* dr = doomBuffer.getWritePointer (1);
+        juce::FloatVectorOperations::clear (dl, numSamples);
+        juce::FloatVectorOperations::clear (dr, numSamples);
 
         if (DoomAudio::render (this, dl, dr, numSamples, sr))
         {
+            auto* outL = buffer.getWritePointer (0);
+            auto* outR = numCh > 1 ? buffer.getWritePointer (1) : nullptr;
             for (int i = 0; i < numSamples; ++i)
             {
                 const float g = doomGain.getNextValue();
-                if (numCh == 1)
+                if (outR == nullptr)
                 {
-                    buffer.getWritePointer (0)[i] += 0.5f * (dl[i] + dr[i]) * g;
+                    outL[i] += 0.5f * (dl[i] + dr[i]) * g;
                 }
                 else
                 {
-                    buffer.getWritePointer (0)[i] += dl[i] * g;
-                    buffer.getWritePointer (1)[i] += dr[i] * g;
+                    outL[i] += dl[i] * g;
+                    outR[i] += dr[i] * g;
                 }
             }
         }
@@ -211,37 +335,44 @@ void DoomEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         doomGain.setCurrentAndTargetValue (doomGain.getTargetValue());
     }
 
-    for (auto& b : bands)
-    {
-        b.f.setTargetValue (b.freq->load());
-        b.qs.setTargetValue (b.q->load());
-        b.g.setTargetValue (b.gain->load());
-        b.mix.setTargetValue (b.on->load() > 0.5f ? 1.0f : 0.0f);
+    // EQ bypass crossfade (the BYPASS button or the host's bypass).
+    const bool fullyBypassed = ! wetMix.isSmoothing() && wetMix.getTargetValue() == 0.0f;
+    const bool needDry = wetMix.isSmoothing();
 
-        const int t = juce::jlimit (0, eq::numTypes - 1, (int) b.type->load());
-        if (t != b.currentType)
+    if (needDry)
+        for (int ch = 0; ch < numCh; ++ch)
+            dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+
+    if (fullyBypassed)
+    {
+        // Settings land straight away while bypassed (no sweep when the EQ comes back), and
+        // the filters restart from rest.
+        for (auto& b : bands)
         {
-            // Same SVF core for every type, so state carries over cleanly unless the
-            // cascade length or the filter family changes.
-            const auto oldT = (eq::Type) b.currentType, newT = (eq::Type) t;
-            if (eq::numStages (oldT) != eq::numStages (newT) || eq::isCut (oldT) != eq::isCut (newT))
+            if (! b.wasSilent)
                 b.resetState();
-            b.currentType = t;
+            b.wasSilent = true;
+            b.f.setCurrentAndTargetValue (b.f.getTargetValue());
+            b.qs.setCurrentAndTargetValue (b.qs.getTargetValue());
+            b.g.setCurrentAndTargetValue (b.g.getTargetValue());
+            b.mix.setCurrentAndTargetValue (b.mix.getTargetValue());
+            if (b.pendingType != b.currentType)
+                b.switchToPendingType();
+            b.typeFade.setCurrentAndTargetValue (1.0f);
             b.dirty = true;
         }
     }
 
     constexpr int subBlock = 16;
-    float mixValues[subBlock];
+    float wetValues[subBlock];
 
-    for (int start = 0; start < numSamples; start += subBlock)
+    for (int start = 0; start < numSamples && ! fullyBypassed; start += subBlock)
     {
         const int len = juce::jmin (subBlock, numSamples - start);
 
         for (auto& b : bands)
         {
-            const bool silent = ! b.mix.isSmoothing() && b.mix.getTargetValue() == 0.0f;
-            if (silent)
+            if (b.isSilent())
             {
                 if (! b.wasSilent)
                     b.resetState();
@@ -249,6 +380,9 @@ void DoomEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                 b.f.setCurrentAndTargetValue (b.f.getTargetValue());
                 b.qs.setCurrentAndTargetValue (b.qs.getTargetValue());
                 b.g.setCurrentAndTargetValue (b.g.getTargetValue());
+                if (b.pendingType != b.currentType)
+                    b.switchToPendingType();
+                b.typeFade.setCurrentAndTargetValue (1.0f);
                 b.dirty = true;
                 continue;
             }
@@ -263,10 +397,11 @@ void DoomEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                 b.dirty = false;
             }
 
+            bool fullyOn = ! b.mix.isSmoothing() && ! b.typeFade.isSmoothing()
+                           && b.mix.getCurrentValue() >= 1.0f && b.typeFade.getCurrentValue() >= 1.0f;
             for (int i = 0; i < len; ++i)
-                mixValues[i] = b.mix.getNextValue();
+                wetValues[i] = b.mix.getNextValue() * b.typeFade.getNextValue();
 
-            const bool fullyOn = mixValues[0] >= 1.0f && mixValues[len - 1] >= 1.0f;
             const int stages = b.coeffs.stages;
 
             for (int ch = 0; ch < numCh; ++ch)
@@ -281,14 +416,41 @@ void DoomEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                     for (int s = 0; s < stages; ++s)
                         y = eq::tick (b.coeffs.s[(size_t) s], st[(size_t) s], y);
 
-                    d[i] = fullyOn ? (float) y : (float) (x + mixValues[i] * (y - x));
+                    d[i] = fullyOn ? (float) y : (float) (x + wetValues[i] * (y - x));
                 }
+            }
+
+            // Faded all the way out: switch type and fade back in.
+            if (b.typeFade.getTargetValue() == 0.0f && ! b.typeFade.isSmoothing())
+            {
+                b.switchToPendingType();
+                b.typeFade.setTargetValue (1.0f);
             }
         }
     }
 
-    outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
-    outputGain.applyGain (buffer, numSamples);
+    if (fullyBypassed)
+        outputGain.skip (numSamples);
+    else
+        outputGain.applyGain (buffer, numSamples);
+
+    if (needDry)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float wet = wetMix.getNextValue();
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                const float dry = dryBuffer.getReadPointer (ch)[i];
+                auto* d = buffer.getWritePointer (ch);
+                d[i] = dry + wet * (d[i] - dry);
+            }
+        }
+    }
+    else
+    {
+        wetMix.skip (numSamples);
+    }
 
     float peak = 0.0f;
     for (int ch = 0; ch < numCh; ++ch)
@@ -296,9 +458,8 @@ void DoomEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     const float decayed = outputPeak.load() * std::pow (0.5f, (float) numSamples / (float) (sr * 0.15));
     outputPeak = juce::jmax (peak, decayed);
 
-
     // Analyser feed: post-EQ mono.
-    if (numCh > 0 && (int) monoScratch.size() >= numSamples)
+    if (numCh > 0)
     {
         juce::FloatVectorOperations::copy (monoScratch.data(), buffer.getReadPointer (0), numSamples);
         for (int ch = 1; ch < numCh; ++ch)
@@ -330,15 +491,60 @@ int DoomEQProcessor::pullAnalyserSamples (float* dest, int maxSamples)
 
 void DoomEQProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    state.setProperty ("overlay", uiOverlay.load(), nullptr);
+    if (uiWidth.load() > 0 && uiHeight.load() > 0)
+    {
+        state.setProperty ("uiW", uiWidth.load(), nullptr);
+        state.setProperty ("uiH", uiHeight.load(), nullptr);
+    }
+    presets.writeToState (state);
+
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
 void DoomEQProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
+    {
         if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        {
+            const auto presetInfo = PresetManager::readStateInfo (*xml);
+
+            auto state = juce::ValueTree::fromXml (*xml);
+            const double overlay = state.getProperty ("overlay", 70.0);
+            uiOverlay = std::isfinite (overlay) ? (float) juce::jlimit (0.0, 100.0, overlay) : 70.0f;
+            uiWidth = (int) state.getProperty ("uiW", 0);
+            uiHeight = (int) state.getProperty ("uiH", 0);
+
+            // A parameter the session has no value for (saved before it existed, e.g. bypass in a
+            // 0.0.1 session) gets the default it was first given, rather than keeping whatever
+            // this instance had: the session then recalls exactly as it sounded.
+            for (auto* parameter : getParameters())
+            {
+                auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter);
+                if (ranged == nullptr)
+                    continue;
+
+                bool listed = false;
+                for (auto child : state)
+                {
+                    if (child.getProperty ("id").toString() != ranged->paramID)
+                        continue;
+                    listed = true;
+                    const auto v = child.getProperty ("value");
+                    if (v.isVoid() || ! std::isfinite ((double) v))
+                        child.setProperty ("value", PresetManager::getValueWhenAbsent (*ranged), nullptr);
+                }
+                if (! listed)
+                    state.appendChild (juce::ValueTree ("PARAM", { { "id", ranged->paramID },
+                                                                   { "value", PresetManager::getValueWhenAbsent (*ranged) } }), nullptr);
+            }
+
+            presets.restoreState (presetInfo, [this, &state] { apvts.replaceState (state); });
+        }
+    }
 }
 
 juce::AudioProcessorEditor* DoomEQProcessor::createEditor()

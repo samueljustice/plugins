@@ -31,6 +31,7 @@ on:
     paths:
       - 'toys/doomeq/**'
       - 'cmake/**'
+      - 'common/**'
       - '.github/workflows/build-release_doomeq.yml'
   workflow_dispatch:
 
@@ -186,6 +187,16 @@ jobs:
         cd toys/doomeq
         # Bounded: a bare --parallel is "make -j" with no limit and can run the runner out of memory.
         cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)" --target DoomEQ_All
+
+    # The processor in a console host (toys/doomeq/Tests/HostCheck.cpp): transparency, click-free
+    # type changes and bypass, big blocks, mono -> stereo, extremes, presets, state recall.
+    - name: Run host check
+      run: |
+        cd toys/doomeq
+        cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)" --target DoomEQHostCheck
+        exe=$(find build/DoomEQHostCheck_artefacts -name DoomEQHostCheck -type f -perm +111 | head -1)
+        [ -n "$exe" ] || { echo "DoomEQHostCheck not found"; exit 1; }
+        "$exe"
 
     - name: Zip unsigned macOS AAX
       run: |

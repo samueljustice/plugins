@@ -12,6 +12,8 @@ extern "C"
 int dg_safe_create (int argc, char** argv);
 int dg_safe_tick (void);
 extern const char* dg_config_dir;
+int dg_game_flags (void);
+void dg_request_pause (int wanted);
 }
 
 static_assert (DOOMGENERIC_RESX == DoomEngine::width && DOOMGENERIC_RESY == DoomEngine::height);
@@ -20,10 +22,11 @@ namespace
 {
     struct Shared
     {
+        struct Key { int pressed; unsigned char key, typed; };
         std::mutex keyLock;
-        std::deque<std::pair<int, unsigned char>> keys;
+        std::deque<Key> keys;
 
-        juce::SpinLock frameLock;
+        std::mutex frameLock;
         std::vector<uint32_t> frame = std::vector<uint32_t> ((size_t) (DoomEngine::width * DoomEngine::height), 0xff000000u);
         std::atomic<uint32_t> serial { 0 };
 
@@ -103,20 +106,22 @@ namespace
         if (wad.existsAsFile() && wad.getSize() == entry->uncompressedSize)
             return wad;
 
-        std::unique_ptr<juce::InputStream> in (zip.createStreamForEntry (*entry));
-        auto temp = dir.getChildFile ("freedoom1.wad.part");
-        temp.deleteFile();
+        // A random temp name, so two processes unpacking at once (a DAW and the standalone
+        // app, say) can't trip over each other. Whichever finishes second uses the first copy.
         {
-            juce::FileOutputStream out (temp);
-            if (in == nullptr || ! out.openedOk())
-                return {};
-            out.writeFromInputStream (*in, -1);
+            std::unique_ptr<juce::InputStream> in (zip.createStreamForEntry (*entry));
+            juce::TemporaryFile temp (wad);
+            bool written = false;
+            {
+                juce::FileOutputStream out (temp.getFile());
+                if (in != nullptr && out.openedOk())
+                    written = out.writeFromInputStream (*in, -1) == entry->uncompressedSize && out.getStatus().wasOk();
+            }
+            if (written)
+                temp.overwriteTargetFileWithTemporary();
         }
 
-        if (temp.getSize() != entry->uncompressedSize || ! temp.moveFileTo (wad))
-            return {};
-
-        return wad;
+        return (wad.existsAsFile() && wad.getSize() == entry->uncompressedSize) ? wad : juce::File();
     }
 }
 
@@ -129,13 +134,20 @@ extern "C"
     void DG_DrawFrame()
     {
         auto& s = shared();
+        bool changed = false;
         {
-            const juce::SpinLock::ScopedLockType sl (s.frameLock);
+            std::lock_guard<std::mutex> sl (s.frameLock);
             const auto* src = reinterpret_cast<const uint32_t*> (DG_ScreenBuffer);
             for (size_t i = 0; i < s.frame.size(); ++i)
-                s.frame[i] = src[i] | 0xff000000u;
+            {
+                const uint32_t px = src[i] | 0xff000000u;
+                changed |= (px != s.frame[i]);
+                s.frame[i] = px;
+            }
         }
-        s.serial.fetch_add (1);
+        // A paused game or a still menu redraws the same picture: don't wake the UI for it.
+        if (changed)
+            s.serial.fetch_add (1);
     }
 
     void DG_SleepMs (uint32_t ms)
@@ -148,16 +160,23 @@ extern "C"
         return (uint32_t) shared().nowMs();
     }
 
-    int DG_GetKey (int* pressed, unsigned char* key)
+    int DG_GetKeyEx (int* pressed, unsigned char* key, unsigned char* typed)
     {
         auto& s = shared();
         std::lock_guard<std::mutex> lock (s.keyLock);
         if (s.keys.empty())
             return 0;
-        *pressed = s.keys.front().first;
-        *key = s.keys.front().second;
+        *pressed = s.keys.front().pressed;
+        *key = s.keys.front().key;
+        *typed = s.keys.front().typed;
         s.keys.pop_front();
         return 1;
+    }
+
+    int DG_GetKey (int* pressed, unsigned char* key)
+    {
+        unsigned char typed;
+        return DG_GetKeyEx (pressed, key, &typed);
     }
 
     void DG_SetWindowTitle (const char*) {}
@@ -174,14 +193,21 @@ DoomEngine::~DoomEngine()
     stopThread (4000);
 }
 
-void DoomEngine::pushKey (bool pressed, int doomKey)
+void DoomEngine::pushKey (bool pressed, int doomKey, int typedChar)
 {
     if (doomKey <= 0 || doomKey > 255)
         return;
+    if (typedChar <= 0 || typedChar > 255)
+        typedChar = doomKey;
     auto& s = shared();
     std::lock_guard<std::mutex> lock (s.keyLock);
     if (s.keys.size() < 256)
-        s.keys.emplace_back (pressed ? 1 : 0, (unsigned char) doomKey);
+        s.keys.push_back ({ pressed ? 1 : 0, (unsigned char) doomKey, (unsigned char) typedChar });
+}
+
+void DoomEngine::requestPause (bool shouldPause)
+{
+    dg_request_pause (shouldPause ? 1 : 0);
 }
 
 bool DoomEngine::fetchFrame (juce::Image& image, uint32_t& lastSerial)
@@ -193,7 +219,7 @@ bool DoomEngine::fetchFrame (juce::Image& image, uint32_t& lastSerial)
 
     juce::Image::BitmapData bd (image, juce::Image::BitmapData::writeOnly);
     {
-        const juce::SpinLock::ScopedLockType sl (s.frameLock);
+        std::lock_guard<std::mutex> sl (s.frameLock);
         for (int y = 0; y < height; ++y)
             std::memcpy (bd.getLinePointer (y), s.frame.data() + (size_t) (y * width), (size_t) width * sizeof (uint32_t));
     }
@@ -204,6 +230,11 @@ bool DoomEngine::fetchFrame (juce::Image& image, uint32_t& lastSerial)
 DoomEngine::State DoomEngine::getState()
 {
     return (State) shared().state.load();
+}
+
+int DoomEngine::getGameFlags()
+{
+    return getState() == State::Running ? dg_game_flags() : 0;
 }
 
 juce::File DoomEngine::getWadFile()
@@ -237,12 +268,13 @@ void DoomEngine::run()
 
         // Both must outlive the game: doom keeps pointers to argv and the config dir.
         static std::string configDir = dataDirectory().getFullPathName().toStdString() + std::string (1, (char) juce::File::getSeparatorChar());
-        static std::string arg0 = "doomeq", arg1 = "-iwad", arg2 = wad.getFullPathName().toStdString();
-        static char* argv[] = { arg0.data(), arg1.data(), arg2.data(), nullptr };
+        // -nogui: a fatal error must not try to pop up a dialog by running a shell command.
+        static std::string arg0 = "doomeq", arg1 = "-iwad", arg2 = wad.getFullPathName().toStdString(), arg3 = "-nogui";
+        static char* argv[] = { arg0.data(), arg1.data(), arg2.data(), arg3.data(), nullptr };
         dg_config_dir = configDir.c_str();
 
         s.startClock();
-        const bool failed = dg_safe_create (3, argv) != 0;
+        const bool failed = dg_safe_create (4, argv) != 0;
         s.stopClock();
 
         if (failed)
