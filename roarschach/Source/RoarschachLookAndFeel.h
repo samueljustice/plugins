@@ -51,6 +51,9 @@ public:
     /** A switch (IN's and OUTPUT's AUTO): an ink outline with a lamp; it reads its own name, or ON and OFF
         where a caption names it (wordsOnOff). */
     static void setSwitch(juce::Button&, bool wordsOnOff = false);
+    /** Draws a switch smaller inside its hit target, with a smaller lamp and label (IN's AUTO, which sits
+        between the knob's value and the meter's scale). */
+    static void setCompact(juce::Button&);
     /** A tag (SAVE): an outlined ink tag, no raised fill, filled with the dyed ink while toggled on. */
     static void setTag(juce::Button&);
     /** A glyph button drawn in an outlined ink circle (the header's ?). */

@@ -39,9 +39,12 @@ namespace
     const juce::Identifier c_switchProperty { "roarschachSwitch" };       // 1: a switch with its name, 2: ... reading ON / OFF
     const juce::Identifier c_tagProperty { "roarschachTag" };             // an outlined ink tag (filled in the dye while toggled)
     const juce::Identifier c_circledProperty { "roarschachCircled" };     // a glyph in an outlined ink circle (the header's ?)
+    const juce::Identifier c_compactProperty { "roarschachCompact" };     // a switch drawn smaller inside its hit target
 
     int switchStyle(const juce::Button& b) { return static_cast<int>(b.getProperties().getWithDefault(c_switchProperty, 0)); }
     bool isTag(const juce::Button& b) { return static_cast<bool>(b.getProperties().getWithDefault(c_tagProperty, false)); }
+    bool isCompact(const juce::Button& b) { return static_cast<bool>(b.getProperties().getWithDefault(c_compactProperty, false)); }
+    constexpr float c_compactHeight = 20.0f;   // a compact switch as drawn (its button is the full hit target)
 
     constexpr float c_caretColumn = 11.0f;   // a menu chip's caret, at its right end
     constexpr float c_caretGap = 6.0f;       // ... and the clear space before it
@@ -130,6 +133,8 @@ namespace
             r = r.withSizeKeepingCentre(r.getWidth(), std::min(r.getHeight(), c_dialogButtonHeight));
         else if (static_cast<int>(b.getProperties().getWithDefault(c_menuChipProperty, 0)) != 0)
             r = r.withSizeKeepingCentre(r.getWidth(), std::min(r.getHeight(), static_cast<float>(Metrics::chipHeight)));   // (the button is its hit target)
+        else if (isCompact(b))
+            r = r.withSizeKeepingCentre(r.getWidth(), std::min(r.getHeight(), c_compactHeight));
         return r.reduced(0.5f);
     }
 
@@ -301,6 +306,12 @@ void RoarschachLookAndFeel::setMenuChip(juce::Button& b, bool off)
 void RoarschachLookAndFeel::setSwitch(juce::Button& b, bool wordsOnOff)
 {
     b.getProperties().set(c_switchProperty, wordsOnOff ? 2 : 1);
+    b.repaint();
+}
+
+void RoarschachLookAndFeel::setCompact(juce::Button& b)
+{
+    b.getProperties().set(c_compactProperty, true);
     b.repaint();
 }
 
@@ -959,8 +970,9 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
         // A switch: a lamp at its left (on: a dye blot in an ink ring; off: the ring alone, hollow), then
         // its name, or ON / OFF where a caption over it names it. State by shape and word, not tone alone.
         const bool on = button.getToggleState();
-        auto r = pillBounds(button).reduced(8.0f, 0.0f);
-        const float d = 9.0f;
+        const bool compact = isCompact(button);
+        auto r = pillBounds(button).reduced(compact ? 7.0f : 8.0f, 0.0f);
+        const float d = compact ? 8.0f : 9.0f;
         const auto lamp = r.removeFromLeft(d).withSizeKeepingCentre(d, d);
         if (on)
         {
@@ -974,7 +986,7 @@ void RoarschachLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& 
             g.setColour(isMouseOverButton ? ink : inkFaint);
             g.drawEllipse(lamp.reduced(0.6f), 1.3f);
         }
-        r.removeFromLeft(5.0f);
+        r.removeFromLeft(compact ? 4.0f : 5.0f);
         const auto word = sw == 2 ? juce::String(on ? "ON" : "OFF") : button.getButtonText().toUpperCase();
         g.setFont(font);
         g.setColour(!button.isEnabled() ? inkFaint : on || isMouseOverButton ? ink : inkDim);
@@ -1058,6 +1070,8 @@ juce::Font RoarschachLookAndFeel::getTextButtonFont(juce::TextButton& button, in
         return m_fonts.body(Type::body);
     if (static_cast<int>(button.getProperties().getWithDefault(c_menuChipProperty, 0)) != 0)
         return m_fonts.value(Type::chip);   // (untracked: mode names are long)
+    if (isCompact(button))
+        buttonHeight = static_cast<int>(c_compactHeight);
     return m_fonts.label(std::min(Type::button, static_cast<float>(buttonHeight) * 0.66f));
 }
 

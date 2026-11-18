@@ -1469,6 +1469,7 @@ public:
         m_auto.setButtonText("AUTO");
         m_auto.setClickingTogglesState(true);
         RoarschachLookAndFeel::setSwitch(m_auto);
+        RoarschachLookAndFeel::setCompact(m_auto);
         m_auto.setTooltip(tooltipFor(Params::inAuto));
         m_auto.setTitle("Auto Level");
         addAndMakeVisible(m_auto);
@@ -1483,7 +1484,9 @@ public:
     void resized() override
     {
         placeKnob(*m_knobs[0], { 6, c_headerHeight + 6, getWidth() - 12, c_captionHeight + 92 });
-        m_auto.setBounds(juce::Rectangle<int>(getWidth() / 2 - 36, c_headerHeight + 6 + c_captionHeight + 92 + 4, 72, c_hit));
+        // AUTO between the knob's value and the meter: drawn 20 high in the middle of its hit target, so its
+        // outline clears the value above and the meter's 0 dB mark below by about the same space.
+        m_auto.setBounds(juce::Rectangle<int>(getWidth() / 2 - 32, c_headerHeight + 6 + c_captionHeight + 92 + 1, 64, c_hit));
         fitCaptions();
     }
 
