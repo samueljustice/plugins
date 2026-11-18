@@ -9,32 +9,41 @@ namespace
 
 WadArt::WadArt()
 {
-    const auto file = DoomEngine::getWadFile();
-    if (! file.existsAsFile() || ! file.loadFileAsData (wad) || wad.getSize() < 12)
+    wadFile = DoomEngine::getWadFile();
+    juce::FileInputStream in (wadFile);
+    if (! in.openedOk())
         return;
 
-    const auto* d = static_cast<const uint8_t*> (wad.getData());
-    const int total = (int) wad.getSize();
-    const int numLumps = readLE32 (d + 4), dirOffset = readLE32 (d + 8);
-    if (dirOffset < 0 || dirOffset + numLumps * 16 > total)
+    // Only the directory is read here; lumps are read one at a time as they're needed.
+    uint8_t header[12];
+    if (in.read (header, 12) != 12)
+        return;
+    const auto total = in.getTotalLength();
+    const int numLumps = readLE32 (header + 4), dirOffset = readLE32 (header + 8);
+    if (numLumps <= 0 || numLumps > 100000 || dirOffset < 0 || dirOffset + (juce::int64) numLumps * 16 > total)
         return;
 
+    juce::MemoryBlock dir ((size_t) numLumps * 16);
+    if (! in.setPosition (dirOffset) || in.read (dir.getData(), (int) dir.getSize()) != (int) dir.getSize())
+        return;
+
+    const auto* d = static_cast<const uint8_t*> (dir.getData());
     for (int i = 0; i < numLumps; ++i)
     {
-        const auto* e = d + dirOffset + i * 16;
+        const auto* e = d + i * 16;
         char name[9] = {};
         std::memcpy (name, e + 8, 8);
         Lump l { readLE32 (e), readLE32 (e + 4) };
-        if (l.offset >= 0 && l.size >= 0 && l.offset + l.size <= total)
+        if (l.offset >= 0 && l.size >= 0 && l.offset + (juce::int64) l.size <= total)
             lumps.emplace (juce::String (name).toUpperCase(), l); // first wins, like vanilla for our purposes
     }
 
-    int palSize = 0;
-    if (const auto* pal = lumpData ("PLAYPAL", palSize); pal != nullptr && palSize >= 768)
-        for (int i = 0; i < 256; ++i)
-            palette[(size_t) i] = juce::PixelARGB (255, pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2]);
-    else
+    const auto pal = readLump ("PLAYPAL");
+    if (pal.getSize() < 768)
         return;
+    const auto* p = static_cast<const uint8_t*> (pal.getData());
+    for (int i = 0; i < 256; ++i)
+        palette[(size_t) i] = juce::PixelARGB (255, p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
 
     // HUD font: STCFN033..STCFN095 (! through _)
     for (int c = 33; c <= 95; ++c)
@@ -46,6 +55,7 @@ WadArt::WadArt()
             pixelFont.height = juce::jmax (pixelFont.height, img.getHeight());
         }
     }
+
     // No backtick in the HUD font; mirror the apostrophe.
     if (auto& apos = pixelFont.glyphs[(size_t) '\'']; apos.isValid())
     {
@@ -57,25 +67,29 @@ WadArt::WadArt()
     }
 
     pixelFont.valid = pixelFont.glyphs[(size_t) 'A'].isValid();
-
     loaded = true;
 }
 
-const uint8_t* WadArt::lumpData (const juce::String& name, int& size) const
+juce::MemoryBlock WadArt::readLump (const juce::String& name) const
 {
     auto it = lumps.find (name.toUpperCase());
-    if (it == lumps.end())
-        return nullptr;
-    size = it->second.size;
-    return static_cast<const uint8_t*> (wad.getData()) + it->second.offset;
+    if (it == lumps.end() || it->second.size <= 0)
+        return {};
+
+    juce::FileInputStream in (wadFile);
+    juce::MemoryBlock block ((size_t) it->second.size);
+    if (! in.openedOk() || ! in.setPosition (it->second.offset)
+        || in.read (block.getData(), it->second.size) != it->second.size)
+        return {};
+    return block;
 }
 
 juce::Image WadArt::flat (const juce::String& name) const
 {
-    int size = 0;
-    const auto* d = lumpData (name, size);
-    if (d == nullptr || size < 4096)
+    const auto lump = readLump (name);
+    if (lump.getSize() < 4096)
         return {};
+    const auto* d = static_cast<const uint8_t*> (lump.getData());
 
     juce::Image img (juce::Image::ARGB, 64, 64, false);
     juce::Image::BitmapData bd (img, juce::Image::BitmapData::writeOnly);
@@ -87,9 +101,8 @@ juce::Image WadArt::flat (const juce::String& name) const
 
 juce::Image WadArt::patch (const juce::String& name) const
 {
-    int size = 0;
-    const auto* d = lumpData (name, size);
-    return d != nullptr ? decodePatch (d, size) : juce::Image();
+    const auto lump = readLump (name);
+    return lump.getSize() > 0 ? decodePatch (static_cast<const uint8_t*> (lump.getData()), (int) lump.getSize()) : juce::Image();
 }
 
 juce::Image WadArt::decodePatch (const uint8_t* d, int size) const

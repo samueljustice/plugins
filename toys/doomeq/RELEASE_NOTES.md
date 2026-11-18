@@ -1,8 +1,12 @@
 A six-band EQ whose display runs DOOM. A toy, and a test build.
 
-- **EQ:** six bands (bell, shelves, 12/24/48 dB cuts) on smooth zero-delay filters, with a post-EQ analyser.
-- **DOOM:** Freedoom plays behind the curve. Fade the curve with **OVERLAY**, press **`** to take command and **Shift+Esc** to hand the keyboard back.
-- **DOOM SOUND** feeds the game's sound effects and music through the EQ, so you can EQ DOOM.
+**New in 0.0.2**
+- **Presets, About and updates:** the Sammy J preset bar and menu, 12 factory presets, About (version, credits, licences, CHECK FOR UPDATES), all drawn DOOM-style.
+- **Smoother and lighter:** about a fifth of the CPU it used to take. Type changes, band on/off and bypass no longer click. High bells keep their shape near Nyquist.
+- **BYPASS** compares with and without the EQ. Host bypass now silences DOOM too.
+- **Easier to play:** **`** takes and leaves command; leaving pauses your game. Shift+number switches weapons, cheats work, and Cmd shortcuts reach your DAW. **F1** or **?** shows every control.
+- **DOOM SOUND** hands over between instances, and music changes no longer click.
+- **Mono tracks** can use DOOM EQ mono-in, stereo-out.
 
 **Install:** run the installer for your system. They start with the VST3, AU (macOS) and app; once the AAX has been PACE-signed, the installers are rebuilt with it in, under the same names. The plug-ins are also attached as zips.
 

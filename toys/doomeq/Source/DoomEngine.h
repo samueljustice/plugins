@@ -14,21 +14,30 @@
 class DoomEngine : private juce::Thread
 {
 public:
-    static constexpr int width = 640;
-    static constexpr int height = 400;
+    // DOOM's native resolution; the editor scales it up with nearest-neighbour.
+    static constexpr int width = 320;
+    static constexpr int height = 200;
 
     enum class State { Idle, Booting, Running, Dead };
 
     DoomEngine();
     ~DoomEngine() override;
 
-    /** doomKey is a doomkeys.h code. Safe from any thread. */
-    static void pushKey (bool pressed, int doomKey);
+    /** doomKey is a doomkeys.h code; typedChar is the character it types (cheats, savegame
+        names), or 0 for the key itself. Safe from any thread. */
+    static void pushKey (bool pressed, int doomKey, int typedChar = 0);
+
+    /** Pauses or resumes a game in progress, on the DOOM thread. Process-wide. */
+    static void requestPause (bool shouldPause);
 
     /** Copies the latest frame into image (ARGB, width x height) if it changed. */
     static bool fetchFrame (juce::Image& image, uint32_t& lastSerial);
 
     static State getState();
+
+    /** What the game is doing right now (read racily from DOOM's globals; good enough for UI). */
+    enum GameFlags { inLevel = 1, paused = 2, menuOpen = 4, pausedByHost = 8 };
+    static int getGameFlags();
 
     /** The unpacked Freedoom IWAD (unpacks it on first call). Any thread. */
     static juce::File getWadFile();

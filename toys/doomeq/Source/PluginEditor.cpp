@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "SammyJUpdateCheck.h"
 
 extern "C"
 {
@@ -11,7 +12,15 @@ namespace
     constexpr float displayDbRange = 18.0f;
     constexpr float handleRadius = 10.0f;
     constexpr int stripsHeight = 268;
+    constexpr int controlRowHeight = 34;
+
+    // Preset menu item IDs: factory presets are 1..getNumFactory(), user presets count up from
+    // firstUserItemId (as in the other Sammy J plug-ins).
+    constexpr int saveAsItemId = 1001, deleteItemId = 1002, revealItemId = 1003, aboutItemId = 1004;
+    constexpr int firstUserItemId = 100000;
+    constexpr int minWidth = 1000, minHeight = 720;
     constexpr int headerHeight = 58;
+    constexpr float butterworthQ = 0.70710678f;
 
     juce::String formatFreq (float f)
     {
@@ -26,10 +35,41 @@ namespace
         return (db > 0.0f ? "+" : "") + juce::String (db, 1) + " DB";
     }
 
-    /** JUCE key -> doomkeys.h code. Arrows and WASD move, Ctrl/F fire, Space/E use. */
+    /** Shift turns 1-0 into !@#... (and on AZERTY the digits need Shift): map them back,
+        so weapons switch while running and on any layout. */
+    int unshiftDigit (int c)
+    {
+        static const char us[] = "!@#$%^&*()";
+        for (int i = 0; i < 10; ++i)
+            if (c == us[i])
+                return i == 9 ? '0' : '1' + i;
+
+        // AZERTY's unshifted digit row, only the characters that can't be plain US keys
+        // (- ' " _ are, so those digits need Shift there, which gives the digit itself).
+        static const std::pair<juce::juce_wchar, char> azerty[] = { { 0xE9, '2' }, { 0xE8, '7' }, { 0xE7, '9' }, { 0xE0, '0' } };
+        for (auto [ch, digit] : azerty)
+            if (c == (int) ch || c == (int) juce::CharacterFunctions::toUpperCase (ch))
+                return digit;
+
+        return c;
+    }
+
+    /** The character a key types, for cheats and savegame names (lower-case ASCII), or 0. */
+    int typedCharFor (const juce::KeyPress& k)
+    {
+        // What the user actually typed: a hyphen stays a hyphen in a savegame name.
+        int code = (int) k.getTextCharacter();
+        if (code == 0)
+            code = k.getKeyCode();
+        if (code >= 'A' && code <= 'Z')
+            code = code - 'A' + 'a';
+        return (code >= 32 && code < 127) ? code : 0;
+    }
+
+    /** JUCE key -> doomkeys.h code. Arrows and WASD move, F/Ctrl fire, Space/E use. */
     int doomKeyFor (const juce::KeyPress& k)
     {
-        int code = k.getKeyCode();
+        int code = unshiftDigit (k.getKeyCode());
 
         if (code == juce::KeyPress::upKey)         return KEY_UPARROW;
         if (code == juce::KeyPress::downKey)       return KEY_DOWNARROW;
@@ -125,6 +165,12 @@ DoomEQLookAndFeel::DoomEQLookAndFeel (const WadArt& a, const Textures& t) : art 
     setColour (juce::TextButton::buttonColourId, juce::Colours::grey);
     setColour (juce::TextButton::textColourOffId, Palette::gold);
     setColour (juce::TextButton::textColourOnId, Palette::hudYellow);
+    setColour (juce::PopupMenu::headerTextColourId, Palette::textDim);
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, Palette::doomRed.withAlpha (0.55f));
+    setColour (juce::PopupMenu::highlightedTextColourId, Palette::hudYellow);
+    setColour (juce::TooltipWindow::backgroundColourId, juce::Colour (0xff17130f));
+    setColour (juce::TooltipWindow::textColourId, Palette::text);
+    setColour (juce::TooltipWindow::outlineColourId, Palette::bevelLight);
 }
 
 void DoomEQLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos,
@@ -136,6 +182,18 @@ void DoomEQLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w
     const int lw = juce::jmax (10, size / px);
     const auto accent = slider.isEnabled() ? slider.findColour (juce::Slider::rotarySliderFillColourId) : juce::Colour (0xff4a443a);
     const float angle = startAngle + pos * (endAngle - startAngle);
+
+    const int key = (int) (pos * 1000.0f) * 4096 + lw * 2 + (slider.isEnabled() ? 1 : 0)
+                    + (int) (accent.getARGB() & 0xffu) * 7919;
+    auto& cached = knobCache[&slider];
+    if (cached.key == key && cached.image.isValid())
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+        const float d = (float) (lw * px);
+        g.drawImage (cached.image, { x + (w - d) * 0.5f, y + (h - d) * 0.5f, d, d });
+        return;
+    }
 
     juce::Image img (juce::Image::ARGB, lw, lw, true);
     {
@@ -169,6 +227,8 @@ void DoomEQLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w
         gi.drawLine ({ centre.getPointOnCircumference (br * 0.2f, angle), centre.getPointOnCircumference (br - 0.8f, angle) }, 1.6f);
     }
     DoomStyle::crispen (img);
+    cached.key = key;
+    cached.image = img;
 
     juce::Graphics::ScopedSaveState ss (g);
     g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
@@ -286,7 +346,10 @@ void DoomEQLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
     }
 
     const auto colour = inCombo ? Palette::gold : label.findColour (juce::Label::textColourId);
-    const float maxScale = label.getProperties().getWithDefault ("pixelScale", 2.0f);
+    // A value box's size lives on its slider: JUCE recreates the box's label at times.
+    float maxScale = label.getProperties().getWithDefault ("pixelScale", 2.0f);
+    if (auto* slider = dynamic_cast<juce::Slider*> (label.getParentComponent()))
+        maxScale = slider->getProperties().getWithDefault ("valueScale", maxScale);
     art.font().drawFitted (g, label.getText(), r.toFloat(), inCombo ? juce::Justification::centredLeft : label.getJustificationType(),
                            colour.withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.4f), maxScale);
 }
@@ -310,7 +373,7 @@ void DoomEQLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int w, int h
 }
 
 void DoomEQLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
-                                           bool isHighlighted, bool isTicked, bool, const juce::String& text,
+                                           bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text,
                                            const juce::String&, const juce::Drawable*, const juce::Colour*)
 {
     if (isSeparator)
@@ -329,17 +392,90 @@ void DoomEQLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectan
     }
 
     auto r = area.reduced (10, 3);
+    const float alpha = isActive ? 1.0f : 0.4f;
+
+    // Tick column: a small square, like the HUD's key boxes.
+    auto tickColumn = r.removeFromLeft (22);
     if (isTicked)
-        art.font().draw (g, ">", (float) r.getX(), (float) r.getCentreY() - 7.0f, 2.0f, Palette::hudYellow);
+    {
+        const auto box = juce::Rectangle<int> (8, 8).withCentre (tickColumn.getCentre()).withX (tickColumn.getX() + 2);
+        g.setColour (Palette::hudYellow.withMultipliedAlpha (alpha));
+        g.fillRect (box);
+        g.setColour (Palette::hudYellow.brighter (0.6f).withMultipliedAlpha (alpha));
+        g.fillRect (box.getX(), box.getY(), 4, 2);
+    }
+
+    // Submenu arrow column.
+    if (hasSubMenu)
+    {
+        const auto arrowArea = r.removeFromRight (20);
+        const auto arrowColour = (isHighlighted ? Palette::hudYellow : Palette::textDim).withMultipliedAlpha (alpha);
+        const int ax = arrowArea.getCentreX() - 2, ay = arrowArea.getCentreY();
+        g.setColour (arrowColour);
+        for (int i = 0; i < 4; ++i)
+            g.fillRect (ax + i, ay - 3 + i, 1, 7 - i * 2); // a pixel triangle
+    }
+
+    // "NAME (FILE)" for duplicate preset names: the qualifier is dimmer.
+    const auto mainColour = (isHighlighted ? Palette::hudYellow : Palette::gold).withMultipliedAlpha (alpha);
+    const int paren = text.lastIndexOf (" (");
+    if (paren > 0 && text.endsWithChar (')'))
+    {
+        const auto head = text.substring (0, paren), tail = text.substring (paren);
+        const float headW = juce::jmin ((float) r.getWidth() * 0.7f, art.font().widthOf (head) * 2.0f);
+        art.font().drawFitted (g, head, r.toFloat().withWidth (headW), juce::Justification::centredLeft, mainColour);
+        art.font().drawFitted (g, tail, r.toFloat().withTrimmedLeft (headW), juce::Justification::centredLeft,
+                               Palette::textDim.withMultipliedAlpha (alpha), 1.5f);
+    }
+    else
+    {
+        art.font().drawFitted (g, text, r.toFloat(), juce::Justification::centredLeft, mainColour);
+    }
+}
+
+void DoomEQLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& sectionName)
+{
+    auto r = area.reduced (10, 2);
+    const auto marker = juce::Rectangle<int> (4, 4).withCentre ({ r.getX() + 4, r.getCentreY() });
+    g.setColour (Palette::doomRed);
+    g.fillRect (marker);
     r.removeFromLeft (22);
-    art.font().drawFitted (g, text, r.toFloat(), juce::Justification::centredLeft,
-                           isHighlighted ? Palette::hudYellow : Palette::gold.withMultipliedAlpha (isActive ? 1.0f : 0.4f));
+
+    const float textW = art.font().widthOf (sectionName) * 1.5f;
+    art.font().drawFitted (g, sectionName, r.toFloat(), juce::Justification::centredLeft, Palette::textDim, 1.5f);
+
+    // A rule from the end of the name to the right edge.
+    const int x0 = r.getX() + (int) textW + 8;
+    if (x0 < r.getRight())
+    {
+        g.setColour (Palette::bevelDark);
+        g.fillRect (x0, r.getCentreY(), r.getRight() - x0, 1);
+        g.setColour (Palette::bevelLight.withAlpha (0.4f));
+        g.fillRect (x0, r.getCentreY() + 1, r.getRight() - x0, 1);
+    }
+}
+
+void DoomEQLookAndFeel::drawPopupMenuUpDownArrow (juce::Graphics& g, int width, int height, bool isScrollUpArrow)
+{
+    DoomStyle::fillTextured (g, juce::Rectangle<int> (width, height).toFloat(), tex.panel, 2.0f, 0.3f);
+    g.setColour (Palette::gold);
+    const int cx = width / 2, cy = height / 2;
+    for (int i = 0; i < 4; ++i)
+    {
+        const int y = isScrollUpArrow ? cy - 2 + i : cy + 1 - i;
+        g.fillRect (cx - 3 + i, y, 7 - i * 2, 1);
+    }
+}
+
+juce::PopupMenu::Options DoomEQLookAndFeel::menuOptionsFor (juce::Component& target, int minimumWidth)
+{
+    return juce::PopupMenu::Options().withTargetComponent (&target).withMinimumWidth (minimumWidth).withStandardItemHeight (24);
 }
 
 void DoomEQLookAndFeel::getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int, int& idealWidth, int& idealHeight)
 {
     idealHeight = isSeparator ? 8 : 24;
-    idealWidth = art.font().widthOf (text) * 2 + 50;
+    idealWidth = art.font().widthOf (text) * 2 + 22 + 24 + 20; // tick column, padding, submenu arrow
 }
 
 //==============================================================================
@@ -352,12 +488,9 @@ EqDisplay::EqDisplay (DoomEQProcessor& p, const WadArt& a, const Textures& t) : 
 
 bool EqDisplay::isTakeCommandKey (const juce::KeyPress& k)
 {
+    // ` toggles both ways. (Shift+Esc used to leave, but Shift is "run": running and
+    // opening DOOM's menu threw you out of the game.)
     return k.getTextCharacter() == '`' || k.getTextCharacter() == '~' || k.getKeyCode() == '`';
-}
-
-bool EqDisplay::isLeaveCommandKey (const juce::KeyPress& k)
-{
-    return k.getKeyCode() == juce::KeyPress::escapeKey && k.getModifiers().isShiftDown();
 }
 
 juce::RangedAudioParameter* EqDisplay::param (int band, const char* name) const
@@ -371,8 +504,50 @@ void EqDisplay::setParam (int band, const char* name, float value)
         p->setValueNotifyingHost (p->convertTo0to1 (value));
 }
 
-void EqDisplay::readBands()
+void EqDisplay::setParamGesture (int band, const char* name, float value)
 {
+    if (auto* p = param (band, name))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (value));
+        p->endChangeGesture();
+    }
+}
+
+void EqDisplay::setBandType (int band, int newType)
+{
+    // Switching a bell or shelf to a cut starts it as a flat Butterworth (Q 0.707), not a
+    // resonant one left over from the bell's Q.
+    const auto oldType = bandViews[(size_t) band].type;
+    if (eq::usesGain (oldType) && eq::isCut ((eq::Type) newType))
+        setParamGesture (band, "q", butterworthQ);
+    setParamGesture (band, "type", (float) newType);
+}
+
+void EqDisplay::endDragGestures()
+{
+    if (dragBand >= 0)
+        for (auto* name : { "freq", "gain", "q" })
+            if (auto* p = param (dragBand, name))
+                p->endChangeGesture();
+    dragBand = -1;
+}
+
+EqDisplay::~EqDisplay()
+{
+    endDragGestures(); // a drag in progress when the window closes
+
+    // Our focusLost can't run once destruction has started, so leave command mode here:
+    // held keys and modifiers are released and the game pauses.
+    if (commandMode)
+        setCommandMode (false);
+}
+
+bool EqDisplay::readBands()
+{
+    const auto before = bandViews;
+    const double srBefore = sampleRate;
+
     sampleRate = proc.getCurrentSampleRate();
     if (sampleRate <= 0.0)
         sampleRate = 44100.0;
@@ -388,6 +563,15 @@ void EqDisplay::readBands()
         v.q    = ap.getRawParameterValue (DoomEQProcessor::pid (b, "q"))->load();
         v.coeffs = eq::design (v.type, v.freq, v.gain, v.q, sampleRate);
     }
+
+    bool changed = sampleRate != srBefore;
+    for (size_t b = 0; b < bandViews.size(); ++b)
+    {
+        const auto& x = before[b];
+        const auto& y = bandViews[b];
+        changed |= x.on != y.on || x.type != y.type || x.freq != y.freq || x.gain != y.gain || x.q != y.q;
+    }
+    return changed;
 }
 
 float EqDisplay::xForFreq (float f) const
@@ -417,7 +601,9 @@ float EqDisplay::dbForY (float y) const
 juce::Point<float> EqDisplay::handlePosition (int band) const
 {
     const auto& v = bandViews[(size_t) band];
-    const float db = eq::usesGain (v.type) ? v.gain : 0.0f;
+    // A cut's node height is its resonance: on the 0 dB line it's a flat Butterworth.
+    const float db = eq::usesGain (v.type) ? v.gain
+                                           : juce::jlimit (-displayDbRange, displayDbRange, 20.0f * std::log10 (v.q / butterworthQ));
     return { xForFreq (v.freq), yForDb (db) };
 }
 
@@ -445,14 +631,29 @@ void EqDisplay::setCommandMode (bool inCommand)
     commandMode = inCommand;
     setWantsKeyboardFocus (commandMode);
     if (commandMode)
+    {
+        showHelp = false;
         grabKeyboardFocus();
+    }
     else
+    {
         releaseAllKeys();
+    }
+    // Leaving command pauses your game; taking it again resumes. Process-wide, on the DOOM thread.
+    DoomEngine::requestPause (! commandMode);
+    needsFullRepaint = true;
+}
+
+void EqDisplay::setHelpVisible (bool shouldShow)
+{
+    showHelp = shouldShow;
     repaint();
 }
 
 void EqDisplay::setOverlayOpacity (float v)
 {
+    if (overlay == juce::jlimit (0.0f, 1.0f, v))
+        return;
     overlay = juce::jlimit (0.0f, 1.0f, v);
     repaint();
 }
@@ -484,13 +685,60 @@ void EqDisplay::rebuildBackdrop()
 
 void EqDisplay::tick()
 {
-    readBands();
-    updateAnalyser();
-    DoomEngine::fetchFrame (doomFrame, doomSerial);
-    repaint();
+    // Modifier changes go to the component under the mouse, which may not be this one: poll
+    // them, so fire/run/strafe never stay held in the game.
+    if (commandMode && hasKeyboardFocus (false))
+        syncModifiers (juce::ModifierKeys::getCurrentModifiersRealtime());
+
+    const bool bandsChanged = readBands();
+    const bool spectrumChanged = updateAnalyser();
+    const bool frameChanged = DoomEngine::fetchFrame (doomFrame, doomSerial);
+
+    // Booting -> running or failed: show it even if nothing else changes.
+    const int engineState = (int) DoomEngine::getState();
+    const bool engineChanged = engineState != lastEngineState;
+    lastEngineState = engineState;
+
+    const auto hint = currentHint();
+    const bool hintChanged = hint != lastHint;
+    lastHint = hint;
+
+    const bool overlayVisible = overlay > 0.0f;
+
+    if (needsFullRepaint || hintChanged || (overlayVisible && (bandsChanged || spectrumChanged)) || (! overlayVisible && bandsChanged))
+    {
+        repaint();
+        needsFullRepaint = false;
+    }
+    else if (frameChanged || engineChanged)
+    {
+        repaint (doomArea().toNearestInt()); // only the game moved
+    }
 }
 
-void EqDisplay::updateAnalyser()
+juce::String EqDisplay::currentHint() const
+{
+    const int flags = DoomEngine::getGameFlags();
+    const bool inGame = (flags & DoomEngine::inLevel) != 0, menuOpen = (flags & DoomEngine::menuOpen) != 0;
+    const bool editorHasFocus = getParentComponent() != nullptr && getParentComponent()->hasKeyboardFocus (true);
+
+    if (! commandMode)
+    {
+        if (! editorHasFocus)
+            return "CLICK HERE, THEN PRESS `";
+        if (inGame && (flags & DoomEngine::pausedByHost) != 0)
+            return "GAME PAUSED   PRESS ` TO PLAY ON";
+        return "PRESS ` TO TAKE COMMAND";
+    }
+
+    if (! hasKeyboardFocus (false))
+        return "CLICK THE SCREEN TO PLAY ON";
+    if (! inGame && ! menuOpen)
+        return "ESC FOR MENU, THEN NEW GAME   ` LEAVES";
+    return "IN COMMAND   ` TO LEAVE";
+}
+
+bool EqDisplay::updateAnalyser()
 {
     const int got = proc.pullAnalyserSamples (pullScratch.data(), (int) pullScratch.size());
     for (int i = 0; i < got; ++i)
@@ -499,20 +747,38 @@ void EqDisplay::updateAnalyser()
         ringPos = (ringPos + 1) % fftSize;
     }
 
-    for (int i = 0; i < fftSize; ++i)
-        fftData[(size_t) i] = ring[(size_t) ((ringPos + i) % fftSize)];
-    std::fill (fftData.begin() + fftSize, fftData.end(), 0.0f);
+    if (overlay <= 0.0f)
+        return false; // nothing to show it on
 
-    window.multiplyWithWindowingTable (fftData.data(), (size_t) fftSize);
-    fft.performFrequencyOnlyForwardTransform (fftData.data());
+    // The host stopped sending audio (transport stopped, track asleep): let the bars fall
+    // instead of freezing on the last block.
+    ticksWithoutAudio = got > 0 ? 0 : ticksWithoutAudio + 1;
+    const bool live = ticksWithoutAudio < 4;
+
+    if (live)
+    {
+        for (int i = 0; i < fftSize; ++i)
+            fftData[(size_t) i] = ring[(size_t) ((ringPos + i) % fftSize)];
+        std::fill (fftData.begin() + fftSize, fftData.end(), 0.0f);
+
+        window.multiplyWithWindowingTable (fftData.data(), (size_t) fftSize);
+        fft.performFrequencyOnlyForwardTransform (fftData.data());
+    }
 
     const float norm = 4.0f / (float) fftSize;
+    bool visible = false;
     for (int i = 1; i < fftSize / 2; ++i)
     {
-        const float db = juce::Decibels::gainToDecibels (fftData[(size_t) i] * norm, -120.0f);
         auto& s = spectrumDb[(size_t) i];
-        s = db > s ? db : s - 1.6f;
+        const float db = live ? juce::Decibels::gainToDecibels (fftData[(size_t) i] * norm, -120.0f) : -120.0f;
+        s = juce::jmax (-120.0f, db > s ? db : s - 1.6f);
+        visible |= s > -110.0f;
     }
+
+    // Repaint while anything shows, plus one more frame to clear the last bars.
+    const bool changed = visible || spectrumWasVisible;
+    spectrumWasVisible = visible;
+    return changed;
 }
 
 //==============================================================================
@@ -540,13 +806,17 @@ void EqDisplay::paint (juce::Graphics& g)
 
     if (overlay > 0.0f)
     {
+        updateLayers ((float) g.getInternalContext().getPhysicalPixelScaleFactor());
+
         // A light wash so the curve reads, scaled by the overlay amount.
         g.setColour (juce::Colours::black.withAlpha (overlay * (commandMode ? 0.12f : 0.3f)));
         g.fillRect (r);
 
-        paintGrid (g, r);
+        g.setOpacity (overlay);
+        g.drawImage (gridLayer, r);
         paintSpectrum (g, r);
-        paintCurves (g, r);
+        g.setOpacity (overlay);
+        g.drawImage (curveLayer, r);
     }
     paintHandles (g);
 
@@ -567,22 +837,146 @@ void EqDisplay::paint (juce::Graphics& g)
         art.font().drawFitted (g, s, box.reduced (8.0f, 5.0f), juce::Justification::centredLeft, Palette::bands[b]);
     }
 
-    // Key hints
+    // Key hint, top right, sized from its text (the band readout can use the left ~530 px).
     {
-        const juce::String hint = commandMode
-            ? (hasKeyboardFocus (false) ? "IN COMMAND   SHIFT+ESC TO LEAVE" : "CLICK THE SCREEN TO RESUME COMMAND")
-            : "PRESS ` TO TAKE COMMAND";
-        const auto box = juce::Rectangle<float> (r.getRight() - 350.0f, 12.0f, 338.0f, 24.0f);
-        g.setColour (juce::Colours::black.withAlpha (commandMode ? 0.7f : 0.45f));
+        const juce::String hint = lastHint.isNotEmpty() ? lastHint : currentHint();
+        const float tw = (float) art.font().widthOf (hint);
+        const float maxW = juce::jmax (120.0f, r.getWidth() - 24.0f - 540.0f);
+        float sc = 2.0f;
+        while (sc > 1.0f && tw * sc + 16.0f > maxW)
+            sc -= 0.5f;
+        const float bw = tw * sc + 16.0f;
+        const auto box = juce::Rectangle<float> (r.getRight() - 12.0f - bw, 12.0f, bw, 24.0f);
+        g.setColour (juce::Colours::black.withAlpha (commandMode ? 0.7f : 0.5f));
         g.fillRect (box);
         art.font().drawFitted (g, hint, box.reduced (8.0f, 4.0f), juce::Justification::centredRight,
-                               commandMode ? Palette::hudYellow : Palette::gold.withAlpha (0.8f));
+                               commandMode ? Palette::hudYellow : Palette::gold, sc);
+    }
+
+    if (showHelp)
+        paintHelp (g, r);
+}
+
+void EqDisplay::paintHelp (juce::Graphics& g, juce::Rectangle<float> r)
+{
+    constexpr int rows = 10;
+    static const char* const eqRows[rows][2] = {
+        { "DRAG A NODE",    "FREQ + GAIN (CUTS: Q)" },
+        { "SHIFT + DRAG",   "FINE ADJUST" },
+        { "SCROLL ON NODE", "Q (WIDTH)" },
+        { "DBL CLICK NODE", "BAND ON / OFF" },
+        { "RIGHT CLICK",    "FILTER TYPE" },
+        { "DBL CLICK KNOB", "RESET IT" },
+        { "CLICK A VALUE",  "TYPE IT IN" },
+        { "OVERLAY",        "FADE EQ OVER GAME" },
+        { "BYPASS",         "HEAR IT WITHOUT EQ" },
+        { "F1 OR ?",        "THIS HELP" },
+    };
+    static const char* const doomRows[rows][2] = {
+        { "` (BACKTICK)",   "TAKE / LEAVE COMMAND" },
+        { "ESC / ENTER",    "MENU / SELECT" },
+        { "ARROWS / WASD",  "MOVE" },
+        { "F (OR CTRL)",    "FIRE" },
+        { "SPACE / E",      "OPEN + USE" },
+        { "SHIFT / ALT",    "RUN / STRAFE" },
+        { "1 - 7",          "WEAPONS" },
+        { "LEAVING",        "PAUSES YOUR GAME" },
+        { "DOOM SOUND",     "EQ THE GAME AUDIO" },
+        { "NO KEYS?",       "DAW HAS THEM: USE APP" },
+    };
+
+    const auto panel = r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 40.0f, 960.0f), juce::jmin (r.getHeight() - 30.0f, 360.0f));
+    g.setColour (juce::Colours::black.withAlpha (0.9f));
+    g.fillRect (panel);
+    DoomStyle::bevel (g, panel.toNearestInt(), 3, Palette::bevelLight.withAlpha (0.8f), Palette::bevelDark);
+
+    auto inner = panel.reduced (22.0f, 14.0f);
+    const auto footer = inner.removeFromBottom (18.0f);
+    const float colW = inner.getWidth() * 0.5f;
+    const float rowH = juce::jmin (26.0f, (inner.getHeight() - 30.0f) / (float) rows);
+
+    auto column = [&] (juce::Rectangle<float> area, const char* title, const char* const table[rows][2], juce::Colour titleColour)
+    {
+        art.font().drawFitted (g, title, area.removeFromTop (26.0f), juce::Justification::centredLeft, titleColour, 2.0f);
+        area.removeFromTop (4.0f);
+        const float keyW = area.getWidth() * 0.44f;
+        for (int i = 0; i < rows; ++i)
+        {
+            auto row = area.removeFromTop (rowH).reduced (0.0f, 3.0f);
+            art.font().drawFitted (g, table[i][0], row.removeFromLeft (keyW), juce::Justification::centredLeft, Palette::hudYellow, 1.5f);
+            art.font().drawFitted (g, table[i][1], row, juce::Justification::centredLeft, Palette::text, 1.5f);
+        }
+    };
+
+    column (inner.removeFromLeft (colW).withTrimmedRight (14.0f), "THE EQ", eqRows, Palette::hudYellow);
+    column (inner.withTrimmedLeft (14.0f), "THE DOOM", doomRows, Palette::doomRed);
+    art.font().drawFitted (g, "MAC: CTRL+ARROWS SWITCHES DESKTOPS, SO FIRE WITH F     CLICK TO CLOSE", footer,
+                           juce::Justification::centred, Palette::textDim, 1.0f);
+}
+
+namespace
+{
+    struct Hasher
+    {
+        uint64_t h = 1469598103934665603ull;
+
+        template <typename T>
+        void add (T v)
+        {
+            const auto* p = reinterpret_cast<const unsigned char*> (&v);
+            for (size_t i = 0; i < sizeof (T); ++i)
+            {
+                h ^= p[i];
+                h *= 1099511628211ull;
+            }
+        }
+    };
+}
+
+void EqDisplay::updateLayers (float scale)
+{
+    const int w = juce::roundToInt ((float) getWidth() * scale), h = juce::roundToInt ((float) getHeight() * scale);
+    if (w <= 0 || h <= 0)
+        return;
+
+    const auto r = getLocalBounds().toFloat();
+
+    auto redraw = [&] (juce::Image& layer, auto&& draw)
+    {
+        if (layer.getWidth() != w || layer.getHeight() != h)
+            layer = juce::Image (juce::Image::ARGB, w, h, true);
+        else
+            layer.clear (layer.getBounds());
+
+        juce::Graphics lg (layer);
+        lg.addTransform (juce::AffineTransform::scale (scale));
+        draw (lg);
+    };
+
+    Hasher grid;
+    grid.add (w); grid.add (h); grid.add (commandMode);
+    if (grid.h != gridLayerKey)
+    {
+        redraw (gridLayer, [&] (juce::Graphics& lg) { paintGrid (lg, r); });
+        gridLayerKey = grid.h;
+    }
+
+    Hasher curves;
+    curves.add (w); curves.add (h); curves.add (sampleRate); curves.add (hoverBand); curves.add (dragBand);
+    for (const auto& v : bandViews)
+    {
+        curves.add (v.on); curves.add ((int) v.type); curves.add (v.freq); curves.add (v.gain); curves.add (v.q);
+    }
+    if (curves.h != curveLayerKey)
+    {
+        redraw (curveLayer, [&] (juce::Graphics& lg) { paintCurves (lg, r); });
+        curveLayerKey = curves.h;
     }
 }
 
 void EqDisplay::paintGrid (juce::Graphics& g, juce::Rectangle<float> r)
 {
-    const float a = overlay * (commandMode ? 0.12f : 0.22f);
+    const float a = (commandMode ? 0.12f : 0.22f);
 
     static const float freqs[] = { 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900,
                                    1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 20000 };
@@ -597,7 +991,7 @@ void EqDisplay::paintGrid (juce::Graphics& g, juce::Rectangle<float> r)
     for (float f : labelled)
     {
         const auto s = f >= 1000 ? juce::String ((int) (f / 1000)) + "K" : juce::String ((int) f);
-        art.font().draw (g, s, xForFreq (f) + 4.0f, r.getBottom() - 22.0f, 2.0f, Palette::gold.withAlpha (overlay * 0.9f));
+        art.font().draw (g, s, xForFreq (f) + 4.0f, r.getBottom() - 22.0f, 2.0f, Palette::gold.withAlpha (0.9f));
     }
 
     for (float db = -18.0f; db <= 18.0f; db += 6.0f)
@@ -609,49 +1003,65 @@ void EqDisplay::paintGrid (juce::Graphics& g, juce::Rectangle<float> r)
         {
             const auto s = (db > 0 ? "+" : "") + juce::String ((int) db);
             art.font().draw (g, s, r.getRight() - 12.0f - art.font().widthOf (s) * 2.0f, y - 16.0f, 2.0f,
-                             Palette::gold.withAlpha (overlay * 0.9f));
+                             Palette::gold.withAlpha (0.9f));
         }
     }
 }
 
 void EqDisplay::paintSpectrum (juce::Graphics& g, juce::Rectangle<float> r)
 {
-    const float binHz = (float) sampleRate / (float) fftSize;
     const int w = getWidth();
     if (w <= 0)
         return;
 
-    std::vector<float> cols ((size_t) w, -120.0f);
-    for (int i = 1; i < fftSize / 2; ++i)
+    // Bin -> column and tilt tables, rebuilt only when the width or sample rate changes.
+    if (spectrumTableWidth != w || spectrumTableRate != sampleRate)
     {
-        const float f = (float) i * binHz;
-        if (f < minFreq || f > maxFreq)
-            continue;
-        const int x = juce::jlimit (0, w - 1, (int) xForFreq (f));
-        const float tilted = spectrumDb[(size_t) i] + 4.5f * std::log2 (f / 1000.0f);
-        cols[(size_t) x] = juce::jmax (cols[(size_t) x], tilted);
+        spectrumTableWidth = w;
+        spectrumTableRate = sampleRate;
+        binColumn.assign ((size_t) fftSize / 2, -1);
+        binTilt.assign ((size_t) fftSize / 2, 0.0f);
+        const float binHz = (float) sampleRate / (float) fftSize;
+        for (int i = 1; i < fftSize / 2; ++i)
+        {
+            const float f = (float) i * binHz;
+            if (f < minFreq || f > maxFreq)
+                continue;
+            binColumn[(size_t) i] = juce::jlimit (0, w - 1, (int) xForFreq (f));
+            binTilt[(size_t) i] = 4.5f * std::log2 (f / 1000.0f); // so pink noise sits flat
+        }
+        columns.assign ((size_t) w, -120.0f);
     }
 
+    std::fill (columns.begin(), columns.end(), -120.0f);
+    for (int i = 1; i < fftSize / 2; ++i)
+        if (const int x = binColumn[(size_t) i]; x >= 0)
+            columns[(size_t) x] = juce::jmax (columns[(size_t) x], spectrumDb[(size_t) i] + binTilt[(size_t) i]);
+
     float last = -120.0f;
-    for (auto& c : cols)
+    for (auto& c : columns)
     {
         if (c <= -119.0f) c = last;
         else last = c;
     }
 
-    // Chunky 4px columns, like an old VU.
+    // Chunky 4 px columns, like an old VU: bodies and caps, two fills in all.
     const float top = r.getY() + 10.0f, bottom = r.getBottom() - 4.0f;
+    juce::RectangleList<float> bodies, caps;
     for (int x = 0; x + 3 < w; x += 4)
     {
-        const float db = juce::jmax (cols[(size_t) x], cols[(size_t) x + 2]);
-        const float y = juce::jmap (juce::jlimit (-84.0f, 0.0f, db), -84.0f, 0.0f, bottom, top);
+        const float db = juce::jmax (columns[(size_t) x], columns[(size_t) x + 2]);
+        const float y = std::round (juce::jmap (juce::jlimit (-84.0f, 0.0f, db), -84.0f, 0.0f, bottom, top));
         if (y >= bottom - 1.0f)
             continue;
-        g.setColour (Palette::gold.withAlpha (overlay * (commandMode ? 0.12f : 0.26f)));
-        g.fillRect ((float) x, y, 3.0f, bottom - y);
-        g.setColour (Palette::hudYellow.withAlpha (overlay * (commandMode ? 0.25f : 0.55f)));
-        g.fillRect ((float) x, y, 3.0f, 2.0f);
+        bodies.addWithoutMerging ({ (float) x, y, 3.0f, bottom - y });
+        caps.addWithoutMerging ({ (float) x, y, 3.0f, 2.0f });
     }
+
+    g.setColour (Palette::gold.withAlpha (overlay * (commandMode ? 0.12f : 0.26f)));
+    g.fillRectList (bodies);
+    g.setColour (Palette::hudYellow.withAlpha (overlay * (commandMode ? 0.25f : 0.55f)));
+    g.fillRectList (caps);
 }
 
 void EqDisplay::paintCurves (juce::Graphics& g, juce::Rectangle<float> r)
@@ -678,7 +1088,7 @@ void EqDisplay::paintCurves (juce::Graphics& g, juce::Rectangle<float> r)
         fill.closeSubPath();
 
         const bool focus = (b == hoverBand || b == dragBand);
-        g.setColour (Palette::bands[b].withAlpha (overlay * (focus ? 0.3f : 0.13f)));
+        g.setColour (Palette::bands[b].withAlpha ((focus ? 0.3f : 0.13f)));
         g.fillPath (fill);
     }
 
@@ -690,11 +1100,11 @@ void EqDisplay::paintCurves (juce::Graphics& g, juce::Rectangle<float> r)
         else        curve.lineTo ((float) x, y);
     }
 
-    g.setColour (juce::Colours::black.withAlpha (overlay * 0.7f));
+    g.setColour (juce::Colours::black.withAlpha (0.7f));
     g.strokePath (curve, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::square));
-    g.setColour (Palette::doomRed.withAlpha (overlay * 0.9f));
+    g.setColour (Palette::doomRed.withAlpha (0.9f));
     g.strokePath (curve, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::square));
-    g.setColour (Palette::hudYellow.withAlpha (overlay));
+    g.setColour (Palette::hudYellow.withAlpha (1.0f));
     g.strokePath (curve, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::square));
 }
 
@@ -751,9 +1161,21 @@ void EqDisplay::mouseExit (const juce::MouseEvent&)
 
 void EqDisplay::mouseDown (const juce::MouseEvent& e)
 {
+    if (showHelp)
+    {
+        setHelpVisible (false);
+        return;
+    }
+
     if (commandMode)
+    {
+        // While playing, a click only gives the game the keyboard back: it must not grab a
+        // node (they sit across the middle of the picture) or open the type menu on Ctrl-fire.
         grabKeyboardFocus();
-    else if (auto* parent = getParentComponent())
+        return;
+    }
+
+    if (auto* parent = getParentComponent())
         parent->grabKeyboardFocus(); // so ` reaches the editor
 
     dragBand = hitTestHandle (e.position);
@@ -775,19 +1197,25 @@ void EqDisplay::mouseDown (const juce::MouseEvent& e)
         m.addItem (2000, "Reset gain");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
-                         [this, band] (int result)
+                         [safe = juce::Component::SafePointer<EqDisplay> (this), band] (int result)
                          {
+                             if (safe == nullptr)
+                                 return; // the window closed while the menu was open
                              if (result == 1000)
-                                 setParam (band, "on", bandViews[(size_t) band].on ? 0.0f : 1.0f);
+                                 safe->setParamGesture (band, "on", safe->bandViews[(size_t) band].on ? 0.0f : 1.0f);
                              else if (result == 2000)
-                                 setParam (band, "gain", 0.0f);
+                                 safe->setParamGesture (band, "gain", 0.0f);
                              else if (result > 0)
-                                 setParam (band, "type", (float) (result - 1));
+                                 safe->setBandType (band, result - 1);
                          });
         return;
     }
 
-    for (auto* name : { "freq", "gain" })
+    // The node follows the mouse from where it is, not from where you grabbed it.
+    dragVirtual = handlePosition (dragBand);
+    dragLast = e.position;
+
+    for (auto* name : { "freq", "gain", "q" })
         if (auto* p = param (dragBand, name))
             p->beginChangeGesture();
 }
@@ -797,11 +1225,20 @@ void EqDisplay::mouseDrag (const juce::MouseEvent& e)
     if (dragBand < 0)
         return;
 
-    const auto pos = e.position;
-    setParam (dragBand, "freq", freqForX (juce::jlimit (0.0f, (float) getWidth(), pos.x)));
+    // Shift slows the node down for fine moves.
+    const auto delta = e.position - dragLast;
+    dragLast = e.position;
+    dragVirtual += delta * (e.mods.isShiftDown() ? 0.2f : 1.0f);
+    dragVirtual.x = juce::jlimit (0.0f, (float) getWidth(), dragVirtual.x);
+    dragVirtual.y = juce::jlimit (yForDb (displayDbRange), yForDb (-displayDbRange), dragVirtual.y);
 
+    setParam (dragBand, "freq", freqForX (dragVirtual.x));
+
+    const float db = juce::jlimit (-displayDbRange, displayDbRange, dbForY (dragVirtual.y));
     if (eq::usesGain (bandViews[(size_t) dragBand].type))
-        setParam (dragBand, "gain", juce::jlimit (-displayDbRange, displayDbRange, dbForY (pos.y)));
+        setParam (dragBand, "gain", db);
+    else
+        setParam (dragBand, "q", juce::jlimit (0.1f, 10.0f, butterworthQ * std::pow (10.0f, db / 20.0f))); // a cut's height is its resonance
 
     readBands();
     repaint();
@@ -809,22 +1246,22 @@ void EqDisplay::mouseDrag (const juce::MouseEvent& e)
 
 void EqDisplay::mouseUp (const juce::MouseEvent&)
 {
-    if (dragBand >= 0)
-        for (auto* name : { "freq", "gain" })
-            if (auto* p = param (dragBand, name))
-                p->endChangeGesture();
-    dragBand = -1;
+    endDragGestures();
 }
 
 void EqDisplay::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    if (commandMode)
+        return;
     const int b = hitTestHandle (e.position);
     if (b >= 0)
-        setParam (b, "on", bandViews[(size_t) b].on ? 0.0f : 1.0f);
+        setParamGesture (b, "on", bandViews[(size_t) b].on ? 0.0f : 1.0f);
 }
 
 void EqDisplay::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
+    if (commandMode)
+        return;
     const int b = hitTestHandle (e.position);
     if (b < 0)
         return;
@@ -834,9 +1271,7 @@ void EqDisplay::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
         return;
 
     const float q = bandViews[(size_t) b].q * std::pow (1.6f, wheel.deltaY * (wheel.isReversed ? -1.0f : 1.0f));
-    p->beginChangeGesture();
-    setParam (b, "q", juce::jlimit (0.1f, 10.0f, q));
-    p->endChangeGesture();
+    setParamGesture (b, "q", juce::jlimit (0.1f, 10.0f, q));
     readBands();
     repaint();
 }
@@ -847,13 +1282,17 @@ bool EqDisplay::keyPressed (const juce::KeyPress& key)
     if (! commandMode)
         return false; // let the editor see ` to take command
 
-    if (isLeaveCommandKey (key) || isTakeCommandKey (key))
+    if (isTakeCommandKey (key))
     {
         setCommandMode (false);
         if (onCommandChange)
             onCommandChange (false);
         return true;
     }
+
+    // Cmd+S, Cmd+Z, Cmd+Q... belong to the host. F1 shows our help, not DOOM's.
+    if (key.getModifiers().isCommandDown() || key.getKeyCode() == juce::KeyPress::F1Key)
+        return false;
 
     const int code = key.getKeyCode();
     if (heldKeys.count (code) == 0)
@@ -862,7 +1301,7 @@ bool EqDisplay::keyPressed (const juce::KeyPress& key)
         if (dk == 0)
             return false;
         heldKeys[code] = dk;
-        DoomEngine::pushKey (true, dk);
+        DoomEngine::pushKey (true, dk, typedCharFor (key));
     }
     return true;
 }
@@ -882,10 +1321,15 @@ bool EqDisplay::keyStateChanged (bool)
         else
             ++it;
     }
-    return true;
+    return ! juce::ModifierKeys::getCurrentModifiersRealtime().isCommandDown();
 }
 
 void EqDisplay::modifierKeysChanged (const juce::ModifierKeys& mods)
+{
+    syncModifiers (mods);
+}
+
+void EqDisplay::syncModifiers (const juce::ModifierKeys& mods)
 {
     if (! commandMode)
         return;
@@ -899,6 +1343,22 @@ void EqDisplay::modifierKeysChanged (const juce::ModifierKeys& mods)
         }
     };
 
+    // Releasing Shift can change a held key's code (! back to 1) without a key-up for the
+    // shifted one, so let go of held digits/symbols when Shift changes.
+    if (mods.isShiftDown() != shiftDown)
+    {
+        for (auto it = heldKeys.begin(); it != heldKeys.end();)
+        {
+            if (it->first >= 32 && it->first < 127 && ! juce::CharacterFunctions::isLetter ((juce::juce_wchar) it->first))
+            {
+                DoomEngine::pushKey (false, it->second);
+                it = heldKeys.erase (it);
+            }
+            else
+                ++it;
+        }
+    }
+
     update (mods.isCtrlDown(), ctrlDown, KEY_FIRE);
     update (mods.isShiftDown(), shiftDown, KEY_RSHIFT);
     update (mods.isAltDown(), altDown, KEY_RALT);
@@ -907,7 +1367,16 @@ void EqDisplay::modifierKeysChanged (const juce::ModifierKeys& mods)
 void EqDisplay::focusLost (FocusChangeType)
 {
     releaseAllKeys();
-    repaint();
+    if (commandMode)
+        DoomEngine::requestPause (true); // the game can't see the keys: don't let it run on
+    needsFullRepaint = true;
+}
+
+void EqDisplay::focusGained (FocusChangeType)
+{
+    if (commandMode)
+        DoomEngine::requestPause (false);
+    needsFullRepaint = true;
 }
 
 void EqDisplay::releaseAllKeys()
@@ -946,13 +1415,26 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
 
         s->on.setButtonText ("BAND " + juce::String (b + 1));
         s->on.setColour (juce::ToggleButton::tickColourId, colour);
+        s->on.setWantsKeyboardFocus (false); // clicking EQ controls mustn't take the keys off the game
         addAndMakeVisible (s->on);
         s->onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, DoomEQProcessor::pid (b, "on"), s->on);
 
         for (int t = 0; t < eq::numTypes; ++t)
             s->type.addItem (eq::typeNames[t], t + 1);
+        s->type.setWantsKeyboardFocus (false);
         addAndMakeVisible (s->type);
         s->typeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (proc.apvts, DoomEQProcessor::pid (b, "type"), s->type);
+        s->type.onUserPick = [this, b] (int oldIndex, int newIndex)
+        {
+            // Picked by hand: a bell or shelf becoming a cut starts as a flat Butterworth.
+            if (eq::usesGain ((eq::Type) oldIndex) && eq::isCut ((eq::Type) newIndex))
+                if (auto* q = proc.apvts.getParameter (DoomEQProcessor::pid (b, "q")))
+                {
+                    q->beginChangeGesture();
+                    q->setValueNotifyingHost (q->convertTo0to1 (butterworthQ));
+                    q->endChangeGesture();
+                }
+        };
 
         auto setupKnob = [&] (juce::Slider& k, juce::Label& label, const char* text, const char* id,
                               std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>& att)
@@ -972,6 +1454,7 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
         };
 
         setupKnob (s->freq, s->freqLabel, "FREQ", "freq", s->freqAttachment);
+        s->freq.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 92, 18); // room for "88.8HZ" at 1.5x
         setupKnob (s->gain, s->gainLabel, "GAIN", "gain", s->gainAttachment);
         setupKnob (s->q, s->qLabel, "Q", "q", s->qAttachment);
 
@@ -987,15 +1470,39 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
             return (v > 0.0 ? "+" : "") + juce::String (v, 1);
         };
         s->q.textFromValueFunction = [] (double v) { return juce::String (v, 2); };
+
+        // Typed values: "2.5k", "2500", "250hz" all work.
+        s->freq.valueFromTextFunction = [] (const juce::String& text)
+        {
+            const auto t = text.trim().toLowerCase();
+            double v = t.getDoubleValue();
+            if (t.containsChar ('k'))
+                v *= 1000.0;
+            return v;
+        };
+        s->gain.valueFromTextFunction = [] (const juce::String& text) { return text.trim().getDoubleValue(); };
+        s->q.valueFromTextFunction    = [] (const juce::String& text) { return text.trim().getDoubleValue(); };
+
         for (auto* k : { &s->freq, &s->gain, &s->q })
             k->updateText();
+
+        for (auto [slider, id] : { std::pair<juce::Slider*, const char*> { &s->freq, "freq" }, { &s->q, "q" } })
+            if (auto* prm = proc.apvts.getParameter (DoomEQProcessor::pid (b, id)))
+                slider->setDoubleClickReturnValue (true, (double) prm->convertFrom0to1 (prm->getDefaultValue()));
+
+        const juce::String knobTip = " Double-click to reset, click the number to type a value.";
+        s->on.setTooltip ("Turn band " + juce::String (b + 1) + " on or off.");
+        s->type.setTooltip ("Filter shape: bell, shelf, or a low/high cut at 12, 24 or 48 dB per octave.");
+        s->freq.setTooltip ("Frequency." + knobTip);
+        s->gain.setTooltip ("Boost or cut, in dB (not used by the cut filters)." + knobTip);
+        s->q.setTooltip ("Q: higher is narrower. On shelves and cuts it adds a resonant bump." + knobTip);
         s->gain.setDoubleClickReturnValue (true, 0.0);
 
         strips[(size_t) b] = std::move (s);
     }
 
     output.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    output.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 18);
+    output.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 100, 18);
     output.setColour (juce::Slider::rotarySliderFillColourId, Palette::doomRed);
     output.setDoubleClickReturnValue (true, 0.0);
     styleValueBox (output);
@@ -1034,10 +1541,10 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
     overlaySlider.setTextValueSuffix ("%");
     overlaySlider.setPopupDisplayEnabled (true, true, this);
     overlaySlider.setDoubleClickReturnValue (true, 70.0);
-    overlaySlider.setValue ((double) proc.apvts.state.getProperty ("overlay", 70.0), juce::dontSendNotification);
+    overlaySlider.setValue (proc.getOverlay(), juce::dontSendNotification);
     overlaySlider.onValueChange = [this]
     {
-        proc.apvts.state.setProperty ("overlay", overlaySlider.getValue(), nullptr);
+        proc.setOverlay ((float) overlaySlider.getValue());
         display.setOverlayOpacity ((float) overlaySlider.getValue() / 100.0f);
     };
     display.setOverlayOpacity ((float) overlaySlider.getValue() / 100.0f);
@@ -1047,6 +1554,39 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
     commandButton.onClick = [this] { setCommandMode (! display.isInCommand()); };
     addAndMakeVisible (commandButton);
 
+    helpButton.setButtonText ("?");
+    helpButton.onClick = [this]
+    {
+        if (display.isInCommand())
+            setCommandMode (false);
+        display.setHelpVisible (! display.isHelpVisible());
+    };
+    addAndMakeVisible (helpButton);
+
+    bypass.setButtonText ("BYPASS");
+    bypass.setColour (juce::ToggleButton::tickColourId, Palette::doomRed);
+    addAndMakeVisible (bypass);
+    bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "eq_bypass", bypass);
+
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &doomSound, &bypass, &commandButton, &helpButton })
+        c->setWantsKeyboardFocus (false);
+
+    // Clicking an EQ control while playing must not move the keyboard off the game (that would
+    // pause it). Typing into a value box still takes the keys, on purpose.
+    for (auto& st : strips)
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &st->on, &st->type, &st->freq, &st->gain, &st->q })
+            c->setMouseClickGrabsKeyboardFocus (false);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &output, &doomLevel, &overlaySlider, &doomSound, &bypass })
+        c->setMouseClickGrabsKeyboardFocus (false);
+
+    output.setTooltip ("Output level after the EQ. Double-click to reset.");
+    bypass.setTooltip ("Hear the signal without the EQ. DOOM's sound still plays.");
+    doomSound.setTooltip ("Feed DOOM's sound effects and music into the EQ. Only one DOOM EQ can play them at a time.");
+    doomLevel.setTooltip ("How loud DOOM comes in, before the EQ.");
+    overlaySlider.setTooltip ("Fade the EQ curve and analyser over the game. At 0% the nodes still appear under the mouse.");
+    commandButton.setTooltip ("Give the keyboard to DOOM (` key). Press ` again to hand it back; your game pauses until you return.");
+    helpButton.setTooltip ("Show the controls (F1).");
+
     // HUD art
     skull[0] = art->patch ("M_SKULL1");
     skull[1] = art->patch ("M_SKULL2");
@@ -1055,19 +1595,49 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
             faces[hurt][look] = art->patch ("STFST" + juce::String (hurt) + juce::String (look));
     ouch = art->patch ("STFOUCH0");
 
-    glContext.setComponentPaintingEnabled (true);
-    glContext.attachTo (*this);
 
     setResizable (true, true);
-    setResizeLimits (1000, 760, 2600, 1800);
-    setSize (1200, 880);
+    setResizeLimits (minWidth, minHeight, 2600, 1800);
+
+    auto [w, h] = proc.getEditorSize();
+    const bool saved = w > 0 && h > 0;
+    if (! saved)
+    {
+        w = 1200;
+        h = 880;
+    }
+    if (const auto* screen = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+    {
+        // Leave room for the host's own window chrome, and never open bigger than the screen.
+        const int maxW = juce::jmax (minWidth, screen->userArea.getWidth() - 60);
+        const int maxH = juce::jmax (minHeight, screen->userArea.getHeight() - 120);
+        if (! saved && (screen->userArea.getHeight() < 1000 || screen->userArea.getWidth() < 1300))
+        {
+            w = 1040;
+            h = 760;
+        }
+        w = juce::jmin (w, maxW);
+        h = juce::jmin (h, maxH);
+    }
+    setupPresetBar();
+
+    setSize (juce::jlimit (minWidth, 2600, w), juce::jlimit (minHeight, 1800, h));
+    sizeRestored = true;
     startTimerHz (35);
+    startUpdateCheckWhenShown();
 }
 
 DoomEQEditor::~DoomEQEditor()
 {
+    // Nothing the editor opened may outlive it: the update check first (so its callback can't
+    // run), then the popups, any open menu (it uses our LookAndFeel), and the dialog.
+    updateCheck.reset();
+    updatePopup.reset();
+    about.reset();
+    juce::PopupMenu::dismissAllActiveMenus();
+    dialog.reset();
     stopTimer();
-    glContext.detach();
+    tooltips.hideTip();
     setLookAndFeel (nullptr);
 }
 
@@ -1075,29 +1645,448 @@ void DoomEQEditor::setCommandMode (bool inCommand)
 {
     display.setCommandMode (inCommand);
     commandButton.setToggleState (inCommand, juce::dontSendNotification);
-    commandButton.setButtonText (inCommand ? "LEAVE  SHIFT+ESC" : "TAKE COMMAND  `");
+    commandButton.setButtonText (inCommand ? "LEAVE COMMAND  `" : "TAKE COMMAND  `");
     if (! inCommand)
         grabKeyboardFocus();
 }
 
 bool DoomEQEditor::keyPressed (const juce::KeyPress& key)
 {
+    if (dialog != nullptr || about != nullptr || updatePopup != nullptr)
+        return false; // they handle their own keys
+
+    if (key.getKeyCode() == juce::KeyPress::F1Key)
+    {
+        display.setHelpVisible (! display.isHelpVisible());
+        return true;
+    }
+
     if (EqDisplay::isTakeCommandKey (key))
     {
         setCommandMode (! display.isInCommand());
         return true;
     }
-    if (EqDisplay::isLeaveCommandKey (key) && display.isInCommand())
-    {
-        setCommandMode (false);
-        return true;
-    }
     return false;
 }
 
-void DoomEQEditor::mouseDown (const juce::MouseEvent&)
+void DoomEQEditor::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
+
+    const auto p = e.getPosition();
+    if (titleClickArea.contains (p))
+        showAbout();
+    else if (siteLinkArea.contains (p))
+        juce::URL ("https://sweetjusticesound.com").launchInDefaultBrowser();
+}
+
+void DoomEQEditor::mouseMove (const juce::MouseEvent& e)
+{
+    const auto p = e.getPosition();
+    const bool overLink = titleClickArea.contains (p) || siteLinkArea.contains (p);
+    setMouseCursor (overLink ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    setTooltip (titleClickArea.contains (p) ? "About SammyJs DOOM EQ, and check for updates."
+              : siteLinkArea.contains (p)   ? "Open sweetjusticesound.com"
+                                            : juce::String());
+}
+
+void DoomEQEditor::visibilityChanged()
+{
+    juce::AudioProcessorEditor::visibilityChanged();
+    startUpdateCheckWhenShown();
+
+    // Hosts that hand the keyboard to plug-in windows then deliver ` straight away.
+    if (isShowing())
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<DoomEQEditor> (this)]
+                                         {
+                                             if (safe != nullptr && safe->isShowing() && ! safe->display.isInCommand())
+                                                 safe->grabKeyboardFocus();
+                                         });
+}
+
+//==============================================================================
+// Presets: the Sammy J preset bar and menu, drawn DOOM-style.
+//==============================================================================
+void DoomEQEditor::setupPresetBar()
+{
+    presetPrev.setTooltip ("Previous preset");
+    presetPrev.onClick = [this] { proc.getPresetManager().loadPrevious(); updatePresetDisplay(); };
+
+    presetNext.setTooltip ("Next preset");
+    presetNext.onClick = [this] { proc.getPresetManager().loadNext(); updatePresetDisplay(); };
+
+    presetName.setTooltip ("Choose a preset, or save, delete and find your presets. Also: About and updates.");
+    presetName.onClick = [this] { showPresetMenu(); };
+
+    presetSave.setTooltip ("Save the current settings as a preset");
+    presetSave.onClick = [this]
+    {
+        auto& pm = proc.getPresetManager();
+        pm.refresh(); // a preset renamed or removed outside the plug-in is not written back blindly
+        const auto current = pm.getSnapshot();
+
+        // Editing a user preset that is still in the folder: SAVE writes back to its file.
+        if (current.currentIsUser && current.currentIndex >= 0)
+            savePresetAs (current.currentName);
+        else
+            promptSavePreset (current.currentName.equalsIgnoreCase ("Init") ? juce::String() : current.currentName);
+    };
+
+    for (auto* b : { &presetPrev, &presetName, &presetNext, &presetSave })
+    {
+        b->setWantsKeyboardFocus (false);
+        b->setMouseClickGrabsKeyboardFocus (false);
+        addAndMakeVisible (b);
+    }
+
+    proc.getPresetManager().refresh();
+    updatePresetDisplay();
+}
+
+void DoomEQEditor::updatePresetDisplay()
+{
+    const auto& pm = proc.getPresetManager();
+    const bool modified = pm.isModified();
+    const auto text = pm.getCurrentName().toUpperCase() + (modified ? " *" : "");
+
+    if (presetName.getButtonText() != text)
+        presetName.setButtonText (text);
+    if (presetSave.getToggleState() != modified)
+        presetSave.setToggleState (modified, juce::dontSendNotification); // lit while there's something to save
+}
+
+void DoomEQEditor::showPresetMenu()
+{
+    auto& pm = proc.getPresetManager();
+    pm.refresh(); // pick up presets added or removed outside the plug-in
+
+    const auto snapshot = pm.getSnapshot();
+    const auto& list = snapshot.presets;
+    const auto isCurrentFactory = [&snapshot] (int i) { return snapshot.currentIsFactory && i == snapshot.currentIndex; };
+
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&lnf);
+    menu.addSectionHeader ("FACTORY");
+
+    for (int i = 0; i < list.size(); ++i)
+        if (list[i].isFactory && list[i].category.isEmpty())
+            menu.addItem (i + 1, list[i].name, true, isCurrentFactory (i));
+
+    for (const auto& category : PresetManager::getFactoryCategories())
+    {
+        juce::PopupMenu sub;
+        bool containsCurrent = false;
+        for (int i = 0; i < list.size(); ++i)
+        {
+            if (list[i].isFactory && list[i].category == category)
+            {
+                sub.addItem (i + 1, list[i].name, true, isCurrentFactory (i));
+                containsCurrent = containsCurrent || isCurrentFactory (i);
+            }
+        }
+        if (sub.getNumItems() > 0)
+            menu.addSubMenu (category, sub, true, nullptr, containsCurrent);
+    }
+
+    // User presets are told apart by their file (two can share a name; menuName adds the file).
+    juce::Array<juce::File> userFiles;
+    juce::PopupMenu user;
+    bool userContainsCurrent = false;
+    juce::String currentMenuName = snapshot.currentName;
+
+    for (const auto& preset : list)
+    {
+        if (preset.isFactory)
+            continue;
+        const bool isCurrent = snapshot.currentIsUser && preset.file == snapshot.currentFile;
+        user.addItem (firstUserItemId + userFiles.size(), preset.menuName, true, isCurrent);
+        userFiles.add (preset.file);
+        if (isCurrent)
+        {
+            userContainsCurrent = true;
+            currentMenuName = preset.menuName;
+        }
+    }
+
+    menu.addSectionHeader ("USER");
+    if (! userFiles.isEmpty())
+        menu.addSubMenu ("USER PRESETS", user, true, nullptr, userContainsCurrent);
+    else
+        menu.addItem (-1, "(NONE SAVED YET)", false);
+
+    const auto fileToDelete = snapshot.currentIsUser ? snapshot.currentFile : juce::File();
+
+    menu.addSeparator();
+    menu.addItem (saveAsItemId, "SAVE AS...");
+    menu.addItem (deleteItemId, "DELETE \"" + currentMenuName.toUpperCase() + "\"", fileToDelete != juce::File());
+    menu.addItem (revealItemId, "SHOW PRESETS FOLDER");
+    menu.addSeparator();
+    menu.addItem (aboutItemId, "ABOUT DOOM EQ + UPDATES...");
+
+    menu.showMenuAsync (DoomEQLookAndFeel::menuOptionsFor (presetName, presetName.getWidth()),
+                        [safe = juce::Component::SafePointer<DoomEQEditor> (this), userFiles, fileToDelete, nameToDelete = currentMenuName] (int result)
+    {
+        if (safe == nullptr || result == 0)
+            return;
+
+        auto& presetManager = safe->proc.getPresetManager();
+
+        if (result == saveAsItemId)
+            safe->promptSavePreset (presetManager.isCurrentUserPreset() ? presetManager.getCurrentName() : juce::String());
+        else if (result == deleteItemId)
+            safe->confirmDeletePreset (fileToDelete, nameToDelete);
+        else if (result == revealItemId)
+        {
+            const auto dir = PresetManager::getUserPresetDirectory();
+            dir.createDirectory();
+            dir.startAsProcess(); // opens the folder in Finder / Explorer
+        }
+        else if (result == aboutItemId)
+            safe->showAbout();
+        else if (result >= firstUserItemId)
+        {
+            if (const int i = result - firstUserItemId; i < userFiles.size())
+                presetManager.loadUserPreset (userFiles[i]);
+            safe->updatePresetDisplay();
+        }
+        else if (result >= 1 && result <= PresetManager::getNumFactory())
+        {
+            presetManager.loadPreset (result - 1); // factory presets lead the list, in a fixed order
+            safe->updatePresetDisplay();
+        }
+    });
+}
+
+void DoomEQEditor::showDialog (DoomDialogOptions options)
+{
+    if (display.isInCommand())
+        setCommandMode (false); // the dialog needs the keys
+
+    // Wrap the result so the dialog is gone before the next step (which may open another one).
+    auto userResult = std::move (options.onResult);
+    options.onResult = [safe = juce::Component::SafePointer<DoomEQEditor> (this), userResult] (int button, const juce::String& text)
+    {
+        if (safe == nullptr)
+            return;
+        safe->dialog.reset();
+        if (userResult)
+            userResult (button, text); // may open the next dialog
+        if (safe != nullptr && safe->dialog == nullptr)
+            safe->overlayClosed();
+    };
+
+    dialog = std::make_unique<DoomDialog> (*art, tex, std::move (options));
+    addAndMakeVisible (*dialog);
+    dialog->setBounds (getLocalBounds());
+    dialog->toFront (true);
+}
+
+void DoomEQEditor::promptSavePreset (const juce::String& suggestedName)
+{
+    DoomDialogOptions o;
+    o.title = "SAVE PRESET";
+    o.message = "NAME THIS PRESET:";
+    o.withTextEntry = true;
+    o.initialText = suggestedName.toUpperCase();
+    o.buttons = { "SAVE", "CANCEL" };
+    o.onResult = [safe = juce::Component::SafePointer<DoomEQEditor> (this)] (int button, const juce::String& text)
+    {
+        if (safe != nullptr && button == 0 && text.trim().isNotEmpty())
+            safe->checkNameAndSave (text.trim());
+    };
+    showDialog (std::move (o));
+}
+
+void DoomEQEditor::checkNameAndSave (const juce::String& name)
+{
+    auto& pm = proc.getPresetManager();
+
+    if (! PresetManager::isValidPresetName (name))
+    {
+        DoomDialogOptions o;
+        o.title = "CAN'T USE THIS NAME";
+        o.message = "\"" + name.toUpperCase() + "\" HAS NO CHARACTERS A FILE NAME CAN HOLD. PLEASE USE LETTERS OR NUMBERS.";
+        o.buttons = { "OK", "CANCEL" };
+        o.onResult = [safe = juce::Component::SafePointer<DoomEQEditor> (this), name] (int button, const juce::String&)
+        {
+            if (safe != nullptr && button == 0)
+                safe->promptSavePreset (name); // try again, with the name as typed
+        };
+        showDialog (std::move (o));
+        return;
+    }
+
+    if (pm.userPresetExists (name))
+        confirmOverwrite (name, pm.getNameOfPresetSavedAs (name));
+    else
+        savePresetAs (name);
+}
+
+void DoomEQEditor::confirmOverwrite (const juce::String& name, const juce::String& replacedName)
+{
+    DoomDialogOptions o;
+    o.title = "REPLACE PRESET";
+    o.message = replacedName.isEmpty() || replacedName == name
+              ? "A PRESET CALLED \"" + name.toUpperCase() + "\" ALREADY EXISTS. REPLACE IT?"
+              : "SAVING AS \"" + name.toUpperCase() + "\" REPLACES THE PRESET \"" + replacedName.toUpperCase()
+                  + "\" (THE TWO NAMES GIVE THE SAME FILE NAME). REPLACE IT?";
+    o.buttons = { "REPLACE", "CANCEL" };
+    o.onResult = [safe = juce::Component::SafePointer<DoomEQEditor> (this), name, replacedName] (int button, const juce::String&)
+    {
+        if (safe == nullptr || button != 0)
+            return;
+        // The folder may have changed while the question was up: ask again if so.
+        const auto nowReplaced = safe->proc.getPresetManager().getNameOfPresetSavedAs (name);
+        if (nowReplaced.isNotEmpty() && nowReplaced != replacedName)
+            safe->confirmOverwrite (name, nowReplaced);
+        else
+            safe->savePresetAs (name);
+    };
+    showDialog (std::move (o));
+}
+
+void DoomEQEditor::confirmDeletePreset (const juce::File& file, const juce::String& displayName)
+{
+    DoomDialogOptions o;
+    o.title = "DELETE PRESET";
+    o.message = "DELETE \"" + displayName.toUpperCase() + "\"? THIS REMOVES THE PRESET FILE.";
+    o.buttons = { "DELETE", "CANCEL" };
+    o.onResult = [safe = juce::Component::SafePointer<DoomEQEditor> (this), file] (int button, const juce::String&)
+    {
+        if (safe == nullptr || button != 0)
+            return;
+        safe->proc.getPresetManager().deleteUserPreset (file); // exactly the file the dialog named
+        safe->updatePresetDisplay();
+    };
+    showDialog (std::move (o));
+}
+
+void DoomEQEditor::savePresetAs (const juce::String& name)
+{
+    if (! proc.getPresetManager().saveUserPreset (name))
+    {
+        DoomDialogOptions o;
+        o.title = "COULDN'T SAVE PRESET";
+        o.message = "THE PRESET COULD NOT BE WRITTEN TO: " + PresetManager::getUserPresetDirectory().getFullPathName().toUpperCase();
+        o.buttons = { "OK" };
+        showDialog (std::move (o));
+    }
+    updatePresetDisplay();
+}
+
+//==============================================================================
+// About and updates
+//==============================================================================
+void DoomEQEditor::showAbout()
+{
+    if (about != nullptr)
+        return;
+    if (display.isInCommand())
+        setCommandMode (false);
+
+    about = std::make_unique<AboutPanel> (*art, tex, [safe = juce::Component::SafePointer<DoomEQEditor> (this)]
+                                                     {
+                                                         if (safe != nullptr)
+                                                         {
+                                                             safe->about.reset();
+                                                             safe->overlayClosed();
+                                                         }
+                                                     });
+    addAndMakeVisible (*about);
+    about->setBounds (getLocalBounds());
+    about->toFront (true);
+}
+
+void DoomEQEditor::overlayClosed()
+{
+    // An update found while something else was open shows now.
+    if (dialog == nullptr && about == nullptr && pendingUpdate.has_value())
+    {
+        const auto info = *pendingUpdate;
+        pendingUpdate.reset();
+        showUpdatePopup (info);
+        return;
+    }
+
+    // Give the keys back to whatever is on top.
+    for (juce::Component* c : std::initializer_list<juce::Component*> { updatePopup.get(), about.get(), dialog.get() })
+        if (c != nullptr && c->isShowing())
+        {
+            c->grabKeyboardFocus();
+            return;
+        }
+    if (! display.isInCommand() && isShowing())
+        grabKeyboardFocus();
+}
+
+void DoomEQEditor::parentHierarchyChanged()
+{
+    juce::AudioProcessorEditor::parentHierarchyChanged();
+    startUpdateCheckWhenShown();
+}
+
+void DoomEQEditor::startUpdateCheckWhenShown()
+{
+    // Once per editor, only when it's on screen in a host or the app: an editor that is only
+    // built (a test, a snapshot) never goes online. Never from the processor or audio thread.
+    if (updateCheck != nullptr || ! isShowing() || proc.wrapperType == juce::AudioProcessor::wrapperType_Undefined)
+        return;
+
+    // 0.0.x releases are pre-releases, which the shared check skips: update notices start with
+    // the first full release. (About's CHECK FOR UPDATES also sees test builds.)
+    updateCheck = std::make_unique<sammyj::UpdateCheck> ("doomeq", "doomeq-v", JucePlugin_VersionString,
+                                                          [this] (const sammyj::UpdateInfo& info) { showUpdatePopup (info); });
+}
+
+void DoomEQEditor::showUpdatePopup (const sammyj::UpdateInfo& info)
+{
+    if (updatePopup != nullptr)
+        return;
+    if (dialog != nullptr || about != nullptr)
+    {
+        pendingUpdate = info; // don't steal the keys from a dialog in use; show it when that closes
+        return;
+    }
+    if (display.isInCommand())
+        setCommandMode (false);
+
+    updatePopup = std::make_unique<UpdatePopup> (*art, tex, info, [safe = juce::Component::SafePointer<DoomEQEditor> (this)]
+                                                                  {
+                                                                      if (safe != nullptr)
+                                                                      {
+                                                                          safe->updatePopup.reset();
+                                                                          safe->overlayClosed();
+                                                                      }
+                                                                  });
+    addAndMakeVisible (*updatePopup);
+    updatePopup->setBounds (getLocalBounds());
+    updatePopup->toFront (true);
+}
+
+void DoomEQEditor::fixValueBoxScales()
+{
+    // One text size per value box, picked from the widest value it can show, so the digits
+    // don't jump between sizes as the value changes.
+    auto apply = [this] (juce::Slider& sl, const char* widest)
+    {
+        const float inner = (float) juce::jmin (sl.getTextBoxWidth(), sl.getWidth()) - 6.0f;
+        float sc = 2.0f;
+        while (sc > 1.0f && (float) art->font().widthOf (widest) * sc > inner)
+            sc -= 0.5f;
+        if (! sl.getProperties().contains ("valueScale") || ! juce::exactlyEqual ((float) sl.getProperties()["valueScale"], sc))
+        {
+            sl.getProperties().set ("valueScale", sc);
+            sl.repaint();
+        }
+    };
+
+    for (auto& s : strips)
+    {
+        apply (s->freq, "88.8HZ");
+        apply (s->gain, "-18.0");
+        apply (s->q, "10.00");
+    }
+    apply (output, "-18.0 DB");
 }
 
 void DoomEQEditor::timerCallback()
@@ -1105,21 +2094,45 @@ void DoomEQEditor::timerCallback()
     display.tick();
 
 
+
     for (int b = 0; b < DoomEQProcessor::numBands; ++b)
     {
         auto& s = *strips[(size_t) b];
         const auto t = (eq::Type) s.type.getSelectedItemIndex();
-        s.gain.setEnabled (eq::usesGain (t));
+        if (s.gain.isEnabled() != eq::usesGain (t))
+            s.gain.setEnabled (eq::usesGain (t));
+    }
+
+    updatePresetDisplay();
+
+    // A session or preset restored with the window open brings its own overlay amount.
+    if (! overlaySlider.isMouseButtonDown() && std::abs (proc.getOverlay() - (float) overlaySlider.getValue()) > 0.5f)
+    {
+        overlaySlider.setValue (proc.getOverlay(), juce::dontSendNotification);
+        display.setOverlayOpacity (proc.getOverlay() / 100.0f);
     }
 
     ++frameCount;
+
+    // Another DOOM EQ already has the game's sound: say so on the button.
+    if (frameCount % 12 == 0)
+    {
+        const bool elsewhere = doomSound.getToggleState() && proc.doomAudioUsedElsewhere();
+        const juce::String text = elsewhere ? "SOUND: OTHER EQ" : "DOOM SOUND";
+        if (doomSound.getButtonText() != text)
+            doomSound.setButtonText (text);
+    }
 
     // Skull cursor blinks like the menu one.
     if (frameCount % 8 == 0)
         repaint (skullArea);
 
-    // The marine reacts to your output level.
-    const float db = juce::Decibels::gainToDecibels (proc.getOutputPeak(), -100.0f);
+    // The marine reacts to your output level. If the host has stopped sending audio, the
+    // processor's meter is frozen, so let the face calm down here.
+    const auto blocks = proc.getBlockCount();
+    facePeak = blocks != lastBlockCount ? proc.getOutputPeak() : facePeak * 0.85f;
+    lastBlockCount = blocks;
+    const float db = juce::Decibels::gainToDecibels (facePeak, -100.0f);
     const int hurt = db < -30.0f ? 0 : db < -18.0f ? 1 : db < -9.0f ? 2 : db < -3.0f ? 3 : 4;
     const bool clip = db > -0.1f;
     if (--nextLookChange <= 0)
@@ -1136,8 +2149,15 @@ void DoomEQEditor::timerCallback()
     }
 }
 
-void DoomEQEditor::paint (juce::Graphics& g)
+void DoomEQEditor::rebuildChrome (float scale)
 {
+    chromeScale = scale;
+    siteLinkArea = {};
+    chrome = juce::Image (juce::Image::RGB, juce::jmax (1, juce::roundToInt ((float) getWidth() * scale)),
+                          juce::jmax (1, juce::roundToInt ((float) getHeight() * scale)), false);
+    juce::Graphics g (chrome);
+    g.addTransform (juce::AffineTransform::scale (scale));
+
     const auto bounds = getLocalBounds();
     DoomStyle::fillTextured (g, bounds.toFloat(), tex.background, 2.0f, 0.42f);
 
@@ -1149,19 +2169,42 @@ void DoomEQEditor::paint (juce::Graphics& g)
         DoomStyle::bevel (g, headerArea.expanded (12, 12).withTop (0).withTrimmedBottom (8), 2, Palette::bevelLight.withAlpha (0.5f), Palette::bevelDark);
     }
 
-    // Blinking skull + title.
-    const auto& sk = skull[(frameCount / 8) % 2];
-    if (sk.isValid())
     {
-        juce::Graphics::ScopedSaveState ss (g);
-        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
-        g.drawImage (sk, skullArea.toFloat(), juce::RectanglePlacement::centred);
+        const auto& f = art->font();
+        const int wd = f.widthOf ("DOOM"), gap = 4, we = f.widthOf ("EQ");
+        float sc = 4.0f;
+        while (sc > 1.0f && (float) (wd + gap + we) * sc > (float) titleArea.getWidth())
+            sc -= 1.0f;
+        const float x = (float) titleArea.getX(), y = (float) titleArea.getCentreY() - (float) f.height * sc * 0.5f;
+        f.draw (g, "DOOM", x, y, sc, Palette::doomRed);
+        f.draw (g, "EQ", x + (float) (wd + gap) * sc, y, sc, Palette::hudYellow);
+
+        // The family kicker, then the website, as space allows.
+        float used = (float) (wd + gap + we) * sc + 18.0f;
+        const juce::String kicker = "SAMMYJS  /  6 BAND PARAMETRIC  /";
+        const float kickerW = (float) f.widthOf (kicker) * 1.5f;
+        if ((float) titleArea.getWidth() - used >= kickerW)
+        {
+            f.draw (g, kicker, (float) titleArea.getX() + used, (float) titleArea.getCentreY() - (float) f.height * 0.75f, 1.5f, Palette::textDim);
+            used += kickerW + 12.0f;
+            const juce::String site = "SWEETJUSTICESOUND.COM";
+            if ((float) titleArea.getWidth() - used >= (float) f.widthOf (site) * 1.5f)
+            {
+                f.draw (g, site, (float) titleArea.getX() + used, (float) titleArea.getCentreY() - (float) f.height * 0.75f, 1.5f, Palette::gold.withAlpha (0.75f));
+                siteLinkArea = juce::Rectangle<float> ((float) titleArea.getX() + used, (float) titleArea.getY(),
+                                                       (float) f.widthOf (site) * 1.5f, (float) titleArea.getHeight()).toNearestInt();
+            }
+        }
+        titleClickArea = juce::Rectangle<int> (skullArea.getX(), titleArea.getY(),
+                                               titleArea.getX() + (int) ((float) (wd + gap + we) * sc) - skullArea.getX(), titleArea.getHeight());
     }
-    art->font().drawFitted (g, "DOOM", titleArea.toFloat().withWidth (150.0f), juce::Justification::centredLeft, Palette::doomRed, 4.0f);
-    art->font().drawFitted (g, "EQ", titleArea.toFloat().withTrimmedLeft (150.0f).withWidth (80.0f), juce::Justification::centredLeft, Palette::hudYellow, 4.0f);
-    if (titleArea.getWidth() > 420)
-        art->font().drawFitted (g, "6 BAND PARAMETRIC", titleArea.toFloat().withTrimmedLeft (236.0f),
-                                juce::Justification::centredLeft, Palette::textDim, 1.5f);
+
+    // The DOOM control row: a recessed strip above the screen.
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRect (controlRow);
+        DoomStyle::bevel (g, controlRow, 2, Palette::bevelDark, Palette::bevelLight.withAlpha (0.45f));
+    }
 
     // Band panels
     for (int b = 0; b < DoomEQProcessor::numBands; ++b)
@@ -1189,7 +2232,32 @@ void DoomEQEditor::paint (juce::Graphics& g)
         g.setColour (juce::Colours::black);
         g.fillRect (faceArea);
         DoomStyle::bevel (g, faceArea, 2, Palette::bevelDark, Palette::bevelLight.withAlpha (0.5f));
+    }
+}
 
+void DoomEQEditor::paint (juce::Graphics& g)
+{
+    const float scale = (float) g.getInternalContext().getPhysicalPixelScaleFactor();
+    if (! chrome.isValid() || chromeScale != scale)
+        rebuildChrome (scale);
+
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+        g.drawImage (chrome, getLocalBounds().toFloat());
+    }
+
+    // Blinking skull.
+    const auto& sk = skull[(frameCount / 8) % 2];
+    if (sk.isValid())
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+        g.drawImage (sk, skullArea.toFloat(), juce::RectanglePlacement::centred);
+    }
+
+    // The face.
+    {
         const auto& face = faceOuch && ouch.isValid() ? ouch : faces[faceHurt][faceLook];
         if (face.isValid())
         {
@@ -1204,26 +2272,41 @@ void DoomEQEditor::resized()
 {
     auto area = getLocalBounds().reduced (12);
 
+    // Row 1, the Sammy J header: skull, title (opens About), kicker, presets, help.
     headerArea = area.removeFromTop (headerHeight - 12);
     {
         auto h = headerArea;
         skullArea = h.removeFromLeft (44);
         h.removeFromLeft (8);
 
-        commandButton.setBounds (h.removeFromRight (210).reduced (0, 4));
-        h.removeFromRight (14);
-        overlaySlider.setBounds (h.removeFromRight (120).reduced (0, 4));
-        overlayLabel.setBounds (h.removeFromRight (100).reduced (0, 6));
-        h.removeFromRight (14);
-        doomLevel.setBounds (h.removeFromRight (110).reduced (0, 4));
-        doomLevelLabel.setBounds (h.removeFromRight (70).reduced (0, 6));
+        helpButton.setBounds (h.removeFromRight (30).reduced (0, 4));
         h.removeFromRight (8);
-        doomSound.setBounds (h.removeFromRight (170).reduced (0, 4));
+        presetSave.setBounds (h.removeFromRight (70).reduced (0, 4));
         h.removeFromRight (8);
+        presetNext.setBounds (h.removeFromRight (30).reduced (0, 4));
+        h.removeFromRight (4);
+        presetName.setBounds (h.removeFromRight (juce::jlimit (180, 320, h.getWidth() - 300)).reduced (0, 4));
+        h.removeFromRight (4);
+        presetPrev.setBounds (h.removeFromRight (30).reduced (0, 4));
+        h.removeFromRight (16);
         titleArea = h;
     }
 
+    // Row 2, the DOOM controls, just above the screen.
     area.removeFromTop (20);
+    controlRow = area.removeFromTop (controlRowHeight);
+    {
+        auto c = controlRow.reduced (6, 3);
+        doomSound.setBounds (c.removeFromLeft (170));
+        c.removeFromLeft (14);
+        doomLevelLabel.setBounds (c.removeFromLeft (70).reduced (0, 3));
+        doomLevel.setBounds (c.removeFromLeft (120));
+        c.removeFromLeft (14);
+        overlayLabel.setBounds (c.removeFromLeft (100).reduced (0, 3));
+        overlaySlider.setBounds (c.removeFromLeft (140));
+        commandButton.setBounds (c.removeFromRight (220));
+    }
+    area.removeFromTop (8);
     stripsArea = area.removeFromBottom (stripsHeight);
     area.removeFromBottom (10);
     display.setBounds (area);
@@ -1260,6 +2343,18 @@ void DoomEQEditor::resized()
     outputLabel.setBounds (o.removeFromTop (20));
     o.removeFromTop (4);
     faceArea = o.removeFromTop (76).withSizeKeepingCentre (64, 76);
-    o.removeFromTop (8);
+    o.removeFromTop (6);
+    bypass.setBounds (o.removeFromBottom (26));
+    o.removeFromBottom (6);
     output.setBounds (o);
+
+    if (sizeRestored)
+        proc.setEditorSize (getWidth(), getHeight());
+
+    for (juce::Component* overlay : std::initializer_list<juce::Component*> { dialog.get(), about.get(), updatePopup.get() })
+        if (overlay != nullptr)
+            overlay->setBounds (getLocalBounds());
+
+    chrome = {}; // rebuilt at the next paint
+    fixValueBoxScales();
 }

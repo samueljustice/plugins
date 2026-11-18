@@ -1,62 +1,15 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <optional>
 #include "PluginProcessor.h"
 #include "DoomEngine.h"
 #include "WadArt.h"
 
-namespace Palette
-{
-    inline const juce::Colour background  { 0xff100e0c };
-    inline const juce::Colour text        { 0xffe8dcc0 };
-    inline const juce::Colour textDim     { 0xffa89870 };
-    inline const juce::Colour gold        { 0xffe8b84a };
-    inline const juce::Colour hudYellow   { 0xfff4d442 };
-    inline const juce::Colour doomRed     { 0xffd22a1c };
-    inline const juce::Colour bevelLight  { 0xffa49c8a };
-    inline const juce::Colour bevelDark   { 0xff181512 };
+#include "DoomLook.h"
+#include "DoomOverlays.h"
 
-    inline const juce::Colour bands[DoomEQProcessor::numBands] = {
-        juce::Colour (0xffe8503c), juce::Colour (0xfff09030), juce::Colour (0xffeed040),
-        juce::Colour (0xff70cc58), juce::Colour (0xff4cb4e0), juce::Colour (0xffb078e8)
-    };
-}
-
-/** The textures every part of the UI shares, cut from the IWAD once. */
-struct Textures
-{
-    explicit Textures (const WadArt&);
-    juce::Image background, panel, plate, hellish, hazard, groove;
-};
-
-class DoomEQLookAndFeel : public juce::LookAndFeel_V4
-{
-public:
-    DoomEQLookAndFeel (const WadArt&, const Textures&);
-
-    void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos,
-                           float startAngle, float endAngle, juce::Slider&) override;
-    void drawLinearSlider (juce::Graphics&, int x, int y, int w, int h, float pos, float minPos, float maxPos,
-                           juce::Slider::SliderStyle, juce::Slider&) override;
-    void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool highlighted, bool down) override;
-    void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool highlighted, bool down) override;
-    void drawButtonText (juce::Graphics&, juce::TextButton&, bool highlighted, bool down) override;
-    void drawComboBox (juce::Graphics&, int w, int h, bool down, int bx, int by, int bw, int bh, juce::ComboBox&) override;
-    void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
-    void drawLabel (juce::Graphics&, juce::Label&) override;
-    juce::Label* createSliderTextBox (juce::Slider&) override;
-
-    void drawPopupMenuBackground (juce::Graphics&, int w, int h) override;
-    void drawPopupMenuItem (juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
-                            bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text,
-                            const juce::String& shortcutKeyText, const juce::Drawable* icon, const juce::Colour* textColour) override;
-    void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardMenuItemHeight,
-                                    int& idealWidth, int& idealHeight) override;
-
-private:
-    const WadArt& art;
-    const Textures& tex;
-};
+namespace sammyj { class UpdateCheck; struct UpdateInfo; }
 
 //==============================================================================
 /** The big screen: DOOM, with the analyser and EQ curve laid over it. */
@@ -64,12 +17,19 @@ class EqDisplay : public juce::Component
 {
 public:
     EqDisplay (DoomEQProcessor&, const WadArt&, const Textures&);
+    ~EqDisplay() override;
+
+    /** Sets a band's type the way a user would: a bell or shelf becoming a cut starts flat. */
+    void setBandType (int band, int newType);
 
     void setCommandMode (bool inCommand);
     bool isInCommand() const { return commandMode; }
     std::function<void (bool)> onCommandChange;
 
     void setOverlayOpacity (float);
+
+    void setHelpVisible (bool);
+    bool isHelpVisible() const { return showHelp; }
 
     /** Called from the editor's timer. */
     void tick();
@@ -89,9 +49,9 @@ public:
     bool keyStateChanged (bool isKeyDown) override;
     void modifierKeysChanged (const juce::ModifierKeys&) override;
     void focusLost (FocusChangeType) override;
+    void focusGained (FocusChangeType) override;
 
     static bool isTakeCommandKey (const juce::KeyPress&);
-    static bool isLeaveCommandKey (const juce::KeyPress&);
 
 private:
     struct BandView
@@ -102,7 +62,7 @@ private:
         eq::BandCoeffs coeffs;
     };
 
-    void readBands();
+    bool readBands();
     juce::Point<float> handlePosition (int band) const;
     int hitTestHandle (juce::Point<float>) const;
     float xForFreq (float f) const;
@@ -111,8 +71,12 @@ private:
     float dbForY (float y) const;
     juce::RangedAudioParameter* param (int band, const char* name) const;
     void setParam (int band, const char* name, float value);
+    void setParamGesture (int band, const char* name, float value);
+    void endDragGestures();
+    void syncModifiers (const juce::ModifierKeys&);
+    juce::String currentHint() const;
     void releaseAllKeys();
-    void updateAnalyser();
+    bool updateAnalyser();
     juce::Rectangle<float> doomArea() const;
     void rebuildBackdrop();
 
@@ -120,6 +84,8 @@ private:
     void paintSpectrum (juce::Graphics&, juce::Rectangle<float>);
     void paintCurves (juce::Graphics&, juce::Rectangle<float>);
     void paintHandles (juce::Graphics&);
+    void paintHelp (juce::Graphics&, juce::Rectangle<float>);
+    void updateLayers (float scale);
 
     DoomEQProcessor& proc;
     const WadArt& art;
@@ -130,6 +96,23 @@ private:
     bool commandMode = false;
     float overlay = 0.7f;
     int hoverBand = -1, dragBand = -1;
+    juce::Point<float> dragVirtual, dragLast;
+    bool showHelp = false;
+    bool needsFullRepaint = true;
+    juce::String lastHint;
+    int lastEngineState = -1;
+    int ticksWithoutAudio = 0;
+    bool spectrumWasVisible = false;
+
+    std::vector<int> binColumn;
+    std::vector<float> binTilt, columns;
+    int spectrumTableWidth = 0;
+    double spectrumTableRate = 0.0;
+
+    // The grid and the curves only change when something is edited, so they are drawn once
+    // into images (at the screen's pixel scale) and reused every frame.
+    juce::Image gridLayer, curveLayer;
+    uint64_t gridLayerKey = 0, curveLayerKey = 0;
 
     juce::Image doomFrame { juce::Image::ARGB, DoomEngine::width, DoomEngine::height, true };
     uint32_t doomSerial = 0;
@@ -151,7 +134,7 @@ private:
 };
 
 //==============================================================================
-class DoomEQEditor : public juce::AudioProcessorEditor, private juce::Timer
+class DoomEQEditor : public juce::AudioProcessorEditor, public juce::SettableTooltipClient, private juce::Timer
 {
 public:
     explicit DoomEQEditor (DoomEQProcessor&);
@@ -161,15 +144,38 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void visibilityChanged() override;
+    void parentHierarchyChanged() override;
 
 private:
+    // Presets (the Sammy J preset bar: < NAME > SAVE, and its menu)
+    void setupPresetBar();
+    void updatePresetDisplay();
+    void showPresetMenu();
+    void promptSavePreset (const juce::String& suggestedName);
+    void checkNameAndSave (const juce::String& name);
+    void confirmOverwrite (const juce::String& name, const juce::String& replacedName);
+    void confirmDeletePreset (const juce::File& file, const juce::String& displayName);
+    void savePresetAs (const juce::String& name);
+    void showDialog (DoomDialogOptions options);
+
+    // About and updates
+    void showAbout();
+    void startUpdateCheckWhenShown();
+    void showUpdatePopup (const sammyj::UpdateInfo& info);
+    void overlayClosed();
+    std::optional<sammyj::UpdateInfo> pendingUpdate; // found while a dialog or About was open
+
+    void rebuildChrome (float scale);
+    void fixValueBoxScales();
     void timerCallback() override;
     void setCommandMode (bool);
 
     struct Strip
     {
         juce::ToggleButton on;
-        juce::ComboBox type;
+        TypeCombo type;
         juce::Slider freq, gain, q;
         juce::Label freqLabel, gainLabel, qLabel;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> onAttachment;
@@ -183,7 +189,6 @@ private:
     Textures tex;
     DoomEQLookAndFeel lnf;
     juce::SharedResourcePointer<DoomEngine> doom;
-    juce::OpenGLContext glContext;
 
     EqDisplay display;
     std::array<std::unique_ptr<Strip>, DoomEQProcessor::numBands> strips;
@@ -197,13 +202,31 @@ private:
     juce::Slider doomLevel, overlaySlider;
     juce::Label doomLevelLabel, overlayLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> doomLevelAttachment;
-    juce::TextButton commandButton;
+    juce::TextButton commandButton, helpButton;
+    juce::TextButton presetPrev { "<" }, presetName, presetNext { ">" }, presetSave { "SAVE" };
+    juce::ToggleButton bypass;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
+    juce::TooltipWindow tooltips { this, 600 };
 
     juce::Image skull[2], faces[5][3], ouch;
     int frameCount = 0, faceLook = 1, faceHurt = 0, nextLookChange = 30;
     bool faceOuch = false;
+    bool sizeRestored = false;
+    float facePeak = 0.0f;
+    uint32_t lastBlockCount = 0;
 
-    juce::Rectangle<int> headerArea, titleArea, skullArea, stripsArea, outputArea, faceArea;
+    // Everything static (textures, panels, rivets, title) drawn once at the screen's pixel scale.
+    juce::Image chrome;
+    float chromeScale = 0.0f;
+
+    // Declared last: destroyed first (the destructor also resets them in a set order).
+    std::unique_ptr<DoomDialog> dialog;
+    std::unique_ptr<AboutPanel> about;
+    std::unique_ptr<UpdatePopup> updatePopup;
+    std::unique_ptr<sammyj::UpdateCheck> updateCheck;
+
+    juce::Rectangle<int> titleClickArea, siteLinkArea;
+    juce::Rectangle<int> headerArea, controlRow, titleArea, skullArea, stripsArea, outputArea, faceArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DoomEQEditor)
 };

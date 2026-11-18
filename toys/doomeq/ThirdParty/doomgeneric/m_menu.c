@@ -1140,7 +1140,9 @@ void M_QuitResponse(int key)
 	    S_StartSound(NULL,quitsounds[(gametic>>2)&7]);
 	I_WaitVBL(105);
     }
-    I_Quit ();
+    /* DOOM EQ: quitting can't end the host, so it goes back to the title screen. */
+    M_ClearMenus ();
+    D_StartTitle ();
 }
 
 

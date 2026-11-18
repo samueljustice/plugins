@@ -276,14 +276,18 @@ static void UpdateShiftStatus(int pressed, unsigned char key)
 }
 
 
+/* DOOM EQ: the host sends the typed character with each key, so an aliased key (W as
+   "up", F as "fire") still types its letter into cheats and savegame names. */
+int DG_GetKeyEx(int* pressed, unsigned char* key, unsigned char* typed);
+
 void I_GetEvent(void)
 {
     event_t event;
     int pressed;
-    unsigned char key;
+    unsigned char key, typed;
 
     
-	while (DG_GetKey(&pressed, &key))
+	while (DG_GetKeyEx(&pressed, &key, &typed))
     {
         UpdateShiftStatus(pressed, key);
 
@@ -295,7 +299,7 @@ void I_GetEvent(void)
             // (shift-translated, etc)
             event.type = ev_keydown;
             event.data1 = TranslateKey(key);
-            event.data2 = GetTypedChar(key);
+            event.data2 = GetTypedChar(typed);
 
             if (event.data1 != 0)
             {

@@ -11,6 +11,9 @@
  */
 namespace DoomAudio
 {
+    /** Creates the shared mixer. Call from a non-audio thread before any render. */
+    void init();
+
     /** Adds DOOM's audio into left/right. Returns false if another instance owns the stream. */
     bool render (const void* owner, float* left, float* right, int numSamples, double sampleRate);
 
@@ -19,6 +22,9 @@ namespace DoomAudio
 
     /** True when this instance currently owns the stream. */
     bool isOwner (const void* owner);
+
+    /** True when a different instance owns the stream. */
+    bool isOwnedByAnother (const void* owner);
 
     /** Set by the engine: music only advances while the game is ticking. */
     void setGameRunning (bool running);
