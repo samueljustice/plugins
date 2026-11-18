@@ -198,6 +198,12 @@ Made mostly for cars and other engines: it follows the pitch of an engine, and a
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/subbertone/)
 
+## Toys
+
+Small things made for fun, not to be taken seriously. They aren't in the installer; each has its own download.
+
+- **[DOOM EQ](toys/doomeq)**: a six-band EQ whose display runs DOOM, which you can play and EQ.
+
 ## For developers
 
 <details>
