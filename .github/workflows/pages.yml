@@ -2,13 +2,16 @@ name: Pages
 
 # Publishes the root README as the project's website (samueljustice.github.io/plugins), so visitors see the
 # landing page first instead of the repository's file list. GitHub renders the README (same as on the repo
-# page) and .github/pages/build.py wraps it. Runs when the README changes, and after the installer workflow
+# page) and .github/pages/build.py wraps it; .github/pages/manuals.py does the same for each plug-in's own
+# README, as its manual page (/plugins/<id>/). Runs when a README changes, and after the installer workflow
 # (whose README update is pushed by the bot, which doesn't trigger push workflows).
 on:
   push:
     branches: [main]
     paths:
       - README.md
+      - '*/README.md'
+      - bundle/plugins.txt
       - .github/pages/**
       - .github/workflows/pages.yml
   workflow_run:
@@ -38,6 +41,8 @@ jobs:
       run: |
         gh api markdown -f mode=markdown -f text="$(cat README.md)" > "$RUNNER_TEMP/readme.html"
         python3 .github/pages/build.py "$RUNNER_TEMP/readme.html" site "$GITHUB_REPOSITORY"
+        # Each plug-in's manual, from its own README, dressed like the plug-in: site/<id>/.
+        python3 .github/pages/manuals.py site "$GITHUB_REPOSITORY"
         # Extra pages that are not built from the README (for example a page for testers, reached only by its link).
         if [ -d .github/pages/static ]; then cp -R .github/pages/static/. site/; fi
     - uses: actions/configure-pages@v5

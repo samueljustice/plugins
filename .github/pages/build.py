@@ -110,7 +110,10 @@ def entry(number: int, name: str, body: str, group_wip: bool) -> str:
             formats = text_of(first)
             manual = re.search(r'<a[^>]*href="([^"]+)"[^>]*>Read the manual', rest or inner)
             if manual:
-                links = f'<a href="{html.escape(absolute(manual.group(1), BLOB))}">Manual</a>'
+                # Each plug-in's manual is a page of this site (.github/pages/manuals.py builds <id>/ from its README).
+                page = re.match(r"^(?:https://[^/]+\.github\.io/[^/]+/)?([a-z0-9_-]+)/(?:README\.md)?$", html.unescape(manual.group(1)))
+                href = f"{page.group(1)}/" if page else absolute(manual.group(1), BLOB)
+                links = f'<a href="{html.escape(href)}">Manual</a>'
             continue
         if text_of(inner):
             prose.append(f"<p>{fix_links(inner)}</p>")
