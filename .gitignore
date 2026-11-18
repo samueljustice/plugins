@@ -56,3 +56,8 @@ __pycache__/
 /.aax-sdk-download/
 /aax-signed/
 /site-preview/
+
+# De-Honk: session audio and renders never go in the repository
+dehonk/Tests/corpus/
+dehonk/Tests/build/
+dehonk/.wip/

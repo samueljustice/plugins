@@ -40,15 +40,17 @@ on:
   workflow_dispatch:
 
 # One at a time. A run waiting behind another is replaced by a newer one, which includes everything anyway.
+# The AAX signing of a 0.0.x test build (a pre-release, which the gate job skips) waits in a group of its
+# own, so it never replaces a waiting run that would rebuild the installer.
 concurrency:
-  group: sammyj-bundle-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  group: sammyj-bundle-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'workflow_run' && contains(github.event.workflow_run.display_title, '-v0.0.') && 'test-build' || 'release') }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
 
 jobs:
-  resolve:
+  gate:
     # After a plug-in workflow: only when it succeeded on a release tag (not a pull request or manual run).
     # After AAX signing: when both stages finished, so the signed AAX are on the release. (Matched by file:
     # its runs are titled "AAX signing · <tag>", and that title is what workflow_run.name reports.)
@@ -57,6 +59,32 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        (github.event.workflow_run.path == '.github/workflows/aax-signing.yml' ||
         (github.event.workflow_run.event == 'push' && contains(github.event.workflow_run.head_branch, '-v'))))
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.g.outputs.go }}
+    steps:
+    # Signing a pre-release (a test build, such as De-Honk 0.0.x) changes nothing in the installer:
+    # bundle/resolve-releases.sh only takes full releases. So that signing run doesn't rebuild it.
+    - name: Skip AAX signing of a pre-release
+      id: g
+      env:
+        GH_TOKEN: ${{ github.token }}
+        FROM_SIGNING: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/aax-signing.yml' }}
+        TITLE: ${{ github.event.workflow_run.display_title }}
+      run: |
+        go=true
+        if [[ "$FROM_SIGNING" == "true" ]]; then
+          tag="${TITLE##* }"
+          if [[ "$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2>/dev/null)" == "true" ]]; then
+            echo "$tag is a pre-release, which the installer leaves out: nothing to rebuild"
+            go=false
+          fi
+        fi
+        echo "go=$go" >> "$GITHUB_OUTPUT"
+
+  resolve:
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}

@@ -10,3 +10,9 @@ pitchflattener|pitchflattener-v|Pitch Flattener|SammyJs Pitch Flattener|
 reversinator|reversinator-v|Reversinator|SammyJs Reversinator|
 roarschach|roarschach-v|Roarschach|Roarschach|
 tonalrecall|tonalrecall-v|Tonal Recall|SammyJs Tonal Recall|
+#
+# Test builds: plug-ins whose releases so far are pre-releases. sign-aax (bundle/sign-aax.sh and
+# sign-aax-windows.ps1) reads these lines, the same fields after "#test ", so their AAX can be signed;
+# everything else here takes them for comments, so they are in no installer, on no page and not checked
+# by the Release docs workflow. At a plug-in's first full release, replace its line with a normal one above.
+#test dehonk|dehonk-v|De-Honk|De-Honk|De-Honk

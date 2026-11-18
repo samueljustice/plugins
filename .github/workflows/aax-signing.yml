@@ -25,6 +25,7 @@ on:
       - Build and Release Reversinator
       - Build and Release Roarschach
       - Build and Release Tonal Recall
+      - Build and Release De-Honk
     types: [completed]
   workflow_dispatch:
     inputs:

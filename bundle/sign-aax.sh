@@ -5,7 +5,8 @@
 # button in the prompt that bundle/install-aax-signer.sh sets up).
 #
 #   sign-aax                    sign every release whose "AAX signing" run is waiting at "Sign on the Mac"
-#   sign-aax reversinator ...   sign these plug-ins' newest releases, waiting or not
+#   sign-aax reversinator ...   sign these plug-ins' newest releases, waiting or not (full releases only:
+#                               a test build's pre-release is signed while its run waits)
 #   sign-aax --force ...        re-sign even if the release already has a signed AAX
 #   sign-aax --local ...        sign and verify only: no upload (leaves the zips in ./aax-signed)
 #
@@ -86,6 +87,8 @@ skipped=()
 
 while IFS='|' read -r id tag version; do
   line=$(grep "^$id|" "$here/plugins.txt" || true)
+  # A test build (a "#test " line in plugins.txt) is signed like the others.
+  [[ -n "$line" ]] || line=$(sed -n "s/^#test $id|/$id|/p" "$here/plugins.txt" | head -1)
   [[ -n "$line" ]] || { echo "== $tag: not in bundle/plugins.txt"; skipped+=("$tag: unknown plug-in"); continue; }
   name=$(cut -d'|' -f3 <<< "$line")
   bundle=$(cut -d'|' -f4 <<< "$line")
