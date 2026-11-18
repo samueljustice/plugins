@@ -26,6 +26,7 @@ on:
       - Build and Release Roarschach
       - Build and Release Tonal Recall
       - Build and Release De-Honk
+      - Build and Release DOOM EQ
     types: [completed]
   workflow_dispatch:
     inputs:

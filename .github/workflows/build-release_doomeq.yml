@@ -1,0 +1,384 @@
+name: Build and Release DOOM EQ
+
+# DOOM EQ is a toy (toys/doomeq): a six-band EQ whose display runs DOOM.
+#
+# Push a tag like doomeq-v0.0.1 to build, sign, notarise and publish a release. The version lives in
+# toys/doomeq/CMakeLists.txt (project(DoomEQ VERSION ...)); the tag must match it. Run it by hand
+# (workflow_dispatch) to get the same artefacts without a release. A pull request that changes DOOM EQ,
+# the shared CMake or this file runs it too (also without a release), so the pull request is the dry run.
+#
+# The release has an installer per system (macOS .pkg with VST3/AU/app, Windows .exe with VST3/app), plus
+# the bundles as zips. Once the AAX is PACE-signed, doomeq-test-installers.yml rebuilds both installers with
+# it in. Versions 0.0.x are published as pre-releases, so they never become the
+# repository's "Latest", the update checks skip them, and the combined installer leaves them out.
+# DOOM EQ is in bundle/plugins.txt only as a "#test" line, for sign-aax.
+#
+# The AAX is built unsigned and uploaded as a build artifact only (DoomEQ-macOS-AAX-unsigned,
+# DoomEQ-Windows-AAX-unsigned): the "AAX signing" workflow then waits for it to be PACE-signed by hand,
+# and the signed zips are attached to the release.
+#
+# Secrets (the same ones the other plug-ins use):
+#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64, APPLE_DEVELOPER_CERTIFICATE_PASSWORD
+#   APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID   for notarisation
+# Optional, for the AAX build (.github/actions/aax-sdk):
+#   AAX_SDK_DEPLOY_KEY
+
+on:
+  push:
+    tags:
+      - 'doomeq-v*'
+  pull_request:
+    paths:
+      - 'toys/doomeq/**'
+      - 'cmake/**'
+      - '.github/workflows/build-release_doomeq.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: doomeq-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+
+env:
+  JUCE_VERSION: 8.0.8
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Read and check the version
+      id: v
+      run: |
+        VERSION=$(sed -n 's/^project(DoomEQ VERSION \([0-9.]*\).*/\1/p' toys/doomeq/CMakeLists.txt)
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Could not read a version like 1.2.3 from toys/doomeq/CMakeLists.txt (got '$VERSION')"
+          exit 1
+        fi
+        if [[ "$GITHUB_REF" == refs/tags/doomeq-v* ]]; then
+          TAG_VERSION="${GITHUB_REF#refs/tags/doomeq-v}"
+          if [ "$TAG_VERSION" != "$VERSION" ]; then
+            echo "Tag version $TAG_VERSION does not match CMakeLists.txt version $VERSION"
+            exit 1
+          fi
+        fi
+        if [[ "$VERSION" == 0.0.* ]]; then PRERELEASE=true; else PRERELEASE=false; fi
+        echo "Version: $VERSION (pre-release: $PRERELEASE)"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
+    - name: Configure CMake
+      run: |
+        cd toys/doomeq
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release `
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
+
+    - name: Build app, VST3 and AAX
+      run: |
+        cd toys/doomeq
+        cmake --build build --config Release --parallel --target DoomEQ_All
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    - name: Zip unsigned Windows AAX
+      shell: pwsh
+      run: |
+        cd toys/doomeq
+        Compress-Archive -Path "build\DoomEQ_artefacts\Release\AAX\SammyJs DOOM EQ.aaxplugin" -DestinationPath "DoomEQ-Windows-AAX-unsigned.zip" -Force
+
+    - name: Upload unsigned Windows AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: DoomEQ-Windows-AAX-unsigned
+        path: toys/doomeq/DoomEQ-Windows-AAX-unsigned.zip
+        if-no-files-found: error
+
+    - name: Zip Windows files
+      shell: pwsh
+      run: |
+        cd toys/doomeq
+        $out = "build\DoomEQ_artefacts\Release"
+        Compress-Archive -Path "$out\VST3\SammyJs DOOM EQ.vst3" -DestinationPath "DoomEQ-Windows-VST3.zip" -Force
+        Compress-Archive -Path "$out\Standalone\SammyJs DOOM EQ.exe" -DestinationPath "DoomEQ-Windows-App.zip" -Force
+        Get-Item DoomEQ-Windows-*.zip
+
+    - name: Build installer
+      run: |
+        cd toys/doomeq
+        $out = "build\DoomEQ_artefacts\Release"
+        New-Item -ItemType Directory -Force -Path windows-package\app, windows-package\vst3 | Out-Null
+        Copy-Item "$out\Standalone\SammyJs DOOM EQ.exe" windows-package\app\
+        Copy-Item "$out\VST3\SammyJs DOOM EQ.vst3" windows-package\vst3\ -Recurse
+        choco install innosetup -y --no-progress
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item DoomEQ_Installer.exe
+
+    - name: Upload Windows files
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows
+        path: |
+          toys/doomeq/DoomEQ-Windows-VST3.zip
+          toys/doomeq/DoomEQ-Windows-App.zip
+          toys/doomeq/DoomEQ_Installer.exe
+        if-no-files-found: error
+
+  build-macos:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 150 # notarisation can queue; fail fast instead of GitHub's 6 hours
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
+    - name: Configure CMake
+      run: |
+        cd toys/doomeq
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
+
+    - name: Build app, AU, VST3 and AAX
+      run: |
+        cd toys/doomeq
+        # Bounded: a bare --parallel is "make -j" with no limit and can run the runner out of memory.
+        cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)" --target DoomEQ_All
+
+    - name: Zip unsigned macOS AAX
+      run: |
+        cd toys/doomeq
+        ditto -c -k --keepParent "build/DoomEQ_artefacts/Release/AAX/SammyJs DOOM EQ.aaxplugin" DoomEQ-macOS-AAX-unsigned.zip
+
+    - name: Upload unsigned macOS AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: DoomEQ-macOS-AAX-unsigned
+        path: toys/doomeq/DoomEQ-macOS-AAX-unsigned.zip
+        if-no-files-found: error
+
+    - name: Check for certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_certs=false" >> "$GITHUB_OUTPUT"
+          echo "No certificates in secrets: the macOS build will be unsigned"
+        fi
+
+    - name: Import certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Gather bundles
+      run: |
+        cd toys/doomeq
+        OUT=build/DoomEQ_artefacts/Release
+        mkdir -p staging/app staging/vst3 staging/au
+        cp -R "$OUT/Standalone/SammyJs DOOM EQ.app" staging/app/
+        cp -R "$OUT/VST3/SammyJs DOOM EQ.vst3" staging/vst3/
+        cp -R "$OUT/AU/SammyJs DOOM EQ.component" staging/au/
+        /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "staging/vst3/SammyJs DOOM EQ.vst3/Contents/Info.plist"
+
+    - name: Sign bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd toys/doomeq
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        for b in "staging/app/SammyJs DOOM EQ.app" "staging/vst3/SammyJs DOOM EQ.vst3" "staging/au/SammyJs DOOM EQ.component"; do
+          echo "Signing $b"
+          codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements entitlements.plist "$b"
+          codesign --verify --deep --strict --verbose=2 "$b"
+        done
+
+    - name: Notarise bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd toys/doomeq/staging
+        ditto -c -k --keepParent "app/SammyJs DOOM EQ.app" ../notarise-app.zip
+        zip -qry ../notarise-plugins.zip vst3 au
+        for z in ../notarise-app.zip ../notarise-plugins.zip; do
+          echo "Notarising $z"
+          ID=$(xcrun notarytool submit "$z" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+          xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+        done
+        # Staple, retried with a growing pause (Apple's ticket fetch sometimes drops the connection).
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
+        staple "app/SammyJs DOOM EQ.app"
+        staple "vst3/SammyJs DOOM EQ.vst3"
+        staple "au/SammyJs DOOM EQ.component"
+        spctl --assess --type execute -vv "app/SammyJs DOOM EQ.app"
+
+    # VST3, AU and the app. No AAX yet: it is signed after the release, and doomeq-test-installers.yml
+    # then replaces this installer with one that has it.
+    - name: Build installer package
+      run: |
+        cd toys/doomeq
+        ./make-installer-macos.sh staging "$VERSION" DoomEQ_Installer.pkg
+
+    - name: Sign installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd toys/doomeq
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp DoomEQ_Installer.pkg DoomEQ_Installer_Signed.pkg
+        mv DoomEQ_Installer_Signed.pkg DoomEQ_Installer.pkg
+        pkgutil --check-signature DoomEQ_Installer.pkg
+
+    - name: Notarise installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd toys/doomeq
+        f=DoomEQ_Installer.pkg
+        ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+        if [ "$STATUS" != "Accepted" ]; then
+          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          exit 1
+        fi
+        delay=30
+        for attempt in 1 2 3 4 5 6 7; do
+          if xcrun stapler staple "$f"; then break; fi
+          if [ "$attempt" -eq 7 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 7), retrying in $delay s"
+          sleep "$delay"
+          delay=$((delay + 30))
+        done
+        spctl --assess --type install -vv "$f"
+
+    - name: Zip bundles
+      run: |
+        cd toys/doomeq/staging
+        ditto -c -k --keepParent "vst3/SammyJs DOOM EQ.vst3" ../DoomEQ-macOS-VST3.zip
+        ditto -c -k --keepParent "au/SammyJs DOOM EQ.component" ../DoomEQ-macOS-AU.zip
+        ditto -c -k --keepParent "app/SammyJs DOOM EQ.app" ../DoomEQ-macOS-App.zip
+
+    - name: Upload macOS files
+      uses: actions/upload-artifact@v6
+      with:
+        name: macos
+        path: |
+          toys/doomeq/DoomEQ-macOS-VST3.zip
+          toys/doomeq/DoomEQ-macOS-AU.zip
+          toys/doomeq/DoomEQ-macOS-App.zip
+          toys/doomeq/DoomEQ_Installer.pkg
+        if-no-files-found: error
+
+  create-release:
+    needs: [version, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - name: Check out release notes
+      uses: actions/checkout@v5
+      with:
+        path: repo
+        sparse-checkout: toys/doomeq/RELEASE_NOTES.md
+        sparse-checkout-cone-mode: false
+
+    # Only the files copied into release/ by name are attached: the unsigned AAX never is.
+    - name: Download macOS files
+      uses: actions/download-artifact@v7
+      with:
+        name: macos
+        path: macos
+
+    - name: Download Windows files
+      uses: actions/download-artifact@v7
+      with:
+        name: windows
+        path: windows
+
+    - name: Name the files with the version
+      run: |
+        mkdir release
+        for f in macos/*.zip windows/*.zip; do
+          base=$(basename "$f")
+          cp "$f" "release/${base/DoomEQ-/DoomEQ-$VERSION-}"
+        done
+        cp macos/DoomEQ_Installer.pkg "release/DoomEQ-$VERSION-macOS-Installer.pkg"
+        cp windows/DoomEQ_Installer.exe "release/DoomEQ-$VERSION-Windows-Installer.exe"
+        ls -la release
+
+    - name: Create release
+      uses: softprops/action-gh-release@v3
+      with:
+        # The combined Sammy J installer is the "Latest" release, so the README's download links keep working.
+        make_latest: false
+        prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+        name: DOOM EQ ${{ env.VERSION }}
+        files: release/*
+        body_path: repo/toys/doomeq/RELEASE_NOTES.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,208 @@
+name: DOOM EQ test installers
+run-name: DOOM EQ test installers · ${{ inputs.tag || github.event.workflow_run.display_title }}
+
+# A DOOM EQ release is published before its AAX is signed (PACE signing needs Samuel's iLok, by hand; see
+# aax-signing.yml), so the two installers build-release_doomeq.yml attaches have no AAX. When the
+# "AAX signing" run for a doomeq-v* tag has finished, this rebuilds them with the signed AAX in them and
+# replaces them on the release under the same names:
+#   DoomEQ-<version>-macOS-Installer.pkg     VST3, AU, AAX and the app; signed and notarised
+#   DoomEQ-<version>-Windows-Installer.exe   VST3, AAX and the app
+# so each system has one file that holds everything. A system whose signed AAX isn't on the release
+# (DoomEQ-<version>-macOS-AAX.zip, DoomEQ-<version>-Windows-AAX.zip) keeps the installer it has.
+# It repackages the files on the release; it doesn't build the plug-in again.
+#
+# Run it by hand with a tag to rebuild them, for example after signing again.
+# Secrets: the same Apple ones as build-release_doomeq.yml.
+
+on:
+  workflow_run:
+    # Must match aax-signing.yml's "name:" line. Its runs are titled "AAX signing · <tag>".
+    workflows: [AAX signing]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: DOOM EQ release tag, e.g. doomeq-v0.0.1
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: doomeq-test-installers-${{ inputs.tag || github.event.workflow_run.display_title }}
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  release:
+    name: Release
+    # After any finished signing run for a DOOM EQ tag, or by hand. A run that failed or timed out in one
+    # stage may still have published the other system's AAX; the mac and windows outputs below decide
+    # which installer is rebuilt. (The workflow_run trigger can't be limited to DOOM EQ's tags, so after
+    # other plug-ins' signing runs this starts and is skipped.)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.workflow_run.display_title, ' doomeq-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.find.outputs.tag }}
+      version: ${{ steps.find.outputs.version }}
+      mac: ${{ steps.find.outputs.mac }}
+      windows: ${{ steps.find.outputs.windows }}
+    steps:
+    - name: Find the release and its signed AAX
+      id: find
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        TITLE: ${{ github.event.workflow_run.display_title }}
+      run: |
+        tag="${INPUT_TAG:-${TITLE##* }}"
+        [[ "$tag" =~ ^doomeq-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Not a DOOM EQ release tag: '$tag'"; exit 1; }
+        version="${tag#doomeq-v}"
+        assets=$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name') \
+          || { echo "::error::No release $tag"; exit 1; }
+        mac=false; windows=false
+        grep -qx "DoomEQ-$version-macOS-AAX.zip" <<< "$assets" && mac=true
+        grep -qx "DoomEQ-$version-Windows-AAX.zip" <<< "$assets" && windows=true
+        {
+          echo "tag=$tag"
+          echo "version=$version"
+          echo "mac=$mac"
+          echo "windows=$windows"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "## DOOM EQ test installers · \`$tag\`"
+          echo
+          if [[ "$mac" == "true" ]]; then echo "- macOS: rebuilding with the signed AAX."; else echo "- macOS: no signed AAX on the release yet; the installer stays as it is."; fi
+          if [[ "$windows" == "true" ]]; then echo "- Windows: rebuilding with the signed AAX."; else echo "- Windows: no signed AAX on the release yet; the installer stays as it is."; fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  macos:
+    name: macOS installer
+    needs: release
+    if: needs.release.outputs.mac == 'true'
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ needs.release.outputs.tag }}
+
+    - name: Download and unpack the release's bundles
+      run: |
+        mkdir dl
+        gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D dl \
+          -p "DoomEQ-$VERSION-macOS-VST3.zip" -p "DoomEQ-$VERSION-macOS-AU.zip" \
+          -p "DoomEQ-$VERSION-macOS-App.zip" -p "DoomEQ-$VERSION-macOS-AAX.zip"
+        mkdir -p staging/vst3 staging/au staging/app staging/aax
+        ditto -x -k "dl/DoomEQ-$VERSION-macOS-VST3.zip" staging/vst3
+        ditto -x -k "dl/DoomEQ-$VERSION-macOS-AU.zip" staging/au
+        ditto -x -k "dl/DoomEQ-$VERSION-macOS-App.zip" staging/app
+        ditto -x -k "dl/DoomEQ-$VERSION-macOS-AAX.zip" staging/aax
+        # Each signed (the AAX by PACE as well as Apple) and carrying its notarisation ticket.
+        for b in "staging/vst3/SammyJs DOOM EQ.vst3" "staging/au/SammyJs DOOM EQ.component" "staging/app/SammyJs DOOM EQ.app" "staging/aax/SammyJs DOOM EQ.aaxplugin"; do
+          [[ -d "$b" ]] || { echo "::error::$b is not in the release's zips"; exit 1; }
+          codesign --verify --deep --strict "$b"
+          xcrun stapler validate "$b"
+        done
+        [[ -d "staging/aax/SammyJs DOOM EQ.aaxplugin/Contents/__Pace_Eden.bundle" ]] || echo "::warning::no PACE signature resources in the AAX"
+
+    - name: Import certificates
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Build installer package
+      run: toys/doomeq/make-installer-macos.sh staging "$VERSION" DoomEQ_Installer.pkg
+
+    - name: Sign installer package
+      run: |
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        [[ -n "$INSTALLER_IDENTITY" ]] || { echo "Developer ID Installer certificate not found"; exit 1; }
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp DoomEQ_Installer.pkg DoomEQ_Installer_Signed.pkg
+        mv DoomEQ_Installer_Signed.pkg DoomEQ_Installer.pkg
+        pkgutil --check-signature DoomEQ_Installer.pkg
+
+    - name: Notarise installer package
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        f=DoomEQ_Installer.pkg
+        ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+        if [ "$STATUS" != "Accepted" ]; then
+          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          exit 1
+        fi
+        # Fetching the ticket from Apple sometimes drops the connection (stapler error 68), at times
+        # for minutes, so retry with a growing pause (30 s, 60 s, ..., about 10 minutes in all).
+        delay=30
+        for attempt in 1 2 3 4 5 6 7; do
+          if xcrun stapler staple "$f"; then break; fi
+          if [ "$attempt" -eq 7 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 7), retrying in $delay s"
+          sleep "$delay"
+          delay=$((delay + 30))
+        done
+        spctl --assess --type install -vv "$f"
+
+    - name: Replace the installer on the release
+      run: |
+        final="DoomEQ-$VERSION-macOS-Installer.pkg"
+        mv DoomEQ_Installer.pkg "$final"
+        gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "$final" --clobber
+        echo "- macOS: \`$final\` now has the VST3, AU, AAX and the app." >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    name: Windows installer
+    needs: release
+    if: needs.release.outputs.windows == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ needs.release.outputs.tag }}
+
+    - name: Download and unpack the release's files
+      run: |
+        cd toys/doomeq
+        gh release download $env:TAG -R $env:GITHUB_REPOSITORY -D dl `
+          -p "DoomEQ-$env:VERSION-Windows-VST3.zip" -p "DoomEQ-$env:VERSION-Windows-App.zip" -p "DoomEQ-$env:VERSION-Windows-AAX.zip"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Expand-Archive "dl\DoomEQ-$env:VERSION-Windows-VST3.zip" -DestinationPath windows-package\vst3 -Force
+        Expand-Archive "dl\DoomEQ-$env:VERSION-Windows-App.zip" -DestinationPath windows-package\app -Force
+        Expand-Archive "dl\DoomEQ-$env:VERSION-Windows-AAX.zip" -DestinationPath windows-package\aax -Force
+        foreach ($p in "windows-package\vst3\SammyJs DOOM EQ.vst3", "windows-package\app\SammyJs DOOM EQ.exe", "windows-package\aax\SammyJs DOOM EQ.aaxplugin\Contents\x64\SammyJs DOOM EQ.aaxplugin") {
+          if (-not (Test-Path $p)) { Write-Error "$p is not in the release's zips"; exit 1 }
+        }
+        Get-ChildItem windows-package -Recurse -Depth 2 | Select-Object FullName
+
+    - name: Build installer
+      run: |
+        cd toys/doomeq
+        choco install innosetup -y --no-progress
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION /DDoomEQAAX installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item DoomEQ_Installer.exe
+
+    - name: Replace the installer on the release
+      shell: bash
+      run: |
+        final="DoomEQ-$VERSION-Windows-Installer.exe"
+        mv toys/doomeq/DoomEQ_Installer.exe "$final"
+        gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "$final" --clobber
+        echo "- Windows: \`$final\` now has the VST3, AAX and the app." >> "$GITHUB_STEP_SUMMARY"
