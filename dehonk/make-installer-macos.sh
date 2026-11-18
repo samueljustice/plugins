@@ -4,11 +4,12 @@
 #
 #   dehonk/make-installer-macos.sh <staging folder> <version> <output .pkg>
 #
-# The staging folder holds any of vst3/De-Honk.vst3, au/De-Honk.component, aax/De-Honk.aaxplugin and
-# app/De-Honk.app. The installer has a choice for each one that is there (all ticked; Customize to pick).
+# The staging folder holds any of vst3/SammyJs De-Honk.vst3, au/SammyJs De-Honk.component, aax/SammyJs De-Honk.aaxplugin and
+# app/SammyJs De-Honk.app. The installer has a choice for each one that is there (all ticked; Customize to pick).
 # Used by .github/workflows/build-release_dehonk.yml (no AAX yet) and dehonk-test-installers.yml (with the
 # PACE-signed AAX). Each part removes the old copy first and is installed where hosts look for it, even if
-# a copy with the same bundle ID is somewhere else on the disk.
+# a copy with the same bundle ID is somewhere else on the disk. The first test build's bundles were called
+# "De-Honk.<type>"; those are removed too, so a host never finds two copies with the same plug-in code.
 set -euo pipefail
 
 staging="$(cd "${1:?staging folder}" && pwd)"
@@ -24,10 +25,10 @@ refs=""
 
 for kind in vst3 au aax app; do
   case "$kind" in
-    vst3) bundle="De-Honk.vst3";      location="/Library/Audio/Plug-Ins/VST3";                      title="VST3 plug-in" ;;
-    au)   bundle="De-Honk.component"; location="/Library/Audio/Plug-Ins/Components";                title="Audio Unit plug-in" ;;
-    aax)  bundle="De-Honk.aaxplugin"; location="/Library/Application Support/Avid/Audio/Plug-Ins";  title="AAX plug-in (Pro Tools)" ;;
-    app)  bundle="De-Honk.app";       location="/Applications";                                     title="De-Honk app" ;;
+    vst3) bundle="SammyJs De-Honk.vst3";      location="/Library/Audio/Plug-Ins/VST3";                      title="VST3 plug-in" ;;
+    au)   bundle="SammyJs De-Honk.component"; location="/Library/Audio/Plug-Ins/Components";                title="Audio Unit plug-in" ;;
+    aax)  bundle="SammyJs De-Honk.aaxplugin"; location="/Library/Application Support/Avid/Audio/Plug-Ins";  title="AAX plug-in (Pro Tools)" ;;
+    app)  bundle="SammyJs De-Honk.app";       location="/Applications";                                     title="De-Honk app" ;;
   esac
   root="$staging/$kind"
   [[ -d "$root/$bundle" ]] || continue
@@ -38,8 +39,10 @@ for kind in vst3 au aax app; do
   mkdir -p "$scripts"
   cat > "$scripts/preinstall" << EOF
 #!/bin/bash
-# Remove the old copy first, so files a newer version no longer has don't linger.
+# Remove the old copy first, so files a newer version no longer has don't linger, and the copy the
+# first test build installed under its old name.
 rm -rf "$location/$bundle"
+rm -rf "$location/${bundle#SammyJs }"
 exit 0
 EOF
   if [[ "$kind" == "au" ]]; then

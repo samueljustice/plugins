@@ -48,7 +48,14 @@ void usage()
         "  --edges A,B,C,D,E  Hz       (%g,%g,%g,%g,%g)  module m spans edge m to edge m+1\n"
         "                    limits    %g-%g, %g-%g, %g-%g, %g-%g, %g-%g\n"
         "  --threshold DB    -60..0    (%g)  acts only while the programme is louder; -60 = always\n"
-        "  --link X          0..1      (%g)\n"
+        "  --link X          0..1      (%g)  how far a channel follows what it shares (no control reaches anything but 1)\n"
+        "  --link-mode M     linked, grouped or unlinked (linked)\n"
+        "  --detection D     fast or steady (fast): steady compares each band's level over about a second\n"
+        "  --range-timing R=A,REL      unlock range R (woof, tub, fog or bark) with attack A ms (2..100)\n"
+        "                    and release REL ms (50..1500); repeatable. Without it a range follows Speed and Release\n"
+        "  --key FILE.wav    a sidechain, in time with the input (its first two channels are used)\n"
+        "  --dialogue 0|1    (0)  the sidechain is the dialogue stem: bands it accounts for are left alone\n"
+        "  --dialogue-amount X  0..1   (1)\n"
         "  --lookahead MS    0, 5, 10 or 20 (%g)\n"
         "  --mix X           0..1      (%g)\n"
         "  --trim DB         -12..12   (%g)\n"
@@ -211,7 +218,7 @@ int main (int argc, char** argv)
     int block = 512;
     std::string metricsPath, framesPath, notchLogPath, labelsPath;
     bool ftz = true, printTuning = false, frameLevels = false;
-    std::string layoutName;
+    std::string layoutName, keyPath;
     int lfeIndex = -1;
 
     for (std::size_t i = 0; i < args.size(); ++i)
@@ -283,6 +290,52 @@ int main (int argc, char** argv)
         }
         else if (a == "--threshold") params.thresholdDb = number ("--threshold");
         else if (a == "--link") params.link = number ("--link");
+        else if (a == "--link-mode")
+        {
+            const std::string v = value ("--link-mode");
+            if (v == "linked") params.linkMode = dehonk::LinkMode::linked;
+            else if (v == "grouped") params.linkMode = dehonk::LinkMode::grouped;
+            else if (v == "unlinked") params.linkMode = dehonk::LinkMode::unlinked;
+            else
+            {
+                std::fprintf (stderr, "dehonk_render: --link-mode takes linked, grouped or unlinked, got %s\n", v.c_str());
+                return 2;
+            }
+        }
+        else if (a == "--detection")
+        {
+            const std::string v = value ("--detection");
+            if (v == "fast") params.detection = dehonk::Detection::fast;
+            else if (v == "steady") params.detection = dehonk::Detection::steady;
+            else
+            {
+                std::fprintf (stderr, "dehonk_render: --detection takes fast or steady, got %s\n", v.c_str());
+                return 2;
+            }
+        }
+        else if (a == "--range-timing")
+        {
+            const std::string v = value ("--range-timing");
+            const auto eq = v.find ('='), comma = v.find (',');
+            const char* names[dehonk::kNumModules] = { "woof", "tub", "fog", "bark" };
+            int m = -1;
+            for (int k = 0; k < dehonk::kNumModules; ++k)
+                if (eq != std::string::npos && v.substr (0, eq) == names[k])
+                    m = k;
+            float attack = 0.0f, release = 0.0f;
+            if (m < 0 || comma == std::string::npos || comma < eq || ! parseFloat (v.substr (eq + 1, comma - eq - 1), attack) || ! parseFloat (v.substr (comma + 1), release)
+                || attack < 2.0f || attack > 100.0f || release < 50.0f || release > 1500.0f)
+            {
+                std::fprintf (stderr, "dehonk_render: --range-timing takes RANGE=ATTACK,RELEASE (woof, tub, fog or bark; 2..100 ms; 50..1500 ms), got %s\n", v.c_str());
+                return 2;
+            }
+            params.rangeTimingLocked[m] = false;
+            params.rangeAttackMs[m] = attack;
+            params.rangeReleaseMs[m] = release;
+        }
+        else if (a == "--key") keyPath = value ("--key");
+        else if (a == "--dialogue") params.dialogueOn = onOff ("--dialogue");
+        else if (a == "--dialogue-amount") params.dialogueAmount = number ("--dialogue-amount");
         else if (a == "--lookahead") params.lookaheadMs = number ("--lookahead");
         else if (a == "--mix") params.mix = number ("--mix");
         else if (a == "--trim") params.trimDb = number ("--trim");
@@ -331,7 +384,7 @@ int main (int argc, char** argv)
         { "lookahead", params.lookaheadMs, 0.0f, dehonk::kMaxLookaheadMs }, { "mix", params.mix, 0.0f, 1.0f },
         { "trim", params.trimDb, -12.0f, 12.0f },       { "threshold", params.thresholdDb, -60.0f, 0.0f },
         { "release", params.releaseMs, 50.0f, 1500.0f }, { "max-cut", params.maxCutDb, 3.0f, 12.0f },
-        { "impact-guard", params.impactGuard, 0.0f, 1.0f },
+        { "impact-guard", params.impactGuard, 0.0f, 1.0f }, { "dialogue-amount", params.dialogueAmount, 0.0f, 1.0f },
     };
     for (const auto& r : ranges)
         if (r.value < r.lo || r.value > r.hi)
@@ -384,6 +437,11 @@ int main (int argc, char** argv)
         spec.layout = dehonk::ChannelLayout::withLfe (lfeIndex);
         for (std::size_t k = 0; k < speakers.size(); ++k)
             spec.layout.position[k] = speakers[k];
+        // The overhead speakers, for --link-mode grouped: channels 6 to 9 of 5.1.4 and 7.1.4 as the
+        // plug-in is handed them (L R C LFE Ls Rs + four tops; L R C LFE Lss Rss + four tops + Lrs Rrs).
+        if (layoutName == "5.1.4" || layoutName == "7.1.4")
+            for (std::size_t k = 6; k < 10; ++k)
+                spec.layout.group[k] = dehonk::Group::height;
     }
     {
         dehonk::Core probe;
@@ -428,6 +486,22 @@ int main (int argc, char** argv)
             std::fprintf (stderr, "dehonk_render: --layout %s needs %d channels, %s has %d\n", layoutName.c_str(), want, positional[0].c_str(), in.numChannels());
             return 1;
         }
+    }
+
+    Audio key;
+    if (! keyPath.empty())
+    {
+        if (! readWav (keyPath, key, err))
+        {
+            std::fprintf (stderr, "dehonk_render: %s\n", err.c_str());
+            return 1;
+        }
+        if (key.sampleRate != in.sampleRate || key.numChannels() < 1)
+        {
+            std::fprintf (stderr, "dehonk_render: --key %s must have the input's sample rate (%.0f Hz)\n", keyPath.c_str(), in.sampleRate);
+            return 1;
+        }
+        spec.key = &key;
     }
 
     const RenderResult r = render (in, spec);

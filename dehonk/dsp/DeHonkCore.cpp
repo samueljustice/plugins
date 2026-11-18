@@ -15,7 +15,10 @@
 //
 // Surround: every channel but an LFE is analysed and filtered as above. An LFE only goes
 // through the delay, so it stays in time with the rest, and through Trim and the output modes.
-// With Link at 100% every other channel gets the same notches, so the image does not move.
+// Linked, every other channel gets the same notches, so the image does not move.
+//
+// With a dialogue sidechain the key goes through the same low-pass, decimator and band bank as a
+// channel, and each band's power is compared with the power the detector is working from.
 //
 // The cut is deliberately narrow. A wide cut takes a slice of everything in the mix out, and
 // what is removed sounds like noise. A notch an eighth of an octave wide placed on the peak
@@ -52,6 +55,13 @@ constexpr float kNotchOpenDb = 0.1f;     // a notch shallower than this is close
 constexpr float kAlwaysBelowDb = -59.95f; // a threshold at the bottom of its range means always act
 constexpr float kCeilingMaxDb = 18.0f;    // the most Params::maxCutDb is taken as
 constexpr int kGuardLagSteps = 8;         // the impact guard's memory of where each band was
+constexpr int kKeyLanes = 2;              // channels of a dialogue sidechain that are listened to
+constexpr int kNumGroups = 4;             // front, centre, surround, height
+constexpr int kDialogueTrimEvery = 8;     // detector ticks between two looks at the sidechain's level against the mix
+constexpr float kChanceFactor = 1.0f;     // see Impl::dlgChance
+constexpr double kChanceSlope = 4.0;
+constexpr int kNumKeyDelays = 8;          // delays between key and mix that the fit tries
+constexpr float kKeyDelaysMs[kNumKeyDelays] = { 0.0f, 3.0f, 6.0f, 10.0f, 15.0f, 20.0f, 30.0f, 45.0f };
 
 static_assert (kNumBands <= kMaxBands);
 static_assert (kBankBands >= kNumBands && kBankBands % 4 == 0);
@@ -207,9 +217,62 @@ struct Core::Impl
     float decimated[kMaxChannels][kMaxChunk] {};  // each channel's analysis samples in the current chunk
     int numDecimated = 0;
     float zeros[kMaxChunk] {};                    // what the low-pass reads for lanes with no channel
+    float spareBand[kBankBands] {};               // written and never read
     float programC = 0.01f;
     float keyPower = 0.0f, keyC = 0.001f;         // the sidechain: mean square of its loudest channel, ~50 ms
     bool keyPresent = false;                      // this block came with a sidechain
+
+    // Dialogue sidechain: the key's own analysis (as a channel's), and what the detectors make of it.
+    BiquadState keyAa[kKeyLanes][4];
+    float keyS1a[kKeyLanes][kBankBands] {}, keyS2a[kKeyLanes][kBankBands] {};
+    float keyS1b[kKeyLanes][kBankBands] {}, keyS2b[kKeyLanes][kBankBands] {};
+    float keyPow[kKeyLanes][kBankBands] {};
+    float keyDecimated[kKeyLanes][kMaxChunk] {};
+    bool dlgRunning = false;                      // the key is being analysed in this call
+    int dlgLanes = 0;
+    bool dlgOnNow = false;                        // ... and the detectors are listening to it
+    bool dlgAny = false;                          // or some band is still being handed back
+    float dlgAmount = 1.0f;
+    float dlgD[kNumBands] {};                     // the dialogue's power per band as it stands in the mix: the most of any channel
+    float dlgDc[kMaxChannels][kNumBands] {};      // ... and in each channel (kept only when the channels do not all share)
+    bool dlgPerChannel = false;
+    // How loud the dialogue is in each channel: the key is looked for in the channel band by band.
+    // Each band's output of the bank is kept for the chunk, the key's with its quadrature (the
+    // band-pass's own low-pass output, a quarter of a cycle behind at the centre), and their
+    // products are averaged. What the two share is then the same whatever small delay lies
+    // between them, and does not depend on what else is in the band.
+    float bankY[kMaxChannels][kDetectEvery][kBankBands] {};
+    float keyY[kKeyLanes][kDetectEvery][kBankBands] {}, keyQ[kKeyLanes][kDetectEvery][kBankBands] {};
+    float accR[kMaxChannels][kKeyLanes][kBankBands] {}, accI[kMaxChannels][kKeyLanes][kBankBands] {};   // sums since the last tick
+    float accM[kMaxChannels][kBankBands] {}, accK[kKeyLanes][kBankBands] {};
+    int accCount = 0;
+    float crossR[kMaxChannels][kKeyLanes][kBankBands] {}, crossI[kMaxChannels][kKeyLanes][kBankBands] {};   // averaged over dialogueGainMs
+    float slowM[kMaxChannels][kKeyLanes][kBankBands] {}, slowK[kKeyLanes][kBankBands] {};
+    float dlgChance[kBankBands] {};               // the share of K x M two unrelated signals have in common by chance, per band
+    float dlgKept[kNumKeyDelays][kBankBands] {};  // the share (as power) of what key and mix have in common that is
+                                                  //   still found with the key this far out of time, per band
+    float dlgGsq[kMaxChannels][kKeyLanes] {};     // the gain (as power) that fits the key to each channel, as measured
+    float dlgGeff[kMaxChannels][kKeyLanes] {};    // ... and as used: 1 until the key has been found in the mix
+    float dlgFit = 0.0f;                          // 0..1: the key has been found in some channel
+    float dlgKeyTop[kKeyLanes] {};                // the loudest each key channel has been lately
+    float dlgOverTime = 0.0f;                     // seconds the key has been most of the mix
+    bool dlgOver = false;
+    float dlgSnapGainSq = 1.0f;                   // the dialogue's gain (as power) in what Snap listens to
+    float dlgGainMost = 1.0f;                     // the most of dlgGeff over the channels
+    bool dlgPinned = false;                       // the gain is at an end of its range
+    bool dlgMatched[kMaxChannels][kKeyLanes] {};  // the key has been found in this channel
+    float dlgGood[kMaxChannels][kKeyLanes] {};    // the gain it was last found at
+    bool dlgHearing[kKeyLanes] {};                // this key channel is playing now
+    int dlgHeard[kKeyLanes] {};                   // ticks it has played for, in all
+    int dlgCalCount = 0;
+    float dlgEnv[kMaxChannels][kNumBands] {};     // 0..1 per detector and band: how far the band is the dialogue's
+    bool dlgActive[kMaxChannels] {};              // some of it is not zero
+    float dlgTaken[kMaxChannels][kNumBands] {};   // the same as the detector's own state has taken it in so far
+    bool dlgTaking[kMaxChannels] {};              // some of that is not zero
+    bool dlgShown = false;                        // the frame has some of it in
+    float dlgLo = 0.126f, dlgInvSpan = 2.67f, dlgAttackC = 0.06f, dlgReleaseC = 0.004f, dlgSpread = 0.5f;
+    float dlgGsqMin = 1.0e-4f, dlgGsqMax = 15.8f, dlgAvgC = 0.002f, dlgGainC = 0.03f, dlgFitUpC = 0.03f, dlgFitDownC = 0.008f;
+    float dlgMatchRatio = 1.5f, dlgOverShare = 0.8f, dlgOverSeconds = 1.5f, dlgTickSeconds = 0.001f;
     float washSlow = 0.0f;
     float programDb = -120.0f;                    // after attack and release
 
@@ -225,7 +288,11 @@ struct Core::Impl
     float runLow[kNumBands] {};                      // nothing below this counts towards the band's reference
     int moduleOfBand[kNumBands] {};                 // -1: in no module
     float edge[kNumEdges] {};                        // edges as used: clamped and in order
-    float attackC = 0.1f, releaseC = 0.01f;
+    float attackC = 0.1f, releaseC = 0.01f;         // from Speed and Release
+    float attackCk[kNumBands] {}, releaseCk[kNumBands] {};   // per band: its range's own if that is unlocked
+    bool lastLocked[kNumModules] {};
+    float lastRangeAttack[kNumModules] {}, lastRangeRelease[kNumModules] {};
+    int groupOf[kMaxChannels] {};                   // 0..kNumGroups-1, for LinkMode::grouped
     float levelAttackC = 0.1f, levelReleaseC = 0.01f, peakC = 0.01f;
     float cut[kMaxChannels][kNumBands] {};          // smoothed requested cut, dB, >= 0
     float slowPower[kMaxChannels][kNumBands] {};    // band power averaged over tune.peakTimeMs
@@ -235,6 +302,16 @@ struct Core::Impl
     bool earned[kMaxChannels][kNumBands] {};        // the notch on this band has settled: Release applies in full
     std::uint16_t chosenFor[kMaxChannels][kNumBands] {};   // ticks in a row keepPeaks has chosen this band
     float peakPower[kMaxChannels][kNumBands] {};    // the strongest the band has been lately while its notch was chosen (its slow average)
+    // Steady detection (Params::detection), per detector slot. Run only while it is chosen; a slot
+    // that was not run at the last tick starts again from its slow average (slowPower) if that was
+    // brought up to date at the last tick, else from the band powers now.
+    float steadyPow[kMaxChannels][kNumBands] {};    // band power smoothed over steadySmoothMs
+    float steadyDb[kMaxChannels][kNumBands] {};     // the steady level, dB as wantedCuts reads levels
+    std::uint32_t steadyStamp[kMaxChannels] {};     // the tick it was last run at
+    std::uint32_t slowStamp[kMaxChannels] {};       // the tick keepPeaks last brought slowPower up to date at
+    std::uint32_t tickCount = 1;
+    float steadySmoothC = 0.02f, steadyRiseC = 0.001f, steadyFallC = 0.0025f, steadyMarginDb = 1.0f;
+    int steadyReach = 3;
     int earnTicks = 250;
     float moveC = 0.01f, unsettledC = 0.02f, closeC = 0.02f, movedShare = 0.5f, peakFade = 0.999f;
     float actGain = 0.0f;                           // how far over the Threshold, as it reaches the notches
@@ -310,7 +387,15 @@ struct Core::Impl
     int delayNow = 0, delayNext = 0, fadeLeft = 0, fadeLength = 480;   // lookahead changes cross-fade
     float gainWet = 1.0f, gainDry = 0.0f;
     float gainLfe = 1.0f;                        // an LFE's gain: Trim, nothing in Solo Honk, as it is in Diff and Bypass
-    float loudWet = 0.0f, loudDry = 0.0f, diffMatchDb = 0.0f;   // running mean squares, and the offset Diff applies
+    float loudWet = 0.0f, loudDry = 0.0f, diffMatchDb = 0.0f;   // running mean squares over diffMatchSeconds, and the offset they call for
+    float diffGainFrom = 1.0f, diffGainTo = 1.0f;  // the gain Diff applies, at the start and the end of the current chunk
+    // Diff's cross-fade: 0 = not in Diff, 1 = in Diff. Each time Diff is switched it sets off along a
+    // cubic from where it is, at the speed it has, to arrive at rest diffFadeLength samples later,
+    // so there is no corner in it even when Diff is switched again half-way.
+    float diffFade = 0.0f, diffFadeSlope = 0.0f;   // where it is, and how fast it is moving (per sample)
+    float diffFadeGoal = 0.0f;                     // 0 or 1
+    float diffFadeStart = 0.0f, diffFadeStartSlope = 0.0f;   // where this stretch set off from, and how fast (per stretch)
+    int diffFadeAt = 0, diffFadeLength = 3840;     // samples into this stretch (diffFadeLength: it has arrived)
     float pitchClass[12] {};
     bool snapGains = true;
     float modeC = 0.01f;
@@ -323,6 +408,11 @@ struct Core::Impl
     BandState clickDet, lowerDet[2], upperDet[2];    // detector, on the mono sum; the neighbours are
                                                      // filtered twice so the click itself does not leak in
     BandState clickPath[kMaxChannels];               // the band taken out of each channel
+    // Snap and the dialogue: the key through Snap's own band, delayed as the channels are.
+    std::vector<float> keyRing;
+    BandState keyClickDet;
+    float snapMixPow = 0.0f, snapKeyPow = 0.0f, snapDlgAtkC = 0.02f, snapDlgRelC = 0.0004f;
+    float snapDlgPeak = 0.0f;                        // the most Snap was held off since the last frame
     SpikeMeter clickSpike, lowerSpike, upperSpike;
     float clickFastRel = 0.01f, clickSlowC = 0.001f, clickAttackC = 0.2f, clickReleaseC = 0.01f;
     float clickGain = 0.0f;                          // 0 = nothing removed, 1 = whole band removed
@@ -382,6 +472,7 @@ struct Core::Impl
             size <<= 1;
         for (auto& r : ring)
             r.assign ((size_t) size, 0.0f);
+        keyRing.assign ((size_t) size, 0.0f);
         ringMask = size - 1;
 
         modeC = onePoleCoef (0.005, fs);
@@ -394,6 +485,7 @@ struct Core::Impl
         dirtyAll = true;
         prepared = true;
         updateDerived();
+        forgetKeyGain();
         reset();
     }
 
@@ -431,6 +523,12 @@ struct Core::Impl
             foldL[c] = l;
             foldR[c] = r;
             foldMono[c] = 0.5f * (l + r);
+
+            Group grp = c < channels ? layout.group[c] : Group::automatic;
+            if (grp == Group::automatic)
+                grp = (pos == Position::leftFront || pos == Position::rightFront || pos == Position::unknown) ? Group::front
+                    : (pos == Position::centre ? Group::centre : Group::surround);
+            groupOf[c] = std::clamp ((int) grp - 1, 0, kNumGroups - 1);
         }
     }
 
@@ -460,6 +558,9 @@ struct Core::Impl
         std::memset (earned, 0, sizeof (earned));
         std::memset (chosenFor, 0, sizeof (chosenFor));
         std::memset (peakPower, 0, sizeof (peakPower));
+        std::memset (steadyStamp, 0, sizeof (steadyStamp));
+        std::memset (slowStamp, 0, sizeof (slowStamp));
+        tickCount = 1;
         std::memset (evict, 0, sizeof (evict));
         std::memset (quickC, 0, sizeof (quickC));
         actGain = 0.0f;
@@ -470,7 +571,24 @@ struct Core::Impl
         frame.guard = 0.0f;
         sharedFlagsChannels = -1;
         loudWet = loudDry = diffMatchDb = 0.0f;
+        diffGainFrom = diffGainTo = 1.0f;
+        diffFade = diffFadeSlope = diffFadeGoal = 0.0f;
+        diffFadeAt = diffFadeLength;
         keyPower = washSlow = 0.0f;
+        clearKeyAnalysis();
+        dlgRunning = dlgOnNow = dlgAny = false;
+        frame.keyMatch = 0.0f;
+        frame.keyOver = false;
+        frame.snapDialogue = 0.0f;
+        std::memset (dlgEnv, 0, sizeof (dlgEnv));
+        std::memset (dlgActive, 0, sizeof (dlgActive));
+        std::memset (dlgTaken, 0, sizeof (dlgTaken));
+        std::memset (dlgTaking, 0, sizeof (dlgTaking));
+        std::memset (dlgD, 0, sizeof (dlgD));
+        for (int k = 0; k < kMaxBands; ++k)
+            frame.dialogue[k] = 0.0f;
+        frame.dialogueTrimDb = 0.0f;
+        dlgShown = false;
         for (auto& n : pitchClass) n = 0.0f;
         programDb = -120.0f;
         ringWrite = 0;
@@ -492,6 +610,50 @@ struct Core::Impl
         frame.diffOffsetDb = 0.0f;
         fadeLeft = 0;
         ++frameCount;
+    }
+
+    /** The gain the key was found at is not audio that has gone by but how the session is
+        routed, so it is kept through reset() and through the key being switched; only prepare()
+        starts it again. */
+    void forgetKeyGain() noexcept
+    {
+        for (auto& ch : dlgGsq)  for (auto& g : ch) g = 1.0f;
+        for (auto& ch : dlgGeff) for (auto& g : ch) g = 1.0f;
+        for (auto& ch : dlgGood) for (auto& g : ch) g = 1.0f;
+        dlgFit = 0.0f;
+        dlgSnapGainSq = dlgGainMost = 1.0f;
+        dlgPinned = false;
+    }
+
+    void clearKeyAnalysis() noexcept
+    {
+        for (auto& lane : keyAa)
+            for (auto& z : lane)
+                z = {};
+        std::memset (keyS1a, 0, sizeof (keyS1a));
+        std::memset (keyS2a, 0, sizeof (keyS2a));
+        std::memset (keyS1b, 0, sizeof (keyS1b));
+        std::memset (keyS2b, 0, sizeof (keyS2b));
+        std::memset (keyPow, 0, sizeof (keyPow));
+        std::memset (accR, 0, sizeof (accR));
+        std::memset (accI, 0, sizeof (accI));
+        std::memset (accM, 0, sizeof (accM));
+        std::memset (accK, 0, sizeof (accK));
+        std::memset (crossR, 0, sizeof (crossR));
+        std::memset (crossI, 0, sizeof (crossI));
+        std::memset (slowM, 0, sizeof (slowM));
+        std::memset (slowK, 0, sizeof (slowK));
+        accCount = 0;
+        for (auto& v : dlgKeyTop) v = 0.0f;
+        dlgOverTime = 0.0f;
+        dlgOver = false;
+        std::memset (dlgMatched, 0, sizeof (dlgMatched));
+        std::memset (dlgHearing, 0, sizeof (dlgHearing));
+        std::memset (dlgHeard, 0, sizeof (dlgHeard));
+        dlgCalCount = 0;
+        std::fill (keyRing.begin(), keyRing.end(), 0.0f);
+        keyClickDet = {};
+        snapMixPow = snapKeyPow = snapDlgPeak = 0.0f;
     }
 
     //============================================================================== derived values
@@ -580,8 +742,14 @@ struct Core::Impl
             }
         }
 
+        bool timingChanged = focusChanged;
+        for (int m = 0; m < kNumModules; ++m)
+            timingChanged = timingChanged || params.rangeTimingLocked[m] != lastLocked[m]
+                         || changed (params.rangeAttackMs[m], lastRangeAttack[m]) || changed (params.rangeReleaseMs[m], lastRangeRelease[m]);
+
         if (dirtyAll || changed (params.speed, lastSpeed))
         {
+            timingChanged = true;
             lastSpeed = params.speed;
             const float s = std::clamp (params.speed, 0.0f, 1.0f);
             const double tickRate = fs / tickPeriod;
@@ -590,8 +758,31 @@ struct Core::Impl
 
         if (dirtyAll || changed (params.releaseMs, lastRelease))
         {
+            timingChanged = true;
             lastRelease = params.releaseMs;
             releaseC = onePoleCoef (0.001 * (double) std::clamp (params.releaseMs, 10.0f, 5000.0f), fs / tickPeriod);
+        }
+
+        if (timingChanged)
+        {
+            // A range whose timing is unlocked goes in and lets go at its own rates; every other
+            // band at the ones Speed and Release give.
+            const double tickRate = fs / tickPeriod;
+            float rangeAttack[kNumModules], rangeRelease[kNumModules];
+            for (int m = 0; m < kNumModules; ++m)
+            {
+                lastLocked[m] = params.rangeTimingLocked[m];
+                lastRangeAttack[m] = params.rangeAttackMs[m];
+                lastRangeRelease[m] = params.rangeReleaseMs[m];
+                rangeAttack[m] = lastLocked[m] ? attackC : onePoleCoef (0.001 * (double) std::clamp (params.rangeAttackMs[m], 0.5f, 1000.0f), tickRate);
+                rangeRelease[m] = lastLocked[m] ? releaseC : onePoleCoef (0.001 * (double) std::clamp (params.rangeReleaseMs[m], 10.0f, 5000.0f), tickRate);
+            }
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                const int m = moduleOfBand[k];
+                attackCk[k] = m >= 0 ? rangeAttack[m] : attackC;
+                releaseCk[k] = m >= 0 ? rangeRelease[m] : releaseC;
+            }
         }
 
         if (dirtyAll)
@@ -608,6 +799,11 @@ struct Core::Impl
             closeC = onePoleCoef (0.001 * (double) std::max (1.0f, tune.thresholdCloseMs), tickRate);
             movedShare = std::exp (-kLn10Over10 * std::clamp (tune.movedWithinDb, 0.0f, 60.0f));
             peakFade = (float) std::exp (-1.0 / (1.0 * tickRate));      // what "as strong as it was" looks back over: a second
+            steadySmoothC = onePoleCoef (0.001 * (double) std::max (1.0f, tune.steadySmoothMs), tickRate);
+            steadyRiseC = onePoleCoef (0.001 * (double) std::max (1.0f, tune.steadyRiseMs), tickRate);
+            steadyFallC = onePoleCoef (0.001 * (double) std::max (1.0f, tune.steadyFallMs), tickRate);
+            steadyReach = std::clamp ((int) std::lround (tune.steadyLumpBands), 0, 24);
+            steadyMarginDb = tune.steadyLumpMarginDb;
 
             guardSnapEvery = std::max (1, (int) std::lround (0.001 * std::max (1.0f, tune.guardLagMs) * tickRate / kGuardLagSteps));
             guardRatio = std::exp (kLn10Over10 * std::clamp (tune.guardRiseDb, 0.5f, 40.0f));
@@ -630,6 +826,46 @@ struct Core::Impl
             guardFirstBand = 0;
             while (guardFirstBand < kNumBands - 8 && bandF[guardFirstBand] < tune.guardLowHz)
                 ++guardFirstBand;
+
+            {
+                const float full = std::clamp (tune.dialogueFullDb, -40.0f, 20.0f);
+                const float start = std::min (std::clamp (tune.dialogueStartDb, -60.0f, 20.0f), full - 0.1f);
+                dlgLo = std::exp (kLn10Over10 * start);
+                dlgInvSpan = 1.0f / (std::exp (kLn10Over10 * full) - dlgLo);
+                dlgSpread = std::clamp (tune.dialogueSpread, 0.0f, 1.0f);
+                dlgAttackC = onePoleCoef (0.001 * std::max (1.0f, tune.dialogueAttackMs), tickRate);
+                dlgReleaseC = onePoleCoef (0.001 * std::max (1.0f, tune.dialogueReleaseMs), tickRate);
+                dlgGsqMax = std::exp (kLn10Over10 * std::clamp (tune.dialogueTrimMaxDb, 0.0f, 40.0f));
+                dlgGsqMin = std::exp (kLn10Over10 * std::clamp (tune.dialogueTrimMinDb, -80.0f, 0.0f));
+                const double avg = 0.001 * (double) std::clamp (tune.dialogueGainMs, 50.0f, 5000.0f);
+                dlgAvgC = onePoleCoef (avg, tickRate);
+                dlgGainC = onePoleCoef (0.3 * avg, tickRate / kDialogueTrimEvery);
+                dlgFitUpC = onePoleCoef (0.5 * avg, tickRate / kDialogueTrimEvery);
+                dlgFitDownC = onePoleCoef (3.0 * avg, tickRate / kDialogueTrimEvery);
+                dlgMatchRatio = std::max (0.0f, tune.dialogueMatchRatio);
+                dlgOverShare = std::clamp (tune.dialogueOverShare, 0.1f, 1.0f);
+                dlgOverSeconds = std::max (0.05f, tune.dialogueOverSeconds);
+                dlgTickSeconds = (float) (1.0 / tickRate);
+                // Two unrelated signals in one band still move together a little over a finite
+                // time: by 1 / (1 + the averaging time x the band's width x a constant) of the
+                // product of their powers (measured with unrelated noise on mix and key).
+                for (int k = 0; k < kBankBands; ++k)
+                    dlgChance[k] = k < kNumBands ? kChanceFactor / (1.0f + (float) (kChanceSlope * avg * 0.0578 * (double) bandF[k])) : 0.0f;
+                // A key that is a little out of time with the mix: a band's two filter sections
+                // remember for about as long as the band is narrow, so the higher the band the
+                // less of what the two share is found. (1 + x) e^-x in amplitude, x = pi x one
+                // section's width x the delay.
+                for (int t = 0; t < kNumKeyDelays; ++t)
+                    for (int k = 0; k < kBankBands; ++k)
+                    {
+                        const double x = kPi * 0.0898 * (double) bandF[std::min (k, kNumBands - 1)] * 0.001 * (double) kKeyDelaysMs[t];
+                        const double kept = (1.0 + x) * std::exp (-x);
+                        dlgKept[t][k] = (float) (kept * kept);
+                    }
+                snapDlgAtkC = onePoleCoef (0.001 * (double) std::max (0.05f, tune.snapDialogueAttackMs), fs);
+                snapDlgRelC = onePoleCoef (0.001 * (double) std::max (1.0f, tune.snapDialogueReleaseMs), fs);
+            }
+            diffFadeLength = std::max (1, (int) std::lround (0.001 * (double) std::clamp (tune.diffFadeMs, 0.0f, 2000.0f) * fs));
 
             const double lo = std::max (200.0, (double) tune.clickLowHz), hi = std::max (lo * 1.2, (double) tune.clickHighHz);
             clickBand.set (lo, hi, fs);
@@ -754,12 +990,13 @@ struct Core::Impl
         the vector width with bands that do nothing. */
     void bandBank (int c, int m) noexcept
     {
-        float* __restrict a1 = s1a[c];
-        float* __restrict a2 = s2a[c];
-        float* __restrict b1 = s1b[c];
-        float* __restrict b2 = s2b[c];
-        float* __restrict pw = power[c];
-        const float* __restrict xs = decimated[c];
+        bandBankOn (s1a[c], s2a[c], s1b[c], s2b[c], power[c], decimated[c], m);
+    }
+
+    /** The same on any set of states: a channel's, or the dialogue sidechain's. */
+    void bandBankOn (float* __restrict a1, float* __restrict a2, float* __restrict b1, float* __restrict b2,
+                     float* __restrict pw, const float* __restrict xs, int m) noexcept
+    {
         const float* __restrict ka1 = bpA1;
         const float* __restrict ka2 = bpA2;
         const float* __restrict ka3 = bpA3;
@@ -792,6 +1029,91 @@ struct Core::Impl
         }
     }
 
+    /** bandBankOn(), keeping every band's output for the chunk in ys (m rows), and in qs, if it
+        is given, the output a quarter of a cycle behind. The same arithmetic for pw. */
+    void bandBankKeep (float* __restrict a1, float* __restrict a2, float* __restrict b1, float* __restrict b2,
+                       float* __restrict pw, const float* __restrict xs, int m,
+                       float (* __restrict ys)[kBankBands], float (* __restrict qs)[kBankBands]) noexcept
+    {
+        const float* __restrict ka1 = bpA1;
+        const float* __restrict ka2 = bpA2;
+        const float* __restrict ka3 = bpA3;
+        const float* __restrict kk = bpK;
+        const float* __restrict ke = envC;
+
+        for (int i = 0; i < m; ++i)
+        {
+            const float x = xs[i];
+            float* __restrict yo = ys[i];
+            float* __restrict qo = qs != nullptr ? qs[i] : spareBand;
+            for (int k = 0; k < kBankBands; ++k)
+            {
+                const float ca1 = ka1[k], ca2 = ka2[k], ca3 = ka3[k], ck = kk[k];
+
+                float v3 = x - a2[k];
+                float v1 = ca1 * a1[k] + ca2 * v3;
+                float v2 = a2[k] + ca2 * a1[k] + ca3 * v3;
+                a1[k] = 2.0f * v1 - a1[k];
+                a2[k] = 2.0f * v2 - a2[k];
+                const float y1 = ck * v1;
+
+                v3 = y1 - b2[k];
+                v1 = ca1 * b1[k] + ca2 * v3;
+                v2 = b2[k] + ca2 * b1[k] + ca3 * v3;
+                b1[k] = 2.0f * v1 - b1[k];
+                b2[k] = 2.0f * v2 - b2[k];
+                const float y2 = ck * v1;
+
+                pw[k] += ke[k] * (y2 * y2 - pw[k]);
+                yo[k] = y2;
+                qo[k] = ck * v2;
+            }
+        }
+    }
+
+    /** What each analysed channel and each key channel had in common in this chunk, band by band. */
+    void keyProducts (int m) noexcept
+    {
+        for (int l = 0; l < dlgLanes; ++l)
+        {
+            float* __restrict kAcc = accK[l];
+            for (int i = 0; i < m; ++i)
+            {
+                const float* __restrict ky = keyY[l][i];
+                for (int k = 0; k < kBankBands; ++k)
+                    kAcc[k] += ky[k] * ky[k];
+            }
+        }
+        for (int a = 0; a < numAnalysed; ++a)
+        {
+            const int c = analysed[a];
+            float* __restrict mAcc = accM[c];
+            for (int i = 0; i < m; ++i)
+            {
+                const float* __restrict y = bankY[c][i];
+                for (int k = 0; k < kBankBands; ++k)
+                    mAcc[k] += y[k] * y[k];
+            }
+            for (int l = 0; l < dlgLanes; ++l)
+            {
+                float* __restrict r = accR[c][l];
+                float* __restrict q = accI[c][l];
+                for (int i = 0; i < m; ++i)
+                {
+                    const float* __restrict y = bankY[c][i];
+                    const float* __restrict ky = keyY[l][i];
+                    const float* __restrict kq = keyQ[l][i];
+                    for (int k = 0; k < kBankBands; ++k)
+                    {
+                        r[k] += y[k] * ky[k];
+                        q[k] += y[k] * kq[k];
+                    }
+                }
+            }
+        }
+        accCount += m;
+    }
+
     /** With more than two channels: the programme level of the stereo fold-down, from the
         analysis samples every channel recorded in this chunk. */
     void foldDown() noexcept
@@ -811,10 +1133,13 @@ struct Core::Impl
     }
 
     //============================================================================== detector
-    /** Band powers in, wanted cut per band out (dB, >= 0, before time smoothing). */
-    void wantedCuts (const float* p, float* out) const noexcept
+    /** Band powers in, wanted cut per band out (dB, >= 0, before time smoothing). With `steady`
+        (Detection::steady: each band's steady level, dB), the excess is taken on that and must
+        also clear the floor drawn under it; the parent rule and the silence test still read p. */
+    void wantedCuts (const float* p, float* out, const float* steady = nullptr) const noexcept
     {
         float level[kNumBands], flat[kNumBands], comp[kNumBands];
+        float steadyLevel[kNumBands], lumpFloor[kNumBands];
 
         float loudest = -200.0f;
         for (int k = 0; k < kNumBands; ++k)
@@ -834,13 +1159,33 @@ struct Core::Impl
         for (int k = 0; k < kNumBands; ++k)
             level[k] = std::max (level[k], floorDb);
 
+        // What the excess over the surroundings is taken on: the levels now, or the steady levels.
+        const float* lv = level;
+        if (steady != nullptr)
+        {
+            for (int k = 0; k < kNumBands; ++k)
+                steadyLevel[k] = std::max (steady[k], floorDb);
+            lv = steadyLevel;
+            // The floor under the steady spectrum: each band no higher than the mean of the two
+            // bands m away, for m = 1 up to steadyReach in turn. A peak narrower than the reach is
+            // cut off by it; a lift as wide as the reach or wider is left in the floor.
+            std::memcpy (lumpFloor, steadyLevel, sizeof (lumpFloor));
+            float before[kNumBands];
+            for (int m = 1; m <= steadyReach; ++m)
+            {
+                std::memcpy (before, lumpFloor, sizeof (before));
+                for (int k = m; k + m < kNumBands; ++k)
+                    lumpFloor[k] = std::min (before[k], 0.5f * (before[k - m] + before[k + m]));
+            }
+        }
+
         // Overall tilt: a mix falls away with frequency, and that slope is not honk.
         float slope = 0.0f, intercept = 0.0f;
         if (tune.detrend)
         {
             float n = 0.0f, meanK = 0.0f, meanL = 0.0f;
             for (int k = 0; k < kNumBands; ++k)
-                if (refValid[k]) { n += 1.0f; meanK += (float) k; meanL += level[k]; }
+                if (refValid[k]) { n += 1.0f; meanK += (float) k; meanL += lv[k]; }
             if (n >= 6.0f)
             {
                 meanK /= n; meanL /= n;
@@ -849,7 +1194,7 @@ struct Core::Impl
                     if (refValid[k])
                     {
                         const float dk = (float) k - meanK;
-                        sxy += dk * (level[k] - meanL);
+                        sxy += dk * (lv[k] - meanL);
                         sxx += dk * dk;
                     }
                 slope = std::clamp (sxy / sxx, -6.0f / (float) kBandsPerOctave, 0.0f);   // dB per band; at most 6 dB per octave
@@ -858,7 +1203,7 @@ struct Core::Impl
         }
 
         const float alpha = std::clamp (tune.referenceExponent, 0.1f, 1.0f);
-        if (alpha >= 1.0f && ! tune.detrend)
+        if (alpha >= 1.0f && ! tune.detrend && steady == nullptr)
         {
             // The usual case: the reference is an average of power, and the levels came from the
             // powers, so there is nothing to convert back.
@@ -873,7 +1218,7 @@ struct Core::Impl
         {
             for (int k = 0; k < kNumBands; ++k)
             {
-                flat[k] = level[k] - (intercept + slope * (float) k);
+                flat[k] = lv[k] - (intercept + slope * (float) k);
                 comp[k] = std::exp (alpha * kLn10Over10 * flat[k]);
             }
         }
@@ -906,7 +1251,9 @@ struct Core::Impl
             for (; j < end; ++j)
                 r0 += w[j] * comp[j];
             const float ref = (r0 + r1) + (r2 + r3);
-            const float excess = flat[k] - (10.0f / alpha) * std::log10 (ref + 1.0e-20f);
+            float excess = flat[k] - (10.0f / alpha) * std::log10 (ref + 1.0e-20f);
+            if (steady != nullptr && steadyReach > 0)
+                excess = std::min (excess, steadyLevel[k] - lumpFloor[k] + steadyMarginDb);
 
             // Soft knee around the dead zone.
             const float x = excess - deadZone;
@@ -937,6 +1284,24 @@ struct Core::Impl
 
     void smoothCuts (int c, const float* wanted) noexcept
     {
+        if (dlgActive[c] || dlgTaking[c])
+        {
+            // How far the state below has taken in what the dialogue takes off: the same step,
+            // at the same rate, as each band's cut is about to make.
+            const float rate = guards[c].held > 0.0f ? 1.0f - guards[c].held : 1.0f;
+            bool any = false;
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                const float down = evict[k] ? std::max (attackCk[k], releaseCk[k]) : std::max (releaseCk[k], quickC[k]);
+                const float coef = wanted[k] > cut[c][k] ? attackCk[k] : down;
+                float& h = dlgTaken[c][k];
+                h += rate * coef * (dlgEnv[c][k] - h);
+                if (! (h >= 1.0e-4f) && dlgEnv[c][k] <= 0.0f)
+                    h = 0.0f;
+                any = any || h > 0.0f;
+            }
+            dlgTaking[c] = any;
+        }
         if (guards[c].held > 0.0f)
         {
             // An impact is sounding: the detector's own state moves only as far as the guard
@@ -946,8 +1311,8 @@ struct Core::Impl
             for (int k = 0; k < kNumBands; ++k)
             {
                 float& s = cut[c][k];
-                const float down = evict[k] ? std::max (attackC, releaseC) : std::max (releaseC, quickC[k]);
-                const float coef = wanted[k] > s ? attackC : down;
+                const float down = evict[k] ? std::max (attackCk[k], releaseCk[k]) : std::max (releaseCk[k], quickC[k]);
+                const float coef = wanted[k] > s ? attackCk[k] : down;
                 s += rate * coef * (wanted[k] - s);
                 if (! (s >= 1.0e-4f))
                     s = 0.0f;
@@ -958,8 +1323,8 @@ struct Core::Impl
         for (int k = 0; k < kNumBands; ++k)
         {
             float& s = cut[c][k];
-            const float down = evict[k] ? std::max (attackC, releaseC) : std::max (releaseC, quickC[k]);
-            const float coef = wanted[k] > s ? attackC : down;
+            const float down = evict[k] ? std::max (attackCk[k], releaseCk[k]) : std::max (releaseCk[k], quickC[k]);
+            const float coef = wanted[k] > s ? attackCk[k] : down;
             s += coef * (wanted[k] - s);
             if (! (s >= 1.0e-4f))       // also catches NaN
                 s = 0.0f;
@@ -1146,6 +1511,7 @@ struct Core::Impl
             if (! (slowW[k] >= 1.0e-4f))
                 slowW[k] = 0.0f;
         }
+        slowStamp[c] = tickCount;
 
         // Prominence: the band against the bands 1/6 to 1/3 octave either side of it.
         const int nearB = std::max (1, kBandsPerOctave / 6), farB = std::max (nearB, kBandsPerOctave / 3);
@@ -1360,13 +1726,393 @@ struct Core::Impl
         }
     }
 
+    //============================================================================== dialogue sidechain
+    // The user feeds the dialogue stem to the sidechain. Per band, the dialogue's power as it
+    // stands in the mix is set against the power the detector is working from. A band the dialogue
+    // accounts for (its power within dialogueFullDb of the band's) is the dialogue's: nothing is
+    // asked for there, so it is not chosen for a notch and does not use up its range's notches, and
+    // a notch already open there is eased off, quickly, and comes back slowly when the dialogue
+    // has left, so the gaps between words do not pump. (The easing is the share the detector's own
+    // state has not yet let go of: that state gives the band up at the Release, as it gives up
+    // anything it is no longer asked for, and dlgTaken follows how far it has, at the same rates.
+    // What reaches the filters is the state times what is still to come off, so the two together
+    // are the cut that is asked for, times one less Amount times the share that is the dialogue's:
+    // at once when the dialogue arrives, and exactly, whatever Release is.) A band that stands
+    // dialogueStartDb or more over the dialogue is treated as ever: build-up that is well above the
+    // voice is still cut while the voice is in it. Nothing else changes: what a band is compared
+    // with, the Threshold and the impact guard see the mix as they always do.
+    //
+    // The dialogue's power in a channel is the key's power (through the same band bank, so in
+    // time with the channel and smoothed the same) times the gain the dialogue has in that channel.
+    // That gain is measured: over the last half second or so in which the key was playing, the
+    // products of the channel's and the key's band outputs are averaged, with the key's
+    // quadrature as well so that a delay of a few milliseconds between the two does not matter.
+    // The part of a band the key accounts for moves with the key, whatever else is in the band,
+    // so the sum of those products over the bands, less what two unrelated signals share by
+    // chance, over the key's own power, is the gain: up or down, and nothing for a channel the
+    // dialogue is not in (a surround, with the voice in the centre). Until the key has been found
+    // in some channel (the first half second, or a key that is not in the mix or is far out of
+    // time with it) it is taken at the level it arrives at.
+
+    /** Every few ticks: the gain that fits each key channel to each analysed channel. */
+    void fitKey() noexcept
+    {
+        // found: the key is in some channel. missing: it is in none, and it is loud enough
+        // against the mix that it would have shown at the level it was last found at (so not
+        // just covered by a loud passage).
+        bool anyHeard = false, found = false, missing = false;
+        const int warm = std::max (1, (int) (1.0f / std::max (1.0e-6f, dlgAvgC)));     // an averaging time of key
+        for (int l = 0; l < dlgLanes; ++l)
+        {
+            if (dlgHeard[l] < warm)
+                continue;
+            float den = 0.0f;
+            for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+                den += slowK[l][k] * slowK[l][k];
+            if (! (den > 1.0e-24f))
+                continue;
+            if (dlgHearing[l])
+                anyHeard = true;
+            for (int a = 0; a < numAnalysed; ++a)
+            {
+                const int c = analysed[a];
+                const float* r = crossR[c][l];
+                const float* q = crossI[c][l];
+                const float* m = slowM[c][l];
+                float shared = 0.0f, chance = 0.0f;
+                float seen[kBankBands], keySq[kBankBands];
+                for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+                {
+                    const float both = r[k] * r[k] + q[k] * q[k], byChance = dlgChance[k] * slowK[l][k] * m[k];
+                    shared += both;
+                    chance += byChance;
+                    seen[k] = both - byChance;
+                    keySq[k] = slowK[l][k] * slowK[l][k];
+                }
+                if (! std::isfinite (shared) || ! std::isfinite (chance))
+                {
+                    std::memset (crossR[c][l], 0, sizeof (crossR[c][l]));
+                    std::memset (crossI[c][l], 0, sizeof (crossI[c][l]));
+                    std::memset (slowM[c][l], 0, sizeof (slowM[c][l]));
+                    continue;
+                }
+                if (! dlgHearing[l])
+                    continue;           // nothing new: what was found stands
+
+                // The gain, and with it the delay of those tried that leaves the least unexplained.
+                float est = 0.0f, least = 0.0f;
+                for (int t = 0; t < kNumKeyDelays; ++t)
+                {
+                    const float* kept = dlgKept[t];
+                    float num = 0.0f, d2 = 0.0f;
+                    for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+                    {
+                        num += seen[k] * kept[k];
+                        d2 += keySq[k] * kept[k] * kept[k];
+                    }
+                    const float g = std::max (0.0f, num) / (d2 + 1.0e-30f);
+                    float left = 0.0f;
+                    for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+                    {
+                        const float e = seen[k] - g * keySq[k] * kept[k];
+                        left += e * e;
+                    }
+                    if (t == 0 || left < least)
+                    {
+                        least = left;
+                        est = g;
+                    }
+                }
+                est = std::clamp (est, dlgGsqMin, dlgGsqMax);
+
+                const bool matched = shared - chance > dlgMatchRatio * chance;
+                dlgMatched[c][l] = matched;
+                // The gain follows what is measured (in dB, so that 24 dB down takes no longer
+                // than 6) while the key shows in the channel, or would show at the gain it is
+                // held at and does not: then it is not there at that gain. Otherwise it cannot
+                // be told, and the gain stays.
+                if (matched || dlgGsq[c][l] * den > 2.0f * chance)
+                    dlgGsq[c][l] *= std::exp (dlgGainC * std::log (est / dlgGsq[c][l]));
+                if (matched)
+                {
+                    found = true;
+                    dlgGood[c][l] = dlgGsq[c][l];
+                }
+                else if (dlgGood[c][l] * den > (1.0f + dlgMatchRatio) * chance)
+                    missing = true;
+            }
+        }
+        if (anyHeard && found)
+            dlgFit += dlgFitUpC * (1.0f - dlgFit);
+        else if (anyHeard && missing)
+            dlgFit -= dlgFitDownC * dlgFit;
+        if (! (dlgFit >= 1.0e-3f) && ! found)
+            dlgFit = 0.0f;
+        if (dlgFit > 0.999f)
+            dlgFit = 1.0f;
+
+        // What Snap listens to is the channels folded to one, and the key's channels likewise.
+        float snapGain = 0.0f, most = 0.0f, least = 1.0e30f;
+        bool pinned = false;
+        for (int a = 0; a < numAnalysed; ++a)
+        {
+            const int c = analysed[a];
+            float g = 0.0f;
+            for (int l = 0; l < dlgLanes; ++l)
+            {
+                dlgGeff[c][l] = dlgFit * dlgGsq[c][l] + (1.0f - dlgFit);
+                g = std::max (g, dlgGeff[c][l]);
+                if (dlgMatched[c][l])
+                    least = std::min (least, dlgGsq[c][l]);
+            }
+            most = std::max (most, g);
+            const float w = activeChannels > 2 ? foldMono[c] : (numAnalysed > 1 ? 0.5f : 1.0f);
+            snapGain += w * std::sqrt (g);
+        }
+        dlgSnapGainSq = snapGain * snapGain;
+        dlgGainMost = most;
+        pinned = dlgFit > 0.5f && (most >= 0.95f * dlgGsqMax || least <= 1.05f * dlgGsqMin);
+        dlgPinned = pinned;
+    }
+
+    /** Once per tick, before the detectors: the averages the gain is fitted from, and the
+        dialogue's band powers as they stand in the mix. */
+    void dialoguePowers (bool perChannel) noexcept
+    {
+        dlgOnNow = dlgRunning && ! staticOn;
+        dlgAmount = std::clamp (params.dialogueAmount, 0.0f, 1.0f);
+        dlgPerChannel = perChannel;
+        if (dlgOnNow)
+        {
+            for (int l = 0; l < dlgLanes; ++l)
+                if (! std::isfinite (keyPow[l][kNumBands / 2]))
+                    clearKeyAnalysis();
+
+            if (accCount > 0)
+            {
+                const float inv = 1.0f / (float) accCount;
+                for (int l = 0; l < dlgLanes; ++l)
+                {
+                    // Only while this key channel is playing: the averages are over the time the
+                    // key was there to be compared, and wait as they are through its pauses.
+                    float now = 0.0f;
+                    for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+                        now += accK[l][k];
+                    now *= inv;
+                    dlgKeyTop[l] = std::max (now, dlgKeyTop[l] * (1.0f - 0.03f * dlgAvgC));
+                    const bool hearing = now > 1.0e-9f && now > 0.003f * dlgKeyTop[l];
+                    dlgHearing[l] = hearing;
+                    if (hearing)
+                    {
+                        dlgHeard[l] = std::min (dlgHeard[l] + 1, 1 << 28);
+                        float* __restrict sk = slowK[l];
+                        const float* __restrict ak = accK[l];
+                        for (int k = 0; k < kBankBands; ++k)
+                            sk[k] += dlgAvgC * (ak[k] * inv - sk[k]);
+                        for (int a = 0; a < numAnalysed; ++a)
+                        {
+                            const int c = analysed[a];
+                            float* __restrict r = crossR[c][l];
+                            float* __restrict q = crossI[c][l];
+                            float* __restrict m = slowM[c][l];
+                            const float* __restrict ar = accR[c][l];
+                            const float* __restrict aq = accI[c][l];
+                            const float* __restrict am = accM[c];
+                            for (int k = 0; k < kBankBands; ++k)
+                            {
+                                r[k] += dlgAvgC * (ar[k] * inv - r[k]);
+                                q[k] += dlgAvgC * (aq[k] * inv - q[k]);
+                                m[k] += dlgAvgC * (am[k] * inv - m[k]);
+                            }
+                        }
+                    }
+                    std::memset (accK[l], 0, sizeof (accK[l]));
+                }
+                for (int a = 0; a < numAnalysed; ++a)
+                {
+                    const int c = analysed[a];
+                    std::memset (accM[c], 0, sizeof (accM[c]));
+                    std::memset (accR[c], 0, sizeof (accR[c]));
+                    std::memset (accI[c], 0, sizeof (accI[c]));
+                }
+                accCount = 0;
+            }
+            if (++dlgCalCount >= kDialogueTrimEvery)
+            {
+                dlgCalCount = 0;
+                fitKey();
+            }
+
+            std::fill (dlgD, dlgD + kNumBands, 0.0f);
+            float one[kNumBands];
+            for (int a = 0; a < numAnalysed; ++a)
+            {
+                const int c = analysed[a];
+                float* dc = perChannel ? dlgDc[c] : one;
+                const float g0 = dlgGeff[c][0], g1 = dlgLanes > 1 ? dlgGeff[c][1] : 0.0f;
+                const float* k1 = keyPow[dlgLanes > 1 ? 1 : 0];
+                for (int k = 0; k < kNumBands; ++k)
+                {
+                    dc[k] = std::max (g0 * keyPow[0][k], g1 * k1[k]);
+                    dlgD[k] = std::max (dlgD[k], dc[k]);
+                }
+            }
+        }
+        bool any = dlgOnNow;
+        for (int a = 0; a < numAnalysed; ++a)
+            any = any || dlgActive[analysed[a]];
+        dlgAny = any;       // (dlgTaken runs itself out in smoothCuts, with or without this)
+    }
+
+    /** After the detectors: has the key been most of the mix for a while. */
+    void dialogueOver (const float* shared) noexcept
+    {
+        if (! dlgOnNow)
+        {
+            dlgOverTime = 0.0f;
+            dlgOver = false;
+            return;
+        }
+        float top = 0.0f;
+        for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+            top = std::max (top, dlgD[k]);
+        int in = 0, all = 0;
+        if (top > 1.0e-9f)
+            for (int k = kFirstFilterBand; k <= kLastFilterBand; ++k)
+                if (dlgD[k] > 0.03f * top)
+                {
+                    ++in;
+                    all += dlgD[k] > 0.8f * shared[k] ? 1 : 0;
+                }
+        if (in >= 6 && dlgFit >= 0.5f)
+            dlgOverTime = (float) all >= dlgOverShare * (float) in ? std::min (dlgOverTime + dlgTickSeconds, dlgOverSeconds + 0.5f)
+                                                                 : std::max (0.0f, dlgOverTime - 2.0f * dlgTickSeconds);
+        dlgOver = dlgOverTime >= dlgOverSeconds || dlgPinned;
+    }
+
+    /** Detector c, on the band powers p it works from and the dialogue's powers d there: how far
+        each band is the dialogue's, and that share taken off what the detector asks for. */
+    void dialogueTick (int c, const float* p, const float* d, float* wanted) noexcept
+    {
+        float raw[kNumBands];
+        if (dlgOnNow)
+        {
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                const float t = std::clamp ((d[k] - dlgLo * p[k]) * dlgInvSpan / (p[k] + 1.0e-20f), 0.0f, 1.0f);
+                raw[k] = d[k] > 1.0e-10f ? t * t * (3.0f - 2.0f * t) : 0.0f;
+            }
+        }
+        else
+            std::fill (raw, raw + kNumBands, 0.0f);
+
+        float* env = dlgEnv[c];
+        bool any = false;
+        for (int k = 0; k < kNumBands; ++k)
+        {
+            const float beside = std::max (k > 0 ? raw[k - 1] : 0.0f, k + 1 < kNumBands ? raw[k + 1] : 0.0f);
+            const float target = std::max (raw[k], dlgSpread * beside);
+            float& e = env[k];
+            e += (target > e ? dlgAttackC : dlgReleaseC) * (target - e);
+            if (! (e >= 1.0e-3f) && target <= 0.0f)
+                e = 0.0f;                   // also catches NaN
+            any = any || e > 0.0f;
+            wanted[k] *= 1.0f - dlgAmount * e;
+        }
+        dlgActive[c] = any;
+    }
+
+    /** Steady detection: detector c's steady level, from the band powers p it works from. Kept
+        going under the Threshold too, so that it is ready when the programme comes up. A slot that
+        was not run at the last tick (Steady just chosen, the link mode changed, after reset())
+        starts from the band's slow average when keepPeaks brought it up to date at the last tick
+        (the slot's detector ran). Otherwise (a channel that was not its own detector while Linked,
+        whose slow average is as old as the last time it was) it starts from the band powers now,
+        and the 50 ms smoothing and the rise and fall take it from there. */
+    void steadyTick (int c, const float* p) noexcept
+    {
+        float* sp = steadyPow[c];
+        float* sd = steadyDb[c];
+        float level[kNumBands];
+        float loudest = -200.0f;
+        if (steadyStamp[c] + 1u != tickCount)
+        {
+            const bool slowFresh = slowStamp[c] + 1u == tickCount;
+            for (int k = 0; k < kNumBands; ++k)
+                sp[k] = slowFresh && slowPower[c][k] > 0.0f ? slowPower[c][k] : p[k];
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                level[k] = 10.0f * std::log10 (sp[k] + 1.0e-14f) + kFullScaleSineOffsetDb;
+                loudest = std::max (loudest, level[k]);
+            }
+            for (int k = 0; k < kNumBands; ++k)
+                sd[k] = std::max (level[k], loudest - 70.0f);
+        }
+        else
+        {
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                sp[k] += steadySmoothC * (p[k] - sp[k]);
+                if (! (sp[k] >= 0.0f))
+                    sp[k] = 0.0f;           // also catches NaN
+                level[k] = 10.0f * std::log10 (sp[k] + 1.0e-14f) + kFullScaleSineOffsetDb;
+                loudest = std::max (loudest, level[k]);
+            }
+            const float floorDb = loudest - 70.0f;
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                const float l = std::max (level[k], floorDb);
+                sd[k] += (l > sd[k] ? steadyRiseC : steadyFallC) * (l - sd[k]);
+                if (! std::isfinite (sd[k]))
+                    sd[k] = l;
+            }
+        }
+        steadyStamp[c] = tickCount;
+    }
+
+    /** One detector: the impact guard, what each band should come down by, the dialogue, where the
+        notches go, and the smoothing. `c` is the slot its state is kept in, `p` the band powers. */
+    void detect (int c, const float* p, float activity, float* wanted, const float* dialogue = nullptr) noexcept
+    {
+        guardTick (c, p, activity > 0.0f);
+        const bool steady = params.detection == Detection::steady;
+        if (steady)
+            steadyTick (c, p);
+        if (activity > 0.0f) wantedCuts (p, wanted, steady ? steadyDb[c] : nullptr); else std::fill (wanted, wanted + kNumBands, 0.0f);
+        if (! tune.handOver)
+            for (int k = 0; k < kNumBands; ++k) wanted[k] *= activity;
+        if (dlgAny)
+            dialogueTick (c, p, dialogue != nullptr ? dialogue : dlgD, wanted);
+        keepPeaks (c, wanted, p);
+        smoothCuts (c, wanted);
+    }
+
+    /** Channel `to` gets what detector `from` decided. */
+    void shareDetector (int from, int to) noexcept
+    {
+        std::memcpy (cut[to], cut[from], sizeof (float) * kNumBands);
+        guards[to].held = guards[from].held;
+        guards[to].easing = guards[from].easing;
+        if (guards[from].easing)
+            std::memcpy (guards[to].over, guards[from].over, sizeof (float) * kNumBands);
+        dlgActive[to] = dlgActive[from];
+        if (dlgActive[from])
+            std::memcpy (dlgEnv[to], dlgEnv[from], sizeof (float) * kNumBands);
+        dlgTaking[to] = dlgTaking[from];
+        if (dlgTaking[from] || dlgActive[from])
+            std::memcpy (dlgTaken[to], dlgTaken[from], sizeof (float) * kNumBands);
+    }
+
     void tick() noexcept
     {
         updateDerived();
+        ++tickCount;
 
         float wanted[kNumBands];
         float shared[kNumBands];
-        const float link = std::clamp (params.link, 0.0f, 1.0f);
+        // Unlinked is a link of nothing. Grouped needs more than two channels to differ from linked.
+        const float link = params.linkMode == LinkMode::unlinked ? 0.0f : std::clamp (params.link, 0.0f, 1.0f);
+        const bool grouped = params.linkMode == LinkMode::grouped && activeChannels > 2;
         // Only the channels this call is processing, and of those not an LFE. `lead` is the
         // first of them; with no LFE it is channel 0.
         const int na = numAnalysed;
@@ -1419,7 +2165,8 @@ struct Core::Impl
 
         // With a sidechain switched in, the threshold listens to that instead.
         const bool keyed = params.keyOn && keyPresent;
-        frame.keyed = keyed;
+        dialoguePowers (! staticOn && na > 1 && (grouped || link < 0.999f));
+        frame.keyed = keyed || dlgOnNow;
         frame.keyDb = keyPresent ? std::max (-120.0f, 10.0f * std::log10 (keyPower + 1.0e-14f)) : -120.0f;
         if (keyed)
             prog = keyPower;
@@ -1455,23 +2202,68 @@ struct Core::Impl
                 for (int k = 0; k < kNumBands; ++k)
                     cut[an[a]][k] = (k >= kFirstFilterBand && k <= kLastFilterBand) ? std::clamp (staticCut[k], 0.0f, ceilingNow) : 0.0f;
         }
+        else if (grouped)
+        {
+            // Grouped: as linked, within each group. The front pair, the centre, the surrounds and
+            // the heights each get one detector, on the louder of the group's channels per band,
+            // kept in the slot of the group's first channel.
+            float groupPower[kNumBands], mixed[kNumBands], groupDlg[kNumBands];
+            for (int g = 0; g < kNumGroups; ++g)
+            {
+                int members[kMaxChannels], nm = 0;
+                for (int a = 0; a < na; ++a)
+                    if (groupOf[an[a]] == g)
+                        members[nm++] = an[a];
+                if (nm == 0)
+                    continue;
+                for (int k = 0; k < kNumBands; ++k)
+                {
+                    float m = power[members[0]][k];
+                    for (int i = 1; i < nm; ++i)
+                        m = std::max (m, power[members[i]][k]);
+                    groupPower[k] = m;
+                }
+                // The dialogue as it stands in this group's channels: a group it is not in keeps its cuts.
+                if (dlgOnNow)
+                    for (int k = 0; k < kNumBands; ++k)
+                    {
+                        float m = dlgDc[members[0]][k];
+                        for (int i = 1; i < nm; ++i)
+                            m = std::max (m, dlgDc[members[i]][k]);
+                        groupDlg[k] = m;
+                    }
+                if (link >= 0.999f || nm == 1)
+                {
+                    detect (members[0], groupPower, activity, wanted, groupDlg);
+                    for (int i = 1; i < nm; ++i)
+                        shareDetector (members[0], members[i]);
+                }
+                else
+                {
+                    for (int i = 0; i < nm; ++i)
+                    {
+                        const int c = members[i];
+                        for (int k = 0; k < kNumBands; ++k)
+                            mixed[k] = link * groupPower[k] + (1.0f - link) * power[c][k];
+                        if (dlgOnNow)
+                        {
+                            float own[kNumBands];
+                            for (int k = 0; k < kNumBands; ++k)
+                                own[k] = link * groupDlg[k] + (1.0f - link) * dlgDc[c][k];
+                            detect (c, mixed, activity, wanted, own);
+                        }
+                        else
+                            detect (c, mixed, activity, wanted);
+                    }
+                }
+            }
+        }
         else if (link >= 0.999f || na == 1)
         {
             // Linked: one detector, on the louder channel per band, and every channel gets its notches.
-            guardTick (lead, shared, activity > 0.0f);
-            if (activity > 0.0f) wantedCuts (shared, wanted); else std::fill (wanted, wanted + kNumBands, 0.0f);
-            if (! tune.handOver)
-                for (auto& w : wanted) w *= activity;
-            keepPeaks (lead, wanted, shared);
-            smoothCuts (lead, wanted);
+            detect (lead, shared, activity, wanted);
             for (int a = 1; a < na; ++a)
-            {
-                std::memcpy (cut[an[a]], cut[lead], sizeof (float) * kNumBands);
-                guards[an[a]].held = guards[lead].held;
-                guards[an[a]].easing = guards[lead].easing;
-                if (guards[lead].easing)
-                    std::memcpy (guards[an[a]].over, guards[lead].over, sizeof (float) * kNumBands);
-            }
+                shareDetector (lead, an[a]);
         }
         else
         {
@@ -1481,12 +2273,15 @@ struct Core::Impl
                 const int c = an[a];
                 for (int k = 0; k < kNumBands; ++k)
                     mixed[k] = link * shared[k] + (1.0f - link) * power[c][k];
-                guardTick (c, mixed, activity > 0.0f);
-                if (activity > 0.0f) wantedCuts (mixed, wanted); else std::fill (wanted, wanted + kNumBands, 0.0f);
-                if (! tune.handOver)
-                    for (auto& w : wanted) w *= activity;
-                keepPeaks (c, wanted, mixed);
-                smoothCuts (c, wanted);
+                if (dlgOnNow)
+                {
+                    float own[kNumBands];
+                    for (int k = 0; k < kNumBands; ++k)
+                        own[k] = link * dlgD[k] + (1.0f - link) * dlgDc[c][k];
+                    detect (c, mixed, activity, wanted, own);
+                }
+                else
+                    detect (c, mixed, activity, wanted);
             }
         }
 
@@ -1520,8 +2315,41 @@ struct Core::Impl
                     og[k] = actGain * (1.0f - guardEaseShare * g.over[k]);
             else
                 std::fill (og, og + kNumBands, actGain);
+            // A band that is the dialogue's: the notch that is open there is eased off by what
+            // the detector's state has not let go of yet (see dialogueTick).
+            if (dlgActive[an[a]] && ! staticOn)
+            {
+                const float* e = dlgEnv[an[a]];
+                const float* h = dlgTaken[an[a]];
+                for (int k = 0; k < kNumBands; ++k)
+                    og[k] *= std::min (1.0f, (1.0f - dlgAmount * e[k]) / (1.0f - dlgAmount * h[k] + 1.0e-6f));
+            }
         }
         frame.guard = heldMost;
+        if (dlgAny)
+        {
+            for (int k = 0; k < kNumBands; ++k)
+            {
+                float m = 0.0f;
+                for (int a = 0; a < na; ++a)
+                    if (dlgActive[an[a]])
+                        m = std::max (m, dlgAmount * dlgEnv[an[a]][k]);
+                frame.dialogue[k] = m;
+            }
+            dlgShown = true;
+        }
+        else if (dlgShown)
+        {
+            for (int k = 0; k < kNumBands; ++k)
+                frame.dialogue[k] = 0.0f;
+            dlgShown = false;
+        }
+        dialogueOver (shared);
+        frame.dialogueTrimDb = dlgOnNow ? 10.0f * std::log10 (std::max (1.0e-8f, dlgGainMost)) : 0.0f;
+        frame.keyMatch = dlgOnNow ? dlgFit : 0.0f;
+        frame.keyOver = dlgOver;
+        frame.snapDialogue = snapDlgPeak;
+        snapDlgPeak = 0.0f;
         for (int k = 0; k < kNumBands; ++k)
         {
             float m = cut[lead][k] * outGain[lead][k];
@@ -1532,7 +2360,7 @@ struct Core::Impl
         }
         frame.totalCutDb = total;
         frame.snapCutDb = clickPeakCutDb;
-        frame.diffOffsetDb = diffMatchDb;
+        frame.diffOffsetDb = diffGainTo == 1.0f ? 0.0f : std::clamp (8.6858896f * std::log (diffGainTo), -9.0f, 0.0f);
 
         // Wash: of the energy in the range, how much is not in peaks. A band counts as a peak when
         // it has stood above the bands a sixth to a third of an octave either side for a while (the
@@ -1656,6 +2484,72 @@ struct Core::Impl
         clickPeakCutDb = deepest;
     }
 
+    /** detectClicks() with the dialogue stem to hand: `keyMono` is the key folded to one channel,
+        in time with `mono`. The key goes through Snap's own band, and where its power there (at
+        the gain the dialogue has in the mix) accounts for the mix's, the click is the dialogue's
+        (a consonant) and is left alone by Dialogue Amount times that share. */
+    void detectClicksKeyed (const float* mono, const float* keyMono, float* amount, int n, bool listening) noexcept
+    {
+        const float margin = tune.clickMarginDb, neighbour = tune.clickNeighbourDb;
+        const float slope = std::clamp (params.depth, 0.0f, 1.0f) * tune.clickSlope;
+        const float ceiling = std::max (0.0f, tune.clickMaxCutDb);
+        const float keyGain = dlgSnapGainSq, amt = dlgAmount;
+        float deepest = clickPeakCutDb, held = snapDlgPeak;
+
+        for (int i = 0; i < n; ++i)
+        {
+            float x = mono[i];
+            if (! (std::abs (x) < 1.0e8f))
+                x = 0.0f;
+            const float band = clickDet.tick (clickBand, x);
+            const float c = clickSpike.tick (band, clickFastRel, clickSlowC);
+            const float l = lowerSpike.tick (lowerDet[1].tick (lowerBand, lowerDet[0].tick (lowerBand, x)), clickFastRel, clickSlowC);
+            const float u = upperSpike.tick (upperDet[1].tick (upperBand, upperDet[0].tick (upperBand, x)), clickFastRel, clickSlowC);
+
+            const float kb = keyClickDet.tick (clickBand, keyMono[i]);
+            const float mp = band * band, kp = kb * kb;
+            snapMixPow += (mp > snapMixPow ? snapDlgAtkC : snapDlgRelC) * (mp - snapMixPow);
+            snapKeyPow += (kp > snapKeyPow ? snapDlgAtkC : snapDlgRelC) * (kp - snapKeyPow);
+            float share = 0.0f;
+            const float d = keyGain * snapKeyPow;
+            if (d > 1.0e-12f)
+            {
+                const float t = std::clamp ((d - dlgLo * snapMixPow) * dlgInvSpan / (snapMixPow + 1.0e-20f), 0.0f, 1.0f);
+                share = amt * t * t * (3.0f - 2.0f * t);
+            }
+
+            float target = 0.0f;
+            if (listening && c > 2.0f && clickSpike.fast > 1.0e-4f)
+            {
+                const float spike = 20.0f * std::log10 (c);
+                const float around = 20.0f * std::log10 (std::max (l, u)) + neighbour;
+                const float cutDb = std::min (ceiling, slope * std::max (0.0f, spike - std::max (margin, around)));
+                if (cutDb > 0.0f)
+                {
+                    target = 1.0f - std::exp (-0.11512925f * cutDb);      // 1 - 10^(-dB/20)
+                    if (share > 0.0f)
+                    {
+                        held = std::max (held, share);
+                        deepest = std::max (deepest, -8.6858896f * std::log (std::max (1.0e-6f, 1.0f - target * (1.0f - share))));
+                    }
+                    else
+                        deepest = std::max (deepest, cutDb);
+                }
+            }
+            clickGain += (target > clickGain ? clickAttackC : clickReleaseC) * (target - clickGain);
+            if (! (clickGain >= 1.0e-5f))
+                clickGain = 0.0f;
+            amount[i] = clickGain * (1.0f - share);
+        }
+        if (! std::isfinite (snapMixPow) || ! std::isfinite (snapKeyPow))
+        {
+            snapMixPow = snapKeyPow = 0.0f;
+            keyClickDet = {};
+        }
+        clickPeakCutDb = deepest;
+        snapDlgPeak = held;
+    }
+
     //============================================================================== surround output
     // With more than two channels the treated signal is worked out for every channel first, so
     // that Snap's cut can run on four channels side by side, then each channel's output is
@@ -1765,6 +2659,48 @@ struct Core::Impl
             clickPath[analysed[l]] = st[l];
     }
 
+    //============================================================================== dialogue sidechain, analysis
+    /** The key's first channels through the low-pass, the decimator (in step with the channels')
+        and the band bank, exactly as a channel goes. */
+    void keyAnalysis (const float* const* key, int done, int n, int phase) noexcept
+    {
+        for (int l = 0; l < dlgLanes; ++l)
+        {
+            const float* in = key[l] + done;
+            BiquadState z[4] = { keyAa[l][0], keyAa[l][1], keyAa[l][2], keyAa[l][3] };
+            float* out = keyDecimated[l];
+            int ph = phase, m = 0;
+            for (int i = 0; i < n; ++i)
+            {
+                float x = in[i];
+                if (! (std::abs (x) < 1.0e8f))
+                    x = 0.0f;
+                if (useAa)
+                    for (int st = 0; st < 4; ++st)
+                        x = tickBiquad (aa[st], z[st], x);
+                if (ph == 0)
+                    out[m++] = x;
+                if (++ph >= decim)
+                    ph = 0;
+            }
+            for (int st = 0; st < 4; ++st)
+                keyAa[l][st] = z[st];
+            bandBankKeep (keyS1a[l], keyS2a[l], keyS1b[l], keyS2b[l], keyPow[l], out, std::min (m, kDetectEvery), keyY[l], keyQ[l]);
+        }
+        keyProducts (std::min (numDecimated, kDetectEvery));
+    }
+
+    /** Diff's share of a channel's output: x is what the channel would play, d its untreated signal. */
+    static void diffOutput (float* x, const float* d, int n, const float* df, const float* dg, bool full) noexcept
+    {
+        if (full)
+            for (int i = 0; i < n; ++i)
+                x[i] = dg[i] * d[i];
+        else
+            for (int i = 0; i < n; ++i)
+                x[i] += df[i] * (dg[i] * d[i] - x[i]);
+    }
+
     //============================================================================== audio path
     int latencyFor (float lookaheadMs) const noexcept
     {
@@ -1785,6 +2721,16 @@ struct Core::Impl
         fix (q.releaseMs, d.releaseMs); fix (q.maxCutDb, d.maxCutDb); fix (q.impactGuard, d.impactGuard);
         for (int e = 0; e < kNumEdges; ++e)
             fix (q.edgeHz[e], d.edgeHz[e]);
+        fix (q.dialogueAmount, d.dialogueAmount);
+        for (int m = 0; m < kNumModules; ++m)
+        {
+            fix (q.rangeAttackMs[m], d.rangeAttackMs[m]);
+            fix (q.rangeReleaseMs[m], d.rangeReleaseMs[m]);
+        }
+        if (q.linkMode != LinkMode::grouped && q.linkMode != LinkMode::unlinked)
+            q.linkMode = LinkMode::linked;
+        if (q.detection != Detection::steady)
+            q.detection = Detection::fast;
         params = q;
     }
 
@@ -1932,13 +2878,26 @@ struct Core::Impl
             const float trim = std::pow (10.0f, std::clamp (params.trimDb, -24.0f, 24.0f) / 20.0f);   // Diff and Bypass win over Solo Honk
             const float mix = std::clamp (params.mix, 0.0f, 1.0f);
             if (params.bypass)                  { targetWet = 0.0f;         targetDry = 1.0f; }
-            else if (params.diff)               { targetWet = 0.0f;         targetDry = std::exp (0.11512925f * diffMatchDb); }
             else if (params.soloHonk)           { targetWet = -trim * mix;  targetDry = trim * mix; }
             else                                { targetWet = trim * mix;   targetDry = trim * (1.0f - mix); }
             // An LFE's wet is its dry, so Mix makes no difference to it and Solo Honk silences it.
-            // In Diff it plays as it is: it was not treated, so it is not turned down either.
-            targetLfe = params.bypass || params.diff ? 1.0f : (params.soloHonk ? 0.0f : trim);
+            targetLfe = params.bypass ? 1.0f : (params.soloHonk ? 0.0f : trim);
         }
+        // Diff is a cross-fade of its own, from whatever the output is to the untreated signal
+        // turned down to the treated one's loudness (an LFE: to the untreated signal as it is,
+        // since it was not treated). Treated and untreated are the same signal but for the
+        // notches, so the two are faded with gains that add up to one; gains that kept the power
+        // constant would lift the level by 3 dB half-way. Bypass wins.
+        const bool diffWanted = params.diff && ! params.bypass;
+        const bool dlgWant = params.dialogueOn && keyPresent;
+        if (dlgWant)
+        {
+            const int lanes = std::min (numKeyChannels, kKeyLanes);
+            if (! dlgRunning || lanes != dlgLanes)
+                clearKeyAnalysis();
+            dlgLanes = lanes;
+        }
+        dlgRunning = dlgWant;
         const int wantedDelay = std::min (latencyFor (params.lookaheadMs), ringMask + 1 - kMaxChunk);
         if (snapGains)
         {
@@ -1947,6 +2906,9 @@ struct Core::Impl
             gainLfe = targetLfe;
             delayNow = delayNext = wantedDelay;
             fadeLeft = 0;
+            diffFade = diffFadeGoal = diffWanted ? 1.0f : 0.0f;
+            diffFadeSlope = 0.0f;
+            diffFadeAt = diffFadeLength;
             snapGains = false;
         }
         if (fadeLeft == 0 && wantedDelay != delayNow)
@@ -1956,6 +2918,8 @@ struct Core::Impl
         }
 
         float wet[kMaxChunk], gw[kMaxChunk], gd[kMaxChunk], gl[kMaxChunk], fade[kMaxChunk], clickAmount[kMaxChunk];
+        float df[kMaxChunk], dg[kMaxChunk];     // Diff: how far in, and the gain on the untreated signal
+        float keyMono[kMaxChunk];               // the dialogue stem folded to one channel, delayed as the channels are
 
         int done = 0;
         while (done < numSamples)
@@ -1987,9 +2951,56 @@ struct Core::Impl
                 for (int i = 0; i < n; ++i)
                     fade[i] = std::min (1.0f, 1.0f - (float) (fadeLeft - 1 - i) / (float) fadeLength);
 
+            if (changed (diffWanted ? 1.0f : 0.0f, diffFadeGoal))
+            {
+                diffFadeGoal = diffWanted ? 1.0f : 0.0f;
+                diffFadeStart = diffFade;
+                diffFadeStartSlope = diffFadeSlope * (float) diffFadeLength;
+                diffFadeAt = 0;
+            }
+            const bool diffMoving = diffFadeAt < diffFadeLength;
+            const bool diffing = diffMoving || diffFade > 0.0f;
+            const bool diffFull = ! diffMoving && diffFade >= 1.0f;
+            if (diffing)
+            {
+                if (diffMoving)
+                {
+                    // A cubic from (start, its slope) to (goal, at rest).
+                    const float p0 = diffFadeStart, m0 = diffFadeStartSlope, p1 = diffFadeGoal, inv = 1.0f / (float) diffFadeLength;
+                    const float c2 = 3.0f * (p1 - p0) - 2.0f * m0, c3 = 2.0f * (p0 - p1) + m0;
+                    int at = diffFadeAt;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        at = std::min (at + 1, diffFadeLength);
+                        const float u = (float) at * inv;
+                        df[i] = p0 + u * (m0 + u * (c2 + u * c3));
+                    }
+                    diffFadeAt = at;
+                    const float u = (float) at * inv;
+                    diffFade = at >= diffFadeLength ? p1 : df[n - 1];
+                    diffFadeSlope = at >= diffFadeLength ? 0.0f : (m0 + u * (2.0f * c2 + 3.0f * u * c3)) * inv;
+                }
+                else
+                    std::fill (df, df + n, diffFade);
+                const float slope = (diffGainTo - diffGainFrom) / (float) n;
+                for (int i = 0; i < n; ++i)
+                    dg[i] = diffGainFrom + slope * (float) (i + 1);
+            }
+
             antiAlias (io, done, n, nch, decimPhase);
-            for (int a = 0; a < numAnalysed; ++a)
-                bandBank (analysed[a], numDecimated);
+            if (dlgRunning)
+            {
+                // The same bank, keeping each band's output for the chunk to set against the key's.
+                for (int a = 0; a < numAnalysed; ++a)
+                {
+                    const int c = analysed[a];
+                    bandBankKeep (s1a[c], s2a[c], s1b[c], s2b[c], power[c], decimated[c], std::min (numDecimated, kDetectEvery), bankY[c], nullptr);
+                }
+                keyAnalysis (key, done, n, decimPhase);
+            }
+            else
+                for (int a = 0; a < numAnalysed; ++a)
+                    bandBank (analysed[a], numDecimated);
 
             for (int c = 0; c < nch; ++c)
             {
@@ -2050,6 +3061,24 @@ struct Core::Impl
             if (surround)
                 foldDown();
 
+            if (dlgRunning)
+            {
+                // The key for Snap: folded to one channel and through the same delay as the channels.
+                float* r = keyRing.data();
+                const float* k0 = key[0] + done;
+                const float* k1 = dlgLanes > 1 ? key[1] + done : nullptr;
+                int w = ringWrite;
+                for (int i = 0; i < n; ++i)
+                {
+                    float v = k1 != nullptr ? 0.5f * (k0[i] + k1[i]) : k0[i];
+                    if (! (std::abs (v) < 1.0e8f))
+                        v = 0.0f;
+                    r[w] = v;
+                    keyMono[i] = r[(w - delayNow) & ringMask];
+                    w = (w + 1) & ringMask;
+                }
+            }
+
             // Switched off in the middle of a cut, the module finishes letting go before it stops.
             const bool click = params.snapOn || clickGain > 0.0f;
             if (click)
@@ -2079,7 +3108,10 @@ struct Core::Impl
                     for (int i = 0; i < n; ++i)
                         wet[i] = dry[lead][i];
                 }
-                detectClicks (wet, clickAmount, n, params.snapOn && clickWarmUp <= 0);
+                if (dlgRunning && ! staticOn)
+                    detectClicksKeyed (wet, keyMono, clickAmount, n, params.snapOn && clickWarmUp <= 0);
+                else
+                    detectClicks (wet, clickAmount, n, params.snapOn && clickWarmUp <= 0);
                 clickWarmUp = std::max (0, clickWarmUp - n);
             }
             clickWasOn = click;
@@ -2096,11 +3128,18 @@ struct Core::Impl
                 {
                     for (int i = 0; i < n; ++i)
                         x[i] = gl[i] * d[i];
+                    if (diffFull)
+                        std::memcpy (x, d, sizeof (float) * (size_t) n);
+                    else if (diffing)
+                        for (int i = 0; i < n; ++i)
+                            x[i] += df[i] * (d[i] - x[i]);
                     continue;
                 }
                 if (surround)
                 {
                     outputSurround (c, x, n, gw, gd, wetSq, drySq);
+                    if (diffing)
+                        diffOutput (x, d, n, df, dg, diffFull);
                     continue;
                 }
                 std::memcpy (wet, d, sizeof (float) * (size_t) n);
@@ -2122,16 +3161,33 @@ struct Core::Impl
                     drySq += d[i] * d[i];
                     x[i] = gw[i] * wet[i] + gd[i] * d[i];
                 }
+                if (diffing)
+                    diffOutput (x, d, n, df, dg, diffFull);
             }
 
             // How much quieter the treated signal is than the untreated one, over a few seconds: Diff
             // plays the untreated signal turned down by that much, so the comparison is fair.
             {
-                const float coef = onePoleCoef ((double) std::max (0.2f, tune.diffMatchSeconds), fs / (double) n);
+                // How much quieter: the power of each, averaged over diffMatchSeconds, and the
+                // ratio of the two. Power, not decibels, so a loud moment counts for as much as it
+                // weighs in what is heard; and all the time, so that where nothing is cut (under
+                // the Threshold) the two come together and Diff is not turned down there. Both
+                // averages start from nothing with the same coefficient, so their ratio is right
+                // from the first moment.
                 const float scale = 1.0f / (float) (n * numAnalysed);   // an LFE is the same both ways and is left out
+                const float coef = onePoleCoef ((double) std::max (0.2f, tune.diffMatchSeconds), fs / (double) n);
                 loudWet += coef * (wetSq * scale - loudWet);
                 loudDry += coef * (drySq * scale - loudDry);
-                diffMatchDb = loudDry > 1.0e-10f ? std::clamp (10.0f * std::log10 ((loudWet + 1.0e-12f) / loudDry), -9.0f, 0.0f) : 0.0f;
+                if (! std::isfinite (loudWet) || ! std::isfinite (loudDry))
+                    loudWet = loudDry = 0.0f;
+                diffMatchDb = loudDry > 1.0e-9f ? std::clamp (10.0f * std::log10 ((loudWet + 1.0e-12f) / loudDry), -9.0f, 0.0f) : 0.0f;
+                // The gain itself moves smoothly towards what that calls for, and in a straight
+                // line through each chunk, whether Diff is on or not, so it is there when Diff is.
+                const float target = diffMatchDb == 0.0f ? 1.0f : std::exp (0.11512925f * diffMatchDb);
+                diffGainFrom = diffGainTo;
+                diffGainTo += onePoleCoef (0.001 * (double) std::max (1.0f, tune.diffGainMs), fs / (double) n) * (target - diffGainTo);
+                if (std::abs (target - diffGainTo) < 1.0e-6f)
+                    diffGainTo = target;
             }
 
             if (fadeLeft > 0)

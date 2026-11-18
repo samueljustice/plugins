@@ -106,12 +106,12 @@ jobs:
         ditto -x -k "dl/DeHonk-$VERSION-macOS-App.zip" staging/app
         ditto -x -k "dl/DeHonk-$VERSION-macOS-AAX.zip" staging/aax
         # Each signed (the AAX by PACE as well as Apple) and carrying its notarisation ticket.
-        for b in staging/vst3/De-Honk.vst3 staging/au/De-Honk.component staging/app/De-Honk.app staging/aax/De-Honk.aaxplugin; do
+        for b in "staging/vst3/SammyJs De-Honk.vst3" "staging/au/SammyJs De-Honk.component" "staging/app/SammyJs De-Honk.app" "staging/aax/SammyJs De-Honk.aaxplugin"; do
           [[ -d "$b" ]] || { echo "::error::$b is not in the release's zips"; exit 1; }
           codesign --verify --deep --strict "$b"
           xcrun stapler validate "$b"
         done
-        [[ -d "staging/aax/De-Honk.aaxplugin/Contents/__Pace_Eden.bundle" ]] || echo "::warning::no PACE signature resources in the AAX"
+        [[ -d "staging/aax/SammyJs De-Honk.aaxplugin/Contents/__Pace_Eden.bundle" ]] || echo "::warning::no PACE signature resources in the AAX"
 
     - name: Import certificates
       uses: apple-actions/import-codesign-certs@v6
@@ -186,7 +186,7 @@ jobs:
         Expand-Archive "dl\DeHonk-$env:VERSION-Windows-VST3.zip" -DestinationPath windows-package\vst3 -Force
         Expand-Archive "dl\DeHonk-$env:VERSION-Windows-App.zip" -DestinationPath windows-package\app -Force
         Expand-Archive "dl\DeHonk-$env:VERSION-Windows-AAX.zip" -DestinationPath windows-package\aax -Force
-        foreach ($p in "windows-package\vst3\De-Honk.vst3", "windows-package\app\De-Honk.exe", "windows-package\aax\De-Honk.aaxplugin\Contents\x64\De-Honk.aaxplugin") {
+        foreach ($p in "windows-package\vst3\SammyJs De-Honk.vst3", "windows-package\app\SammyJs De-Honk.exe", "windows-package\aax\SammyJs De-Honk.aaxplugin\Contents\x64\SammyJs De-Honk.aaxplugin") {
           if (-not (Test-Path $p)) { Write-Error "$p is not in the release's zips"; exit 1 }
         }
         Get-ChildItem windows-package -Recurse -Depth 2 | Select-Object FullName

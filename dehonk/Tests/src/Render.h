@@ -28,6 +28,13 @@ struct Frame
     float diffOffsetDb = 0.0f; // the gain Diff applies to the untreated signal, dB (0 or below)
     float guard = 0.0f;        // 0..1: how much of the cut the impact guard is holding back
     std::array<float, 12> pitchClass {};   // the core's note profile, 0 = C
+    std::array<float, dehonk::kMaxBands> dialogue {};   // 0..1 per band: how far it is left to the dialogue
+    float dialogueTrimDb = 0.0f;   // the gain the sidechain is taken at to fit the mix (either way)
+    float keyMatch = 0.0f;         // 0..1: how surely the key has been found in the mix
+    bool keyOver = false;          // the key is most of the mix, or its gain is at the end of its range
+    float snapDialogue = 0.0f;     // 0..1: how far Snap was held off by the dialogue
+    float keyDb = -120.0f;         // the sidechain's level
+    bool keyed = false;            // the sidechain is in use
 };
 
 /** Module names as the plug-in shows them. */
@@ -63,6 +70,9 @@ struct RenderSpec
         any rate) and the frame is read after each piece. Parameters still change only at block
         starts; the audio is the same, since the core is block-size invariant. */
     bool frameEveryTick = false;
+    /** A sidechain, sample for sample in time with the input (shorter: silence after its end).
+        Every block is then processed with Core::processWithKey. Not owned. */
+    const Audio* key = nullptr;
 };
 
 inline constexpr int kFrameSubBlock = 4;

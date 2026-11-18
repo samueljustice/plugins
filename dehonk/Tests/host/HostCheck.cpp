@@ -1,15 +1,19 @@
 // A small console host for the plug-in's own processor (the JUCE side, not just the core). It
 // checks what the offline harness cannot: which channel layouts the plug-in accepts, that the LFE
 // it finds in each layout comes out untouched, how it behaves with odd buffers and with a layout
-// change, and which stem formats the JUCE AAX wrapper would offer Pro Tools.
+// change, which stem formats the JUCE AAX wrapper would offer Pro Tools, the dialogue sidechain
+// bus (which layouts it takes, that it is only read, that Pro Tools would be offered a key input)
+// and that a state from the first test build is read (Link as a percentage becomes a mode).
 //
 // Built from the plug-in's CMake project, not by default:
 //   cmake --build dehonk/build --config Release --target DeHonkHostCheck
 // then run dehonk/build/DeHonkHostCheck_artefacts/DeHonkHostCheck (under a Release/ folder there
 // with Xcode or Visual Studio). The exit code is 1 if any check failed.
+#include "FirstBuildStates.h"
 #include <JuceHeader.h>
 
 #include "DeHonkCore.h"
+#include "../../Source/PluginProcessor.h"
 
 #include <cstring>
 #include <iostream>
@@ -115,11 +119,19 @@ juce::String show (const std::vector<int>& d)
     return s;
 }
 
-bool apply (juce::AudioProcessor& p, const S& set, bool prepare)
+/** The main input and output as `set`, and the dialogue sidechain as `key` (off by default). */
+juce::AudioProcessor::BusesLayout layoutFor (const S& in, const S& out, const S& key = S::disabled())
 {
     juce::AudioProcessor::BusesLayout bl;
-    bl.inputBuses.add (set);
-    bl.outputBuses.add (set);
+    bl.inputBuses.add (in);
+    bl.inputBuses.add (key);
+    bl.outputBuses.add (out);
+    return bl;
+}
+
+bool apply (juce::AudioProcessor& p, const S& set, bool prepare, const S& key = S::disabled())
+{
+    const auto bl = layoutFor (set, set, key);
     if (prepare)
         p.releaseResources();
     if (! p.setBusesLayout (bl))
@@ -181,12 +193,11 @@ int main()
         auto p = makeProcessor();
         for (const auto& l : supported)
         {
-            juce::AudioProcessor::BusesLayout bl;
-            bl.inputBuses.add (l.set);
-            bl.outputBuses.add (l.set);
-            if (! p->checkBusesLayoutSupported (bl))
+            const auto bl = layoutFor (l.set, l.set);
+            if (! p->checkBusesLayoutSupported (bl) || ! p->checkBusesLayoutSupported (layoutFor (l.set, l.set, S::mono()))
+                || ! p->checkBusesLayoutSupported (layoutFor (l.set, l.set, S::stereo())) || p->checkBusesLayoutSupported (layoutFor (l.set, l.set, S::createLCR())))
             {
-                check (false, juce::String (l.name) + ": refused");
+                check (false, juce::String (l.name) + ": refused, or not with the sidechain off, mono and stereo and nothing else");
                 continue;
             }
             apply (*p, l.set, true);
@@ -201,15 +212,10 @@ int main()
         }
         for (const auto& l : refused)
         {
-            juce::AudioProcessor::BusesLayout bl;
-            bl.inputBuses.add (l.set);
-            bl.outputBuses.add (l.set);
-            check (! p->checkBusesLayoutSupported (bl), juce::String (l.name) + ": refused");
+            check (! p->checkBusesLayoutSupported (layoutFor (l.set, l.set)) && ! p->checkBusesLayoutSupported (layoutFor (l.set, l.set, S::mono())),
+                   juce::String (l.name) + ": refused");
         }
-        juce::AudioProcessor::BusesLayout mixed;
-        mixed.inputBuses.add (S::stereo());
-        mixed.outputBuses.add (S::create5point1());
-        check (! p->checkBusesLayoutSupported (mixed), "stereo in, 5.1 out: refused");
+        check (! p->checkBusesLayoutSupported (layoutFor (S::stereo(), S::create5point1())), "stereo in, 5.1 out: refused");
     }
 
     std::cout << "[ RUN  ] odd buffers" << std::endl;
@@ -288,9 +294,7 @@ int main()
         for (const auto& lin : all)
             for (const auto& lout : all)
             {
-                juce::AudioProcessor::BusesLayout cur;
-                cur.inputBuses.add (S::stereo());
-                cur.outputBuses.add (S::stereo());
+                auto cur = q->getBusesLayout();
                 if (! q->getBus (true, 0)->isLayoutSupported (lin.set, &cur)) continue;
                 if (! q->getBus (false, 0)->isLayoutSupported (lout.set, &cur)) continue;
                 if (cur.getMainInputChannelSet() != lin.set || cur.getMainOutputChannelSet() != lout.set) continue;
@@ -301,6 +305,239 @@ int main()
             }
         check (offered == (int) std::size (supported) && mixed == 0,
                "offers " + juce::String (offered) + " (need " + juce::String ((int) std::size (supported)) + "), " + juce::String (mixed) + " with input and output different: " + names);
+    }
+
+    // The dialogue sidechain.
+    std::cout << "[ RUN  ] dialogue sidechain" << std::endl;
+    {
+        // The AAX wrapper offers a key input when the second input bus is mono in the layout it
+        // settles on (from the default layout with every bus on), and lets Pro Tools switch it
+        // off if the plug-in also takes the bus disabled.
+        std::unique_ptr<juce::AudioProcessor> q (createPluginFilter());
+        const bool twoIns = q->getBusCount (true) == 2 && q->getBusCount (false) == 1;
+        const auto def = q->getBusesLayout();
+        const bool monoKey = twoIns && q->getBus (true, 1)->getDefaultLayout() == S::mono();
+        auto cur = def;
+        const bool canMono = twoIns && q->getBus (true, 1)->isLayoutSupported (S::mono(), &cur) && cur.getChannelSet (true, 1) == S::mono();
+        check (twoIns && monoKey && canMono && q->checkBusesLayoutSupported (layoutFor (S::create7point1point4(), S::create7point1point4(), S::mono()))
+                   && q->checkBusesLayoutSupported (layoutFor (S::create7point1point4(), S::create7point1point4())),
+               "two input buses, the second (\"" + (twoIns ? q->getBus (true, 1)->getName() : juce::String()) + "\") mono by default and may be off: Pro Tools is offered a mono key input, in every stem format");
+
+        // The key's channels come after the main input's in the buffer and are only read.
+        for (const auto& key : { S::mono(), S::stereo() })
+            for (const auto& set : { S::mono(), S::stereo(), S::create5point1(), S::create7point1point4() })
+            {
+                auto p = makeProcessor();
+                const bool applied = apply (*p, set, true, key);
+                const int total = set.size() + key.size();
+                const auto off = applied ? run (*p, total, 512, 2.0) : RunResult {};
+                setParam (*p, "dialogue", 1.0f);
+                const auto on = applied ? run (*p, total, 512, 3.0) : RunResult {};
+                const int lfe = set.getChannelIndexForType (S::LFE);
+                bool ok = applied && off.finite && on.finite;
+                // Off: every main channel but the LFE is treated. On, with a key that is the first
+                // channels of the mix itself: the first channel's bands are all the dialogue's.
+                for (int c = 0; ok && c < total; ++c)
+                {
+                    const bool keyChannel = c >= set.size();
+                    ok = ok && ((c == lfe || keyChannel) == (off.differing[(size_t) c] == 0));
+                    ok = ok && (! keyChannel || on.differing[(size_t) c] == 0);
+                }
+                check (ok, juce::String (set.getDescription()) + " with a " + key.getDescription() + " sidechain: Dialogue off " + show (off.differing)
+                               + ", on " + show (on.differing) + " (the key's channels, last, are never written)");
+            }
+
+        // Dialogue on with the mix itself as the key: everything is the dialogue's, nothing is cut.
+        {
+            auto p = makeProcessor();
+            apply (*p, S::mono(), true, S::mono());
+            setParam (*p, "dialogue", 1.0f);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> io (2, 512);
+            int differing = 0;
+            for (juce::int64 pos = 0; pos < 48000 * 4; pos += 512)
+            {
+                fill (io, pos);
+                io.copyFrom (1, 0, io, 0, 0, 512);
+                juce::AudioBuffer<float> in;
+                in.makeCopyOf (io);
+                p->processBlock (io, midi);
+                if (pos > 48000 * 2)
+                    for (int i = 0; i < 512; ++i)
+                        differing += juce::exactlyEqual (io.getSample (0, i), in.getSample (0, i)) ? 0 : 1;
+            }
+            check (differing == 0, "mono, Dialogue on, the key the mix itself: nothing is cut once settled (" + juce::String (differing) + " samples differ from the input)");
+        }
+    }
+
+    // A state saved by the first test build: Link was a percentage, and the parameters added
+    // since are not in it.
+    std::cout << "[ RUN  ] state from the first test build" << std::endl;
+    {
+        const auto valueOf = [] (juce::AudioProcessor& p, const char* id)
+        {
+            for (auto* prm : p.getParameters())
+                if (auto* w = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                    if (w->paramID == id)
+                        return w->convertFrom0to1 (w->getValue());
+            return -1.0f;
+        };
+        for (float link : { 100.0f, 50.0f, 49.0f, 0.0f })
+        {
+            std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+            // Anything but the defaults first, so that what is restored is seen to be restored.
+            setParam (*p, "linkMode", 0.5f);
+            setParam (*p, "dialogue", 1.0f);
+            setParam (*p, "fogTimingLocked", 0.0f);
+            setParam (*p, "dialogueAmount", 0.2f);
+            setParam (*p, "detection", 1.0f);
+            juce::XmlElement old ("DeHonk");
+            old.setAttribute ("stateVersion", 1);
+            const auto add = [&old] (const char* id, double v)
+            {
+                auto* c = old.createNewChildElement ("PARAM");
+                c->setAttribute ("id", id);
+                c->setAttribute ("value", v);
+            };
+            add ("threshold", -22.0);
+            add ("link", (double) link);
+            add ("mix", 80.0);
+            juce::MemoryBlock data;
+            juce::AudioProcessor::copyXmlToBinary (old, data);
+            p->setStateInformation (data.getData(), (int) data.getSize());
+            const int mode = juce::roundToInt (valueOf (*p, "linkMode"));
+            const bool ok = mode == (link >= 50.0f ? 0 : 2) && valueOf (*p, "dialogue") == 0.0f && valueOf (*p, "fogTimingLocked") == 1.0f
+                         && valueOf (*p, "dialogueAmount") == 100.0f && valueOf (*p, "detection") == 0.0f && std::abs (valueOf (*p, "threshold") + 22.0f) < 0.01f && std::abs (valueOf (*p, "mix") - 80.0f) < 0.01f;
+            check (ok, "Link " + juce::String (link, 0) + " % is read as " + (mode == 0 ? "Linked" : mode == 1 ? "Grouped" : "Unlinked")
+                           + "; Threshold and Mix restored; what the state does not have (Dialogue, its Amount, the ranges' timing, Detection) at its default");
+
+            // And what is saved now comes back as it was.
+            setParam (*p, "linkMode", 0.5f);
+            setParam (*p, "dialogue", 1.0f);
+            setParam (*p, "tubTimingLocked", 0.0f);
+            setParam (*p, "detection", 1.0f);
+            juce::MemoryBlock now;
+            p->getStateInformation (now);
+            std::unique_ptr<juce::AudioProcessor> q (createPluginFilter());
+            q->setStateInformation (now.getData(), (int) now.getSize());
+            check (juce::roundToInt (valueOf (*q, "linkMode")) == 1 && valueOf (*q, "dialogue") == 1.0f && valueOf (*q, "tubTimingLocked") == 0.0f
+                       && valueOf (*q, "detection") == 1.0f,
+                   "saved with Link Grouped, Dialogue on, Tub's timing unlocked and Detection Steady: restored the same in a new instance");
+        }
+        // States the first test build really saved (Tests/host/FirstBuildStates.h): one on each
+        // of its factory presets, one on its "User preset" entry, one with settings moved.
+        {
+            struct Expect { const char* program; float threshold, depth, sharpness, release, maxCut, mix; int linkMode, lookahead; bool woof; };
+            // In the order of FirstBuildStates.h. "After RBass" has a new name since.
+            const Expect expected[] = {
+                { "Master bus",              -16.0f, 50.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 0, false },
+                { "After a bass enhancer",   -24.0f, 50.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 0, false },
+                { "Printed stem",            -30.0f, 60.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 2, false },
+                { "Narrow resonances only",  -16.0f, 50.0f, 100.0f, 700.0f, 6.0f, 100.0f, 0, 0, false },
+                { "Heavy",                   -16.0f, 80.0f,  20.0f, 400.0f, 9.0f, 100.0f, 0, 0, true },
+                { "Master bus",              -16.0f, 50.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 0, false },
+                { "Master bus",              -22.0f, 50.0f,  20.0f, 400.0f, 6.0f,  80.0f, 2, 0, false },
+            };
+            const int numStates = (int) (sizeof (firstBuild::states) / sizeof (firstBuild::states[0]));
+            check (numStates == (int) (sizeof (expected) / sizeof (expected[0])), "seven states saved by the first test build are kept with the check");
+            for (int i = 0; i < juce::jmin (numStates, (int) (sizeof (expected) / sizeof (expected[0]))); ++i)
+            {
+                const auto& e = expected[i];
+                juce::MemoryBlock data;
+                const bool decoded = data.fromBase64Encoding (firstBuild::states[i].base64);
+                std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+                setParam (*p, "linkMode", 0.5f);
+                setParam (*p, "dialogue", 1.0f);
+                setParam (*p, "barkTimingLocked", 0.0f);
+                setParam (*p, "link", 0.2f);
+                setParam (*p, "detection", 1.0f);
+                p->setStateInformation (data.getData(), (int) data.getSize());
+                const auto near = [&] (const char* id, float want) { return std::abs (valueOf (*p, id) - want) < 0.01f; };
+                const juce::String program = p->getProgramName (p->getCurrentProgram());
+                const bool values = near ("threshold", e.threshold) && near ("depth", e.depth) && near ("sharpness", e.sharpness) && near ("release", e.release)
+                                 && near ("maxCut", e.maxCut) && near ("mix", e.mix) && juce::roundToInt (valueOf (*p, "linkMode")) == e.linkMode
+                                 && juce::roundToInt (valueOf (*p, "lookahead")) == e.lookahead && (valueOf (*p, "woofOn") >= 0.5f) == e.woof;
+                const bool added = valueOf (*p, "dialogue") == 0.0f && valueOf (*p, "dialogueAmount") == 100.0f && valueOf (*p, "barkTimingLocked") == 1.0f
+                                && near ("barkAttack", 14.0f) && near ("barkRelease", 400.0f) && near ("link", 100.0f)
+                                && valueOf (*p, "detection") == 0.0f;
+                const bool named = e.program == nullptr ? program == "User preset" : program == e.program;
+                check (decoded && values && added && named,
+                       "a state the first test build saved (" + juce::String (firstBuild::states[i].what) + "): its values come back, Link as "
+                           + (e.linkMode == 0 ? "Linked" : "Unlinked") + ", what it does not have at its default, and the host is shown \"" + program + "\"");
+            }
+        }
+        // A state saved by an early 0.0.2 (stateVersion 2, Link as a mode, Dialogue there) from
+        // before Detection existed, restored over an instance at Steady: it comes back at Fast.
+        {
+            std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+            setParam (*p, "detection", 1.0f);
+            setParam (*p, "dialogue", 0.0f);
+            juce::XmlElement early ("DeHonk");
+            early.setAttribute ("stateVersion", 2);
+            const auto add = [&early] (const char* id, double v)
+            {
+                auto* c = early.createNewChildElement ("PARAM");
+                c->setAttribute ("id", id);
+                c->setAttribute ("value", v);
+            };
+            add ("threshold", -20.0);
+            add ("linkMode", 2.0);
+            add ("dialogue", 1.0);
+            add ("dialogueAmount", 60.0);
+            juce::MemoryBlock data;
+            juce::AudioProcessor::copyXmlToBinary (early, data);
+            p->setStateInformation (data.getData(), (int) data.getSize());
+            check (valueOf (*p, "detection") == 0.0f && juce::roundToInt (valueOf (*p, "linkMode")) == 2 && valueOf (*p, "dialogue") == 1.0f
+                       && std::abs (valueOf (*p, "dialogueAmount") - 60.0f) < 0.01f && std::abs (valueOf (*p, "threshold") + 20.0f) < 0.01f,
+                   "an early 0.0.2 state without Detection, restored over Steady: Detection back at Fast, Link Unlinked, Dialogue on at 60 %, Threshold -20");
+        }
+        // A user preset file saved before Detection existed, loaded while at Steady: Fast. The file
+        // is written to a temporary folder, never the user's preset folder.
+        {
+            std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+            auto* dh = dynamic_cast<DeHonkAudioProcessor*> (p.get());
+            setParam (*p, "detection", 1.0f);
+            const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getNonexistentChildFile ("dehonk-hostcheck", "");
+            dir.createDirectory();
+            const auto file = dir.getChildFile ("Before detection.dehonkpreset");
+            file.replaceWithText ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                  "<DeHonkPreset name=\"Before detection\" pluginVersion=\"0.0.2\">\n"
+                                  "  <Param id=\"threshold\" value=\"-18\"/>\n"
+                                  "  <Param id=\"linkMode\" value=\"0\"/>\n"
+                                  "  <Param id=\"dialogue\" value=\"0\"/>\n"
+                                  "</DeHonkPreset>\n");
+            const bool loaded = dh != nullptr && dh->getPresetManager().loadPresetFile (file);
+            check (loaded && valueOf (*p, "detection") == 0.0f && std::abs (valueOf (*p, "threshold") + 18.0f) < 0.01f,
+                   "a user preset file from before Detection, loaded while at Steady: Detection back at Fast, Threshold -18");
+            dir.deleteRecursively();
+        }
+        // The first test build's parameters keep their places in the order an AU host numbers them
+        // by: all of them, "link" included, carry version hint 1 and everything added carries a higher one.
+        {
+            std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+            const juce::StringArray first { "threshold", "depth", "sharpness", "speed", "woofOn", "tubOn", "fogOn", "barkOn", "snapOn", "edge0", "edge1", "edge2",
+                                            "edge3", "edge4", "link", "lookahead", "mix", "trim", "bypass", "maxCut", "release", "impactGuard" };
+            int firstSeen = 0, wrongHints = 0;
+            bool linkAutomatable = true;
+            for (auto* q : p->getParameters())
+                if (auto* w = dynamic_cast<juce::RangedAudioParameter*> (q))
+                {
+                    const bool isFirst = first.contains (w->getParameterID());
+                    firstSeen += isFirst ? 1 : 0;
+                    wrongHints += (isFirst ? w->getVersionHint() == 1 : w->getVersionHint() > 1) ? 0 : 1;
+                    if (w->getParameterID() == "link")
+                        linkAutomatable = w->isAutomatable();
+                }
+            check (firstSeen == first.size() && wrongHints == 0 && ! linkAutomatable,
+                   "all 22 parameters of the first test build are still there with version hint 1 (the old Link not automatable), and the "
+                       + juce::String (p->getParameters().size() - first.size()) + " added since have a higher one");
+        }
+        // Rubbish does not crash it.
+        std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+        const char junk[] = "not a state";
+        p->setStateInformation (junk, (int) sizeof (junk));
+        p->setStateInformation (nullptr, 0);
+        check (true, "a state that is not one, and an empty one: no crash");
     }
 
     std::cout << (failures == 0 ? "all host checks passed" : juce::String (failures) + " host checks failed") << std::endl;

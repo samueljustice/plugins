@@ -1,12 +1,26 @@
 // A small software rasteriser for De-Honk's scene: low-polygon shapes with smooth (per-vertex)
-// shading, depth fog, and a depth buffer. The picture is drawn at a modest size and scaled up
-// smoothly by the editor. Plain C++, no JUCE.
+// shading, depth fog, and a depth buffer. The picture is drawn at the size of its card in the
+// window (see DisplayComponent). Plain C++, no JUCE.
 #pragma once
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
+
+// The inner loops (a row of a triangle, the copies to and from the picture) use the processor's
+// vector unit where there is one: NEON on arm64, SSE2 on x86. Each gives exactly the pixels the
+// plain loops give, bit for bit (see spanSolid).
+#if DEHONK_RASTER_PLAIN
+ // the plain loops only (for checks)
+#elif defined(__ARM_NEON) || defined(_M_ARM64)
+ #include <arm_neon.h>
+ #define DEHONK_RASTER_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+ #include <emmintrin.h>
+ #define DEHONK_RASTER_SSE2 1
+#endif
 
 namespace dehonk::scene
 {
@@ -80,7 +94,7 @@ public:
     void setSize (int w, int h)
     {
         width = w; height = h;
-        colour.assign ((size_t) (w * h) * 3, 0);
+        colour.assign ((size_t) (w * h) * kBytes, 255);
         depth.assign ((size_t) (w * h), 0.0f);
     }
 
@@ -96,6 +110,10 @@ public:
         light = normalised (towardsLight); lightCol = lightColour * (1.0f / 255.0f); fill = skyFill * (1.0f / 255.0f);
         fog = fogColour; fogA = fogStart; fogB = std::max (fogStart + 0.01f, fogEnd);
     }
+
+    /** Everything drawn from now on is mixed this far towards the colour given (0 = not at all): for
+        fading something back without darkening it. */
+    void setVeil (Rgb towards, float amount) noexcept { veil = towards; veilAmount = std::clamp (amount, 0.0f, 1.0f); }
 
     void clearDepth() noexcept { std::fill (depth.begin(), depth.end(), 1.0e9f); }
 
@@ -119,12 +137,9 @@ public:
     {
         if (y < 0 || y >= height)
             return;
-        std::uint8_t* p = &colour[(size_t) (y * width) * 3];
-        const std::uint8_t r = toByte (c.r), g = toByte (c.g), b = toByte (c.b);
-        for (int x = 0; x < width; ++x, p += 3)
-        {
-            p[0] = r; p[1] = g; p[2] = b;
-        }
+        std::uint32_t* p = reinterpret_cast<std::uint32_t*> (&colour[(size_t) (y * width) * kBytes]);
+        const std::uint32_t v = 0xff000000u | ((std::uint32_t) toByte (c.r) << 16) | ((std::uint32_t) toByte (c.g) << 8) | (std::uint32_t) toByte (c.b);
+        std::fill_n (p, (size_t) width, v);
         std::fill_n (&depth[(size_t) (y * width)], (size_t) width, zv);
     }
 
@@ -165,6 +180,9 @@ public:
         return cam.y + (z - cam.z) * (k * camCos - camSin) / std::max (1.0e-4f, camCos + k * camSin);
     }
 
+    /** How many pixels one world unit covers at a distance along the view. */
+    float pixelsPerUnitAt (float viewZ) const noexcept { return focalPx / std::max (0.01f, viewZ); }
+
     float fogAt (float viewZ) const noexcept { return std::clamp ((viewZ - fogA) / (fogB - fogA), 0.0f, 1.0f); }
     Rgb fogColour() const noexcept { return fog; }
 
@@ -183,18 +201,37 @@ public:
         return c.mix (base, glow);
     }
 
+    /** A corner of a triangle as it lands on the picture: where, how deep, and its colour with the
+        fog already mixed in. */
+    struct SV { float x, y, z; Rgb c; bool ok; };
+
+    SV shade (Vec3 p, Rgb base) const noexcept
+    {
+        const P q = project (p);
+        return { q.x, q.y, q.z, inRange (base.mix (fog, fogAt (q.z)).mix (veil, veilAmount)), q.ok };
+    }
+
+    /** The colour a surface of `base` colour with normal `n` at world point `p` is drawn in. */
+    Rgb colourAt (Vec3 p, Rgb base, Vec3 n, float glow) const noexcept { return shade (p, lit (base, n, glow)).c; }
+
     /** World-space triangle with a colour at each corner, shaded smoothly between them.
-        alpha < 1 blends over what is there and leaves the depth alone (for rings and splashes).
+        alpha < 1 blends over what is there and leaves the depth alone (for rings and splashes). */
+    void triangle (Vec3 a, Vec3 b, Vec3 c, Rgb ca, Rgb cb, Rgb cc, float alpha = 1.0f) noexcept
+    {
+        paintTri (shade (a, ca), shade (b, cb), shade (c, cc), alpha, 0);
+    }
+
+    /** Fills a triangle whose corners are already on the picture. `cull` +1 or -1 drops triangles
+        wound the other way (the far side of a closed shape); 0 draws either.
         Filled a row at a time between its two edges, with the depth and the colour stepped along
         each row; a pixel belongs to the triangle when its centre is inside, so triangles that
         share an edge never draw a pixel twice. */
-    void triangle (Vec3 a, Vec3 b, Vec3 c, Rgb ca, Rgb cb, Rgb cc, float alpha = 1.0f) noexcept
+    void paintTri (const SV& pa, const SV& pb, const SV& pc, float alpha, int cull) noexcept
     {
-        const P pa = project (a), pb = project (b), pc = project (c);
         if (! (pa.ok && pb.ok && pc.ok))
             return;
         const float area = (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x);
-        if (std::abs (area) < 1.0e-4f)
+        if (std::abs (area) < 1.0e-4f || (cull != 0 && (area > 0.0f) != (cull > 0)))
             return;
         const float minXf = std::min ({ pa.x, pb.x, pc.x }), maxXf = std::max ({ pa.x, pb.x, pc.x });
         const float minYf = std::min ({ pa.y, pb.y, pc.y }), maxYf = std::max ({ pa.y, pb.y, pc.y });
@@ -204,7 +241,7 @@ public:
         if (y0 > y1)
             return;
 
-        ca = inRange (ca.mix (fog, fogAt (pa.z))); cb = inRange (cb.mix (fog, fogAt (pb.z))); cc = inRange (cc.mix (fog, fogAt (pc.z)));
+        const Rgb ca = pa.c, cb = pb.c, cc = pc.c;
 
         // How each value changes per pixel across and down the picture.
         const float inv = 1.0f / area;
@@ -220,8 +257,8 @@ public:
         slopes (ca.g, cb.g, cc.g, gx, gy);
         slopes (ca.b, cb.b, cc.b, blx, bly);
 
-        const P* e0[3] = { &pa, &pb, &pc };
-        const P* e1[3] = { &pb, &pc, &pa };
+        const SV* e0[3] = { &pa, &pb, &pc };
+        const SV* e1[3] = { &pb, &pc, &pa };
         float slope[3], lo[3], hi[3];
         for (int i = 0; i < 3; ++i)
         {
@@ -246,28 +283,139 @@ public:
             float z = pa.z + sx * zx + sy * zy;
             float r = ca.r + sx * rx + sy * ry + 0.5f, g = ca.g + sx * gx + sy * gy + 0.5f, bl = ca.b + sx * blx + sy * bly + 0.5f;
             float* zb = &depth[(size_t) (y * width + xa)];
-            std::uint8_t* p = &colour[(size_t) (y * width + xa) * 3];
+            std::uint8_t* p = &colour[(size_t) (y * width + xa) * kBytes];
             if (alpha >= 1.0f)
-            {
-                for (int x = xa; x <= xb; ++x, ++zb, p += 3, z += zx, r += rx, g += gx, bl += blx)
-                    if (z < *zb)
-                    {
-                        *zb = z;
-                        // Stepping can overshoot a corner's colour by a hair at the very edge.
-                        p[0] = byteOf (r); p[1] = byteOf (g); p[2] = byteOf (bl);
-                    }
-            }
+                spanSolid (p, zb, xb - xa + 1, bl, g, r, z, blx, gx, rx, zx);
             else
+                spanBlend (p, zb, xb - xa + 1, bl, g, r, z, blx, gx, rx, zx, alpha);
+        }
+    }
+
+    /** One row of a triangle: `n` pixels from `p` (and their depths from `zb`), the colour (blue,
+        green, red, already with a half added for rounding) and the depth stepped along by the
+        given amounts. A pixel is written where it is nearer than what is there.
+        The vector versions keep the four values in the four lanes of one register and step them
+        all with one add, so each value takes exactly the same additions, in the same order, as it
+        would one at a time: the pictures are the same bit for bit. Stepping can overshoot a
+        corner's colour by a hair at the very edge, hence the clamp. */
+    static void spanSolid (std::uint8_t* p, float* zb, int n, float b, float g, float r, float z,
+                           float bx, float gx, float rx, float zx) noexcept
+    {
+       #if DEHONK_RASTER_NEON
+        const float lanes[4] { b, g, r, z }, steps[4] { bx, gx, rx, zx };
+        float32x4_t v = vld1q_f32 (lanes);
+        const float32x4_t d = vld1q_f32 (steps), lo = vdupq_n_f32 (0.0f), hi = vdupq_n_f32 (255.0f);
+        const uint32x4_t opaque = vdupq_n_u32 (0xff000000u);
+        int i = 0;
+        // Four pixels at a time: their four sets of values (each stepped exactly as one at a time),
+        // one depth test for the four, and the colours and depths written where they pass.
+        for (; i + 4 <= n; i += 4, p += 4 * kBytes)
+        {
+            const float32x4_t v0 = v, v1 = vaddq_f32 (v0, d), v2 = vaddq_f32 (v1, d), v3 = vaddq_f32 (v2, d);
+            v = vaddq_f32 (v3, d);
+            const float32x4_t z4 = vcombine_f32 (vget_high_f32 (vzip2q_f32 (v0, v1)), vget_high_f32 (vzip2q_f32 (v2, v3)));
+            const float32x4_t was = vld1q_f32 (zb + i);
+            const uint32x4_t in = vcltq_f32 (z4, was);
+            if (vmaxvq_u32 (in) == 0)
+                continue;
+            vst1q_f32 (zb + i, vbslq_f32 (in, z4, was));
+            auto bytes = [&] (float32x4_t c) { return vmovn_u32 (vreinterpretq_u32_s32 (vcvtq_s32_f32 (vminq_f32 (vmaxq_f32 (c, lo), hi)))); };
+            const uint8x16_t px = vcombine_u8 (vmovn_u16 (vcombine_u16 (bytes (v0), bytes (v1))), vmovn_u16 (vcombine_u16 (bytes (v2), bytes (v3))));
+            const uint32x4_t now = vorrq_u32 (vreinterpretq_u32_u8 (px), opaque);
+            vst1q_u8 (p, vreinterpretq_u8_u32 (vbslq_u32 (in, now, vreinterpretq_u32_u8 (vld1q_u8 (p)))));
+        }
+        zb += i;
+        n -= i;
+        for (i = 0; i < n; ++i, p += kBytes, v = vaddq_f32 (v, d))
+        {
+            const float zz = vgetq_lane_f32 (v, 3);
+            if (zz < zb[i])
             {
-                for (int x = xa; x <= xb; ++x, ++zb, p += 3, z += zx, r += rx, g += gx, bl += blx)
-                    if (z < *zb)
-                    {
-                        p[0] = byteOf ((float) p[0] + (r - (float) p[0]) * alpha);
-                        p[1] = byteOf ((float) p[1] + (g - (float) p[1]) * alpha);
-                        p[2] = byteOf ((float) p[2] + (bl - (float) p[2]) * alpha);
-                    }
+                zb[i] = zz;
+                storePixel (p, vcvtq_s32_f32 (vminq_f32 (vmaxq_f32 (v, lo), hi)));
             }
         }
+       #elif DEHONK_RASTER_SSE2
+        __m128 v = _mm_setr_ps (b, g, r, z);
+        const __m128 d = _mm_setr_ps (bx, gx, rx, zx), lo = _mm_setzero_ps(), hi = _mm_set1_ps (255.0f);
+        const __m128i opaque = _mm_set1_epi32 ((int) 0xff000000u);
+        int i = 0;
+        for (; i + 4 <= n; i += 4, p += 4 * kBytes)
+        {
+            const __m128 v0 = v, v1 = _mm_add_ps (v0, d), v2 = _mm_add_ps (v1, d), v3 = _mm_add_ps (v2, d);
+            v = _mm_add_ps (v3, d);
+            const __m128 z4 = _mm_movehl_ps (_mm_unpackhi_ps (v2, v3), _mm_unpackhi_ps (v0, v1));
+            const __m128 was = _mm_loadu_ps (zb + i);
+            const __m128 in = _mm_cmplt_ps (z4, was);
+            if (_mm_movemask_ps (in) == 0)
+                continue;
+            _mm_storeu_ps (zb + i, _mm_or_ps (_mm_and_ps (in, z4), _mm_andnot_ps (in, was)));
+            auto ints = [&] (__m128 c) { return _mm_cvttps_epi32 (_mm_min_ps (_mm_max_ps (c, lo), hi)); };
+            const __m128i now = _mm_or_si128 (_mm_packus_epi16 (_mm_packs_epi32 (ints (v0), ints (v1)), _mm_packs_epi32 (ints (v2), ints (v3))), opaque);
+            const __m128i mask = _mm_castps_si128 (in);
+            const __m128i there = _mm_loadu_si128 (reinterpret_cast<const __m128i*> (p));
+            _mm_storeu_si128 (reinterpret_cast<__m128i*> (p), _mm_or_si128 (_mm_and_si128 (mask, now), _mm_andnot_si128 (mask, there)));
+        }
+        zb += i;
+        n -= i;
+        for (i = 0; i < n; ++i, p += kBytes, v = _mm_add_ps (v, d))
+        {
+            const float zz = _mm_cvtss_f32 (_mm_shuffle_ps (v, v, _MM_SHUFFLE (3, 3, 3, 3)));
+            if (zz < zb[i])
+            {
+                zb[i] = zz;
+                storePixel (p, _mm_cvttps_epi32 (_mm_min_ps (_mm_max_ps (v, lo), hi)));
+            }
+        }
+       #else
+        for (int i = 0; i < n; ++i, p += kBytes, z += zx, r += rx, g += gx, b += bx)
+            if (z < zb[i])
+            {
+                zb[i] = z;
+                p[2] = byteOf (r); p[1] = byteOf (g); p[0] = byteOf (b);
+            }
+       #endif
+    }
+
+    /** As spanSolid, but mixed `alpha` of the way over what is there, and the depths left alone. */
+    static void spanBlend (std::uint8_t* p, const float* zb, int n, float b, float g, float r, float z,
+                           float bx, float gx, float rx, float zx, float alpha) noexcept
+    {
+       #if DEHONK_RASTER_NEON
+        const float lanes[4] { b, g, r, z }, steps[4] { bx, gx, rx, zx };
+        float32x4_t v = vld1q_f32 (lanes);
+        const float32x4_t d = vld1q_f32 (steps), lo = vdupq_n_f32 (0.0f), hi = vdupq_n_f32 (255.0f), a = vdupq_n_f32 (alpha);
+        for (int i = 0; i < n; ++i, p += kBytes, v = vaddq_f32 (v, d))
+            if (vgetq_lane_f32 (v, 3) < zb[i])
+            {
+                // What is there, as floats; then there + (new - there) * alpha, in one rounding
+                // (as the plain loop is compiled for arm64, where the multiply and add are fused).
+                std::uint32_t px;
+                std::memcpy (&px, p, 4);
+                const float32x4_t there = vcvtq_f32_u32 (vmovl_u16 (vget_low_u16 (vmovl_u8 (vcreate_u8 (px)))));
+                storePixel (p, vcvtq_s32_f32 (vminq_f32 (vmaxq_f32 (vfmaq_f32 (there, vsubq_f32 (v, there), a), lo), hi)));
+            }
+       #elif DEHONK_RASTER_SSE2
+        __m128 v = _mm_setr_ps (b, g, r, z);
+        const __m128 d = _mm_setr_ps (bx, gx, rx, zx), lo = _mm_setzero_ps(), hi = _mm_set1_ps (255.0f), a = _mm_set1_ps (alpha);
+        const __m128i zero = _mm_setzero_si128();
+        for (int i = 0; i < n; ++i, p += kBytes, v = _mm_add_ps (v, d))
+            if (_mm_cvtss_f32 (_mm_shuffle_ps (v, v, _MM_SHUFFLE (3, 3, 3, 3))) < zb[i])
+            {
+                std::int32_t px;
+                std::memcpy (&px, p, 4);
+                const __m128 there = _mm_cvtepi32_ps (_mm_unpacklo_epi16 (_mm_unpacklo_epi8 (_mm_cvtsi32_si128 (px), zero), zero));
+                storePixel (p, _mm_cvttps_epi32 (_mm_min_ps (_mm_max_ps (_mm_add_ps (there, _mm_mul_ps (_mm_sub_ps (v, there), a)), lo), hi)));
+            }
+       #else
+        for (int i = 0; i < n; ++i, p += kBytes, z += zx, r += rx, g += gx, b += bx)
+            if (z < zb[i])
+            {
+                p[2] = byteOf ((float) p[2] + (r - (float) p[2]) * alpha);
+                p[1] = byteOf ((float) p[1] + (g - (float) p[1]) * alpha);
+                p[0] = byteOf ((float) p[0] + (b - (float) p[0]) * alpha);
+            }
+       #endif
     }
 
     /** A flat-coloured quad (lit by its own face). */
@@ -292,28 +440,33 @@ public:
     }
 
     /** A rounded blob: an ellipsoid of radii (rx, ry, rz) about the origin, placed by `x`, shaded
-        smoothly. `around` and `up` set how many faces it has. */
+        smoothly. `around` and `up` set how many faces it has. Each corner is lit and placed on the
+        picture once, and the faces on the far side are not drawn at all. */
     void blob (const Xform& x, float rx, float ry, float rz, Rgb base, int around = 8, int up = 5, float glow = 0.0f) noexcept
     {
         around = std::clamp (around, 3, kMaxRing); up = std::clamp (up, 2, kMaxRing);
-        Vec3 pos[kMaxRing + 1][kMaxRing + 1];
-        Rgb col[kMaxRing + 1][kMaxRing + 1];
+        const Circle& ca = circles().full[around];
+        const Circle& cu = circles().half[up];
+        SV v[kMaxRing + 1][kMaxRing + 1];
+        const float irx = 1.0f / rx, iry = 1.0f / ry, irz = 1.0f / rz;
         for (int j = 0; j <= up; ++j)
         {
-            const float v = 3.14159265f * (float) j / (float) up, sv = std::sin (v), cv = std::cos (v);
+            const float sv = cu.s[j], cv = cu.c[j];
             for (int i = 0; i <= around; ++i)
             {
-                const float u = 6.2831853f * (float) i / (float) around;
-                const Vec3 n { sv * std::cos (u), cv, sv * std::sin (u) };
-                pos[j][i] = x.apply ({ n.x * rx, n.y * ry, n.z * rz });
-                col[j][i] = lit (base, normalised (x.turn ({ n.x / rx, n.y / ry, n.z / rz })), glow);
+                const Vec3 n { sv * ca.c[i], cv, sv * ca.s[i] };
+                v[j][i] = shade (x.apply ({ n.x * rx, n.y * ry, n.z * rz }), lit (base, normalised (x.turn ({ n.x * irx, n.y * iry, n.z * irz })), glow));
             }
         }
+        // Which way round the near faces go on the picture (a mirrored placement turns them over).
+        const float* m = x.m;
+        const float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+        const int cull = det < 0.0f ? -kNearWinding : kNearWinding;
         for (int j = 0; j < up; ++j)
             for (int i = 0; i < around; ++i)
             {
-                triangle (pos[j][i], pos[j + 1][i], pos[j + 1][i + 1], col[j][i], col[j + 1][i], col[j + 1][i + 1]);
-                triangle (pos[j][i], pos[j + 1][i + 1], pos[j][i + 1], col[j][i], col[j + 1][i + 1], col[j][i + 1]);
+                paintTri (v[j][i], v[j + 1][i], v[j + 1][i + 1], 1.0f, cull);
+                paintTri (v[j][i], v[j + 1][i + 1], v[j][i + 1], 1.0f, cull);
             }
     }
 
@@ -322,23 +475,22 @@ public:
     void limb (Vec3 a, Vec3 b, float r0, float r1, Rgb base, int around = 6, float glow = 0.0f) noexcept
     {
         around = std::clamp (around, 3, kMaxRing);
+        const Circle& ca = circles().full[around];
         const Vec3 axis = normalised (b - a);
         const Vec3 side = normalised (cross (axis, std::abs (axis.y) < 0.9f ? Vec3 { 0, 1, 0 } : Vec3 { 1, 0, 0 }));
         const Vec3 other = cross (axis, side);
-        Vec3 p0[kMaxRing + 1], p1[kMaxRing + 1];
-        Rgb c[kMaxRing + 1];
+        SV p0[kMaxRing + 1], p1[kMaxRing + 1];
         for (int i = 0; i <= around; ++i)
         {
-            const float u = 6.2831853f * (float) i / (float) around;
-            const Vec3 n = side * std::cos (u) + other * std::sin (u);
-            p0[i] = a + n * r0;
-            p1[i] = b + n * r1;
-            c[i] = lit (base, n, glow);
+            const Vec3 n = side * ca.c[i] + other * ca.s[i];
+            const Rgb c = lit (base, n, glow);
+            p0[i] = shade (a + n * r0, c);
+            p1[i] = shade (b + n * r1, c);
         }
         for (int i = 0; i < around; ++i)
         {
-            triangle (p0[i], p1[i], p1[i + 1], c[i], c[i], c[i + 1]);
-            triangle (p0[i], p1[i + 1], p0[i + 1], c[i], c[i + 1], c[i + 1]);
+            paintTri (p0[i], p1[i], p1[i + 1], 1.0f, kLimbCull);
+            paintTri (p0[i], p1[i + 1], p0[i + 1], 1.0f, kLimbCull);
         }
     }
 
@@ -352,15 +504,16 @@ public:
             const int x = (int) std::lround (x0 + (x1 - x0) * t), y = (int) std::lround (y0 + (y1 - y0) * t);
             if (x < 0 || y < 0 || x >= width || y >= height)
                 continue;
-            std::uint8_t* p = &colour[(size_t) (y * width + x) * 3];
-            p[0] = toByte ((float) p[0] + (col.r - (float) p[0]) * alpha);
+            std::uint8_t* p = &colour[(size_t) (y * width + x) * kBytes];
+            p[2] = toByte ((float) p[2] + (col.r - (float) p[2]) * alpha);
             p[1] = toByte ((float) p[1] + (col.g - (float) p[1]) * alpha);
-            p[2] = toByte ((float) p[2] + (col.b - (float) p[2]) * alpha);
+            p[0] = toByte ((float) p[0] + (col.b - (float) p[0]) * alpha);
         }
     }
 
     int width = 0, height = 0;
-    std::vector<std::uint8_t> colour;    // RGB, row by row
+    static constexpr int kBytes = 4;     // per pixel: blue, green, red, 255 (the layout of an opaque ARGB image)
+    std::vector<std::uint8_t> colour;    // row by row
 
     struct P { float x, y, z; bool ok; };
 
@@ -380,6 +533,45 @@ public:
 
 private:
     static constexpr int kMaxRing = 12;
+    static constexpr int kNearWinding = -1;  // the sign of the area of a blob's near faces on the picture
+    static constexpr int kLimbCull = -1;      // a tube is wound the same way: its far side is not drawn either
+
+    /** Sines and cosines round a circle (and half way round), for every number of faces used. */
+    struct Circle { float s[kMaxRing + 1], c[kMaxRing + 1]; };
+    struct Circles
+    {
+        Circle full[kMaxRing + 1], half[kMaxRing + 1];
+        Circles() noexcept
+        {
+            for (int n = 1; n <= kMaxRing; ++n)
+                for (int i = 0; i <= kMaxRing; ++i)
+                {
+                    full[n].s[i] = std::sin (6.2831853f * (float) i / (float) n); full[n].c[i] = std::cos (6.2831853f * (float) i / (float) n);
+                    half[n].s[i] = std::sin (3.14159265f * (float) i / (float) n); half[n].c[i] = std::cos (3.14159265f * (float) i / (float) n);
+                }
+            for (int i = 0; i <= kMaxRing; ++i)
+                full[0].s[i] = full[0].c[i] = half[0].s[i] = half[0].c[i] = 0.0f;
+        }
+    };
+    static const Circles& circles() noexcept { static const Circles c; return c; }
+
+    /** Writes a pixel from four whole numbers 0..255 (blue, green, red, anything): the last byte is
+        always 255, as every pixel of the picture is opaque. */
+   #if DEHONK_RASTER_NEON
+    static void storePixel (std::uint8_t* p, int32x4_t c) noexcept
+    {
+        const uint16x4_t h = vmovn_u32 (vreinterpretq_u32_s32 (c));
+        const std::uint32_t px = vget_lane_u32 (vreinterpret_u32_u8 (vmovn_u16 (vcombine_u16 (h, h))), 0) | 0xff000000u;
+        std::memcpy (p, &px, 4);
+    }
+   #elif DEHONK_RASTER_SSE2
+    static void storePixel (std::uint8_t* p, __m128i c) noexcept
+    {
+        const __m128i w = _mm_packs_epi32 (c, c);
+        const std::uint32_t px = (std::uint32_t) _mm_cvtsi128_si32 (_mm_packus_epi16 (w, w)) | 0xff000000u;
+        std::memcpy (p, &px, 4);
+    }
+   #endif
 
     static std::uint8_t toByte (float v) noexcept { return (std::uint8_t) std::clamp ((int) (v + 0.5f), 0, 255); }
     /** Truncates a value that already has its half added for rounding, kept inside 0..255. */
@@ -392,7 +584,8 @@ private:
     std::vector<float> depth, keptDepth;
     std::vector<std::uint8_t> keptColour;
     Vec3 cam, light { 0, 1, 0 };
-    Rgb lightCol { 1, 1, 1 }, fill { 0.4f, 0.4f, 0.4f }, fog;
+    Rgb lightCol { 1, 1, 1 }, fill { 0.4f, 0.4f, 0.4f }, fog, veil;
+    float veilAmount = 0.0f;
     float camSin = 0, camCos = 1, focalPx = 200, fogA = 20, fogB = 60;
 };
 

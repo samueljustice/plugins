@@ -7,10 +7,20 @@
 #include <array>
 #include <cmath>
 
-/** Parameter IDs and ranges (SPEC section 4 and 12). IDs never change: sessions, presets and host
-    automation address parameters by them. The order of createParameterLayout() is the order the
-    host sees (Logic addresses AU parameters by index). Nothing has been released yet, so that order
-    may still change; once it has been, a parameter added later goes at the end. */
+/** Parameter IDs and ranges (SPEC section 4, 12 and 13.17). IDs never change: sessions, presets and
+    host automation address parameters by them.
+
+    Logic and GarageBand address AU parameters by index, and JUCE's AU wrapper orders them by
+    version hint first and then by a hash of the ID, not by the order of createParameterLayout().
+    So a parameter added after a release must carry a higher version hint than every parameter
+    that release had (it then comes after all of them), and a parameter a release had is never
+    taken out. The first test build's parameters have hint 1 (versionHint); everything added for
+    the second has hint 2 (versionHintSecond).
+
+    "link" (a percentage) was replaced by "linkMode" (a choice) after the first test build. "link"
+    is still a parameter, for its place in that order only: no control sets it, a host cannot
+    automate it, the core does not read it and presets leave it out. A session or preset from the
+    first test build is read as Linked from 50 % up and Unlinked below (legacyLinkMode()). */
 namespace ParamIDs
 {
     inline constexpr const char* threshold  = "threshold";
@@ -27,7 +37,8 @@ namespace ParamIDs
     inline constexpr const char* edge2      = "edge2";
     inline constexpr const char* edge3      = "edge3";
     inline constexpr const char* edge4      = "edge4";
-    inline constexpr const char* link       = "link";
+    inline constexpr const char* linkMode   = "linkMode";
+    inline constexpr const char* legacyLink = "link";        // kept for its place in the host's order only (see above)
     inline constexpr const char* lookahead  = "lookahead";
     inline constexpr const char* mix        = "mix";
     inline constexpr const char* trim       = "trim";
@@ -35,12 +46,33 @@ namespace ParamIDs
     inline constexpr const char* maxCut     = "maxCut";
     inline constexpr const char* release    = "release";
     inline constexpr const char* impactGuard = "impactGuard";
+    inline constexpr const char* dialogue   = "dialogue";
+    inline constexpr const char* dialogueAmount = "dialogueAmount";
+    inline constexpr const char* woofTimingLocked = "woofTimingLocked";
+    inline constexpr const char* woofAttack  = "woofAttack";
+    inline constexpr const char* woofRelease = "woofRelease";
+    inline constexpr const char* tubTimingLocked = "tubTimingLocked";
+    inline constexpr const char* tubAttack   = "tubAttack";
+    inline constexpr const char* tubRelease  = "tubRelease";
+    inline constexpr const char* fogTimingLocked = "fogTimingLocked";
+    inline constexpr const char* fogAttack   = "fogAttack";
+    inline constexpr const char* fogRelease  = "fogRelease";
+    inline constexpr const char* barkTimingLocked = "barkTimingLocked";
+    inline constexpr const char* barkAttack  = "barkAttack";
+    inline constexpr const char* barkRelease = "barkRelease";
+    inline constexpr const char* detection  = "detection";
 
     /** Indexed by dehonk::Module and by edge number (module m spans edge m to edge m + 1). */
     inline constexpr const char* moduleOn[dehonk::kNumModules] { woofOn, tubOn, fogOn, barkOn };
     inline constexpr const char* edges[dehonk::kNumEdges] { edge0, edge1, edge2, edge3, edge4 };
+    /** Each range's own timing: the lock (on = the range follows Speed and Release), and the
+        attack and release it uses when unlocked. */
+    inline constexpr const char* timingLocked[dehonk::kNumModules] { woofTimingLocked, tubTimingLocked, fogTimingLocked, barkTimingLocked };
+    inline constexpr const char* rangeAttack[dehonk::kNumModules] { woofAttack, tubAttack, fogAttack, barkAttack };
+    inline constexpr const char* rangeRelease[dehonk::kNumModules] { woofRelease, tubRelease, fogRelease, barkRelease };
 
-    inline constexpr int versionHint = 1;
+    inline constexpr int versionHint = 1;         // the parameters of the first test build
+    inline constexpr int versionHintSecond = 2;   // those added for the second
 }
 
 namespace ParamRanges
@@ -73,6 +105,35 @@ namespace ParamRanges
                  [] (float start, float end, float v)
                  { return juce::jlimit (start, end, v < 100.0f ? std::round (v) : std::round (v / 10.0f) * 10.0f); } };
     }
+
+    /** A range's own attack, when its timing is unlocked: 2 to 100 ms, logarithmic (Speed covers
+        40 ms at Slow down to 5 ms at Fast). Tenths of a millisecond up to 10, then whole ones. */
+    inline constexpr float rangeAttackMin = 2.0f, rangeAttackMax = 100.0f;
+    inline constexpr float rangeAttackDefault = coreDefaults.rangeAttackMs[0];     // 14 ms: Speed at 50
+    inline constexpr float rangeReleaseDefault = coreDefaults.rangeReleaseMs[0];   // 400 ms; the range is Release's
+    inline juce::NormalisableRange<float> rangeAttackRange()
+    {
+        return { rangeAttackMin, rangeAttackMax,
+                 [] (float start, float end, float t) { return start * std::pow (end / start, t); },
+                 [] (float start, float end, float v)
+                 { return std::log (juce::jlimit (start, end, v) / start) / std::log (end / start); },
+                 [] (float start, float end, float v)
+                 { return juce::jlimit (start, end, v < 10.0f ? std::round (v * 10.0f) / 10.0f : std::round (v)); } };
+    }
+
+    /** Link, in the order of the choice parameter (and of dehonk::LinkMode). */
+    inline constexpr const char* linkModeNames[] { "Linked", "Grouped", "Unlinked" };
+    inline constexpr int numLinkModes = 3;
+    inline constexpr int linkModeDefault = 0;
+    /** What the Link percentage of the first test build becomes. */
+    inline int legacyLinkMode (float linkPercent) noexcept { return linkPercent >= 50.0f ? 0 : 2; }
+
+    /** Detection, in the order of the choice parameter (and of dehonk::Detection). */
+    inline constexpr const char* detectionNames[] { "Fast", "Steady" };
+    inline constexpr int numDetectionModes = 2;
+    inline constexpr int detectionDefault = 0;
+
+    inline constexpr float dialogueAmountDefault = coreDefaults.dialogueAmount * 100.0f;   // percent
 
     inline constexpr const char* moduleNames[dehonk::kNumModules] { "Woof", "Tub", "Fog", "Bark" };
     inline constexpr const char* edgeNames[dehonk::kNumEdges] { "Woof low", "Woof / Tub", "Tub / Fog", "Fog / Bark", "Bark high" };

@@ -19,6 +19,10 @@
  *   locks or system calls.
  * - Message thread: latency reporting (the Lookahead choice changes the latency, which is only
  *   reported from here), state, presets, the editor.
+ * Buses: the main input and output (the same layout, mono to 7.1.4) and a second input, the
+ * dialogue sidechain (mono, which is what Pro Tools offers, or stereo; it may be off). With
+ * Dialogue switched on, what arrives there is taken as the dialogue stem (SPEC 13.17).
+ *
  * - reset() may be called on the UI thread while audio renders (JUCE's AU wrapper does it when
  *   bypass is switched on), so it only raises a flag that the audio thread acts on.
  */
@@ -78,13 +82,38 @@ public:
         writes display frames only while one is. Calls must be balanced. */
     void setEditorOpen (bool open) noexcept;
 
-    /** Message thread (one consumer): takes every frame waiting in the FIFO and leaves the newest
-        in 'latest', with snapCutDb the deepest of all the frames taken. False if there was none. */
-    bool popLatestDisplayFrame (dehonk::DisplayFrame& latest) noexcept;
+    /** Where one reader of the display frames has got to. Every window (or anything else that
+        shows the frames) keeps its own, so that each sees every frame however many are open. */
+    struct DisplayReader
+    {
+        std::uint64_t next = 0;
+        bool started = false;
+    };
 
-    static constexpr int stateVersion = 1;
+    /** Message thread, any number of readers, each with its own DisplayReader: takes the frames
+        this reader has not seen yet and leaves the newest taken in 'latest', with snapCutDb the
+        deepest of all the frames taken. False if there was none. Paced (for a reader that calls at
+        the frame rate or faster), it takes one and leaves up to a host buffer's worth waiting, so
+        that frames which arrived together are shown one after another; otherwise it takes them all.
+        A reader that falls more than the ring's length behind skips the oldest. */
+    bool popLatestDisplayFrame (DisplayReader& reader, dehonk::DisplayFrame& latest, bool paced = false) noexcept;
+    /** The same with a reader of the processor's own (for tools with a single reader). */
+    bool popLatestDisplayFrame (dehonk::DisplayFrame& latest, bool paced = false) noexcept { return popLatestDisplayFrame (ownReader, latest, paced); }
+
+    /** The Impact Guard amount its switch goes back to when it is switched on again (percent; the
+        switch sets the amount to 0 for off). Kept here so it outlives the editor; not saved. */
+    void setGuardAmountMemory (float percent) noexcept { guardAmountMemory.store (percent, std::memory_order_relaxed); }
+    float getGuardAmountMemory() const noexcept { return guardAmountMemory.load (std::memory_order_relaxed); }
+
+    /** True while the host has the dialogue sidechain connected (it may still be silent). Any thread. */
+    bool isSidechainConnected() const noexcept { return sidechainConnected.load (std::memory_order_relaxed); }
+
+    /** 1: the first test build. 2: Link is a mode (linkMode) and not a percentage (link); the
+        dialogue sidechain, each range's own timing and Detection are there. An older state is brought up to
+        date when it is restored (migrateState). */
+    static constexpr int stateVersion = 2;
     static constexpr int displayFifoSize = 64;
-    static constexpr double displayFramesPerSecond = 30.0;
+    static constexpr double displayFramesPerSecond = 60.0;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -94,6 +123,7 @@ private:
     void pushDisplayFrame (int numSamples) noexcept;
     void collectClick() noexcept;
     dehonk::Params readParams (bool bypassed) const noexcept;
+    void migrateState (juce::ValueTree& state) const;
 
     void parameterChanged (const juce::String& parameterID, float newValue) override;
     void timerCallback() override;
@@ -112,7 +142,13 @@ private:
     std::array<std::atomic<float>*, dehonk::kNumModules> moduleOnValues {};
     std::atomic<float>* clickOnValue = nullptr;
     std::array<std::atomic<float>*, dehonk::kNumEdges> edgeValues {};
-    std::atomic<float>* linkValue = nullptr;
+    std::atomic<float>* linkModeValue = nullptr;
+    std::atomic<float>* dialogueValue = nullptr;
+    std::atomic<float>* dialogueAmountValue = nullptr;
+    std::array<std::atomic<float>*, dehonk::kNumModules> timingLockedValues {};
+    std::array<std::atomic<float>*, dehonk::kNumModules> rangeAttackValues {};
+    std::array<std::atomic<float>*, dehonk::kNumModules> rangeReleaseValues {};
+    std::atomic<float>* detectionValue = nullptr;
     std::atomic<float>* lookaheadValue = nullptr;
     std::atomic<float>* mixValue = nullptr;
     std::atomic<float>* trimValue = nullptr;
@@ -126,6 +162,9 @@ private:
     int preparedBlockSize = 0;
     double preparedSampleRate = 0.0;
 
+    std::atomic<bool> sidechainConnected { false };
+    std::atomic<int> displayBurst { 1 };     // how many display frames one host buffer makes
+    std::atomic<float> guardAmountMemory { 100.0f };
     std::atomic<bool> soloHonk { false };
     std::atomic<bool> diff { false };
 
@@ -137,10 +176,23 @@ private:
 
     // Display frames, audio thread -> message thread.
     std::atomic<int> editorsOpen { 0 };
-    juce::AbstractFifo displayFifo { displayFifoSize };
-    // Preallocated with the processor; frames are copied in and out by assignment.
+    // A ring of the last frames, written by the audio thread only and read by any number of
+    // readers, none of which holds the writer up. Each slot is a sequence lock: its stamp is odd
+    // while frame n is being written (2n + 1) and 2n + 2 once it is there, and a reader keeps a
+    // copy only if the stamp was the same before and after. The frame is kept as atomic words, so
+    // that a read that overlaps a write is not a data race (it is thrown away). Preallocated with
+    // the processor.
     static_assert (std::is_trivially_copyable_v<dehonk::DisplayFrame>);
-    std::array<dehonk::DisplayFrame, displayFifoSize> displayFrames {};
+    static constexpr int frameWords = (int) ((sizeof (dehonk::DisplayFrame) + 3) / 4);
+    struct FrameSlot
+    {
+        std::atomic<std::uint64_t> stamp { 0 };
+        std::array<std::atomic<std::uint32_t>, (size_t) frameWords> words {};
+    };
+    std::array<FrameSlot, displayFifoSize> frameSlots;
+    std::atomic<std::uint64_t> framesWritten { 0 };
+    DisplayReader ownReader;
+    bool readFrame (std::uint64_t n, dehonk::DisplayFrame& out) const noexcept;
     std::uint32_t lastFrameCounter = 0;
     int samplesSinceDisplayFrame = 0;
     int samplesPerDisplayFrame = 1600;

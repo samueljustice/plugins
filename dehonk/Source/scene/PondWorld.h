@@ -4,17 +4,22 @@
 // The picture: a pond on a strange, mild day, seen from the bank, in flat off-beat pastels: a peach
 // sky with a sunburst and a rainbow, mint water, a pale lawn, and a little stream running along the
 // front. Everything is made of a few simple rounded shapes. The frequency axis runs along the
-// water's edge, low on the left. Reeds at the edge are the spectrum.
+// water's edge, low on the left. The reeds at the edge are scenery: they sway a little in the wind
+// and part where a goose comes through.
 //
 // Who is in it, and what each one shows:
 //
 //   Geese        a notch. One lands on the bank wherever De-Honk has a notch open and honks; the
-//                deeper the notch, the bigger the goose and the fuss. It waddles after its notch,
-//                hisses at the boom pole, and flies off when the notch closes.
-//   Recordist    De-Honk at work: he runs along the bank with a boom pole after the worst of them.
-//                Bypass: he sits down with a flask. Solo Honk: he cups a headphone and listens.
-//                Diff: he stops and looks from side to side, comparing.
-//   Fish         Snap: one leaps out of the pond, with a twist, each time a click is caught.
+//                deeper the notch, the bigger the goose. It waddles after its notch and flies off
+//                when the notch closes.
+//   Recordist    De-Honk at work. He walks along the bank to the worst goose, facing the way he
+//                goes, and holds the microphone out over it. Now and then, no more than once every
+//                several seconds, he winds up and takes one swing at it with the pole. Bypass: he
+//                sits down with a flask. Solo Honk: he cups a headphone and listens. Diff: he stops
+//                and looks from side to side, comparing.
+//   Trees        the edges of the ranges: one stands on the far shore at each edge, in the colour
+//                of the range to its right, and moves as the edge is dragged.
+//   Fish         Snap: one leaps out of the pond, with a twist, when a click is caught.
 //   Beaver       the Wash reading: while the low mids stay clogged it builds a dam across the
 //                stream, and the dam comes apart again as they clear. With nothing to build, it
 //                floats on its back.
@@ -29,10 +34,15 @@
 // is little to do, clouding over, then wind and rain when De-Honk has been kept busy. It changes
 // over tens of seconds, never from moment to moment.
 //
-// Nothing here follows the meters directly. Every reading is filtered or turned into an event with
-// its own timing first, and everything moves by the seconds that have passed. Small idle business
-// (blinks, breathing, a puffing throat) does not count as movement, so that a quiet pond lets the
-// host drop to its slow rate.
+// Calm comes first. Nothing here follows the meters directly: every reading is filtered or turned
+// into an event with its own timing, and everything moves by the seconds that have passed, so it
+// looks the same at any frame rate. Small business (a stretch, a preen, a pat, a breeze through the
+// reeds) is handed out by one director, one piece at a time with seconds between, and never while
+// something bigger is going on. With a range in focus, only the creatures of that range move; the
+// rest hold still, a little dimmed.
+//
+// Everyone can be clicked (see hitTest and click). What a click sets off is for fun only and
+// changes nothing the mix drives.
 #pragma once
 
 #include "Raster.h"
@@ -52,6 +62,10 @@ struct WorldInput
     float maxCutDb = 6.0f;             // the Max Cut control
     float guardAmount = 1.0f;          // the Impact Guard control, 0..1 (0 = off)
     bool soloHonk = false, diff = false, bypass = false, calm = false;
+    int focus = -1;                    // the range in focus: 0..3 Woof, Tub, Fog, Bark; 4 Snap; -1 none
+    float axisLo = 0.0f, axisHi = 1.0f; // where the frequency axis starts and ends across the picture (0..1): the band
+                                       //   view's plot under the pond does not reach its card's edges, and the trees
+                                       //   and posts stand over its handles
 };
 
 class PondWorld
@@ -61,14 +75,21 @@ public:
     static constexpr float kHalfWidth = 8.0f;                      // world units either side of centre
     static constexpr float kBankRow = 0.74f;                       // the water's edge, as a share of the height
 
-    static float x01ForHz (float hz) noexcept { return std::log2 (std::clamp (hz, kLowHz, kLowHz * 128.0f) / kLowHz) / kOctaves; }
-    static float hzForX01 (float x) noexcept { return kLowHz * std::pow (2.0f, kOctaves * std::clamp (x, 0.0f, 1.0f)); }
-    static float worldX (float hz) noexcept { return (x01ForHz (hz) - 0.5f) * 2.0f * kHalfWidth; }
+    /** The axis itself, 0..1 from 40 Hz to 5.12 kHz, and back. */
+    static float axis01ForHz (float hz) noexcept { return std::log2 (std::clamp (hz, kLowHz, kLowHz * 128.0f) / kLowHz) / kOctaves; }
+    static float hzForAxis01 (float x) noexcept { return kLowHz * std::pow (2.0f, kOctaves * std::clamp (x, 0.0f, 1.0f)); }
+    /** Where a frequency is across the picture (0..1), with the axis laid where the host says (WorldInput::axisLo, axisHi). */
+    float x01ForHz (float hz) const noexcept { return input.axisLo + (input.axisHi - input.axisLo) * axis01ForHz (hz); }
+    float worldX (float hz) const noexcept { return (x01ForHz (hz) - 0.5f) * 2.0f * kHalfWidth; }
 
-    void setSize (int w, int h)
+    /** `pixelsPerPoint`: how many of the picture's pixels make one point of the window it is shown
+        in (2 for a picture drawn at the full resolution of a display with two pixels to the
+        point). The few things that are sized in pixels, not in the world, are scaled by it. */
+    void setSize (int w, int h, float pixelsPerPoint = 1.0f)
     {
+        pp = std::clamp (pixelsPerPoint, 0.5f, 4.0f);
         r.setSize (w, h);
-        backdropAge = 0;
+        backdropDue = 0.0f;
         // In a very wide picture there is little height above the bank: shrink the cast to fit.
         cast = std::clamp (0.2f * (float) h / ((float) w / (2.0f * kHalfWidth)), 0.45f, 1.0f);
         // The bank's edge (z = 0) must span the picture exactly and sit on kBankRow.
@@ -115,7 +136,7 @@ public:
             const float shellTop = 0.24f * k + 0.42f * 0.682f * k * 1.12f;               // the biggest turtle's shell, unsunk
             const float row = r.project ({ logX, shellTop, streamZ }).y;
             const float pxPerUnit = std::max (1.0f, r.project ({ logX, 0.0f, streamZ }).y - r.project ({ logX, 1.0f, streamZ }).y);
-            const float clear = r.rowOfGroundZ (kLogGooseFrontZ) + std::max (5.0f, 0.03f * (float) h);
+            const float clear = r.rowOfGroundZ (kLogGooseFrontZ) + std::max (5.0f * pp, 0.03f * (float) h);
             logSink = std::clamp ((clear - row) / pxPerUnit, 0.0f, 0.18f * k);
             const float rad = 0.2f * k;
             const Vec3 a { logX - kLogHalf * k, 0.0f, streamZ - 0.05f * k }, b { logX + kLogHalf * k, 0.0f, streamZ + 0.1f * k };
@@ -167,19 +188,31 @@ public:
     {
         dt = std::clamp (dt, 0.0f, 0.25f);
         input = in;
+        input.axisLo = std::clamp (in.axisLo, 0.0f, 0.4f);
+        input.axisHi = std::clamp (in.axisHi, 0.6f, 1.0f);
+        if (input.axisLo < axisWas[0] || input.axisLo > axisWas[0] || input.axisHi < axisWas[1] || input.axisHi > axisWas[1])
+        {
+            axisWas[0] = input.axisLo; axisWas[1] = input.axisHi;
+            backdropDue = 0.0f;
+        }
 
         // How honky has it been? The deepest notch and how many are open, averaged slowly: the
-        // sky takes about half a minute to cloud over and rain, and twice that to clear. (This runs on real
-        // time even when the picture is being held still.)
+        // sky takes about half a minute to cloud over and rain, and twice that to clear. Ordinary
+        // work (a few notches a few dB deep) leaves the sky clear; it takes cuts that stay near
+        // the ceiling in several places at once to bring the rain. With nothing playing it clears
+        // quickly. (This runs on real time even when the picture is being held still.)
         {
             int open = 0;
             for (int k = 0; k < in.frame.numBands; ++k)
                 open += in.frame.cutDb[k] > 1.0f ? 1 : 0;
-            const float now = std::clamp (0.65f * in.frame.totalCutDb / 7.0f + 0.35f * (float) open / 9.0f, 0.0f, 1.0f);
-            honkiness += (now - honkiness) * std::min (1.0f, dt / (now > honkiness ? 20.0f : 40.0f));
+            backdropDue -= dt;
+            const bool quiet = in.frame.activity <= 0.0f && in.frame.totalCutDb <= 0.05f;
+            silence = quiet ? silence + dt : 0.0f;
+            const float now = std::clamp (0.65f * (in.frame.totalCutDb - 2.0f) / 8.0f, 0.0f, 0.65f) + std::clamp (0.35f * ((float) open - 2.0f) / 8.0f, 0.0f, 0.35f);
+            honkiness += (now - honkiness) * std::min (1.0f, dt / (now > honkiness ? 20.0f : silence > 2.0f ? 6.0f : 40.0f));
             if (! std::isfinite (honkiness)) honkiness = 0.0f;          // never let one bad frame stick
-            const float target = smooth01 ((honkiness - 0.12f) / 0.5f);
-            weather += (target - weather) * std::min (1.0f, dt / 6.0f);
+            const float target = smooth01 ((honkiness - 0.2f) / 0.6f);
+            weather += (target - weather) * std::min (1.0f, dt / (silence > 2.0f ? 3.0f : 6.0f));
             if (! std::isfinite (weather)) weather = 0.0f;
             windPhase += dt * (1.3f + 2.2f * weather);
             rainPhase += dt;
@@ -199,14 +232,89 @@ public:
             step (in, dt / (float) pieces);
     }
 
-    bool isMoving() const noexcept { return ((moving || fussing) && ! input.calm) || weather > 0.5f; }
+    bool isMoving() const noexcept { return ((moving || fussing) && ! input.calm) || clicked != Hot::none; }
+    /** Nothing is moving but the rain is falling: a slower rate will do for that. */
+    bool isRaining() const noexcept { return weather > 0.57f; }
+
+    //============================================================================== the mouse
+    enum class Hot { none, turtle, beaver, frog, goose, keeper, fly, resident };
+
+    /** Who is under a point of the picture (in its own pixels), as last drawn. */
+    Hot hitTest (float px, float py, int* index = nullptr) const noexcept { return pick (hots.data(), hotCount, px, py, index); }
+
+    /** The same, among a copy of where everyone was (anything with x, y, rx, ry, kind and index:
+        see PondScene::Hits), so that it can be asked on another thread than the one drawing. */
+    template <typename Spot>
+    static Hot pick (const Spot* spots, int count, float px, float py, int* index = nullptr) noexcept
+    {
+        // Nearest the front first; a dragonfly that is passing a goose leaves the goose to be clicked.
+        static constexpr Hot order[] = { Hot::frog, Hot::turtle, Hot::beaver, Hot::goose, Hot::fly, Hot::keeper, Hot::resident };
+        for (const Hot kind : order)
+        {
+            int best = -1;
+            float bestD = 1.0f;
+            for (int i = 0; i < count; ++i)
+            {
+                const auto& h = spots[i];
+                if ((int) h.kind != (int) kind)
+                    continue;
+                const float dx = (px - h.x) / h.rx, dy = (py - h.y) / h.ry, d = dx * dx + dy * dy;
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best >= 0)
+            {
+                if (index != nullptr)
+                    *index = spots[best].index;
+                return kind;
+            }
+        }
+        return Hot::none;
+    }
+    /** Where the mouse can find someone, as last drawn (see hitTest). */
+    int hotSpotCount() const noexcept { return hotCount; }
+    void hotSpot (int i, float& x, float& y, float& rx, float& ry, int& kind, int& index) const noexcept
+    {
+        const auto& h = hots[(size_t) i];
+        x = h.x; y = h.y; rx = h.rx; ry = h.ry; kind = (int) h.kind; index = h.index;
+    }
+
+    /** A click on the picture. Returns true if someone was there to take it. What they do starts at
+        the next advance(), is for show only, and changes nothing the mix drives: a turtle topples
+        off the log and climbs back, the beaver waves (or slaps its tail), the frog leaps off its
+        pad, a goose is knocked along the bank in a puff of feathers and waddles back, the recordist
+        tips his hat or waves, and the dragonflies scatter. */
+    bool click (float px, float py) noexcept
+    {
+        int index = 0;
+        const Hot kind = hitTest (px, py, &index);
+        if (kind == Hot::none)
+            return false;
+        clicked = kind; clickedIndex = index;
+        return true;
+    }
+
+    //============================================================================== the trees
+    /** The crown of the tree at each range edge, as drawn: its centre and radius in the picture's
+        pixels (the centre may be above the top edge, y < 0) and the colour of its top. The host
+        draws the part that rises above the picture. */
+    struct TreeTop { float x = 0, y = 0, radius = 0; std::uint8_t r = 0, g = 0, b = 0; };
+    const std::array<TreeTop, kNumEdges>& treeTops() const noexcept { return tops; }
+
+    /** The colours of the four ranges and of Snap, so that the trees, the strips along the bank and
+        the posts match the tabs in the window. */
+    void setModuleColours (const Rgb* five) noexcept
+    {
+        for (int i = 0; i <= kNumModules; ++i)
+            moduleCol[i] = five[i];
+        backdropDue = 0.0f;
+    }
 
     /** 0 = clear and sunny, 1 = wind and rain. For the tests and for anything that wants to show it. */
     float weatherNow() const noexcept { return weather; }
-    void debugSetWeather (float w) noexcept { weather = std::clamp (w, 0.0f, 1.0f); honkiness = 0.12f + 0.5f * weather; backdropAge = 0; }
+    void debugSetWeather (float w) noexcept { weather = std::clamp (w, 0.0f, 1.0f); honkiness = 0.2f + 0.6f * weather; backdropDue = 0.0f; }
 
     /** For the tests: makes one of the rare events happen as soon as it can. */
-    enum class Treat { hatTheft, trip, tapHeadphones, adjustHat, wipeBrow, fistPump };
+    enum class Treat { hatTheft, trip, tapHeadphones, adjustHat, wipeBrow, fistPump, swing, stretch, breeze };
     void debugTreat (Treat t) noexcept
     {
         switch (t)
@@ -217,57 +325,88 @@ public:
             case Treat::adjustHat:     startGesture (Gesture::hat, 1.6f); break;
             case Treat::wipeBrow:      startGesture (Gesture::wipe, 1.5f); break;
             case Treat::fistPump:      startGesture (Gesture::pump, kPumpSeconds); break;
+            case Treat::swing:         keeper.swingCool = 0.0f; break;
+            case Treat::stretch:       startGesture (Gesture::stretch, 2.6f); break;
+            case Treat::breeze:        gust = 0.0f; break;
         }
     }
     float damNow() const noexcept { return dam; }
     float keeperX() const noexcept { return keeper.x; }
 
     //==============================================================================
-    /** Draws into the raster's own buffer (RGB, r.width x r.height). */
+    /** Draws into the raster's own buffer (see pixels()). */
     void render()
     {
+        hotCount = 0;
         const bool night = input.soloHonk;         // Solo Honk: the lights go down, the geese stay lit
         const float dim = night ? 0.38f : 1.0f;
         sceneDim = dim;
         setLight (dim, weather);
-        // The backdrop moves slowly (drifting clouds and water), so it is redrawn every fourth
-        // frame and copied back in between; the characters are drawn fresh every frame.
-        if (backdropAge <= 0 || backdropDim < dim || backdropDim > dim)
+        // The backdrop moves slowly (drifting clouds and water), so it is redrawn about seven times
+        // a second and copied back in between; the characters are drawn fresh every frame. It is
+        // redrawn at once when the lights change or a tree has to move.
+        const std::uint32_t sig = backdropSignature();
+        if (backdropDue <= 0.0f || backdropDim < dim || backdropDim > dim || sig != backdropSig)
         {
             r.clearDepth();
             drawBackdrop (dim);
             drawFarShore (dim);
             r.keep();
-            backdropAge = 4;
+            // About seven times a second while anything is going on; in a still pond, where only
+            // the clouds and the water drift, once a second is plenty.
+            backdropDue = moving || fussing || weather > 0.3f ? 0.14f : 1.0f;
             backdropDim = dim;
+            backdropSig = sig;
         }
         else
             r.restore();
-        --backdropAge;
+        // The weather greys the sky, the water and the far shore. Everyone on the bank and in the
+        // stream keeps most of their colour whatever it does (the rain itself is streaks and sky),
+        // so the picture stays the picture it is through a long busy session. With a range in
+        // focus, its own creatures take no grey at all, and everyone else fades back towards the
+        // paper: not darker, paler.
+        const float grey = std::min (weather, kCastGrey);
+        const Rgb paper = rgb (0xf5eed8) * dim;
+        const float asideVeil = kAsideVeil * hush;
         drawZones();
         drawReeds();
         drawPosts();
+        setLight (dim, grey);
+        r.setVeil (paper, asideVeil);
         drawResident();
         for (int i = 0; i < kMaxGeese; ++i)
             if (geese[(size_t) i].used)
+            {
+                const float still = geese[(size_t) i].still;
+                setLight (dim, grey * (hush > 0.0f ? still : 1.0f));
+                // A goose is mostly white, and white faded towards the paper hardly changes: one
+                // out of focus goes towards a soft grey instead, so that it plainly steps back.
+                r.setVeil (rgb (0xb9b2a2) * dim, kGooseAsideVeil * still);
                 drawNotchGoose (i, night ? 0.55f : 0.0f);
-        // The recordist keeps his own light: in Solo Honk he is the one still lit, like the geese,
-        // and in a storm he darkens only so far, so that his face and what he does still read.
-        setLight (1.0f, std::min (weather, 0.45f));
+            }
+        // The recordist keeps his own light: in Solo Honk he is the one still lit, like the geese.
+        r.setVeil (paper, 0.0f);
+        setLight (1.0f, grey * (1.0f - hush));
         drawKeeper();
         drawHat();
-        setLight (dim, weather);
+        setLight (dim, grey * (input.focus == kNumModules ? 1.0f - hush : 1.0f));
+        r.setVeil (paper, input.focus == kNumModules ? 0.0f : asideVeil);
         drawFish();
+        setLight (dim, grey);
+        r.setVeil (paper, asideVeil);
         drawBeaver();                                   // first: the dam's new stick starts from its paws
         drawDam();
         drawLogAndTurtles();
         drawFrog();
         drawDragonflies();
+        r.setVeil (paper, 0.0f);
+        setLight (dim, weather);
         drawBursts();
         drawRings();
         drawRain();
     }
 
+    /** The picture: blue, green, red, 255 for each pixel, row by row (an opaque ARGB image's layout). */
     const std::uint8_t* pixels() const noexcept { return r.colour.data(); }
     int width() const noexcept { return r.width; }
     int height() const noexcept { return r.height; }
@@ -275,6 +414,7 @@ public:
 private:
     static constexpr int kMaxGeese = 10;
     static constexpr float kGooseZ = -0.85f;       // where a goose stands on the bank on its own
+    static constexpr float kLeavingLowFor = 0.5f;  // a goose taking off is near the bank for this much of its way
     static constexpr float kGooseBackZ = -0.45f, kGooseFrontZ = -1.45f;   // two rows, where they crowd
     static constexpr float kLogGooseBackZ = -0.12f, kLogGooseFrontZ = -0.5f;   // the two rows behind the turtles' log
     static constexpr float kKeeperZ = -0.12f;      // the recordist, at the back by the water, behind the geese
@@ -302,6 +442,24 @@ private:
     static constexpr float kLogHalf = 0.85f;          // half the turtles' log, in stream-creature sizes
     static constexpr float kPumpSeconds = 0.75f;     // the recordist's fist pump, start to settle
     static constexpr float kTripSeconds = 1.5f;      // caught, two skips on the front foot, settle
+    static constexpr float kSwingSeconds = 1.25f;    // the bat: wind-up, a beat, the swing, back to rest
+    static constexpr float kSwingHit = 0.47f;        // how far through it the pole comes down on the goose
+    static constexpr float kKnockSeconds = 0.75f;    // a clicked goose in the air
+    static constexpr float kFallSeconds = 3.4f;      // a clicked turtle: off the log, under, and back up
+    static constexpr float kCastGrey = 0.3f;         // the most the weather greys the characters (the sky takes all of it)
+    static constexpr float kAsideVeil = 0.38f;       // how far those out of focus fade towards the paper
+    static constexpr float kGooseAsideVeil = 0.5f;   // ... and the geese, towards a grey (see render)
+
+    // Geese come and go slowly. A notch must have been there a moment before a goose comes for it,
+    // a goose that has landed stays a while, and only so many are on the bank at once.
+    static constexpr int kMaxCands = 12, kMaxPeaks = 16;
+    static constexpr int kLiveGeese = 5, kGeesePerRange = 2;
+    static constexpr float kGooseKeepDb = 0.6f;       // a goose keeps a notch that is still this deep
+    static constexpr float kGooseComeDb = 1.5f;       // ... and comes for one that has been this deep
+    static constexpr float kGooseComeSeconds = 0.5f;  //     for this long (a third of that from 3 dB)
+    static constexpr float kGooseStaySeconds = 3.0f;  // once down it stays at least this long
+    static constexpr float kGooseGapSeconds = 2.0f;   // between two arrivals
+    struct Cand { float x = 0, depth = 0, seen = 0, missed = 0; bool used = false; };
 
     /** A high sun and a lot of light from the sky: colours stay flat and bright, shadows soft.
         Under cloud (`grey`) the sun goes and everything flattens and cools a little. */
@@ -358,18 +516,28 @@ private:
         bool used = false, leaving = false, thief = false;
         float homeX = 0, x = 0, vx = 0, depth = 0, arrive = 0, away = 0, honkPhase = 0, lastCycle = 0, unseen = 0, seed = 0;
         float walkPhase = 0, walkAmt = 0, yaw = 0, landed = 0, hiss = 0, flap = 1.0f, age = 0, peak = 0, fleeX = 0;
-        float wag = 0, wagPhase = 0, temper = 0;
+        float wag = 0, wagPhase = 0, temper = 0;                       // temper: seconds it stays cross after the pole came down
+        float patience = 2.5f;                                         // seconds it waits for a notch that has closed
+        float still = 0;                                               // 1 = out of focus: holding still
+        float preen = 1.0f;                                            // a preen under the wing, 0..1 (1 = not preening)
+        float reed = 0;                                                // how hard it is pushing the reeds aside (as it comes through them)
+        float knock = 1.0f, knockTo = 0, knockX = 0, knockPhase = 0, dizzy = 0;   // clicked: in the air, where to, how far from its place now
         float z = kGooseZ, laneZ = kGooseZ, spreadX = 0, crowd = 0;    // its row on the bank, where it stands to be seen, how crowded
         bool crowded = false, byLog = false;                           // byLog: standing close behind the turtles' log
         Spring squash;
         Blink blink;
     };
-    enum class Gesture { none, tap, hat, pump, wipe, sip };
+    enum class Gesture { none, tap, hat, pump, wipe, sip, stretch, wave, tip };
     struct Keeper
     {
         float x = -2.6f, speed = 0, phase = 0, facing = 1, yaw = 1.35f, poleYaw = -0.3f, shoo = 0, sit = 0, idle = 0;
-        float poke = 0, recoil = 0, trip = 1.0f, tripWait = 16.0f, solo = 0, compare = 0, chase = 0, hand = -1.0f;
-        float fidgetWait = 6.0f, wipeWait = 5.0f, sipWait = 2.5f, pumpWait = 0.0f, cableX = -3.9f, quiet = 0;
+        float recoil = 0, trip = 1.0f, tripWait = 9.0f, solo = 0, compare = 0, chase = 0, hand = -1.0f;
+        float pumpWait = 0.0f, cableX = -3.9f, quiet = 0;
+        float swing = 1.0f, swingCool = 4.0f;      // the bat (0..1, 1 = not swinging) and the seconds before the next one
+        float runAmt = 0;                          // 0 standing .. 1 at a run, eased
+        float switchT = 0, greet = 0, clickWait = 0;   // clickWait: above 0 while a click on him has not been answered yet
+        int target = -1, clickTurn = 0;            // the goose he is working
+        bool walking = false, going = false;       // going: on his way somewhere more than a shuffle off
         float look = 0, lookTo = 0, lookWait = 1.0f, workSide = -1.0f, eyeLook = 0, torsoLook = 0, extend = 0;
         Gesture gesture = Gesture::none;
         float gt = 0, glen = 1.0f;
@@ -378,13 +546,15 @@ private:
         Blink blink;
     };
     struct Ring { float x = 0, y = 0, z = 0, age = 1.0f, size = 0.5f, rate = 1.9f; bool flat = false; Rgb colour; bool splash = false; };
-    struct Burst { float x = 0, z = 0, t = 1.0f, size = 1.0f, seed = 0; };
+    struct Burst { float x = 0, z = 0, t = 1.0f, size = 1.0f, seed = 0; float y = 0; bool feathers = false; };
     struct Fish { float t = 9.0f, power = 0.5f, dir = 1.0f; bool flopped = true; };
+    struct HotSpot { float x = 0, y = 0, rx = 1, ry = 1; Hot kind = Hot::none; int index = 0; };
     struct Hat { int state = 0; float t = 0, wait = 140.0f; int goose = -1; };       // 0 on his head, 1 snatched, 2 on the goose, 3 on its way back
     struct Beaver
     {
         float x = 0, yaw = 0.4f, upright = 0, build = 0, sulk = 0, proud = 0, proudT = 0, pat = 0, slap = 0, earWait = 3.0f, ear = 1.0f, patWait = 5.0f;
         float patLen = 0.8f, carry = 0.0f;
+        float wave = 1.0f, flop = 1.0f;     // a wave of the paw; a slap of the tail while floating (0..1, 1 = none)
         int pats = 0, patCount = 3;
         bool patting = false, idlePat = false;
         Blink blink;
@@ -393,6 +563,7 @@ private:
     {
         float out = 1.0f, delay = 0, peekWait = 0, look = 0, lookTo = 0, lookWait = 2.0f, stretch = 1.0f, stretchWait = 9.0f;
         float antic = 1.0f, eyes = 0.0f;   // the start of a hide (0..1, head up, eyes wide); the eyes showing in the opening
+        float fall = 1.0f, stretchDelay = -1.0f;   // clicked: toppling off the log and climbing back (0..1, 1 = on the log)
         int stage = 3;                  // 0 right in, 1 eyes in the opening, 2 head peeking, 3 out
         bool in = false;
         Spring wobble, drop;            // the shell's rock, and its squash as it lands on the log
@@ -404,6 +575,8 @@ private:
         float x = 0, v = 0, t = 0, cool = 1.0f, side = 1.0f, landX = 0, tension = 0, puffWait = 2.0f, puff = 1.0f, look = 0.0f;
         float lookUp = 0.0f, below = 0.0f, quiver = 0.0f, sinceLeap = 99.0f;
         float leapH = 1.0f;             // how high this leap goes: kept low where it would pass in front of him
+        float tongue = 1.0f, coolKept = 0.0f;   // a flick of the tongue (0..1, 1 = none)
+        bool byClick = false;           // this leap was asked for with the mouse: it leaves the ceiling's own timing alone
         int repeats = 0;
         bool armed = true;              // a leap marks a notch arriving at the ceiling, not one sitting there
         Spring pad;
@@ -418,41 +591,46 @@ private:
     };
 
     //============================================================================== what happens
+    /** The range a place on the bank belongs to (0..3), or -1. */
+    int moduleAt (float wx) const noexcept
+    {
+        for (int m = 0; m < kNumModules; ++m)
+            if (wx >= worldX (input.edgeHz[m]) && wx < worldX (input.edgeHz[m + 1]))
+                return m;
+        return -1;
+    }
+    /** With a range in focus, only its geese are at work. */
+    bool gooseActive (const Goose& g) const noexcept { return input.focus < 0 || moduleAt (g.homeX) == input.focus; }
+
     void step (const WorldInput& in, float dt)
     {
         time += dt;
         const auto& f = in.frame;
-
-        // Small idle business (a blink, an ear flick, a pat, a stretch) plays in full only while the
-        // pond is running at its full rate. When it is still, one shared timer starts one piece of
-        // business at a time, every ten to twenty seconds, and that piece keeps the full rate while
-        // it plays: so it is smooth, and a quiet pond spends most of its time at the idle rate.
         lively = ! stillPrev;
-        if (idleBusy > 0.0f)
-        {
-            idleBusy -= dt;
-            fussing = true;
-        }
-        else if (stillPrev && dt > 0.0f && (idleWait -= dt) <= 0.0f)
-        {
-            idleWait = rnd (12.0f, 24.0f);
-            startIdleEvent (in);
-        }
+        const bool focused = in.focus >= 0;
+        follow (hush, focused ? 1.0f : 0.0f, dt, 0.35f);
+        moving = moving || (hush > 0.02f && hush < 0.98f);
+        residentPhase += dt * (1.0f - hush);
 
-        // Where are the notches? Each peak of the cut curve is one goose.
+        // Where are the notches? Each peak of the cut curve may have a goose. A goose that is here
+        // keeps its notch while the notch is at all open, so that a cut wavering about a dB does
+        // not send it off and bring it back.
         struct Peak { float x, depth; bool taken; };
-        std::array<Peak, kMaxGeese> peaks {};
+        std::array<Peak, kMaxPeaks> peaks {};
         int numPeaks = 0;
         float deepestNow = 0.0f;
         for (int k = 0; k < f.numBands; ++k)
             deepestNow = std::max (deepestNow, f.cutDb[k]);
-        for (int k = 1; k + 1 < f.numBands && numPeaks < kMaxGeese; ++k)
-            if (f.cutDb[k] > 1.0f && f.cutDb[k] >= f.cutDb[k - 1] && f.cutDb[k] > f.cutDb[k + 1])
+        for (int k = 1; k + 1 < f.numBands && numPeaks < kMaxPeaks; ++k)
+            if (f.cutDb[k] > kGooseKeepDb && f.cutDb[k] >= f.cutDb[k - 1] && f.cutDb[k] > f.cutDb[k + 1])
                 peaks[(size_t) numPeaks++] = { worldX (f.bandHz[k]), f.cutDb[k], false };
 
-        // Keep each goose with its notch.
+        // Keep each goose with its notch. With a range in focus, a goose outside it holds as it
+        // is: it is not looked for, does not wait, and does not leave.
+        int live = 0, shown = 0, inRange[kNumModules + 1] {};
         for (auto& g : geese)
         {
+            shown += g.used ? 1 : 0;                                  // on the bank, leaving ones too
             if (! g.used || g.leaving)
                 continue;
             int best = -1;
@@ -461,67 +639,148 @@ private:
                 if (! peaks[(size_t) i].taken && std::abs (peaks[(size_t) i].x - g.homeX) < bestD)
                     { bestD = std::abs (peaks[(size_t) i].x - g.homeX); best = i; }
             if (best >= 0)
-            {
                 peaks[(size_t) best].taken = true;
+            const int range = moduleAt (g.homeX);
+            ++live;
+            ++inRange[range >= 0 ? range : kNumModules];
+            if (! gooseActive (g) && ! in.calm)
+                continue;
+            if (best >= 0)
+            {
                 g.homeX += (peaks[(size_t) best].x - g.homeX) * std::min (1.0f, dt * 6.0f);
                 g.depth += (peaks[(size_t) best].depth - g.depth) * std::min (1.0f, dt * 10.0f);
                 g.unseen = 0.0f;
+                continue;
             }
-            else if (((g.unseen += dt) > 0.3f && ! g.thief) || in.calm)
+            // Its notch has closed. It calms down, waits a little in case the notch comes back,
+            // and goes; never before it has been down a couple of seconds.
+            g.unseen += dt;
+            g.depth += (1.0f - g.depth) * std::min (1.0f, dt * 1.5f);
+            const bool busy = g.thief || g.knock < 1.0f || g.knockX < 0.0f || g.knockX > 0.0f;
+            if ((g.unseen > g.patience && g.landed >= kGooseStaySeconds && ! busy) || in.calm)
             {
                 g.leaving = true;
                 // A job well done, if he was at it: a small fist pump.
-                if (! in.calm && keeper.shoo > 0.5f && std::abs (keeper.x - g.x) < 3.2f && g.age > 1.5f && g.peak > 3.0f && keeper.pumpWait <= 0.0f)
+                if (! in.calm && keeper.shoo > 0.5f && std::abs (keeper.x - g.x) < 3.2f && g.age > 1.5f && g.peak > 3.0f && keeper.pumpWait <= 0.0f
+                    && keeper.swing >= 1.0f && keeper.clickWait <= 0.0f)
                 {
                     startGesture (Gesture::pump, kPumpSeconds);
                     keeper.pumpWait = rnd (7.0f, 12.0f);
                 }
             }
         }
+
+        // The notches no goose has. One that lasts becomes a candidate, and a candidate that has
+        // been deep enough for long enough brings a goose: the deepest first, one at a time with
+        // a gap between, and only so many on the bank and in each range. With a range in focus
+        // nothing comes for a notch outside it.
+        auto minded = [&] (float x) { return in.focus < 0 || moduleAt (x) == in.focus; };
+        for (auto& c : cands)
+        {
+            if (! c.used)
+                continue;
+            int best = -1;
+            float bestD = 0.7f;
+            for (int i = 0; i < numPeaks; ++i)
+                if (! peaks[(size_t) i].taken && std::abs (peaks[(size_t) i].x - c.x) < bestD)
+                    { bestD = std::abs (peaks[(size_t) i].x - c.x); best = i; }
+            if (best >= 0)
+            {
+                auto& pk = peaks[(size_t) best];
+                pk.taken = true;
+                c.x += (pk.x - c.x) * std::min (1.0f, dt * 10.0f);
+                c.depth += (pk.depth - c.depth) * std::min (1.0f, dt * 12.0f);
+                if (pk.depth >= kGooseComeDb) { c.seen += dt; c.missed = 0.0f; }
+                else                          c.missed += dt;
+            }
+            else
+                c.missed += dt;
+            if (c.missed > 0.2f || ! minded (c.x) || in.calm)
+                c.used = false;
+        }
         for (int i = 0; i < numPeaks; ++i)
-            if (! peaks[(size_t) i].taken)
-                for (auto& g : geese)
-                    if (! g.used)
+            if (! peaks[(size_t) i].taken && peaks[(size_t) i].depth >= kGooseComeDb && minded (peaks[(size_t) i].x) && ! in.calm)
+                for (auto& c : cands)
+                    if (! c.used)
                     {
-                        g = {};
-                        g.used = true;
-                        g.homeX = g.x = g.spreadX = peaks[(size_t) i].x;
-                        g.depth = peaks[(size_t) i].depth;
-                        g.seed = (float) (++spawned % 7) * 0.9f;
-                        g.arrive = in.calm ? 1.0f : 0.0f;
-                        g.yaw = keeper.x >= g.x ? -0.45f : kPi + 0.45f;
-                        g.blink.wait = rnd (0.5f, 4.0f);
-                        g.temper = rnd (0.5f, 3.0f);
+                        c = { peaks[(size_t) i].x, peaks[(size_t) i].depth, 0.0f, 0.0f, true };
                         break;
                     }
+        spawnCool = std::max (0.0f, spawnCool - dt);
+        {
+            Cand* ready = nullptr;
+            for (auto& c : cands)
+                if (c.used && c.seen >= (c.depth >= 3.0f ? kGooseComeSeconds / 3.0f : kGooseComeSeconds) && (ready == nullptr || c.depth > ready->depth))
+                    ready = &c;
+            if (ready != nullptr && dt > 0.0f)
+            {
+                const int range = moduleAt (ready->x), slot = range >= 0 ? range : kNumModules;
+                // Never more than kLiveGeese in the picture, counting any still on their way off:
+                // a new one waits for a leaving one to be gone.
+                const bool room = live < kLiveGeese && inRange[slot] < kGeesePerRange;
+                if (! room)
+                {
+                    // No room. If this notch is a good deal deeper than the shallowest goose in its
+                    // way (in its range, or on the whole bank), that one makes way for it.
+                    Goose* least = nullptr;
+                    for (auto& g : geese)
+                        if (g.used && ! g.leaving && gooseActive (g) && ! g.thief && g.landed >= kGooseStaySeconds
+                            && (inRange[slot] < kGeesePerRange || moduleAt (g.homeX) == range)
+                            && (least == nullptr || g.depth < least->depth))
+                            least = &g;
+                    if (least != nullptr && ready->depth > least->depth + 2.0f && least->knock >= 1.0f && ! (least->knockX < 0.0f || least->knockX > 0.0f))
+                        least->leaving = true;
+                }
+                else if (spawnCool <= 0.0f && shown < kLiveGeese)
+                    for (auto& g : geese)
+                        if (! g.used)
+                        {
+                            g = {};
+                            g.used = true;
+                            g.homeX = g.x = g.spreadX = ready->x;
+                            g.depth = ready->depth;
+                            g.seed = (float) (++spawned % 7) * 0.9f;
+                            g.arrive = 0.0f;
+                            g.yaw = keeper.x >= g.x ? -0.45f : kPi + 0.45f;
+                            g.blink.wait = rnd (0.5f, 4.0f);
+                            g.patience = rnd (2.0f, 3.0f);
+                            ready->used = false;
+                            spawnCool = kGooseGapSeconds;
+                            break;
+                        }
+            }
+        }
 
         spreadGeese();
+        for (auto& g : geese)
+            if (g.used && ! g.leaving && g.arrive <= 0.0f && g.landed <= 0.0f && ! g.thief)
+                g.x = g.spreadX;                                      // just come: it hops in where it will stand
+        takeClick();
 
         // The geese themselves.
-        float worstDepth = 0.0f, worstX = keeper.x, worstHonk = 0.0f;
+        float worstDepth = 0.0f, worstX = keeper.x;
         deepestGoose = -1;
         bool anyGoose = false;
-        const float pokeBefore = keeper.poke;
-        if (keeper.shoo > 0.6f)
-            keeper.poke += dt / 1.05f;
-        const bool jab = pokeBefore < 0.47f && keeper.poke >= 0.47f;
-        if (keeper.poke >= 1.0f)
-            keeper.poke -= 1.0f;
 
         for (auto& g : geese)
         {
             if (! g.used)
                 continue;
-            tick (g.blink, dt);
+            const int index = (int) (&g - geese.data());
+            const bool active = gooseActive (g);
+            follow (g.still, active ? 0.0f : 1.0f, dt, active ? 0.3f : 0.8f);
+            if (active)
+                tick (g.blink, dt);
             if (g.leaving)
             {
                 g.away += dt * 0.95f;
+                g.reed = 0.0f;
                 if (g.away >= 1.0f || in.calm)
                     g.used = false;
                 moving = true;
                 continue;
             }
-            anyGoose = true;
+            anyGoose = anyGoose || active;
             const bool wasDown = g.arrive >= 1.0f;
             g.arrive = std::min (1.0f, g.arrive + dt * 2.6f);
             if (! wasDown && g.arrive >= 1.0f)
@@ -531,20 +790,28 @@ private:
             }
             if (g.arrive >= 1.0f)
                 g.landed += dt;
+            // The reeds part as it hops through them, and spring back once it is down.
+            g.reed = g.arrive < 1.0f ? 0.9f * std::sin (g.arrive * kPi) : g.landed < 1.5f ? 0.5f * std::exp (-4.0f * g.landed) * std::cos (12.0f * g.landed) : 0.0f;
             g.squash.tick (0.0f, dt, 15.0f, 0.3f);
+            if (! active && g.arrive >= 1.0f && ! g.squash.busy() && g.still > 0.98f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f))
+                continue;                                             // out of focus and settled: nothing about it moves
             g.wag = std::max (0.0f, g.wag - dt / 1.1f);
             g.wagPhase += dt * 19.0f;
             g.age += dt;
             g.peak = std::max (g.peak, g.depth);
 
+            // In the air it drifts to where it is to stand (another may have shifted meanwhile).
+            if (g.arrive < 1.0f && ! g.thief)
+                g.x += (g.spreadX - g.x) * std::min (1.0f, dt * 10.0f);
             // It waddles after its notch when the notch drifts (and runs, with the hat).
             const float goal = g.thief ? g.fleeX : g.spreadX;
-            const float top = g.thief ? 3.6f : 1.5f;
-            const float wanted = g.arrive < 1.0f ? 0.0f : std::clamp ((goal - g.x) * 4.0f, -top, top);
+            // A goose with far to go (a newcomer has landed beside it) hurries a little.
+            const float top = g.thief ? 3.6f : std::abs (goal - g.x) > 0.6f * cast ? 2.4f : 1.5f;
+            const float wanted = g.arrive < 1.0f || ! active ? 0.0f : std::clamp ((goal - g.x) * 4.0f, -top, top);
             g.vx += (wanted - g.vx) * std::min (1.0f, dt * 8.0f);
             g.x += g.vx * dt;
             // Into its row: a few steps forward or back.
-            const float vz = g.arrive < 1.0f ? 0.0f : std::clamp ((g.laneZ - g.z) * 3.0f, -0.9f, 0.9f);
+            const float vz = g.arrive < 1.0f || ! active ? 0.0f : std::clamp ((g.laneZ - g.z) * 3.0f, -0.9f, 0.9f);
             g.z += vz * dt;
             follow (g.crowd, g.crowded ? 1.0f : 0.0f, dt, 0.5f);
             const float stepping = std::max (std::abs (g.vx), 1.4f * std::abs (vz));
@@ -553,22 +820,49 @@ private:
             if (g.walkAmt > 0.3f && g.wag < 0.25f)
                 g.wag = 0.25f;                                        // the tail goes as it walks
 
+            // Clicked: through the air, a moment to gather itself, and the waddle back.
+            if (g.knock < 1.0f)
+            {
+                g.knock = std::min (1.0f, g.knock + dt / kKnockSeconds);
+                g.knockX = g.knockTo * g.knock;
+                if (g.knock >= 1.0f)
+                {
+                    g.squash.v = 2.6f;
+                    g.wag = 1.0f;
+                    g.dizzy = 0.8f;
+                }
+            }
+            else if (g.knockX < 0.0f || g.knockX > 0.0f)
+            {
+                if (g.dizzy > 0.0f)
+                    g.dizzy -= dt;
+                else
+                {
+                    const float pace = 1.5f * dt;
+                    g.knockPhase += pace * 8.5f / cast;
+                    g.knockX = std::abs (g.knockX) <= pace ? 0.0f : g.knockX - std::copysign (pace, g.knockX);
+                }
+            }
+            const bool away = g.knock < 1.0f || g.knockX < 0.0f || g.knockX > 0.0f;
+
             const float towards = g.walkAmt > 0.45f ? (g.vx > 0.0f ? 1.0f : -1.0f) : (keeper.x >= g.x ? 1.0f : -1.0f);
             // Side on, turned a little away towards him. In a crowd the front row turns to face us
             // a little and the back row away, so that they take less room along the bank.
             const float turnAway = lerp (0.45f, inBackRow (g) ? 0.75f : -0.35f, g.crowd);
             const float yawTo = (towards > 0.0f ? 0.0f : kPi) - turnAway * towards + 0.15f * std::sin (g.seed);
-            follow (g.yaw, yawTo, dt, 0.13f);
+            follow (g.yaw, yawTo, dt, 0.24f);
 
-            // The pole in its face: it stretches its neck out at the microphone and hisses; jabbed,
-            // it flaps up off the ground in a temper.
-            const bool poleNear = std::abs (micAt.x - g.x) < 1.6f && keeper.shoo > 0.5f && ! g.thief;
-            follow (g.hiss, poleNear && g.flap >= 1.0f ? 1.0f : 0.0f, dt, 0.15f);
+            // Only the one he is working minds the pole. When he winds up it stretches its neck out
+            // at the microphone and hisses; when the pole comes down it flaps up off the ground in a
+            // temper, and it stays cross for a second or two after.
+            const bool worked = index == keeper.target && active && ! g.thief && ! away;
             g.temper = std::max (0.0f, g.temper - dt);
-            if (jab && poleNear && g.flap >= 1.0f && g.arrive >= 1.0f && g.landed > 0.6f && g.temper <= 0.0f)
+            const bool poleNear = worked && std::abs (micAt.x - g.x) < 2.0f && keeper.shoo > 0.5f;
+            follow (g.hiss, poleNear && g.flap >= 1.0f && (keeper.swing < 0.7f || g.temper > 0.0f) ? 1.0f : 0.0f, dt, 0.18f);
+            if (swingHit && worked && g.flap >= 1.0f && g.arrive >= 1.0f)
             {
                 g.flap = 0.0f;
-                g.temper = rnd (3.5f, 8.0f);                          // and then it stands its ground for a while
+                g.temper = 1.8f;
             }
             if (g.flap < 1.0f)
             {
@@ -580,18 +874,24 @@ private:
                     g.wag = 0.8f;
                 }
             }
+            if (g.preen < 1.0f)
+                g.preen = std::min (1.0f, g.preen + dt / 2.4f);
 
-            if (g.hiss < 0.5f)
-                g.honkPhase += dt * (0.9f + 0.17f * g.depth);
-            if (g.depth > worstDepth) { worstDepth = g.depth; worstX = g.x; worstHonk = honkOpen (g); deepestGoose = (int) (&g - geese.data()); }
+            // It honks, slower than it used to; out of focus it holds its beak shut.
+            if (g.hiss < 0.5f && g.still < 0.5f && ! away && g.preen >= 1.0f)
+                g.honkPhase += dt * (0.55f + 0.1f * g.depth);
+            if (active && g.depth > worstDepth) { worstDepth = g.depth; worstX = g.x; deepestGoose = index; }
 
-            // A honk leaves the beak as a ring each time the beak opens.
+            // A honk leaves the beak as a ring each time the beak opens: only from the one he is
+            // working (or the deepest, when he is not), so that there is one set of rings at a time.
             const float cycle = g.honkPhase - std::floor (g.honkPhase);
-            if (g.arrive >= 1.0f && cycle < g.lastCycle && dt > 0.0f && g.hiss < 0.5f && ! g.thief)
-                addRing (g.x + std::cos (g.yaw) * 0.9f * cast, (2.0f + 0.07f * g.depth) * cast, g.z - 0.3f, (0.55f + 0.07f * g.depth) * cast, false, 0.0f, 1.9f, rgb (0xe5533b));
+            const bool ringing = keeper.target >= 0 ? worked : index == ringGoose;
+            if (ringing && g.arrive >= 1.0f && cycle < g.lastCycle && dt > 0.0f && g.hiss < 0.5f && g.still < 0.5f)
+                addRing (g.x + std::cos (g.yaw) * 0.9f * cast, (2.0f + 0.07f * g.depth) * cast, g.z - 0.3f, (0.4f + 0.05f * g.depth) * cast, false, 0.0f, 1.6f, rgb (0xe5533b));
             g.lastCycle = cycle;
             moving = true;
         }
+        ringGoose = deepestGoose;
         for (auto& ring : rings)
             if (ring.age < 1.0f)
             {
@@ -601,35 +901,181 @@ private:
         for (auto& b : bursts)
             if (b.t < 1.0f)
             {
-                b.t += dt / 0.55f;
+                b.t += dt / (b.feathers ? 1.3f : 0.55f);
                 moving = true;
             }
 
         stepHat (in, dt, anyGoose);
-        stepKeeper (in, dt, anyGoose, worstX, worstDepth, worstHonk);
+        stepKeeper (in, dt, anyGoose);
         stepFish (in, dt);
         stepBeaver (in, dt);
         stepTurtles (in, dt);
-        stepFrog (in, dt, anyGoose, worstX, worstDepth, deepestNow);
+        stepFrog (in, dt, anyGoose && ! focused, worstX, worstDepth, focused ? 0.0f : deepestNow);
         stepFlies (in, dt);
+        direct (in, dt, anyGoose);
+
+        // The reeds sway while anything is going on, and come to rest with the pond.
+        {
+            const bool busy = moving || fussing;
+            follow (reedLife, busy ? 1.0f : 0.0f, dt, busy ? 1.2f : 0.25f);
+            if (! busy && reedLife > 0.03f)
+                fussing = true;                                       // let them settle at the full rate
+            else if (! busy)
+                reedLife = 0.0f;
+        }
+    }
+
+    //------------------------------------------------------------------------------ the mouse
+    void takeClick()
+    {
+        const Hot kind = clicked;
+        const int i = clickedIndex;
+        clicked = Hot::none;
+        switch (kind)
+        {
+            case Hot::turtle:
+                if (i >= 0 && i < 3 && turtles[(size_t) i].fall >= 1.0f)
+                    turtles[(size_t) i].fall = 0.0f;
+                break;
+            case Hot::beaver:
+                if (beaver.wave >= 1.0f && beaver.flop >= 1.0f)
+                    (beaver.upright > 0.6f ? beaver.wave : beaver.flop) = 0.0f;
+                break;
+            case Hot::frog:
+                if (frog.state == 0)
+                {
+                    frog.state = 1; frog.t = 0.0f;
+                    frog.byClick = true;
+                    frog.coolKept = frog.cool;
+                    chooseLeap (frogLo(), frogHi());
+                }
+                break;
+            case Hot::goose:
+                if (i >= 0 && i < kMaxGeese)
+                {
+                    auto& g = geese[(size_t) i];
+                    if (g.used && ! g.leaving && g.arrive >= 1.0f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f) && ! g.thief)
+                    {
+                        // Away from him, unless that is off the end of the bank.
+                        float dir = g.x >= keeper.x ? 1.0f : -1.0f;
+                        const float far = 2.3f * std::max (cast, 0.7f);
+                        if (std::abs (g.x + dir * far) > kHalfWidth - 1.0f)
+                            dir = -dir;
+                        g.knockTo = dir * far;
+                        g.knock = 0.0f;
+                        g.flap = 1.0f; g.hiss = 0.0f; g.preen = 1.0f;
+                        const float size = (1.0f + 0.07f * std::min (8.0f, g.depth)) * cast;
+                        for (auto& b : bursts)
+                            if (b.t >= 1.0f)
+                            {
+                                b = { g.x, g.z, 0.0f, size, rnd (0.0f, 6.0f), 0.7f * size, true };
+                                break;
+                            }
+                    }
+                }
+                break;
+            case Hot::keeper:
+                keeper.clickWait = 1.0f;                              // kept until he has answered it, as soon as his hands are free
+                break;
+            case Hot::fly:
+                for (auto& d : flies)
+                    if (d.state == 1)
+                    {
+                        d.perch = 0;
+                        d.from = d.pos;
+                        d.to = { std::clamp (d.pos.x + (rnd() < 0.5f ? -1.0f : 1.0f) * rnd (2.5f, 4.5f), -kHalfWidth + 0.8f, kHalfWidth - 0.8f),
+                                 rnd (2.0f, 2.8f) * std::max (cast, 0.75f), rnd (1.0f, 2.6f) };
+                        d.hop = 0.0f; d.hopLen = 0.22f;
+                        d.wait = rnd (1.0f, 2.2f);
+                    }
+                break;
+            case Hot::resident:
+                if (dabble >= 1.0f)
+                    dabble = 0.0f;
+                break;
+            case Hot::none:
+                break;
+        }
+    }
+
+    /** True while a click's reaction is still playing. */
+    bool reacting() const noexcept
+    {
+        for (const auto& t : turtles)
+            if (t.fall < 1.0f)
+                return true;
+        for (const auto& g : geese)
+            if (g.used && (g.knock < 1.0f || g.knockX < 0.0f || g.knockX > 0.0f))
+                return true;
+        return beaver.wave < 1.0f || beaver.flop < 1.0f || dabble < 1.0f || keeper.clickWait > 0.0f || keeper.greet > 0.05f;
+    }
+
+    //------------------------------------------------------------------------------ small business
+    /** One director for all the small business in the picture: one piece at a time, with seconds
+        between, and none while something bigger is going on. */
+    void direct (const WorldInput& in, float dt, bool anyGoose)
+    {
+        if (gust < 1.0f)
+        {
+            gust = std::min (1.0f, gust + dt / 3.2f);
+            fussing = true;
+        }
+        if (dabble < 1.0f)
+        {
+            dabble = std::min (1.0f, dabble + dt / 1.9f);
+            moving = true;
+        }
+        if (idleBusy > 0.0f)
+        {
+            idleBusy -= dt;
+            fussing = true;
+            return;
+        }
+        const bool big = keeper.swing < 1.0f || keeper.trip < 1.0f || hat.state != 0 || frog.state != 0 || fish.t < kFishLeap + 0.6f
+                         || keeper.gesture != Gesture::none || reacting();
+        if (dt <= 0.0f || big || (idleWait -= dt) > 0.0f)
+            return;
+        idleWait = stillPrev ? rnd (30.0f, 60.0f) : anyGoose ? rnd (7.0f, 12.0f) : rnd (6.0f, 11.0f);
+        startIdleEvent (in);
     }
 
     /** Where the geese stand so that each can be seen. On its own a goose stands right over its
         notch. Where notches crowd (several low ones, the usual case on a full mix), the geese
         stand in two rows, back and front by turns along the bank, a little smaller, and are eased
         apart a little along it, never past each other: still in order of frequency, and each
-        within reach of its own notch. */
+        within reach of its own notch. A goose taking off holds its place until it is well up, and
+        the others keep clear of it rather than walk into the room it leaves while it is still
+        there; a goose hopping in is placed with the rest, so that it lands clear of them. */
     void spreadGeese() noexcept
     {
         std::array<int, kMaxGeese> order {};
         int n = 0;
         for (int i = 0; i < kMaxGeese; ++i)
-            if (geese[(size_t) i].used && ! geese[(size_t) i].leaving)
+            if (geese[(size_t) i].used && (! geese[(size_t) i].leaving || geese[(size_t) i].away < kLeavingLowFor))
                 order[(size_t) n++] = i;
+        auto key = [&] (int i) { const auto& g = geese[(size_t) i]; return g.leaving ? g.x : g.homeX; };
         for (int i = 1; i < n; ++i)                                  // by frequency, low to high
-            for (int j = i; j > 0 && geese[(size_t) order[(size_t) j]].homeX < geese[(size_t) order[(size_t) j - 1]].homeX; --j)
+            for (int j = i; j > 0 && key (order[(size_t) j]) < key (order[(size_t) j - 1]); --j)
                 std::swap (order[(size_t) j], order[(size_t) j - 1]);
         auto G = [&] (int j) -> Goose& { return geese[(size_t) order[(size_t) j]]; };
+        std::array<bool, kMaxGeese> fixed {};                         // taking off: it stays where it is
+        for (int j = 0; j < n; ++j)
+            fixed[(size_t) j] = G (j).leaving;
+        // Two neighbours too close: each gives way by half, or the one that can move by all of it.
+        auto ease = [&] (std::array<float, kMaxGeese>& x, int i, int j, float short_)
+        {
+            if (fixed[(size_t) i] && fixed[(size_t) j])
+                return;
+            if (fixed[(size_t) i])
+                x[(size_t) j] += short_;
+            else if (fixed[(size_t) j])
+                x[(size_t) i] -= short_;
+            else
+            {
+                x[(size_t) i] -= 0.5f * short_;
+                x[(size_t) j] += 0.5f * short_;
+            }
+        };
 
         // Rows: a run of geese closer than about a goose's length takes turns, back and front.
         std::array<int, kMaxGeese> lane {};
@@ -643,6 +1089,14 @@ private:
             const bool closeToNext = j + 1 < n && G (j + 1).homeX - G (j).homeX < ((G (j).crowded || G (j + 1).crowded) ? 2.9f : 2.5f) * cast;
             lane[(size_t) j] = (closeToLast || closeToNext) ? (((j - runStart) & 1) ? -1 : 1) : 0;
             x[(size_t) j] = G (j).homeX;
+            if (fixed[(size_t) j])
+            {
+                // Its row and place are the ones it took off from.
+                const auto& g = G (j);
+                const float mid = g.byLog ? 0.5f * (kLogGooseBackZ + kLogGooseFrontZ) : kGooseZ;
+                lane[(size_t) j] = std::abs (g.laneZ - mid) < 1.0e-3f ? 0 : g.laneZ > mid ? 1 : -1;
+                x[(size_t) j] = g.x;
+            }
         }
         // Behind the turtles' log they keep to two rows of their own at the back of the bank (see
         // setSize). A goose counts as behind it while any of it would be in front of the log in the
@@ -650,6 +1104,8 @@ private:
         for (int j = 0; j < n; ++j)
         {
             auto& g = G (j);
+            if (fixed[(size_t) j])
+                continue;
             const float half = 1.0f * (1.0f + 0.07f * std::min (8.0f, g.depth)) * cast;
             const float zz = g.byLog ? (lane[(size_t) j] > 0 ? kLogGooseBackZ : kLogGooseFrontZ) : (lane[(size_t) j] > 0 ? kGooseBackZ : lane[(size_t) j] < 0 ? kGooseFrontZ : kGooseZ);
             const float at = g.arrive < 1.0f ? g.homeX : g.x;                  // where it stands (or lands)
@@ -657,7 +1113,15 @@ private:
             const float margin = g.byLog ? 6.0f : 0.0f;
             g.byLog = hi > logLeftPx - margin && lo < logRightPx + margin;
         }
-        // Eased apart: neighbours in different rows need less room than two in the same row.
+        // Eased apart: neighbours in different rows need less room than two in the same row. The
+        // two rows behind the log are close together, so there two in different rows need nearly
+        // as much room as two in the same one.
+        auto apart = [&] (int i, int j, float same, float other, float logRows)
+        {
+            if (lane[(size_t) i] == lane[(size_t) j])
+                return same * cast;
+            return (G (i).byLog && G (j).byLog ? logRows : other) * cast;
+        };
         for (int pass = 0; pass < 4; ++pass)
             for (int j = 1; j < n; ++j)
                 for (int back = 1; back <= 2 && j - back >= 0; ++back)
@@ -666,25 +1130,28 @@ private:
                     const bool sameRow = lane[(size_t) i] == lane[(size_t) j];
                     if (back == 2 && ! sameRow)
                         continue;
-                    const float need = (sameRow ? 2.3f : 1.3f) * cast;
+                    const float need = apart (i, j, 2.3f, 1.3f, 1.9f);
                     const float short_ = need - (x[(size_t) j] - x[(size_t) i]);
                     if (short_ > 0.0f)
-                    {
-                        x[(size_t) i] -= 0.5f * short_;
-                        x[(size_t) j] += 0.5f * short_;
-                    }
+                        ease (x, i, j, short_);
                 }
         // And none stands in front of him in the picture, where it would hide his legs or his body:
         // it steps aside, the way it stands from him now, by its own length and half his width.
         // Worked out in the picture, since a goose stands nearer the camera than he does.
-        std::array<float, kMaxGeese> laneZs {}, reach {};
+        std::array<float, kMaxGeese> laneZs {}, reach {}, him {}, clearOf {};
         const float keeperPx = r.project ({ keeper.x, 0.0f, kKeeperZ }).x;
         for (int j = 0; j < n; ++j)
         {
+            clearOf[(size_t) j] = 0.0f;
             auto& g = G (j);
             const int l = lane[(size_t) j];
             laneZs[(size_t) j] = g.byLog ? (l > 0 ? kLogGooseBackZ : kLogGooseFrontZ) : l > 0 ? kGooseBackZ : l < 0 ? kGooseFrontZ : kGooseZ;
             reach[(size_t) j] = 1.0f * cast;
+            if (fixed[(size_t) j])
+            {
+                laneZs[(size_t) j] = g.laneZ;
+                continue;
+            }
             if (hat.state != 0)
                 continue;
             const float z = laneZs[(size_t) j];
@@ -694,6 +1161,8 @@ private:
             const float himHere = (keeperPx - o) / per;                   // his place, at this goose's row
             const float size = (1.0f + 0.07f * std::min (8.0f, g.depth)) * cast * (l != 0 ? 0.84f : 1.0f);
             const float clear = 0.95f * size + 0.75f * cast;
+            him[(size_t) j] = himHere;
+            clearOf[(size_t) j] = clear;
             const float d = x[(size_t) j] - himHere;
             if (std::abs (d) < clear)
             {
@@ -706,9 +1175,36 @@ private:
                 reach[(size_t) j] = std::max (reach[(size_t) j], std::abs (x[(size_t) j] - g.homeX) + 0.05f);
             }
         }
+        // Stepping round him can put a goose on top of its neighbour: ease them apart again, with
+        // him standing where he is, so that in a crowd they share out the room on either side of
+        // him rather than stand on one another. A crowded goose may go a little further from its
+        // notch for it.
+        for (int pass = 0; pass < 6; ++pass)
+        {
+            for (int j = 1; j < n; ++j)
+            {
+                const int i = j - 1;
+                const float need = apart (i, j, 2.1f, 1.2f, 1.8f);
+                const float short_ = need - (x[(size_t) j] - x[(size_t) i]);
+                if (short_ > 0.0f)
+                    ease (x, i, j, short_);
+            }
+            for (int j = 0; j < n; ++j)
+            {
+                if (fixed[(size_t) j])
+                    continue;
+                const float c = clearOf[(size_t) j], d = x[(size_t) j] - him[(size_t) j];
+                if (c > 0.0f && std::abs (d) < c)
+                    x[(size_t) j] = him[(size_t) j] + (d >= 0.0f ? c : -c);
+                const float most = std::max (reach[(size_t) j], (lane[(size_t) j] != 0 ? 1.9f : 1.3f) * cast);
+                reach[(size_t) j] = std::max (reach[(size_t) j], std::min (most, std::abs (x[(size_t) j] - G (j).homeX) + 0.05f));
+            }
+        }
         for (int j = 0; j < n; ++j)
         {
             auto& g = G (j);
+            if (fixed[(size_t) j])
+                continue;
             const float lo = j > 0 ? x[(size_t) j - 1] : -1.0e9f;      // never past a neighbour
             g.spreadX = std::max (lo, std::clamp (x[(size_t) j], g.homeX - reach[(size_t) j], g.homeX + reach[(size_t) j]));
             x[(size_t) j] = g.spreadX;
@@ -755,33 +1251,68 @@ private:
                 }
     }
 
-    /** One piece of idle business for a still pond, from whoever is free to do something. */
+    /** One piece of small business, from whoever is free to do something and did not have the
+        last turn. With a range in focus, only its own geese and the recordist are asked. */
     void startIdleEvent (const WorldInput& in)
     {
-        int who[4] {}, n = 0;
+        const bool focused = in.focus >= 0;
+        int who[7] {}, n = 0;
+        auto offer = [&] (int actor, bool free) { if (free && actor != lastActor) who[n++] = actor; };
         auto& k = keeper;
-        const bool kFree = k.gesture == Gesture::none && std::abs (k.speed) < 0.3f && k.trip >= 1.0f && hat.state == 0;
-        if (kFree && (in.bypass ? k.sit > 0.97f : (k.quiet > 5.0f && ! in.diff && ! in.soloHonk)) && (k.quiet < 40.0f || rnd() < 0.5f))
-            who[n++] = 0;
-        who[n++] = 1;                                                    // the beaver always has something
-        if (frog.state == 0)
-            who[n++] = 2;
-        if (asleep < 0.5f && ! turtles[0].in && ! turtles[1].in && ! turtles[2].in)
-            who[n++] = 3;
-        switch (who[std::min (n - 1, (int) (rnd() * (float) n))])
+        const bool kFree = k.gesture == Gesture::none && std::abs (k.speed) < 0.3f && k.trip >= 1.0f && hat.state == 0 && k.swing >= 1.0f
+                           && ! in.diff && ! in.soloHonk && k.clickWait <= 0.0f;
+        offer (0, kFree && (in.bypass ? k.sit > 0.97f : ((k.quiet > 4.0f || weather > 0.6f) && k.sit < 0.03f)));
+        offer (1, ! focused);                                            // the beaver always has something
+        offer (2, ! focused && frog.state == 0 && frog.tension < 0.3f);
+        offer (3, ! focused && asleep < 0.5f && ! turtles[0].in && ! turtles[1].in && ! turtles[2].in);
+        int preener = -1;
+        for (int j = 0; j < kMaxGeese && preener < 0; ++j)
+        {
+            const int i = (j + spawned + (int) (time * 0.1f)) % kMaxGeese;
+            const auto& g = geese[(size_t) i];
+            if (g.used && ! g.leaving && g.landed > 2.0f && ! g.thief && i != k.target && g.flap >= 1.0f && gooseActive (g) && g.walkAmt < 0.2f)
+                preener = i;
+        }
+        offer (4, preener >= 0);
+        offer (5, ! focused && hush < 0.05f);
+        offer (6, weather < 0.5f);                                       // a breeze through the reeds
+        if (n == 0)
+        {
+            lastActor = -1;
+            return;
+        }
+        lastActor = who[std::min (n - 1, (int) (rnd() * (float) n))];
+        switch (lastActor)
         {
             case 0:
-                if (in.bypass)                          { startGesture (Gesture::sip, 2.4f); idleBusy = 2.4f; }
-                else if (rnd() < 0.62f)                 { startGesture (Gesture::tap, 2.6f); idleBusy = 2.6f; }
-                else                                    { startGesture (Gesture::hat, 1.6f); idleBusy = 1.6f; }
+            {
+                const float pick = rnd();
+                if (in.bypass)                              { startGesture (Gesture::sip, 2.4f); idleBusy = 2.4f; }
+                else if (weather > 0.6f && pick < 0.5f)     { startGesture (Gesture::wipe, 1.5f); idleBusy = 1.5f; }
+                else if (pick < 0.4f)                       { startGesture (Gesture::tap, 2.6f); idleBusy = 2.6f; }
+                else if (pick < 0.7f)                       { startGesture (Gesture::hat, 1.6f); idleBusy = 1.6f; }
+                else                                        { startGesture (Gesture::stretch, 2.6f); idleBusy = 2.6f; }
                 k.idleGesture = true;
                 break;
+            }
             case 1:
-                if (beaver.upright > 0.9f && dam > 0.22f && ! beaver.patting && beaver.proudT <= 0.0f)
+            {
+                const float pick = rnd();
+                if (beaver.upright > 0.9f && dam > 0.22f && ! beaver.patting && beaver.proudT <= 0.0f && pick < 0.7f)
                 {
-                    startPats (1);                                       // one pat, and a short look of pride
+                    startPats (in.frame.activity > 0.08f ? 1 + std::min (1, (int) (rnd() * 2.0f)) : 1);      // a pat or two, and a short look of pride
                     beaver.idlePat = true;
-                    idleBusy = beaver.patLen + 0.9f;
+                    idleBusy = beaver.patLen * (float) beaver.patCount + 0.9f;
+                }
+                else if (beaver.upright > 0.9f)
+                {
+                    beaver.wave = 0.0f;
+                    idleBusy = 2.0f;
+                }
+                else if (beaver.upright < 0.05f && pick < 0.45f)
+                {
+                    beaver.flop = 0.0f;                                  // floating: a lazy slap of the tail
+                    idleBusy = 1.1f;
                 }
                 else
                 {
@@ -790,18 +1321,38 @@ private:
                     idleBusy = 0.6f;
                 }
                 break;
+            }
             case 2:
-                frog.puff = 0.0f;
-                frog.blink.t = 0.0f;
-                idleBusy = 1.1f;
+                if (rnd() < 0.55f) { frog.puff = 0.0f; frog.blink.t = 0.0f; idleBusy = 1.1f; }
+                else               { frog.tongue = 0.0f; idleBusy = 0.6f; }
                 break;
             case 3:
             {
+                const float pick = rnd();
                 auto& t = turtles[(size_t) std::min (2, (int) (rnd() * 3.0f))];
-                if (rnd() < 0.5f) { t.stretch = 0.0f; idleBusy = 2.4f; }
-                else { t.lookTo = rnd (-0.7f, 0.7f); t.blink.t = 0.0f; idleBusy = 1.2f; }
+                if (pick < 0.4f)      { t.stretch = 0.0f; idleBusy = 2.4f; }
+                else if (pick < 0.7f) { t.lookTo = t.lookTo > 0.0f ? rnd (-0.7f, -0.2f) : rnd (0.2f, 0.7f); t.blink.t = 0.0f; idleBusy = 1.2f; }
+                else
+                {
+                    // All three, one after the other along the log.
+                    for (int i = 0; i < 3; ++i)
+                        turtles[(size_t) i].stretchDelay = 0.45f * (float) i;
+                    idleBusy = 3.3f;
+                }
                 break;
             }
+            case 4:
+                geese[(size_t) preener].preen = 0.0f;
+                idleBusy = 2.4f;
+                break;
+            case 5:
+                dabble = 0.0f;
+                idleBusy = 1.9f;
+                break;
+            case 6:
+                gust = 0.0f;
+                idleBusy = 3.2f;
+                break;
             default: break;
         }
     }
@@ -816,7 +1367,7 @@ private:
         {
             if (keeper.shoo > 0.8f && ! idleNow)
                 hat.wait -= dt;
-            if (hat.wait > 0.0f || idleNow || keeper.trip < 1.0f || keeper.gesture != Gesture::none)
+            if (hat.wait > 0.0f || idleNow || keeper.trip < 1.0f || keeper.gesture != Gesture::none || keeper.swing < 1.0f)
                 return;
             // Only a goose standing on its own will do, so that the hat can be seen on its head,
             // and not in a crowd.
@@ -829,7 +1380,8 @@ private:
             for (int i = 0; i < kMaxGeese; ++i)
             {
                 const auto& g = geese[(size_t) i];
-                if (! g.used || g.leaving || g.landed <= 0.8f || std::abs (g.x - keeper.x) >= 2.8f)
+                if (! g.used || g.leaving || g.landed <= 0.8f || std::abs (g.x - keeper.x) >= 2.8f || ! gooseActive (g)
+                    || g.knock < 1.0f || g.knockX < 0.0f || g.knockX > 0.0f)
                     continue;
                 bool alone = true;
                 for (int j = 0; j < kMaxGeese; ++j)
@@ -895,7 +1447,7 @@ private:
             keeper.hand = keeper.facing > 0.0f ? -1.0f : 1.0f;        // the hand on the camera's side
     }
 
-    void stepKeeper (const WorldInput& in, float dt, bool anyGoose, float worstX, float worstDepth, float worstHonk)
+    void stepKeeper (const WorldInput& in, float dt, bool anyGoose)
     {
         auto& k = keeper;
         const bool resting = in.bypass, frozen = in.diff && ! in.bypass, listening = in.soloHonk && ! resting && ! frozen;
@@ -908,53 +1460,95 @@ private:
         follow (k.chase, chasing ? 1.0f : 0.0f, dt, 0.15f);
         k.pumpWait = std::max (0.0f, k.pumpWait - dt);
 
-        // Where he wants to be: beside the worst goose, at the pole's length, never right behind
-        // it (it would hide him, and he would have no room to work it), and always on his own
-        // stretch of bank between the turtles' log and the beaver.
-        float want = k.x, top = listening ? 3.2f : 6.5f;
+        // Which goose he is working: the deepest in the range he is asked to mind, but he does not
+        // change his mind at once, or for a small difference.
+        {
+            auto ok = [&] (int i) { return i >= 0 && geese[(size_t) i].used && ! geese[(size_t) i].leaving && gooseActive (geese[(size_t) i]); };
+            if (! anyGoose || ! ok (k.target))
+            {
+                k.target = anyGoose && ok (deepestGoose) ? deepestGoose : -1;
+                k.switchT = 0.0f;
+            }
+            else if (ok (deepestGoose) && deepestGoose != k.target && geese[(size_t) deepestGoose].depth > geese[(size_t) k.target].depth + 2.0f)
+            {
+                if ((k.switchT += dt) > 2.0f && k.swing >= 1.0f)
+                {
+                    k.target = deepestGoose;
+                    k.switchT = 0.0f;
+                }
+            }
+            else
+                k.switchT = 0.0f;
+        }
+        const bool has = k.target >= 0;
+        // With Snap in focus and no goose of his own, he holds the microphone out towards the
+        // shallows where the fish leaps.
+        const bool snapWatch = in.focus == kNumModules && ! has;
+        const float tx = has ? geese[(size_t) k.target].x : snapWatch ? std::min (fishX(), keeperHi + 2.6f) : k.x;
+        const float tDepth = has ? geese[(size_t) k.target].depth : 0.0f;
+        const bool work = (has || snapWatch) && ! resting && ! frozen && hat.state == 0;
+
+        // Where he wants to be: beside it, at the pole's length, never right behind it (it would
+        // hide him, and he would have no room to work it), and always on his own stretch of bank
+        // between the turtles' log and the beaver. While it is within reach of the pole he stays
+        // where he is: he walks only when he has to.
+        float want = k.x, top = listening ? 2.2f : 3.4f;
         if (chasing)
         {
             const auto& g = geese[(size_t) hat.goose];
             want = g.x + (k.x < g.x ? -0.8f : 0.8f);
+            top = 4.6f;
+            k.walking = false;
         }
-        else if (anyGoose && ! resting && ! frozen && hat.state == 0)
+        else if (work)
         {
             // Which side of it to work from: the nearer, unless another goose is standing there or
             // his stretch of bank ends. He changes his mind only for a clearly better side.
             const float reach = listening ? 2.6f : 2.3f;
-            auto spotFor = [&] (float side) { return std::clamp (worstX + side * reach, keeperLo, keeperHi); };
+            auto spotFor = [&] (float side) { return std::clamp (tx + side * reach, keeperLo, keeperHi); };
             auto cost = [&] (float side)
             {
-                const float ideal = worstX + side * reach, spot = spotFor (side);
+                const float ideal = tx + side * reach, spot = spotFor (side);
                 float c = std::abs (spot - k.x) + 1.5f * std::abs (ideal - spot);
-                if (std::abs (spot - worstX) < 1.4f)
+                if (std::abs (spot - tx) < 1.4f)
                     c += 6.0f;                                        // right behind it
                 for (const auto& g : geese)
                     if (g.used && ! g.leaving && std::abs (g.x - spot) < 1.1f)
                         c += 2.0f;
                 return c;
             };
-            const float here = k.workSide, there = -k.workSide;
-            if (cost (there) + 1.0f < cost (here))
-                k.workSide = there;
-            want = spotFor (k.workSide);
+            if (cost (-k.workSide) + 1.5f < cost (k.workSide))
+            {
+                k.workSide = -k.workSide;
+                k.walking = true;
+            }
+            const float spot = spotFor (k.workSide), d = std::abs (tx - k.x);
+            const float far = 3.2f * cast + 0.9f;                     // as far as the pole reaches, let right out
+            if (d < 1.5f || d > std::max (far, 2.4f) || (tx - k.x) * k.workSide > 0.0f)
+                k.walking = true;
+            if (k.walking && std::abs (spot - k.x) < 0.15f)
+                k.walking = false;
+            if (k.walking && k.swing >= 1.0f)
+                want = spot;
         }
+        else
+            k.walking = false;
         want = std::clamp (want, resting ? sitLo : keeperLo, resting ? sitHi : keeperHi);
 
         // The boom pole telescopes out for a goose that is further off than it reaches.
         {
-            const float need = anyGoose && ! resting && ! frozen && hat.state == 0 ? std::abs (worstX - k.x) : 0.0f;
-            follow (k.extend, std::clamp ((need - 3.2f * cast) / (1.4f * cast), 0.0f, 0.9f), dt, 0.35f);
+            const float need = work ? std::abs (tx - k.x) : 0.0f;
+            follow (k.extend, std::clamp ((need - 3.2f * cast) / (1.4f * cast), 0.0f, 0.9f), dt, 0.45f);
         }
         const bool inPlace = std::abs (want - k.x) < 0.2f;
         follow (k.sit, resting && (inPlace || k.sit > 0.5f) ? 1.0f : 0.0f, dt, 0.28f);
 
         // Now and then, at a run, his cable catches his foot.
-        if (std::abs (k.speed) > 3.5f && k.trip >= 1.0f && ! chasing && k.sit < 0.05f)
+        if (std::abs (k.speed) > 2.6f && k.trip >= 1.0f && ! chasing && k.sit < 0.05f)
             if ((k.tripWait -= dt) <= 0.0f)
             {
                 k.trip = 0.0f;
-                k.tripWait = rnd (30.0f, 80.0f);
+                k.tripWait = rnd (14.0f, 40.0f);                       // seconds spent running, not seconds
             }
         float held = 1.0f;
         if (k.trip < 1.0f)
@@ -966,38 +1560,77 @@ private:
         }
 
         const float gap = want - k.x;
-        const float speedWanted = std::clamp (gap * 4.0f, -top, top) * held;
-        k.speed += (speedWanted - k.speed) * std::min (1.0f, dt * 7.0f);
+        // He faces the way he goes. Only a shuffle of half a pace from a goose close by is taken
+        // facing it; for anything longer he turns first and then sets off, so that he is never
+        // seen running sideways or backwards.
+        const bool shuffle = work && ! chasing && std::abs (tx - k.x) < 3.2f && std::abs (gap) < 0.5f;
+        const bool going = std::abs (gap) >= (k.going ? 0.15f : 0.5f) && ! shuffle && ! resting && ! frozen && ! in.calm;
+        k.going = going;
+        if (going)
+            k.facing = gap > 0.0f ? 1.0f : -1.0f;
+        else if (std::abs (k.speed) > 0.3f && ! shuffle)
+            k.facing = k.speed > 0.0f ? 1.0f : -1.0f;
+        else if (work)
+            k.facing = tx >= k.x ? 1.0f : -1.0f;
+        // Until his body is within sixty degrees of the way he is going, he stays where he is.
+        const float along = std::cos (k.yaw) * (gap > 0.0f ? 1.0f : -1.0f);
+        const float turned = going ? smooth01 ((along - 0.5f) / 0.25f) : 1.0f;
+        const float pace = shuffle ? 0.8f : top;
+        const float speedWanted = std::clamp (gap * 3.0f, -pace, pace) * held * turned;
+        k.speed += (speedWanted - k.speed) * std::min (1.0f, dt * (speedWanted * k.speed < 0.0f || turned < 1.0f ? 12.0f : 5.0f));
         // Bypass and Diff stop him where he is, once he has stepped clear of the creatures.
         if (((resting || frozen) && (inPlace || k.sit > 0.05f)) || in.calm)
             k.speed = 0.0f;
         k.x = std::clamp (k.x + k.speed * dt, keeperLo, keeperHi);
-        k.phase += std::abs (k.speed) * dt * 1.5f / cast;
-        // He faces the way he runs, but a short step back from a goose close by is taken facing it.
-        const bool backingOff = anyGoose && ! chasing && hat.state == 0 && std::abs (worstX - k.x) < 3.2f && std::abs (gap) < 1.6f;
-        if (std::abs (k.speed) > 0.3f && ! backingOff)
-            k.facing = k.speed > 0.0f ? 1.0f : -1.0f;
-        else if (anyGoose && ! resting && ! frozen)
-            k.facing = worstX >= k.x ? 1.0f : -1.0f;
+        // One turn of the phase is two steps, and the feet cover the ground he does.
+        k.phase += std::abs (k.speed) * dt * 2.74f / cast;
+        follow (k.runAmt, std::clamp (std::abs (k.speed) / 2.4f, 0.0f, 1.0f), dt, 0.12f);
 
-        // He turns through facing the camera, and faces it squarely when he is not working.
-        const float run = std::clamp (std::abs (k.speed) / 5.0f, 0.0f, 1.0f);
-        float turn = lerp (1.2f - 0.6f * run, 1.5f, std::max (k.compare, 0.6f * k.solo));
+        // Side on to us when he goes anywhere; nearly side on, turned to the goose, while he works
+        // it (his head looks at it); three-quarters round towards us when there is nothing to do,
+        // and squarely only when he compares, listens or greets us. A turn to set off or to a goose
+        // is quick; the others take their time, and go round by way of facing us.
+        float turn = work ? 0.3f : 0.78f;
+        turn = lerp (turn, 0.3f, going ? 1.0f : k.runAmt);
+        turn = lerp (turn, 1.5f, std::max ({ k.compare, 0.6f * k.solo, 0.8f * k.greet }));
         turn = lerp (turn, 0.75f, k.sit);                    // sitting: three-quarters on, so his legs show
-        follow (k.yaw, k.facing > 0.0f ? turn : kPi - turn, dt, 0.11f);
+        follow (k.yaw, k.facing > 0.0f ? turn : kPi - turn, dt, going || std::abs (k.speed) > 0.6f || work ? 0.12f : 0.26f);
         // Standing, the pole points out to his side and a little away from us, so that the
         // microphone hangs over the geese from behind them and never comes in front of one (a
         // grey microphone over a white goose reads as a hump on its back). Sitting, he lays the
         // pole down along the bank beside him, not out over the stream.
         const float poleOut = lerp (-0.3f, -0.12f, smooth01 (k.sit));
-        follow (k.poleYaw, k.facing > 0.0f ? poleOut : -kPi - poleOut, dt, 0.16f);      // turning round, it swings round behind him
+        follow (k.poleYaw, k.facing > 0.0f ? poleOut : -kPi - poleOut, dt, 0.3f);      // turning round, it swings round behind him
 
-        const bool close = anyGoose && std::abs (worstX - k.x) < 4.4f && ! resting && ! frozen && ! listening && hat.state == 0 && k.trip >= 1.0f;
-        follow (k.shoo, close ? 1.0f : 0.0f, dt, 0.13f);
-        // A big goose honking in his face: he leans away and holds the microphone out at arm's length.
-        const bool blasted = close && worstDepth > 4.5f && worstHonk > 0.45f;
-        follow (k.recoil, blasted ? 1.0f : 0.0f, dt, blasted ? 0.07f : 0.3f);
+        // The microphone held out over it, once he is near and standing.
+        const bool close = work && std::abs (tx - k.x) < 4.4f && ! listening && k.trip >= 1.0f && k.runAmt < 0.5f;
+        follow (k.shoo, close ? 1.0f : 0.0f, dt, 0.3f);
+        // A big goose right in front of him: he leans away and holds the microphone out at arm's length.
+        const bool blasted = close && has && tDepth > 5.5f;
+        follow (k.recoil, blasted ? 1.0f : 0.0f, dt, blasted ? 0.3f : 0.5f);
         k.idle += dt;
+
+        // The bat. One clear wind-up and one swing, for the goose he is working and no other, and
+        // then nothing of the kind for several seconds.
+        swingHit = false;
+        k.swingCool = std::max (0.0f, k.swingCool - dt);
+        if (k.swing < 1.0f)
+        {
+            const float before = k.swing;
+            k.swing = std::min (1.0f, k.swing + dt / kSwingSeconds);
+            swingHit = before < kSwingHit && k.swing >= kSwingHit;
+            moving = true;
+        }
+        else if (has && close && k.shoo > 0.9f && std::abs (k.speed) < 0.2f && k.gesture == Gesture::none && k.swingCool <= 0.0f
+                 && idleBusy <= 0.0f && dt > 0.0f && k.clickWait <= 0.0f)
+        {
+            const auto& g = geese[(size_t) k.target];
+            if (g.landed > 1.2f && g.depth >= 2.5f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f) && g.flap >= 1.0f && ! g.thief && g.preen >= 1.0f)
+            {
+                k.swing = 0.0f;
+                k.swingCool = rnd (5.5f, 9.5f);
+            }
+        }
 
         // The cable trails after him along the grass.
         follow (k.cableX, k.x - k.facing * 1.3f, dt, 0.45f);
@@ -1006,11 +1639,13 @@ private:
         const bool busy = anyGoose || in.frame.activity > 0.08f;
         k.quiet = busy ? 0.0f : k.quiet + dt;
 
-        // One small piece of business at a time, when he is standing still.
+        // One small piece of business at a time, when he is standing still. (The director hands
+        // out the idle ones: see startIdleEvent.)
         const bool standing = std::abs (k.speed) < 0.3f && k.trip >= 1.0f && hat.state == 0;
+        const bool greeting = k.gesture == Gesture::wave || k.gesture == Gesture::tip;
         if (k.gesture != Gesture::none)
         {
-            const bool fits = k.gesture == Gesture::pump || (standing && (k.gesture == Gesture::sip) == (k.sit > 0.9f));
+            const bool fits = k.gesture == Gesture::pump || (standing && (greeting || (k.gesture == Gesture::sip) == (k.sit > 0.9f)));
             if (! fits)
                 k.gt = std::max (k.gt, 0.85f);                         // cut short: straight to its ending
             k.gt += dt / k.glen;
@@ -1018,37 +1653,22 @@ private:
                 k.gesture = Gesture::none;
             (k.idleGesture ? fussing : moving) = true;
         }
-        else if (standing && dt > 0.0f)
+        else if (standing && dt > 0.0f && k.swing >= 1.0f)
         {
             if (k.adjustNext)
             {
                 k.adjustNext = false;
                 startGesture (Gesture::hat, 1.6f);
             }
-            else if (resting)
+            else if (k.clickWait > 0.0f)
             {
-                if (k.sit > 0.97f && lively && (k.sipWait -= dt) <= 0.0f)
-                {
-                    startGesture (Gesture::sip, 2.4f);
-                    k.sipWait = rnd (6.0f, 13.0f);
-                }
-            }
-            else if (weather > 0.6f && ! frozen && ! listening && k.shoo < 0.3f && (k.wipeWait -= dt) <= 0.0f)
-            {
-                startGesture (Gesture::wipe, 1.5f);
-                k.wipeWait = rnd (9.0f, 17.0f);
-            }
-            else if (k.quiet > 5.0f && ! frozen && ! listening && lively && (k.fidgetWait -= dt) <= 0.0f)
-            {
-                // Tapping the headphones (is this thing on?), or settling his hat. Less and less
-                // often the longer it stays quiet.
-                if (rnd() < 0.62f)
-                    startGesture (Gesture::tap, 2.6f);
-                else
-                    startGesture (Gesture::hat, 1.6f);
-                k.fidgetWait = (k.quiet > 40.0f ? 26.0f : 9.0f) + rnd (0.0f, 10.0f);
+                // Clicked: he tips his hat to us, or waves, by turns.
+                if ((k.clickTurn++ & 1) != 0) startGesture (Gesture::wave, 1.5f);
+                else                          startGesture (Gesture::tip, 1.4f);
+                k.clickWait = 0.0f;
             }
         }
+        follow (k.greet, greeting ? 1.0f : 0.0f, dt, 0.2f);
 
         // Where he is looking. In Diff he looks from one side to the other, comparing; after
         // tapping his headphones he looks about for what has gone quiet.
@@ -1069,8 +1689,11 @@ private:
         follow (k.look, k.eyeLook, dt, 0.13f);
         follow (k.torsoLook, k.look, dt, 0.1f);
 
+        const float yawTo = k.facing > 0.0f ? turn : kPi - turn;
         moving = moving || std::abs (k.speed) > 0.05f || (k.sit > 0.01f && k.sit < 0.99f) || (k.solo > 0.01f && k.solo < 0.99f)
-                        || k.compare > 0.01f || k.recoil > 0.02f || std::abs (k.cableX - (k.x - k.facing * 1.3f)) > 0.03f;
+                        || k.compare > 0.01f || k.recoil > 0.02f || std::abs (k.cableX - (k.x - k.facing * 1.3f)) > 0.03f
+                        || std::abs (k.yaw - yawTo) > 0.02f || k.clickWait > 0.0f || (k.greet > 0.02f && k.greet < 0.98f)
+                        || (k.shoo > 0.02f && k.shoo < 0.98f) || k.runAmt > 0.02f;
         // Looking about is part of his idle business (Diff, which is not idle, counts above).
         fussing = fussing || std::abs (k.look) > 0.02f || std::abs (k.eyeLook) > 0.02f || std::abs (k.torsoLook) > 0.02f;
 
@@ -1080,14 +1703,17 @@ private:
     //------------------------------------------------------------------------------ the fish
     void stepFish (const WorldInput& in, float dt)
     {
-        if (fish.t >= kFishLeap + 0.6f && in.snapOn && in.frame.snapCutDb > 2.0f && dt > 0.0f)
+        // One leap for a click, and no more than one every few seconds however many clicks there
+        // are. With another range in focus the fish stays down.
+        if (fish.t >= kFishRest && in.snapOn && in.frame.snapCutDb > 2.0f && dt > 0.0f && (in.focus < 0 || in.focus == kNumModules))
         {
             fish = { 0.0f, std::clamp (in.frame.snapCutDb / 12.0f, 0.3f, 1.0f), (spawned++ % 2) ? 1.0f : -1.0f, false };
             splash (fishX() - fish.dir * 0.75f, kFishZ, 0.55f, false);
         }
+        if (fish.t < kFishRest)
+            fish.t += dt;
         if (fish.t < kFishLeap + 0.6f)
         {
-            fish.t += dt;
             if (! fish.flopped && fish.t >= kFishLeap)
             {
                 fish.flopped = true;
@@ -1096,8 +1722,8 @@ private:
             moving = true;
         }
     }
-    static constexpr float kFishLeap = 0.95f, kFishZ = 0.95f;
-    static float fishX() noexcept { return worldX (2700.0f); }
+    static constexpr float kFishLeap = 0.95f, kFishZ = 0.95f, kFishRest = 4.5f;
+    float fishX() const noexcept { return worldX (2700.0f); }
 
     //------------------------------------------------------------------------------ the beaver
     void stepBeaver (const WorldInput& in, float dt)
@@ -1108,7 +1734,10 @@ private:
         // 0.8. With no programme the reading is held, and so is the dam.
         if (in.frame.activity > 0.03f)
             follow (washSlow, std::clamp (in.frame.wash / 0.8f, 0.0f, 1.0f), dt, 2.5f);
-        const float target = smooth01 ((washSlow - 0.3f) / 0.5f);
+        // With a range in focus the dam is left as it is.
+        // With nothing playing it is left as it is too: the beaver downs tools when the music stops,
+        // so that the pond comes to rest soon after.
+        const float target = in.focus >= 0 || silence > 1.0f ? dam : smooth01 ((washSlow - 0.3f) / 0.5f);
         damGoal = target;
         dam += std::clamp (target - dam, -dt / 30.0f, dt / 24.0f);
 
@@ -1124,12 +1753,10 @@ private:
         // apart from a single pat when the shared idle timer picks it (see startIdleEvent).
         if (! b.patting && b.proudT <= 0.0f && b.upright > 0.9f && ! shrinking && dt > 0.0f)
         {
-            if (building)
-                startPats (2 + (rnd() < 0.5f ? 1 : 0));
-            else if (in.frame.activity > 0.08f && lively && (b.patWait -= dt) <= 0.0f)
+            if (building && (b.patWait -= dt) <= 0.0f)
             {
-                startPats (1 + std::min (2, (int) (rnd() * 3.0f)));
-                b.patWait = rnd (8.0f, 16.0f);
+                startPats (2);
+                b.patWait = rnd (2.5f, 4.5f);                          // and a breather before the next two
             }
         }
         if (b.patting)
@@ -1172,8 +1799,16 @@ private:
         else
             b.slap = 0.0f;
 
-        // An ear flicks now and then.
-        if (lively && (b.earWait -= dt) <= 0.0f) { b.ear = 0.0f; b.earWait = rnd (3.0f, 9.0f); }
+        // An ear flicks when the director says so; so does a wave, or a slap of the tail as it floats.
+        if (b.wave < 1.0f) { b.wave = std::min (1.0f, b.wave + dt / 2.0f); moving = true; }
+        if (b.flop < 1.0f)
+        {
+            const float before = b.flop;
+            b.flop = std::min (1.0f, b.flop + dt / 1.1f);
+            if (before < 0.6f && b.flop >= 0.6f)
+                splash (b.x - 0.5f * fg * std::cos (b.yaw), streamZ + 0.5f * fg * std::sin (b.yaw), 0.5f * fg);
+            moving = true;
+        }
         if (b.ear < 1.0f) { b.ear = std::min (1.0f, b.ear + dt / 0.35f); fussing = true; }
 
         float home = up ? damX - (damHalf (dam) + 0.42f) * fg : damX - (damHalf (dam) + 1.0f) * fg + 0.15f * fg * std::sin (time * 0.13f);
@@ -1246,7 +1881,7 @@ private:
         const bool guardOn = in.guardAmount > 0.001f;
         // The core reports the guard already scaled by its amount: judge it against the control,
         // so that a hit reads the same at 20 % as at 100 %.
-        const bool hit = guardOn && in.frame.guard > 0.3f * std::max (in.guardAmount, 0.05f);
+        const bool hit = guardOn && in.focus < 0 && in.frame.guard > 0.3f * std::max (in.guardAmount, 0.05f);
         guardHold = hit ? 0.35f : std::max (0.0f, guardHold - dt);
         const bool hide = hit || guardHold > 0.0f;
         follow (asleep, guardOn ? 0.0f : 1.0f, dt, 1.2f);
@@ -1267,7 +1902,7 @@ private:
                     if (t.antic >= 1.0f)
                     {
                         t.in = true; t.stage = 0;
-                        t.wobble.v += (i == 1 ? -8.5f : 8.5f);
+                        t.wobble.v += (i == 1 ? -6.0f : 6.0f);
                         t.drop.x = 0.2f; t.drop.v = 0.0f;
                     }
                 }
@@ -1296,12 +1931,36 @@ private:
             t.wobble.tick (0.0f, dt, 14.0f, 0.25f);                   // about 2 Hz, dying away over half a second
             t.drop.tick (0.0f, dt, 17.0f, 0.4f);
 
-            // Out and at ease: it looks about, and now and then stretches its neck up into the sun.
-            if (lively && (t.lookWait -= dt) <= 0.0f) { t.lookTo = rnd (-0.7f, 0.7f); t.lookWait = rnd (2.5f, 7.0f); }
+            // Out and at ease: it looks about, and stretches its neck up into the sun, when the
+            // director says so.
             const float lookTarget = t.stage == 2 ? 0.55f * std::sin (time * 3.2f + (float) i * 2.0f) : t.lookTo * (1.0f - asleep);
             follow (t.look, lookTarget, dt, 0.3f);
-            if (lively && (t.stretchWait -= dt) <= 0.0f && asleep < 0.5f && ! t.in) { t.stretch = 0.0f; t.stretchWait = rnd (11.0f, 26.0f); }
+            if (t.stretchDelay >= 0.0f && (t.stretchDelay -= dt) < 0.0f)
+            {
+                t.stretchDelay = -1.0f;
+                if (asleep < 0.5f && ! t.in)
+                    t.stretch = 0.0f;
+            }
             if (t.stretch < 1.0f) { t.stretch = std::min (1.0f, t.stretch + dt / 2.4f); fussing = true; }
+
+            // Clicked: off the back of the log it goes, with a splash, and climbs back over it.
+            if (t.fall < 1.0f)
+            {
+                const float before = t.fall * kFallSeconds;
+                t.fall = std::min (1.0f, t.fall + dt / kFallSeconds);
+                const float now = t.fall * kFallSeconds;
+                const Vec3 at = turtleAt (i);
+                if (before < 0.75f && now >= 0.75f)
+                    splash (at.x, at.z + 0.55f * fg, 0.75f * fg);
+                if (before < 1.3f && now >= 1.3f)
+                    addRing (at.x, 0.03f, at.z + 0.5f * fg, 0.3f * fg, true, 0.0f, 1.5f, rgb (0xf4fbff), true);
+                if (before < 2.7f && now >= 2.7f)
+                {
+                    t.drop.x = 0.2f; t.drop.v = 0.0f;
+                    t.wobble.v += (i == 1 ? -6.0f : 6.0f);
+                }
+                moving = true;
+            }
 
             moving = moving || std::abs (t.out - to) > 0.02f || t.wobble.busy() || t.drop.busy() || (t.in && ! hide) || t.antic < 1.0f
                             || (t.eyes > 0.02f && t.eyes < 0.98f) || (t.stage == 2 && t.in);
@@ -1333,8 +1992,9 @@ private:
 
         // The pad drifts along the stream to sit below the deepest goose. Where it cannot follow,
         // the frog turns and looks up at it instead.
-        const float lo = logX + (kLogHalf + 0.6f) * fg, hi = damX - (damHalf (1.0f) + 1.75f) * fg;
+        const float lo = frogLo(), hi = frogHi();
         const float gooseHere = worstX * streamRatio;
+        if (fr.tongue < 1.0f) { fr.tongue = std::min (1.0f, fr.tongue + dt / 0.5f); fussing = true; }
         if (fr.state == 0)
         {
             const float goal = anyGoose ? std::clamp (gooseHere, lo, hi) : std::clamp (fr.x, lo, hi);
@@ -1351,10 +2011,10 @@ private:
         fr.x += fr.v * dt;
         fr.pad.tick (0.0f, dt, 9.0f, 0.22f);
 
-        // Its throat goes, twice, every few seconds; quicker as the ceiling comes near.
-        // Tense, it goes in quick short gulps, and keeps the full rate while it does.
+        // Its throat goes, twice, when the director says so. Tense, it goes on its own in quick
+        // short gulps, quicker as the ceiling comes near.
         const bool gulping = fr.tension > 0.35f;
-        if ((lively || gulping) && (fr.puffWait -= dt * (1.0f + 5.0f * fr.tension)) <= 0.0f) { fr.puff = 0.0f; fr.puffWait = rnd (2.5f, 5.5f); }
+        if (gulping && (fr.puffWait -= dt * (1.0f + 5.0f * fr.tension)) <= 0.0f) { fr.puff = 0.0f; fr.puffWait = rnd (2.5f, 5.5f); }
         if (fr.puff < 1.0f) { fr.puff = std::min (1.0f, fr.puff + dt * (1.0f + 1.5f * fr.tension)); (gulping ? moving : fussing) = true; }
 
         fr.t += dt;
@@ -1385,12 +2045,23 @@ private:
             case 2: if (fr.t >= 0.7f)  { fr.state = 3; fr.t = 0.0f; splash (fr.landX, streamZ, 0.6f * fg); } break;
             case 3: if (fr.t >= 0.5f)  { fr.state = 4; fr.t = 0.0f; addRing (fr.landX, 0.03f, streamZ, 0.3f * fg, true, 0.0f, 1.6f, rgb (0xf4fbff)); } break;
             case 4: if (fr.t >= 0.8f)  { fr.state = 5; fr.t = 0.0f; } break;
-            case 5: if (fr.t >= 0.5f)  { fr.state = 0; fr.t = 0.0f; fr.pad.v = 1.8f; fr.cool = std::min (30.0f, rnd (2.8f, 5.5f) * (float) (1 << std::min (fr.repeats, 4))); } break;
+            case 5:
+                if (fr.t >= 0.5f)
+                {
+                    fr.state = 0; fr.t = 0.0f; fr.pad.v = 1.8f;
+                    // (A leap asked for with the mouse leaves the ceiling's own timing as it was.)
+                    fr.cool = fr.byClick ? fr.coolKept : std::min (30.0f, rnd (2.8f, 5.5f) * (float) (1 << std::min (fr.repeats, 4)));
+                    fr.byClick = false;
+                }
+                break;
             default: break;
         }
         moving = moving || fr.state != 0 || std::abs (fr.v) > 0.04f || fr.pad.busy() || (fr.tension > 0.02f && fr.tension < 0.98f)
                         || (fr.lookUp > 0.02f && fr.lookUp < 0.98f);
     }
+
+    float frogLo() const noexcept { return logX + (kLogHalf + 0.6f) * fg; }
+    float frogHi() const noexcept { return damX - (damHalf (1.0f) + 1.75f) * fg; }
 
     /** Which way the frog leaps, and how high: away from the recordist where it can, so that it
         never passes in front of his boots; where it must leap his way, a low hop that stays below
@@ -1428,7 +2099,7 @@ private:
     {
         keyHold = in.frame.keyed ? std::min (1.0f, keyHold + dt / 0.4f) : std::max (0.0f, keyHold - dt / 1.2f);
         const bool wanted = in.frame.keyed ? keyHold >= 1.0f : keyHold > 0.0f;
-        const bool settle = keeper.quiet > 4.0f;                    // nothing going on: they find a post to sit on
+        const bool settle = keeper.quiet > 4.0f || in.focus >= 0;   // nothing going on, or a range in focus: they find a post to sit on
         // He is standing still (working a goose from where he stands is fine: it rides the jab).
         const bool micFree = std::abs (keeper.speed) < 0.3f && keeper.gesture == Gesture::none && keeper.trip >= 1.0f
                              && hat.state == 0 && keeper.sit < 0.1f && keeper.recoil < 0.3f;
@@ -1528,7 +2199,7 @@ private:
             d.hopLen = 0.16f + 0.07f * std::sqrt (dot (way, way));
         }
     }
-    Vec3 micPerch() const noexcept { return { micAt.x, micAt.y + 0.38f * cast, micAt.z }; }
+    Vec3 micPerch() const noexcept { return { micAt.x, micAt.y + 0.3f * cast, micAt.z }; }
     Vec3 postTop (int fly) const noexcept { return { worldX (input.edgeHz[(fly * 2 + 1) % kNumEdges]) + 0.05f, 1.02f, -0.02f }; }
 
     //============================================================================== backdrop
@@ -1648,79 +2319,151 @@ private:
         return (float) r.height;
     }
 
+    /** What the backdrop depends on besides the time: where the trees stand and what colour they are. */
+    std::uint32_t backdropSignature() const noexcept
+    {
+        std::uint32_t h = (std::uint32_t) (input.snapOn ? 1 : 0);
+        for (int m = 0; m < kNumModules; ++m)
+            h = h * 2u + (input.moduleOn[m] ? 1u : 0u);
+        for (int e = 0; e < kNumEdges; ++e)
+            h = h * 2053u + (std::uint32_t) std::lround (x01ForHz (input.edgeHz[e]) * (float) r.width * 2.0f);
+        return h;
+    }
+
     void drawFarShore (float dim)
     {
-        // Round green hills on the far side, with lollipop trees.
+        // Round hills on the far side.
         const float z = 62.0f;
         for (int i = -5; i <= 5; ++i)
         {
             const float x = (float) i * 17.0f + 5.0f * std::sin ((float) i * 2.3f);
             const float w = 13.0f + 4.0f * std::cos ((float) i * 1.9f), h = 5.0f + 2.5f * std::sin ((float) i * 1.1f + 1.0f);
-            r.blob (Xform::move ({ x, 0.0f, z + (float) (i & 1) * 6.0f }), w, h, 3.0f, ((i & 1) ? rgb (0xb7c468) : rgb (0xc9b8e4)) * dim, 12, 6, 0.75f);
+            r.blob (Xform::move ({ x, 0.0f, z + (float) (i & 1) * 6.0f }), w, h, 3.0f, ((i & 1) ? rgb (0xc4cf8a) : rgb (0xd6cbe6)) * dim, 12, 6, 0.75f);
         }
-        static constexpr std::uint32_t tops[] = { 0xf2946b, 0xa9dcc4, 0xf2c14e, 0xb9a8e0, 0xf4b6c6 };
-        for (int i = -6; i <= 6; ++i)
+
+        // A lollipop tree at each edge of the ranges, straight above its post on the bank, in the
+        // colour of the range to its right (paler when that range is switched off). They are sized
+        // and placed in the picture, not in the world, so that they stand the same at any shape:
+        // tall enough for the crowns to rise a little above the top edge, each by its own amount.
+        // The host draws the part above the edge (see treeTops).
+        const float W = (float) r.width, H = (float) r.height;
+        const float rad = std::clamp (std::min (0.088f * H, 0.034f * W), 8.0f * pp, 44.0f * pp);
+        static constexpr float rise[kNumEdges] = { 0.36f, 0.14f, 0.44f, 0.22f, 0.32f };       // of the radius, above the top edge
+        static constexpr float depth[kNumEdges] = { 43.0f, 40.0f, 44.5f, 41.5f, 46.0f };     // staggered, so crowns that meet overlap cleanly
+        const Rgb off = rgb (0xd3ccba);
+        for (int e = 0; e < kNumEdges; ++e)
         {
-            const float x = (float) i * 11.0f + 3.0f * std::sin ((float) i * 3.1f), zz = 48.0f + 4.0f * std::cos ((float) i * 1.7f);
-            const float h = 4.0f + 1.5f * std::sin ((float) i * 2.7f);
-            r.limb ({ x, 0.0f, zz }, { x, h, zz }, 0.3f, 0.3f, rgb (0x6a5a50) * dim, 5, 0.6f);
-            r.blob (Xform::move ({ x, h + 1.6f, zz }), 2.3f, 2.3f, 2.3f, rgb (tops[(size_t) ((i + 6) % 5)]) * dim, 8, 5, 0.6f);
+            const bool on = e < kNumModules ? input.moduleOn[e] : input.snapOn;
+            const Rgb col = (on ? moduleCol[e] : moduleCol[e].mix (off, 0.72f)) * dim;
+            const float zz = depth[e], row = rad * (1.0f - rise[e]);
+            const float y = r.heightAtRow (row, zz);
+            const auto mid = r.project ({ 0.0f, y, zz });
+            if (! mid.ok)
+                continue;
+            const float perPx = 1.0f / r.pixelsPerUnitAt (mid.z);
+            const float sx = x01ForHz (input.edgeHz[e]) * W;
+            const float x = (sx - 0.5f * W) * perPx, R = rad * perPx;
+            r.limb ({ x, 0.0f, zz }, { x, y, zz }, 0.2f * R, 0.16f * R, rgb (0x8a6f5c) * dim, 6, 0.6f);
+            r.blob (Xform::move ({ x, y, zz }), R, R, R, col, 12, 7, 0.8f);
+            const Rgb top = r.colourAt ({ x, y + R, zz }, col, { 0.0f, 1.0f, 0.0f }, 0.8f);
+            tops[(size_t) e] = { sx, row, rad, (std::uint8_t) (top.r + 0.5f), (std::uint8_t) (top.g + 0.5f), (std::uint8_t) (top.b + 0.5f) };
         }
     }
 
     //============================================================================== the working parts
-    /** A coloured strip along the bank for each module that is on, and one in the shallows for Click. */
+    /** A coloured strip along the bank for each range that is on, and one in the shallows for Snap.
+        With a range in focus, the others' strips fade back. */
     void drawZones()
     {
-        static constexpr Rgb colours[kNumModules] = { rgb (0xb9a8e0), rgb (0xf2c14e), rgb (0xb7c468), rgb (0xf2946b) };
         for (int m = 0; m < kNumModules; ++m)
         {
             const float x0 = worldX (input.edgeHz[m]), x1 = worldX (input.edgeHz[m + 1]);
             if (x1 <= x0)
                 continue;
             const float lit = input.moduleOn[m] ? 0.85f : 0.0f;
-            const Rgb c = input.moduleOn[m] ? colours[m] : rgb (0xb8c880);
-            r.quad ({ x0 + 0.04f, 0.012f, -0.26f }, { x0 + 0.04f, 0.012f, -0.04f }, { x1 - 0.04f, 0.012f, -0.04f }, { x1 - 0.04f, 0.012f, -0.26f }, c, lit, input.moduleOn[m] ? 0.9f : 0.5f);
+            const Rgb c = input.moduleOn[m] ? moduleCol[m] : rgb (0xb8c880);
+            const float show = input.focus < 0 || input.focus == m ? 1.0f : 1.0f - 0.55f * hush;
+            r.quad ({ x0 + 0.04f, 0.012f, -0.26f }, { x0 + 0.04f, 0.012f, -0.04f }, { x1 - 0.04f, 0.012f, -0.04f }, { x1 - 0.04f, 0.012f, -0.26f }, c, lit, (input.moduleOn[m] ? 0.9f : 0.5f) * show);
         }
         if (input.snapOn)
         {
             const float x0 = worldX (1800.0f), x1 = worldX (4000.0f);
-            r.quad ({ x0, 0.012f, 0.06f }, { x0, 0.012f, 0.30f }, { x1, 0.012f, 0.30f }, { x1, 0.012f, 0.06f }, rgb (0xffffff), 0.9f, 0.55f);
+            const float show = input.focus < 0 || input.focus == kNumModules ? 1.0f : 1.0f - 0.55f * hush;
+            r.quad ({ x0, 0.012f, 0.06f }, { x0, 0.012f, 0.30f }, { x1, 0.012f, 0.30f }, { x1, 0.012f, 0.06f }, rgb (0xffffff), 0.9f, 0.55f * show);
         }
     }
 
-    /** The spectrum, as reeds at the water's edge. A reed under a notch is bent over. */
+    static float hash01 (int i, float k) noexcept
+    {
+        const float v = std::sin ((float) i * k) * 43758.5453f;
+        return v - std::floor (v);
+    }
+
+    /** Reeds at the water's edge: scenery. They stand where they stand, sway a little while the
+        pond is alive (more in bad weather, and when a breeze comes through, left to right), and
+        part where a goose hops through them. */
     void drawReeds()
     {
-        const auto& f = input.frame;
-        for (int k = 0; k < f.numBands; ++k)
+        // In clumps, with open water between them, and none where the fish leaps.
+        static constexpr int kClumps = 7, kPerClump = 6, kReeds = kClumps * kPerClump;
+        const Rgb stem = rgb (0x6aa07a), head = rgb (0x8a6a50);
+        const float amp = (0.035f + 0.16f * weather) * reedLife;
+        const float gustAt = lerp (-kHalfWidth - 3.0f, kHalfWidth + 3.0f, gust);
+        const float fishAt = fishX();
+        for (int i = 0; i < kReeds; ++i)
         {
-            const float level = std::clamp ((f.levelDb[k] + 66.0f) / 60.0f, 0.0f, 1.0f);
-            if (level <= 0.02f)
-                continue;
-            const float cut = std::clamp (f.cutDb[k] / 8.0f, 0.0f, 1.0f);
-            const float x = worldX (f.bandHz[k]);
-            const float sway = (0.06f + 0.22f * weather) * std::sin (windPhase + (float) k * 0.8f) * level + 0.18f * weather * level;
-            const float h = (0.25f + 2.3f * level) * cast;
-            const float bend = cut * 1.25f;                         // radians, away from the bank
-            const Vec3 base { x, 0.0f, 0.22f };
-            const Vec3 tip { x + sway + 0.25f * std::sin (bend), h * std::cos (bend), 0.22f + h * std::sin (bend) * 0.8f };
-            const Rgb stem = rgb (0x6aa07a).mix (rgb (0xe5533b), cut);
-            r.limb (base, tip, 0.045f, 0.03f, stem, 3, cut * 0.5f);
-            if (level > 0.45f)
-                r.limb (tip, tip + normalised (tip - base) * 0.28f, 0.07f, 0.06f, rgb (0x8a6a50).mix (rgb (0xe5533b), cut), 4, cut * 0.4f);
+            const int clumpIndex = i / kPerClump, j = i % kPerClump;
+            float centre = (((float) clumpIndex + 0.5f + 0.5f * (hash01 (clumpIndex, 12.9898f) - 0.5f)) / (float) kClumps - 0.5f) * 2.0f * kHalfWidth;
+            if (std::abs (centre - fishAt) < 1.5f)
+                centre = fishAt + (centre >= fishAt ? 1.5f : -1.5f);
+            const float off = ((float) j - 0.5f * (float) (kPerClump - 1)) * 0.17f + 0.1f * (hash01 (i, 12.9898f) - 0.5f);
+            const float x = centre + off * std::max (cast, 0.7f);
+            const float tall = hash01 (i, 78.233f), clump = 1.0f - std::abs (off) / 0.62f;
+            const float h = (0.5f + 1.25f * (0.35f + 0.65f * tall) * (0.3f + 0.7f * std::max (0.0f, clump))) * cast;
+            float lean = amp * std::sin (windPhase + (float) i * 0.8f) + 0.1f * weather * reedLife;
+            if (gust < 1.0f)
+            {
+                const float d = (x - gustAt) / 2.4f;
+                lean += 0.3f * std::exp (-d * d);
+            }
+            for (const auto& g : geese)
+                if (g.used && (g.reed > 0.004f || g.reed < -0.004f))
+                {
+                    const float d = x - g.x;
+                    if (std::abs (d) < 1.3f)
+                        lean += 0.45f * g.reed * (d >= 0.0f ? 1.0f : -1.0f) * (1.0f - std::abs (d) / 1.3f);
+                }
+            const float zz = 0.2f + 0.1f * hash01 (i, 39.3f);
+            const Vec3 base { x, 0.0f, zz };
+            const Vec3 tip { x + std::sin (lean) * h, std::cos (lean) * h, zz };
+            r.limb (base, tip, 0.045f, 0.03f, stem, 3);
+            if (tall > 0.3f)
+                r.limb (tip, tip + normalised (tip - base) * 0.28f, 0.07f, 0.06f, head, 4);
         }
     }
 
-    /** A post at each module edge. The editor draws the draggable line over each. */
+    /** A post at each range edge, with a knob in the colour of the range to its right. */
     void drawPosts()
     {
         for (int e = 0; e < kNumEdges; ++e)
         {
             const float x = worldX (input.edgeHz[e]);
+            const bool on = e < kNumModules ? input.moduleOn[e] : input.snapOn;
             r.limb ({ x, 0.0f, -0.02f }, { x, 0.8f, -0.02f }, 0.05f, 0.05f, rgb (0xfffdf6), 5);
-            r.blob (Xform::move ({ x, 0.9f, -0.02f }), 0.11f, 0.11f, 0.11f, rgb (0x3a2e2a), 6, 4, 0.5f);
+            r.blob (Xform::move ({ x, 0.9f, -0.02f }), 0.12f, 0.12f, 0.12f, on ? moduleCol[e] : rgb (0x3a2e2a), 6, 4, 0.5f);
         }
+    }
+
+    /** Somewhere the mouse can find someone: an ellipse about a point of the world, as drawn. */
+    void addHot (Hot kind, int index, Vec3 centre, float rx, float ry, float minPx = 9.0f) noexcept
+    {
+        if (hotCount >= (int) hots.size())
+            return;
+        const auto p = r.project (centre);
+        if (! p.ok)
+            return;
+        const float px = r.pixelsPerUnitAt (p.z);
+        hots[(size_t) hotCount++] = { p.x, p.y, std::max (minPx * pp, rx * px), std::max (minPx * pp, ry * px), kind, index };
     }
 
     //============================================================================== a goose
@@ -1738,6 +2481,7 @@ private:
         float hissLen = 0.62f;   // how far the neck may reach when hissing (kept short of the recordist)
         float aim = 0;           // the head's tilt when hissing, up (+) or down, towards the microphone
         float shade = 1.0f;      // a goose in the back row of a crowd is a touch greyer, so the front ones stand out against it
+        float preen = 0;         // 1 = the neck curled right back, beak in the feathers of its back
     };
 
     /** A goose facing +x in its own space, feet at the origin. `hatAt`, if given, receives where a
@@ -1775,18 +2519,28 @@ private:
             mid = lerp (mid, midH, p.hiss);
             head = lerp (head, headH, p.hiss);
         }
+        // Preening: the neck arches up and right back, and the beak nibbles at the feathers of its back.
+        float fwd = 1.0f;                                               // which way the face points along its body
+        if (p.preen > 0.0f)
+        {
+            const float nibble = 0.025f * std::sin (time * 15.0f) * p.preen;
+            mid = lerp (mid, neck0 + Vec3 { -0.06f, 0.3f, 0.0f }, p.preen);
+            head = lerp (head, Vec3 { -0.02f + nibble, bodyY + 0.36f - nibble, 0.13f }, p.preen);
+            fwd = 1.0f - 2.0f * smooth01 (p.preen * 1.4f);
+        }
         r.limb (up.apply (neck0), up.apply (mid), 0.14f, 0.11f, white, 7, glow);
         r.limb (up.apply (mid), up.apply (head), 0.11f, 0.09f, white, 7, glow);
-        r.blob (Xform::move ({ head.x + 0.04f, head.y + 0.03f, 0.0f }).then (up), 0.2f, 0.18f, 0.17f, white, 8, 5, glow);
+        r.blob (Xform::move ({ head.x + 0.04f * fwd, head.y + 0.03f, head.z }).then (up), 0.2f, 0.18f, 0.17f, white, 8, 5, glow);
         const float open = 0.02f + 0.17f * p.honk + p.hiss * (0.09f + 0.025f * std::sin (time * 9.0f));
-        r.limb (up.apply ({ head.x + 0.17f, head.y + 0.045f, 0.0f }), up.apply ({ head.x + 0.52f, head.y + 0.03f + open, 0.0f }), 0.09f, 0.02f, orange, 5, glow);
-        r.limb (up.apply ({ head.x + 0.17f, head.y - 0.02f, 0.0f }), up.apply ({ head.x + 0.47f, head.y - 0.04f - open, 0.0f }), 0.07f, 0.02f, orange, 5, glow);
+        const float dip = 0.16f * p.preen;
+        r.limb (up.apply ({ head.x + 0.17f * fwd, head.y + 0.045f, head.z }), up.apply ({ head.x + 0.52f * fwd, head.y + 0.03f + open - dip, head.z }), 0.09f, 0.02f, orange, 5, glow);
+        r.limb (up.apply ({ head.x + 0.17f * fwd, head.y - 0.02f, head.z }), up.apply ({ head.x + 0.47f * fwd, head.y - 0.04f - open - dip, head.z }), 0.07f, 0.02f, orange, 5, glow);
         if (p.hiss > 0.3f)
             r.blob (Xform::move ({ head.x + 0.3f, head.y + 0.0f, 0.0f }).then (up), 0.09f, 0.03f, 0.04f, rgb (0xf4b6c6), 5, 3, glow);     // tongue
-        const float eyeH = 0.045f * (1.0f - 0.85f * std::max (p.blink, 0.0f)) * (1.0f - 0.35f * p.hiss);
+        const float eyeH = 0.045f * (1.0f - 0.85f * std::max ({ p.blink, 0.0f, p.preen })) * (1.0f - 0.35f * p.hiss);
         for (float side : { -1.0f, 1.0f })
         {
-            r.blob (Xform::move ({ head.x + 0.10f, head.y + 0.08f, side * 0.15f }).then (up), 0.04f, std::max (0.006f, eyeH), 0.03f, dark, 5, 3);
+            r.blob (Xform::move ({ head.x + 0.10f * fwd, head.y + 0.08f, head.z + side * 0.15f }).then (up), 0.04f, std::max (0.006f, eyeH), 0.03f, dark, 5, 3);
             if (p.hiss > 0.25f)        // cross brows
                 r.limb (up.apply ({ head.x + 0.02f, head.y + 0.18f + 0.03f * p.hiss, side * 0.15f }), up.apply ({ head.x + 0.18f, head.y + 0.11f, side * 0.16f }), 0.022f, 0.018f, dark, 3);
         }
@@ -1823,8 +2577,9 @@ private:
         GoosePose pose;
         pose.shade = inBackRow (g) ? 1.0f - 0.55f * g.crowd : 1.0f;
         pose.blink = g.blink.closed();
-        Vec3 pos { g.x, 0.0f, g.z };
-        float yaw = g.yaw, sq = g.squash.x;
+        Vec3 pos { g.x + g.knockX, 0.0f, g.z };
+        float yaw = g.yaw, sq = g.squash.x, tumble = 0.0f;
+        const float live = 1.0f - g.still;                           // out of focus it stands still, beak shut
 
         if (g.leaving)
         {
@@ -1832,7 +2587,7 @@ private:
             const float t = g.away;
             // Away from him, so that it never rises up behind his head.
             const float away = g.x >= keeper.x ? 1.0f : -1.0f;
-            pos = { g.x + away * (3.5f * t + 0.6f * t * std::abs (std::sin (g.seed * 3.0f))), 0.2f + 4.5f * t * t + 1.2f * t, g.z + 9.0f * t };
+            pos = { g.x + g.knockX + away * (3.5f * t + 0.6f * t * std::abs (std::sin (g.seed * 3.0f))), 0.2f + 4.5f * t * t + 1.2f * t, g.z + 9.0f * t };
             yaw = 1.5708f;
             pose.flap = 0.5f + 0.5f * std::sin (time * 26.0f + g.seed);
             pose.swim = 1.0f;
@@ -1849,7 +2604,8 @@ private:
         }
         else
         {
-            pose.honk = honkOpen (g) * (1.0f - g.hiss);
+            pose.honk = honkOpen (g) * (1.0f - g.hiss) * live * (index == keeper.target || index == ringGoose ? 1.0f : 0.7f);
+            pose.preen = envelope (g.preen, 0.22f, 0.22f) * (g.preen < 1.0f ? 1.0f : 0.0f);
             // Waddling, it keeps its head forward rather than carry the neck out like a lance.
             pose.hiss = g.hiss * (1.0f - 0.6f * g.walkAmt);
             pose.walk = g.walkPhase;
@@ -1863,12 +2619,13 @@ private:
                 const float headY = size * 0.72f;
                 pose.aim = std::clamp (std::atan2 (micAt.y - headY, std::max (0.3f, std::abs (micAt.x - g.x) - size)), -0.4f, 0.4f);
             }
-            // A deep notch: it flaps as it honks.
-            pose.flap = std::clamp ((g.depth - 5.0f) / 3.0f, 0.0f, 1.0f) * (0.4f + 0.4f * std::sin (time * 12.0f + g.seed)) * (1.0f - g.hiss);
+            // A deep notch: the one he is working (or the deepest) lifts its wings as it honks.
+            if (index == keeper.target || index == ringGoose)
+                pose.flap = std::clamp ((g.depth - 5.0f) / 3.0f, 0.0f, 1.0f) * (0.3f + 0.2f * std::sin (time * 7.0f + g.seed)) * (1.0f - g.hiss) * live * pose.honk;
             if (g.walkAmt < 0.2f)
             {
-                pose.walk = 0.35f * std::sin (time * 1.7f + g.seed * 2.0f);       // shifting from foot to foot
-                pose.walkAmt = 0.25f;
+                pose.walk = 0.35f * std::sin (time * 1.7f + g.seed * 2.0f) * live;       // shifting from foot to foot
+                pose.walkAmt = 0.25f * live;
             }
             // Jabbed: up off the ground in a temper, wings going, honking.
             if (g.flap < 1.0f)
@@ -1884,22 +2641,52 @@ private:
                 pose.reach = bump (hat.t / 0.5f);
             if (g.thief && hat.state == 2)
                 pose.flap = std::max (pose.flap, 0.35f + 0.25f * std::sin (time * 20.0f));
+            // Clicked: head over heels through the air, squawking; then it shakes itself and waddles back.
+            if (g.knock < 1.0f)
+            {
+                const float t = g.knock;
+                pos.y += 1.5f * size * std::sin (t * kPi);
+                tumble = (g.knockTo > 0.0f ? -1.0f : 1.0f) * 6.2832f * smooth01 (t);
+                pose.flap = 0.6f + 0.4f * std::sin (time * 24.0f);
+                pose.honk = 1.0f; pose.hiss = 0.0f; pose.preen = 0.0f;
+                pose.walkAmt = 0.0f;
+            }
+            else if (g.knockX < 0.0f || g.knockX > 0.0f)
+            {
+                pose.honk = 0.0f; pose.hiss = 0.0f; pose.flap = 0.0f;
+                if (g.dizzy > 0.0f)
+                    pose.wag = std::sin (time * 22.0f);                           // a shake of the tail
+                else
+                {
+                    pose.walk = g.knockPhase;
+                    pose.walkAmt = 1.0f;
+                    yaw = g.knockX > 0.0f ? kPi - 0.3f : 0.3f;                    // back the way it came
+                }
+            }
         }
+        addHot (Hot::goose, index, { pos.x, pos.y + 0.62f * size, pos.z }, 0.56f * size, 0.62f * size);
         Xform hatX;
-        drawGoose (squash (sq).then (Xform::scale (size)).then (Xform::rotY (yaw)).then (Xform::move (pos)), pose, glow,
+        const Xform roll = Xform::move ({ 0.0f, -0.62f, 0.0f }).then (Xform::rotZ (tumble)).then (Xform::move ({ 0.0f, 0.62f, 0.0f }));
+        drawGoose (squash (sq).then (roll).then (Xform::scale (size)).then (Xform::rotY (yaw)).then (Xform::move (pos)), pose, glow,
                    index == hat.goose ? &hatX : nullptr);
         if (index == hat.goose)
             gooseHatAt = Xform::scale (1.8f * cast / size).then (hatX);           // a little larger on a goose, so it reads
     }
 
-    /** One goose that lives on the pond and minds its own business, well out from the bank. */
+    /** One goose that lives on the pond and minds its own business, well out from the bank. Now
+        and then (or when clicked) it tips up to feed, tail in the air. */
     void drawResident()
     {
-        const float x = 5.0f * std::sin (time * 0.07f) - 1.0f, z = 7.5f + 1.5f * std::sin (time * 0.045f);
-        const float heading = std::cos (time * 0.07f) >= 0.0f ? 0.0f : kPi;
+        const float x = 5.0f * std::sin (residentPhase * 0.07f) - 1.0f, z = 7.5f + 1.5f * std::sin (residentPhase * 0.045f);
+        const float heading = std::cos (residentPhase * 0.07f) >= 0.0f ? 0.0f : kPi;
         GoosePose pose;
         pose.swim = 1.0f;
-        drawGoose (Xform::scale (0.9f * cast).then (Xform::rotY (heading)).then (Xform::move ({ x, 0.02f * std::sin (time * 1.4f), z })), pose, 0.0f);
+        const float down = dabble < 1.0f ? envelope (dabble, 0.25f, 0.25f) : 0.0f;
+        pose.wag = down * std::sin (time * 16.0f);
+        const float s = 0.9f * cast;
+        const Xform tip = Xform::move ({ -0.1f, -0.2f, 0.0f }).then (Xform::rotZ (-1.35f * down)).then (Xform::move ({ 0.1f, 0.2f - 0.1f * down, 0.0f }));
+        drawGoose (tip.then (Xform::scale (s)).then (Xform::rotY (heading)).then (Xform::move ({ x, 0.02f * std::sin (time * 1.4f) * (1.0f - hush), z })), pose, 0.0f);
+        addHot (Hot::resident, 0, { x, 0.4f * s, z }, 0.56f * s, 0.5f * s);
     }
 
     //============================================================================== the recordist
@@ -1908,7 +2695,7 @@ private:
     struct KeeperRig
     {
         Xform body, upper, head;       // feet and legs; torso, arms and pole; the head (same coordinates as upper)
-        float hipY = 0.62f, swing[2] {};
+        float hipY = 0.62f, swing[2] {}, knee[2] {};
         Vec3 hand[2], elbow[2], grip, dir;
         float ang = 0, pyaw = 0, len = 2.1f;     // the pole's angle up, its heading against his, its length to the microphone
         float eyes = 1.0f, mouth = 0.0f, smile = 0.0f, happy = 0.0f, eyeShift = 0.0f, hatLift = 0.0f, hatTwist = 0.0f;
@@ -1919,21 +2706,22 @@ private:
         Vec3 mic;                      // world
     };
 
-    static float jab (float p) noexcept
-    {
-        // The pole's swing as it pokes: drawn back, down, up again. A fairly flat arc: the
-        // microphone goes at the goose's head, not down into the stream.
-        if (p < 0.4f) return 0.16f * smooth01 (p / 0.4f);
-        if (p < 0.55f) return 0.16f - 0.6f * smooth01 ((p - 0.4f) / 0.15f);
-        return -0.44f * (1.0f - smooth01 ((p - 0.55f) / 0.45f));
-    }
-
     KeeperRig keeperRig() const
     {
         const auto& k = keeper;
         KeeperRig g;
         const float sc = 1.5f * cast;                 // his size
-        const float run = std::clamp (std::abs (k.speed) / 5.0f, 0.0f, 1.0f) * (1.0f - k.sit);
+        const float run = k.runAmt * (1.0f - k.sit);
+
+        // The bat: the pole drawn up and back as he leans away, a beat, one swing down at the goose
+        // with his weight behind it, and back to rest.
+        float batAng = 0.0f, batLean = 0.0f;
+        if (k.swing < 1.0f)
+        {
+            const float up = smooth01 (k.swing / 0.34f), down = smooth01 ((k.swing - (kSwingHit - 0.08f)) / 0.08f), back = smooth01 ((k.swing - 0.62f) / 0.38f);
+            batAng = 0.7f * up - 1.15f * down + 0.45f * back;
+            batLean = -0.2f * up + 0.44f * down - 0.24f * back;
+        }
 
         // The trip: the cable round his back boot, two skips on the front foot with his arms out
         // and the pole see-sawing, then he finds his feet with a small lean back.
@@ -1958,7 +2746,8 @@ private:
         float gw = 0.0f, nod = 0.0f, pumpHop = 0.0f, pumpSquash = 0.0f, elbowW = 0.0f;
         Vec3 target, elbowAt;
         float hipY = 0.62f - 0.4f * k.sit;
-        const float bob = 0.07f * run * std::abs (std::sin (k.phase)) + 0.012f * std::sin (k.idle * 1.6f) + tripHop;
+        // At a run his hips drop at the full stretch of each stride, so that his feet stay on the grass.
+        const float bob = -0.13f * run * std::abs (std::sin (k.phase)) + 0.012f * std::sin (k.idle * 1.6f) * (1.0f - run) + tripHop;
 
         if (k.gesture == Gesture::pump)
         {
@@ -2034,6 +2823,39 @@ private:
                 g.eyes = 1.0f - 0.8f * gw;
                 break;
             }
+            case Gesture::stretch:
+            {
+                // An arm right up, head back, eyes shut, and a yawn.
+                gw = envelope (gt, 0.2f, 0.25f);
+                target = { hc.x - 0.08f, hc.y + 0.78f, hs * 0.34f };
+                nod = -0.26f * gw;
+                g.eyes = 1.0f - 0.9f * gw;
+                g.mouth = 0.75f * bump ((gt - 0.2f) / 0.55f);
+                batLean = -0.12f * gw;
+                break;
+            }
+            case Gesture::wave:
+            {
+                // A hand up beside his head, waggling, and a grin.
+                gw = envelope (gt, 0.15f, 0.2f);
+                target = { hc.x + 0.02f, hc.y + 0.3f, hs * (0.66f + 0.13f * std::sin (gt * k.glen * 11.0f)) };
+                elbowAt = { 0.04f, hc.y - 0.3f, hs * 0.58f };
+                elbowW = gw;
+                g.smile = gw;
+                break;
+            }
+            case Gesture::tip:
+            {
+                // His hat lifted clear of his head, with a small bow.
+                gw = envelope (gt, 0.2f, 0.25f);
+                const float u = (gt - 0.15f) / 0.7f;
+                g.hatLift = 0.3f * bump (u);
+                g.hatTwist = -0.35f * bump (u);
+                target = { hc.x + 0.04f, hc.y + 0.55f + g.hatLift, hs * 0.22f };
+                nod = 0.24f * bump (u);
+                g.smile = gw;
+                break;
+            }
             case Gesture::none:
                 break;
         }
@@ -2045,8 +2867,8 @@ private:
         // turn into the direction of travel, a tilt, and back.
         const float towards = k.yaw - (k.facing > 0.0f ? 0.0f : kPi);
         auto leanAlong = [towards] (float a) { return Xform::rotY (towards).then (Xform::rotZ (-a)).then (Xform::rotY (-towards)); };
-        g.body = squash (pumpSquash + tripSquash).then (leanAlong (0.2f * run)).then (Xform::scale (sc)).then (Xform::rotY (k.yaw)).then (Xform::move ({ k.x, 0.0f, kKeeperZ }));
-        const float torso = tripPitch - 0.36f * k.recoil;
+        g.body = squash (pumpSquash + tripSquash).then (leanAlong (0.22f * run)).then (Xform::scale (sc)).then (Xform::rotY (k.yaw)).then (Xform::move ({ k.x, 0.0f, kKeeperZ }));
+        const float torso = tripPitch - 0.36f * k.recoil + batLean;
         const float torsoYaw = 0.22f * std::clamp (k.torsoLook / 0.6f, -1.0f, 1.0f);
         g.upper = Xform::move ({ 0.0f, -hipY, 0.0f }).then (leanAlong (torso)).then (Xform::rotZ (-0.1f * k.solo)).then (Xform::rotY (torsoYaw))
                       .then (Xform::move ({ 0.0f, hipY, 0.0f })).then (g.body);
@@ -2059,16 +2881,21 @@ private:
         for (int s = 0; s < 2; ++s)
         {
             const float ph = k.phase + (s == 1 ? 0.0f : kPi);
-            g.swing[s] = (1.0f - k.sit) * (0.9f * run * std::sin (ph) + (s == 1 ? -0.9f : 0.3f) * caught) + k.sit * 1.5f;
+            g.swing[s] = (1.0f - k.sit) * (0.75f * run * std::sin (ph) * (1.0f - caught) + (s == 1 ? -0.9f : 0.3f) * caught) + k.sit * 1.5f;
+            // The knee bends as the leg comes forward, and a little as the foot takes his weight.
+            g.knee[s] = (1.0f - k.sit) * (1.0f - caught) * run * (0.18f + 1.05f * std::max (0.0f, std::cos (ph)));
         }
 
         // The pole: out to the side he is facing, pointed at the goose. Seated, it lies on the
         // grass beside him.
-        float ang = 0.45f + k.shoo * (jab (k.poke) - 0.25f) + 0.2f * k.recoil - 0.18f * gw + 0.45f * flail * std::sin (ts * 2.0f * kPi * 2.6f);
+        // Held out over the goose he is working, with the slow drift of a pole held at arm's length;
+        // carried upright at a run.
+        float ang = 0.45f + k.shoo * (batAng - 0.25f + 0.02f * std::sin (k.idle * 1.1f)) + 0.2f * k.recoil - 0.18f * gw + 0.45f * flail * std::sin (ts * 2.0f * kPi * 2.6f);
+        ang = lerp (ang, 1.0f, run * (1.0f - flail));
         ang = lerp (ang, -0.19f, k.sit);
         ang = lerp (ang, 0.25f, k.solo * 0.6f);
         g.pyaw = k.poleYaw - k.yaw;
-        g.grip = { 0.38f + 0.28f * k.recoil, hipY + 0.44f - 0.12f * k.sit, 0.0f };
+        g.grip = { 0.38f + 0.28f * k.recoil - 0.14f * run, hipY + 0.44f - 0.12f * k.sit, 0.0f };
         auto aim = [&] (float a)
         {
             g.ang = a;
@@ -2130,6 +2957,12 @@ private:
             g.flaskHand = hi;
             g.hand[hi] = lerp (g.hand[hi], Vec3 { 0.36f, hipY + 0.3f, hs * 0.2f }, g.flask);
         }
+        // At a run the free arm pumps, against the leg on its side.
+        if (run > 0.02f)
+        {
+            const float sw = std::sin (k.phase + (hi == 1 ? kPi : 0.0f));
+            g.hand[hi] = lerp (g.hand[hi], Vec3 { 0.08f + 0.32f * sw, hipY + 0.3f + 0.1f * std::max (0.0f, sw), hs * 0.36f }, run * (1.0f - flail) * (1.0f - cup));
+        }
         g.hand[hi] = lerp (g.hand[hi], target, gw);
 
         // Elbows: bent a little outwards and down, unless a gesture places one.
@@ -2158,6 +2991,7 @@ private:
         const Xform& up = g.upper;
         const Xform& hd = g.head;
         const float sc = 1.5f * cast;
+        addHot (Hot::keeper, 0, { keeper.x, 0.95f * sc, kKeeperZ }, 0.5f * sc, 1.0f * sc);
 
         // In Solo Honk, a warm pool of light on the grass where he stands.
         if (keeper.solo > 0.02f)
@@ -2178,9 +3012,15 @@ private:
         {
             const float side = s == 1 ? 1.0f : -1.0f;
             const Vec3 hip { 0.0f, hipY, side * 0.16f };
-            const Vec3 foot { hip.x + std::sin (g.swing[s]) * 0.56f, std::max (0.08f, hip.y - std::cos (g.swing[s]) * 0.56f), hip.z };
-            r.limb (at.apply (hip), at.apply (foot), 0.12f, 0.11f, trousers, 6);
-            r.box (Xform::move ({ foot.x + 0.08f, foot.y - 0.01f, foot.z }).then (at), 0.18f, 0.08f, 0.11f, boots);
+            const float thigh = g.swing[s], shin = thigh - g.knee[s];
+            const Vec3 knee { hip.x + std::sin (thigh) * 0.3f, hip.y - std::cos (thigh) * 0.3f, hip.z };
+            const Vec3 foot { knee.x + std::sin (shin) * 0.27f, std::max (0.08f, knee.y - std::cos (shin) * 0.27f), hip.z };
+            r.limb (at.apply (hip), at.apply (knee), 0.12f, 0.115f, trousers, 6);
+            r.limb (at.apply (knee), at.apply (foot), 0.115f, 0.105f, trousers, 6);
+            if (g.knee[s] > 0.25f)
+                r.blob (Xform::move (knee).then (at), 0.115f, 0.115f, 0.115f, trousers, 6, 4);
+            // The boot tips toe-down as the foot swings through.
+            r.box (Xform::rotZ (-0.5f * std::min (1.0f, g.knee[s])).then (Xform::move ({ foot.x + 0.08f, foot.y - 0.01f, foot.z })).then (at), 0.18f, 0.08f, 0.11f, boots);
             if (s == 1)
                 backFoot = at.apply (foot);
         }
@@ -2391,12 +3231,15 @@ private:
         const float roll = kPi * (1.0f - smooth01 (u * 2.0f));
         const float sitUp = smooth01 (u * 2.0f - 1.0f);
         const float lazy = 1.0f - smooth01 (u * 2.0f);                   // 1 = floating on its back
-        const float bobY = 0.03f * std::sin (time * kPi);                 // half a bob a second
+        const float ease = 1.0f - hush;                                   // out of focus it lies still
+        const float bobY = 0.03f * std::sin (time * kPi) * ease;         // half a bob a second
         const float floatY = lerp (0.06f + bobY, 0.3f, sitUp);
         // Building: it raises both paws (anticipation) and brings them down on the dam.
         const float patUp = b.patting ? (b.pat < 0.5f ? smooth01 (b.pat / 0.5f) : 1.0f - smooth01 ((b.pat - 0.5f) / 0.14f)) : 0.0f;
         const float lean = sitUp * (1.15f - 0.25f * b.proud + 0.18f * patUp - 0.3f * (b.patting ? smooth01 ((b.pat - 0.5f) / 0.12f) * (1.0f - smooth01 ((b.pat - 0.75f) / 0.25f)) : 0.0f));
-        const Xform base = place ({ b.x, floatY * k, streamZ - 0.05f * fg }, b.yaw, k);
+        // A wave: it turns to us, and the whole arm goes up over its head and swings to and fro.
+        const float waving = b.wave < 1.0f ? envelope (b.wave, 0.18f, 0.2f) : 0.0f;
+        const Xform base = place ({ b.x, floatY * k, streamZ - 0.05f * fg }, lerp (b.yaw, 0.5f * kPi - 0.2f, waving), k);
         const Xform body = Xform::rotX (roll).then (Xform::move ({ 0.25f, 0.0f, 0.0f }))
                                .then (Xform::rotZ (lean)).then (Xform::move ({ -0.25f, 0.0f, 0.0f })).then (base);
 
@@ -2405,6 +3248,7 @@ private:
         const float lower = b.carry * smooth01 ((placingStick (stickIndex) - 0.45f) / 0.5f);
         const Vec3 holdLocal = lerp (Vec3 { 0.44f, 0.2f, 0.0f }, Vec3 { 0.62f, -0.34f, 0.0f }, lower);
         beaverHoldAt = body.apply (holdLocal);
+        addHot (Hot::beaver, 0, { b.x, (floatY + 0.1f + 0.25f * sitUp) * k, streamZ - 0.05f * fg }, 0.55f * k, (0.35f + 0.25f * sitUp) * k, 12.0f);
         r.blob (body, 0.34f, 0.24f, 0.25f, fur, 9, 5);
         // The tummy: big and cream, turned up to the sun while it floats, with a pebble on it.
         r.blob (Xform::move ({ 0.06f, -0.08f - 0.04f * lazy, 0.0f }).then (body), 0.26f + 0.05f * lazy, 0.17f + 0.03f * lazy, 0.2f + 0.03f * lazy, belly.mix (cream, lazy), 8, 4);
@@ -2412,7 +3256,7 @@ private:
             r.blob (Xform::move ({ 0.0f, -0.33f, 0.03f }).then (body), 0.05f, 0.03f, 0.045f, rgb (0xb8b0a8), 5, 3);
 
         // Head: kept the right way up while it floats (the body rolls under it), chin raised.
-        const float headTurn = 0.3f * std::sin (time * 0.4f) * (1.0f - sitUp);
+        const float headTurn = 0.3f * std::sin (time * 0.4f) * (1.0f - sitUp) * ease;
         const Xform head = Xform::rotY (headTurn).then (Xform::rotZ (-lean * 0.75f + 0.25f * b.proud + 0.55f * lazy))
                                .then (Xform::rotX (-roll)).then (Xform::move ({ 0.36f, 0.1f - 0.25f * lazy, 0.0f })).then (body);
         r.blob (head, 0.2f, 0.17f, 0.18f, fur, 8, 5);
@@ -2420,7 +3264,7 @@ private:
         r.blob (Xform::move ({ 0.23f, 0.0f, 0.0f }).then (head), 0.045f, 0.035f, 0.05f, dark, 5, 3);              // nose
         for (float side : { -1.0f, 1.0f })
             r.box (Xform::move ({ 0.19f, -0.1f, side * 0.022f }).then (head), 0.012f, 0.04f, 0.02f, tooth);
-        const bool happy = b.proud > 0.5f;
+        const bool happy = b.proud > 0.5f || waving > 0.5f;
         for (float side : { -1.0f, 1.0f })
         {
             if (lazy > 0.5f)
@@ -2436,9 +3280,10 @@ private:
 
         // The flat tail: slapped down on the water when the dam is coming apart; floating, held
         // up out of the water as a paddle and sculled slowly.
-        const float slapA = b.sulk > 0.3f ? (b.slap < 0.5f ? 1.3f * smooth01 (b.slap / 0.5f) : b.slap < 0.62f ? 1.3f - 1.6f * smooth01 ((b.slap - 0.5f) / 0.12f) : -0.3f * (1.0f - smooth01 ((b.slap - 0.62f) / 0.38f))) : 0.0f;
-        const float tailSway = 0.15f * std::sin (time * 1.1f) * (1.0f - lazy) + 0.4f * lazy * std::sin (time * 0.5f * kPi);
-        const Xform tail = Xform::move ({ -0.26f, 0.0f, 0.0f }).then (Xform::rotZ (slapA * b.sulk - lean * 0.9f + 0.55f * lazy)).then (Xform::rotY (tailSway))
+        auto slapCurve = [] (float t) { return t < 0.5f ? 1.3f * smooth01 (t / 0.5f) : t < 0.62f ? 1.3f - 1.6f * smooth01 ((t - 0.5f) / 0.12f) : -0.3f * (1.0f - smooth01 ((t - 0.62f) / 0.38f)); };
+        const float slapA = (b.sulk > 0.3f ? slapCurve (b.slap) * b.sulk : 0.0f) + (b.flop < 1.0f ? -0.8f * slapCurve (b.flop) : 0.0f);
+        const float tailSway = (0.15f * std::sin (time * 1.1f) * (1.0f - lazy) + 0.4f * lazy * std::sin (time * 0.5f * kPi)) * ease;
+        const Xform tail = Xform::move ({ -0.26f, 0.0f, 0.0f }).then (Xform::rotZ (slapA - lean * 0.9f + 0.55f * lazy)).then (Xform::rotY (tailSway))
                                .then (Xform::move ({ -0.26f, -0.08f, 0.0f })).then (body);
         r.blob (tail, 0.24f, 0.045f, 0.14f, tailC, 8, 3);
 
@@ -2451,12 +3296,26 @@ private:
             paw = lerp (paw, Vec3 { 0.05f, -0.04f, side * 0.26f }, b.proud);
             paw = lerp (paw, Vec3 { 0.32f, 0.03f, side * 0.02f }, b.sulk);
             paw = lerp (paw, holdLocal + Vec3 { -0.04f, 0.0f, side * 0.13f }, b.carry);     // a stick held across its chest, then set down
+            if (side > 0.0f)                                                                // the arm on our side, up over its head
+            {
+                const float swing = std::sin (b.wave * 2.0f * kPi * 2.5f);                  // two and a half swings
+                paw = lerp (paw, Vec3 { 0.84f - 0.06f * std::abs (swing), 0.1f, side * (0.2f + 0.2f * swing) }, waving);
+            }
             r.limb (body.apply (shoulder), body.apply (paw), 0.05f, 0.045f, fur, 5);
             r.blob (Xform::move (paw).then (body), 0.05f, 0.045f, 0.05f, fur * 0.8f, 5, 3);
         }
     }
 
     //============================================================================== the turtles
+    /** Where turtle `i` sits on the log. */
+    Vec3 turtleAt (int i) const noexcept
+    {
+        const float k = fg, logY = 0.06f * k - logSink, rad = 0.2f * k;
+        const Vec3 a { logX - kLogHalf * k, logY, streamZ - 0.05f * k }, b { logX + kLogHalf * k, logY + 0.02f * k, streamZ + 0.1f * k };
+        return lerp (a, b, kTurtleAlong[i]) + Vec3 { 0.0f, rad * 0.9f, 0.0f };
+    }
+    static constexpr float kTurtleAlong[3] = { 0.13f, 0.48f, 0.83f };
+
     void drawLogAndTurtles()
     {
         const Rgb bark = rgb (0x9a7a5a), endC = rgb (0xe0c49a);
@@ -2465,15 +3324,41 @@ private:
         const Vec3 a { logX - kLogHalf * k, logY, streamZ - 0.05f * k }, b { logX + kLogHalf * k, logY + 0.02f * k, streamZ + 0.1f * k };
         r.limb (a, b, rad, rad * 0.92f, bark, 8);
         r.blob (Xform::rotY (1.5708f).then (Xform::rotZ (1.5708f)).then (Xform::move (a)), rad * 0.95f, 0.02f * k, rad * 0.95f, endC, 8, 2);
+        r.blob (Xform::rotY (1.5708f).then (Xform::rotZ (1.5708f)).then (Xform::move (b)), rad * 0.87f, 0.02f * k, rad * 0.87f, endC, 8, 2);
 
-        static constexpr float along[3] = { 0.13f, 0.48f, 0.83f }, sizes[3] = { 0.95f, 1.12f, 0.82f }, yaws[3] = { 3.1416f - 0.45f, 0.4f, 0.75f };
+        static constexpr float sizes[3] = { 0.95f, 1.12f, 0.82f }, yaws[3] = { 3.1416f - 0.45f, 0.4f, 0.75f };
         for (int i = 0; i < 3; ++i)
         {
             const auto& t = turtles[(size_t) i];
-            const Vec3 at = lerp (a, b, along[i]) + Vec3 { 0.0f, rad * 0.9f, 0.0f };
+            Vec3 at = turtleAt (i);
             const float s = 0.62f * 1.1f * k * sizes[i];
+            addHot (Hot::turtle, i, at + Vec3 { 0.0f, 0.18f * s, 0.0f }, 0.42f * s, 0.34f * s, 11.0f);
             const float breathe = 1.0f + 0.03f * asleep * std::sin (time * 1.2f + (float) i);
-            const Xform base = place (at, yaws[i] + 0.15f * t.wobble.x, s);
+
+            // Clicked: a start, then over backwards off the far side of the log and into the stream;
+            // under for a moment; then its head comes up behind the log and it hauls itself back on.
+            float tipBack = 0.0f;
+            if (t.fall < 1.0f)
+            {
+                const float sec = t.fall * kFallSeconds;
+                if (sec < 0.3f)
+                    tipBack = 0.1f * std::sin (sec * 42.0f);
+                else if (sec < 0.75f)
+                {
+                    const float u = (sec - 0.3f) / 0.45f;
+                    tipBack = 2.7f * u * u;
+                    at = at + Vec3 { 0.0f, 0.14f * k * std::sin (u * kPi) - 0.5f * k * u * u, 0.55f * k * u };
+                }
+                else if (sec < 1.6f)
+                    continue;                                            // under
+                else if (sec < 2.7f)
+                {
+                    const float v = (sec - 1.6f) / 1.1f, up = smooth01 (std::min (1.0f, v * 1.35f));
+                    tipBack = -0.5f * (1.0f - smooth01 (v));
+                    at = at + Vec3 { 0.0f, -0.42f * k * (1.0f - up) + 0.07f * k * bump (v), 0.44f * k * (1.0f - smooth01 (v)) };
+                }
+            }
+            const Xform base = Xform::rotX (tipBack).then (place (at, yaws[i] + 0.15f * t.wobble.x, s));
             // Shut, the shell sits down on the log (its legs are in), squashes as it lands, and rocks.
             const Xform shellX = squash (t.drop.x).then (Xform::rotZ (0.4f * t.wobble.x)).then (Xform::rotX (0.2f * t.wobble.x))
                                      .then (Xform::move ({ 0.0f, -0.05f * (1.0f - smooth01 (t.out)), 0.0f })).then (base);
@@ -2488,7 +3373,7 @@ private:
         const Rgb shell = rgb (0x6f9e93), plate = rgb (0x5f8c82), outline = rgb (0xf5eed8), rim = rgb (0xe0b860);
         const Rgb skin = rgb (0xf2c4a8), cheek = rgb (0xf4b6c6), dark = rgb (0x3a2e2a), white = rgb (0xfffdf6);
         const float out = t.out, o = smooth01 (out), stretch = 0.12f * bump (t.stretch) * (1.0f - asleep);
-        const float startle = (! t.in && t.antic < 1.0f) ? 1.0f : 0.0f;          // the start before it ducks in
+        const float startle = ((! t.in && t.antic < 1.0f) || t.fall * kFallSeconds < 0.75f) ? 1.0f : 0.0f;   // the start before it ducks in (or goes over)
         r.blob (Xform::move ({ 0.0f, 0.17f, 0.0f }).then (shellX), 0.32f, 0.2f * breathe, 0.27f, shell, 9, 4);
         r.blob (Xform::move ({ 0.0f, 0.08f, 0.0f }).then (shellX), 0.36f, 0.06f, 0.3f, rim, 9, 2);
         for (int j = 0; j < 3; ++j)
@@ -2639,6 +3524,8 @@ private:
         }
         const Xform at = squash (sq).then (Xform::rotZ (spin)).then (Xform::scale (0.55f * k)).then (Xform::rotY (yaw)).then (Xform::move (pos));
         drawFrogBody (at, legs, fr.state == 0 ? tense : 0.0f);
+        if (fr.state == 0)
+            addHot (Hot::frog, 0, { fr.x, padY + 0.14f * k, streamZ }, 0.4f * k, 0.28f * k, 12.0f);
     }
 
     void drawFrogBody (const Xform& at, float legs, float tense)
@@ -2664,6 +3551,14 @@ private:
             r.blob (Xform::move ({ 0.18f + 0.8f * e * w, 0.4f + 0.05f * tense, side * 0.15f }).then (at), e * p, e * (p + 0.08f) * (1.0f - 0.85f * shut), e * p, dark, 5, 3);
         }
         r.limb (at.apply ({ 0.27f, 0.22f, -0.13f }), at.apply ({ 0.29f, 0.21f, 0.13f }), 0.012f, 0.012f, dark, 3);       // mouth
+        if (fr.tongue < 1.0f && fr.state == 0)
+        {
+            // A flick of the tongue at something only it can see.
+            const float out = bump (fr.tongue);
+            const Vec3 tipAt { 0.3f + 0.75f * out, 0.21f + 0.3f * out, 0.0f };
+            r.limb (at.apply ({ 0.28f, 0.21f, 0.0f }), at.apply (tipAt), 0.022f, 0.02f, rgb (0xf2a0b4), 4, 0.3f);
+            r.blob (Xform::move (tipAt).then (at), 0.045f, 0.045f, 0.045f, rgb (0xf2a0b4), 5, 3, 0.3f);
+        }
         // Legs: folded at its sides, flung out behind in a leap.
         for (float side : { -1.0f, 1.0f })
         {
@@ -2682,7 +3577,7 @@ private:
         // A dark teal body, long and segmented, with big orange eyes; four long wings, each a pale
         // see-through shape with a darker rim so that it shows against water, sky and rain. In
         // flight the wings stand up in a V with a faint blur of the downstroke under them (a beat
-        // this fast cannot be shown at 30 frames a second); sitting, they lie flat out sideways.
+        // this fast cannot be shown frame by frame); sitting, they lie flat out sideways.
         // (The wings are see-through and not lit, so they take the light of the day by hand.)
         const Rgb body = rgb (0x2f7f9a), tail = rgb (0x2a6f88), tip = rgb (0x234a5a), eye = rgb (0xf2946b);
         const Rgb wingC = rgb (0xf6fcff).mix (rgb (0xc8d0d8), 0.4f * weather) * sceneDim, rimC = rgb (0x4a6a80) * sceneDim;
@@ -2693,7 +3588,8 @@ private:
                 continue;
             const bool perched = d.perch != 0 && d.hop >= 1.0f;
             const float hover = perched ? 0.0f : 0.06f * std::sin (time * 5.0f + (float) i * 2.0f);
-            const Xform at = place (d.pos + Vec3 { 0.0f, hover, 0.0f }, d.yaw, 2.8f * cast);
+            const Xform at = place (d.pos + Vec3 { 0.0f, hover, 0.0f }, d.yaw, 1.4f * cast);
+            addHot (Hot::fly, i, d.pos + Vec3 { 0.0f, 0.1f * cast, 0.0f }, 0.42f * cast, 0.34f * cast, 8.0f);
             r.limb (at.apply ({ -0.46f, 0.0f, 0.0f }), at.apply ({ -0.2f, 0.0f, 0.0f }), 0.022f, 0.032f, tip, 4, 0.2f);
             r.limb (at.apply ({ -0.2f, 0.0f, 0.0f }), at.apply ({ 0.04f, 0.0f, 0.0f }), 0.032f, 0.042f, tail, 5, 0.2f);
             r.blob (Xform::move ({ 0.08f, 0.0f, 0.0f }).then (at), 0.07f, 0.055f, 0.055f, body, 7, 4, 0.2f);
@@ -2747,9 +3643,25 @@ private:
         {
             if (b.t >= 1.0f)
                 continue;
+            if (b.feathers)
+            {
+                // A puff of feathers: out fast, then drifting down, rocking as they fall.
+                for (int i = 0; i < 7; ++i)
+                {
+                    const float a = b.seed + (float) i * 0.8976f, t = b.t, out = 1.0f - (1.0f - t) * (1.0f - t);
+                    const float spread = (0.7f + 0.35f * std::sin (a * 3.0f)) * b.size * out;
+                    const float yy = b.y + b.size * ((0.5f + 0.3f * std::cos (a * 2.0f)) * out - 0.85f * t * t);
+                    if (yy < 0.02f)
+                        continue;
+                    const float s = 0.085f * b.size * (1.0f - 0.35f * t);
+                    r.blob (Xform::rotZ (0.7f * std::sin (a + t * 9.0f)).then (Xform::rotY (a)).then (Xform::move ({ b.x + std::cos (a) * spread, yy, b.z + std::sin (a) * spread * 0.5f })),
+                            s * 1.5f, s * 0.35f, s * 0.7f, rgb (0xfffdf6), 5, 2, 0.5f);
+                }
+                continue;
+            }
             // Drops at least three pixels across, wherever the splash is.
             const auto p0 = r.project ({ b.x, 0.0f, b.z }), p1 = r.project ({ b.x + 1.0f, 0.0f, b.z });
-            const float minR = p0.ok && p1.ok ? 1.6f / std::max (1.0f, std::abs (p1.x - p0.x)) : 0.0f;
+            const float minR = p0.ok && p1.ok ? 1.6f * pp / std::max (1.0f, std::abs (p1.x - p0.x)) : 0.0f;
             for (int i = 0; i < 5; ++i)
             {
                 const float a = b.seed + (float) i * 1.2566f;
@@ -2776,7 +3688,7 @@ private:
                     ring (g.x, g.y, g.z, rad, g.colour, 0.8f * (1.0f - g.age), true, 0.5f);
                 }
                 else
-                    ring (g.x, g.y, g.z, rad, g.colour, (1.0f - g.age) * (g.flat ? 0.85f : 0.7f), g.flat);
+                    ring (g.x, g.y, g.z, rad, g.colour, (1.0f - g.age) * (g.flat ? 0.85f : 0.42f), g.flat);       // a honk's ring is faint
             }
     }
 
@@ -2787,13 +3699,15 @@ private:
         if (amount <= 0.0f)
             return;
         const int count = (int) (260.0f * amount);
-        const float fall = 2.6f, slant = 0.28f;
+        const float fall = 2.6f, slant = 0.28f, len = 11.0f * pp;
+        const int wide = std::max (1, (int) std::lround (pp));
         for (int i = 0; i < count; ++i)
         {
             const float fx = (float) i * 0.6180339f, fy = (float) i * 0.7548776f + rainPhase * fall * (0.85f + 0.3f * (float) (i % 5) / 4.0f);
-            const float y0 = (fy - std::floor (fy)) * ((float) r.height + 24.0f) - 12.0f;
-            const float x0 = (fx - std::floor (fx)) * ((float) r.width + 60.0f) - y0 * slant;
-            r.streak (x0, y0, x0 - 11.0f * slant, y0 + 11.0f, rgb (0xe8f2ff), 0.30f + 0.25f * amount);
+            const float y0 = (fy - std::floor (fy)) * ((float) r.height + 24.0f * pp) - 12.0f * pp;
+            const float x0 = (fx - std::floor (fx)) * ((float) r.width + 60.0f * pp) - y0 * slant;
+            for (int k = 0; k < wide; ++k)
+                r.streak (x0 + (float) k, y0, x0 + (float) k - len * slant, y0 + len, rgb (0xe8f2ff), 0.30f + 0.25f * amount);
         }
     }
 
@@ -2820,7 +3734,13 @@ private:
     WorldInput input;
     std::array<Goose, kMaxGeese> geese {};
     std::array<Ring, 28> rings {};
-    std::array<Burst, 6> bursts {};
+    std::array<Burst, 8> bursts {};
+    std::array<HotSpot, 24> hots {};               // where the mouse can find someone, as last drawn
+    int hotCount = 0;
+    Hot clicked = Hot::none;                       // a click waiting for the next step
+    int clickedIndex = 0;
+    std::array<TreeTop, kNumEdges> tops {};
+    Rgb moduleCol[kNumModules + 1] { rgb (0xb9a8e0), rgb (0xf2c14e), rgb (0xb7c468), rgb (0xf2946b), rgb (0x8fd0e2) };
     std::array<Turtle, 3> turtles {};
     std::array<Fly, 3> flies {};
     Keeper keeper;
@@ -2849,8 +3769,19 @@ private:
     int micVisits = 0;                             // how often a dragonfly has sat on the microphone since they came
     float washSlow = 0.0f, dam = 0.0f, damGoal = 0.0f, guardHold = 0.0f, asleep = 0.0f, keyHold = 0.0f;
     float honkiness = 0.0f, weather = 0.0f, windPhase = 0.0f, rainPhase = 0.0f;
-    int backdropAge = 0;
+    float backdropDue = 0.0f;                      // seconds until the backdrop is drawn afresh
     float backdropDim = -1.0f;
+    std::uint32_t backdropSig = 0;
+    float hush = 0.0f;                             // 1 = a range is in focus: everyone outside it holds still
+    float reedLife = 0.0f, gust = 1.0f;            // how much the reeds sway; a breeze crossing them (0..1, 1 = none)
+    float dabble = 1.0f, residentPhase = 0.0f;     // the goose out on the pond: tipping up to feed; where it has paddled to
+    int ringGoose = -1, lastActor = -1;            // the goose whose honks show as rings; who had the last piece of small business
+    bool swingHit = false;                         // this step, the pole came down
+    float axisWas[2] { 0.0f, 1.0f };
+    float pp = 1.0f;                               // the picture's pixels per point of the window
+    std::array<Cand, kMaxCands> cands {};          // notches that may yet bring a goose
+    float spawnCool = 0.0f;                        // seconds before the next goose may arrive
+    float silence = 0.0f;                          // seconds with no programme and nothing cut
 };
 
 } // namespace dehonk::scene

@@ -35,13 +35,17 @@ DeHonkLookAndFeel::DeHonkLookAndFeel (const Theme::Fonts& f) : fonts (f)
     setColour (juce::ComboBox::textColourId, toy::ink);
     setColour (juce::ComboBox::arrowColourId, toy::ink);
 
-    setColour (juce::PopupMenu::backgroundColourId, toy::paper);
+    // Transparent, so that a menu is not an opaque rectangle: drawPopupMenuBackground draws its card.
+    setColour (juce::PopupMenu::backgroundColourId, toy::paper.withAlpha (0.0f));
     setColour (juce::PopupMenu::textColourId, toy::ink);
     setColour (juce::PopupMenu::highlightedBackgroundColourId, toy::sunYellow);
     setColour (juce::PopupMenu::highlightedTextColourId, toy::ink);
     setColour (juce::PopupMenu::headerTextColourId, toy::ink);
 
-    setColour (juce::TextEditor::backgroundColourId, toy::paper);
+    // Transparent for the same reason: fillTextEditorBackground draws the box, with round corners.
+    setColour (juce::TextEditor::backgroundColourId, toy::paper.withAlpha (0.0f));
+    setColour (juce::Label::backgroundWhenEditingColourId, juce::Colours::transparentBlack);
+    setColour (juce::Label::outlineWhenEditingColourId, juce::Colours::transparentBlack);
     setColour (juce::TextEditor::textColourId, toy::ink);
     setColour (juce::TextEditor::outlineColourId, toy::ink);
     setColour (juce::TextEditor::focusedOutlineColourId, toy::ink);
@@ -52,6 +56,9 @@ DeHonkLookAndFeel::DeHonkLookAndFeel (const Theme::Fonts& f) : fonts (f)
     setColour (juce::AlertWindow::backgroundColourId, toy::paper);
     setColour (juce::AlertWindow::textColourId, toy::ink);
     setColour (juce::AlertWindow::outlineColourId, toy::ink);
+
+    setColour (juce::ScrollBar::thumbColourId, toy::ink);
+    setColour (juce::ScrollBar::trackColourId, juce::Colours::transparentBlack);
 
     setColour (juce::TooltipWindow::backgroundColourId, toy::paper);
     setColour (juce::TooltipWindow::textColourId, toy::ink);
@@ -117,9 +124,12 @@ juce::Slider::SliderLayout DeHonkLookAndFeel::getSliderLayout (juce::Slider& sli
     auto layout = juce::LookAndFeel_V4::getSliderLayout (slider);
     if (slider.getSliderStyle() == juce::Slider::LinearBar)
     {
-        // The value sits in the middle of the pill, over the fill.
+        // The value sits in the middle of the pill, over the fill. Its label covers the whole bar
+        // (JUCE hands the label's mouse events to the slider with the label's own coordinates, so a
+        // label inset from the bar would put every value to the left of the pointer); the text is
+        // kept clear of the pill's round ends by the label's border (see createSliderTextBox).
         layout.sliderBounds = slider.getLocalBounds();
-        layout.textBoxBounds = Toy::body (slider.getLocalBounds()).toNearestInt().reduced (10, 0);
+        layout.textBoxBounds = slider.getLocalBounds();
     }
     return layout;
 }
@@ -135,12 +145,45 @@ void DeHonkLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w
     }
 
     const auto r = Toy::body (slider.getLocalBounds(), slider.isMouseButtonDown());
-    const float t = (float) slider.valueToProportionOfLength (slider.getValue());
+    const auto& properties = slider.getProperties();
+    const bool enabled = slider.isEnabled();
+    float t = (float) slider.valueToProportionOfLength (slider.getValue());
+    if (const auto* shown = properties.getVarPointer ("shownProportion"))
+        t = juce::jlimit (0.0f, 1.0f, (float) (double) *shown);
     const float xv = r.getX() + t * r.getWidth();
-    const bool fromCentre = slider.getProperties().contains ("fromCentre");
+    const bool fromCentre = properties.contains ("fromCentre");
     const float x0 = fromCentre ? juce::jmin (xv, r.getCentreX()) : r.getX();
     const float x1 = fromCentre ? juce::jmax (xv, r.getCentreX()) : xv;
-    Toy::filledWell (g, r, toy::paper, toyColourOf (slider, toy::sunYellow), x0, x1, toy::outline);
+    auto fill = toyColourOf (slider, toy::sunYellow);
+    if (fill == toy::paper)
+        fill = toy::ink.withAlpha (0.16f);      // on a coloured ground: a paper well with a soft ink fill
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        if (! enabled)
+            g.setOpacity (0.55f);
+        // Filled from the centre, the fill's edge runs through the middle of the value: the value
+        // is drawn with a thin paper edge round each letter (see drawLabel), so the whole fill shows.
+        Toy::filledWell (g, r, enabled ? toy::paper : toy::paper.withAlpha (0.6f), enabled ? fill : toy::ink.withAlpha (0.12f), x0, x1, toy::outline);
+    }
+    if (slider.isMouseOverOrDragging() && enabled)
+    {
+        g.setColour (toy::ink);
+        g.drawRoundedRectangle (r, r.getHeight() * 0.5f, toy::outline + 0.5f);
+    }
+    drawFocus (g, slider, r, 100.0f);
+
+    if (const auto* lamp = properties.getVarPointer ("lamp"))
+    {
+        // A small round lamp inside the right-hand end of the pill: part of the control, not a button.
+        const float lit = juce::jlimit (0.0f, 1.0f, (float) (double) *lamp);
+        const float d = juce::jmin (10.0f, r.getHeight() - 8.0f);
+        const auto dot = juce::Rectangle<float> (d, d).withCentre ({ r.getRight() - r.getHeight() * 0.5f - 1.0f, r.getCentreY() });
+        const bool warn = (bool) properties["lampWarn"];
+        g.setColour (warn ? toy::jacketRed : lit > 0.0f ? toy::paper.interpolatedWith (toy::sunYellow, juce::jlimit (0.4f, 1.0f, lit)) : toy::paper);
+        g.fillEllipse (dot);
+        g.setColour (toy::ink.withAlpha (lit > 0.0f ? 1.0f : 0.45f));
+        g.drawEllipse (dot, 1.0f);
+    }
     juce::ignoreUnused (x, y, width, height, sliderPos);
 }
 
@@ -154,6 +197,11 @@ juce::Label* DeHonkLookAndFeel::createSliderTextBox (juce::Slider& slider)
     label->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     if (slider.getSliderStyle() != juce::Slider::LinearBar)
         label->getProperties().set ("pill", true);      // a knob's value sits on its own white pill
+    else
+    {
+        label->setBorderSize ({ 0, 6, 0, slider.getProperties().contains ("lamp") ? 16 : 6 });
+        label->setMinimumHorizontalScale (0.8f);
+    }
     return label;
 }
 
@@ -170,20 +218,45 @@ void DeHonkLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
     if (label.isBeingEdited())
         return;
 
-    g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.5f));
+    const auto colour = label.findColour (juce::Label::textColourId).withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.5f);
+    const auto border = label.getBorderSize();
+    const auto area = border.getLeftAndRight() > 8 ? border.subtractedFrom (label.getLocalBounds()) : label.getLocalBounds().reduced (4, 0);
+
+    // The value of a bar filled from the centre sits over the fill's edge: each letter gets a thin
+    // paper edge, so it reads on the fill and on the paper alike and the fill is not covered.
+    if (auto* bar = dynamic_cast<juce::Slider*> (label.getParentComponent());
+        bar != nullptr && bar->getSliderStyle() == juce::Slider::LinearBar && bar->getProperties().contains ("fromCentre"))
+    {
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (label.getFont(), label.getText(), (float) area.getX(), (float) area.getY(), (float) area.getWidth(), (float) area.getHeight(),
+                              label.getJustificationType(), 1, 0.8f);
+        juce::Path shape;
+        glyphs.createPath (shape);
+        g.setColour (toy::paper.withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.6f));
+        g.strokePath (shape, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (colour);
+        g.fillPath (shape);
+        return;
+    }
+
+    g.setColour (colour);
     g.setFont (label.getFont());
-    g.drawFittedText (label.getText(), label.getLocalBounds().reduced (4, 0), label.getJustificationType(), 1, 0.8f);
+    g.drawFittedText (label.getText(), area, label.getJustificationType(), 1, 0.8f);
 }
 
 //============================================================================== buttons
 void DeHonkLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour& colour, bool, bool isDown)
 {
+    if (button.getProperties().contains ("link"))
+        return;     // a line of text: see drawButtonText
+
     // Flat pills. On, or held down, a button turns to ink with pale text.
     const bool pressed = isDown || button.getToggleState();
     auto fill = button.getToggleState() ? button.findColour (juce::TextButton::buttonOnColourId) : (isDown ? toy::ink : colour);
     if (! button.isEnabled())
         fill = toy::cream;
-    Toy::pill (g, Toy::body (button.getLocalBounds(), pressed), fill, false);
+    Toy::pill (g, Toy::body (button.getLocalBounds(), pressed), fill, false,
+               button.isOver() && button.isEnabled() ? toy::outline + 0.5f : toy::outline);
     if (fill != toy::ink)
         drawFocus (g, button, Toy::body (button.getLocalBounds()), 100.0f);
 
@@ -191,13 +264,30 @@ void DeHonkLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
 
 juce::Font DeHonkLookAndFeel::getTextButtonFont (juce::TextButton& button, int buttonHeight)
 {
+    if (button.getProperties().contains ("link"))
+        return fonts.value (12.0f);
     if (button.getProperties().contains ("keepCase"))
-        return fonts.value (14.0f);
+        return fonts.value (juce::jlimit (12.0f, 14.0f, (float) button.getWidth() / 17.0f));
     return fonts.name (juce::jlimit (10.5f, 12.0f, (float) buttonHeight * 0.3f));
 }
 
-void DeHonkLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button, bool, bool isDown)
+void DeHonkLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button, bool isOver, bool isDown)
 {
+    if (button.getProperties().contains ("link"))
+    {
+        const auto font = getTextButtonFont (button, button.getHeight());
+        const auto area = button.getLocalBounds().toFloat().reduced (5.0f, 0.0f);
+        g.setFont (font);
+        g.setColour (toy::ink.withAlpha (isOver || isDown ? 1.0f : 0.75f));
+        g.drawText (button.getButtonText(), area, juce::Justification::centredLeft, false);
+        const float w = juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidth (font, button.getButtonText()));
+        g.setColour (toy::ink.withAlpha (isOver || isDown ? 1.0f : 0.35f));
+        g.fillRect (juce::Rectangle<float> (area.getX(), area.getCentreY() + font.getHeight() * 0.5f, w, 1.0f));
+        if (showFocus && button.hasKeyboardFocus (false))
+            drawFocus (g, button, button.getLocalBounds().toFloat().expanded (2.0f), 4.0f);
+        return;
+    }
+
     const bool pressed = isDown || button.getToggleState();
     const auto fill = button.getToggleState() ? button.findColour (juce::TextButton::buttonOnColourId)
                                               : (isDown ? toy::ink : button.findColour (juce::TextButton::buttonColourId));
@@ -239,9 +329,77 @@ juce::Font DeHonkLookAndFeel::getPopupMenuFont() { return fonts.value (13.0f); }
 
 void DeHonkLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, int height)
 {
-    g.fillAll (toy::paper);
+    // A rounded card, like everything else in the window.
+    const auto r = juce::Rectangle<int> (width, height).toFloat().reduced (toy::outline * 0.5f + 0.5f);
+    g.setColour (toy::paper);
+    g.fillRoundedRectangle (r, toy::cardCorner);
     g.setColour (toy::ink);
-    g.drawRect (0, 0, width, height, 1);
+    g.drawRoundedRectangle (r, toy::cardCorner, toy::outline);
+}
+
+juce::PopupMenu::Options DeHonkLookAndFeel::getOptionsForComboBoxPopupMenu (juce::ComboBox& box, juce::Label& label)
+{
+    // Inside the editor, so it is drawn by this look in every host and has no window frame.
+    auto options = juce::LookAndFeel_V4::getOptionsForComboBoxPopupMenu (box, label).withStandardItemHeight (26);
+    if (auto* editor = box.findParentComponentOfClass<juce::AudioProcessorEditor>())
+        options = options.withParentComponent (editor);
+    return options;
+}
+
+void DeHonkLookAndFeel::drawPopupMenuUpDownArrow (juce::Graphics& g, int width, int height, bool isScrollUpArrow)
+{
+    juce::Path chevron;
+    const float cx = (float) width * 0.5f, cy = (float) height * 0.5f, d = isScrollUpArrow ? -1.0f : 1.0f;
+    chevron.startNewSubPath (cx - 6.0f, cy - 2.5f * d);
+    chevron.lineTo (cx, cy + 2.5f * d);
+    chevron.lineTo (cx + 6.0f, cy - 2.5f * d);
+    g.setColour (toy::ink);
+    g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+//============================================================================== text boxes and scrollbars
+void DeHonkLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor)
+{
+    if (dynamic_cast<juce::Label*> (editor.getParentComponent()) != nullptr)
+    {
+        // A value being typed: a rounded paper box with the thin outline, like everything else here.
+        Toy::flat (g, juce::Rectangle<int> (width, height).toFloat().reduced (1.0f), 4.0f, toy::paper);
+        return;
+    }
+    const bool card = editor.getProperties().contains ("card");
+    const auto r = juce::Rectangle<int> (width, height).toFloat().reduced (toy::outline * 0.5f + 0.5f);
+    g.setColour (card ? toy::cream.withAlpha (0.6f) : toy::paper);
+    g.fillRoundedRectangle (r, card ? 8.0f : r.getHeight() * 0.5f);
+}
+
+void DeHonkLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor)
+{
+    if (dynamic_cast<juce::Label*> (editor.getParentComponent()) != nullptr)
+        return;
+    const bool card = editor.getProperties().contains ("card");
+    const auto r = juce::Rectangle<int> (width, height).toFloat().reduced (toy::outline * 0.5f + 0.5f);
+    const bool focused = editor.hasKeyboardFocus (true) && ! editor.isReadOnly();
+    g.setColour (toy::ink.withAlpha (card ? 0.7f : 1.0f));
+    g.drawRoundedRectangle (r, card ? 8.0f : r.getHeight() * 0.5f, focused ? toy::outline + 0.6f : toy::outline);
+}
+
+void DeHonkLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,
+                                       int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown)
+{
+    // A thin rail with a round ink thumb.
+    const auto area = juce::Rectangle<int> (x, y, width, height).toFloat();
+    const auto rail = isScrollbarVertical ? area.withSizeKeepingCentre (1.0f, area.getHeight() - 8.0f)
+                                          : area.withSizeKeepingCentre (area.getWidth() - 8.0f, 1.0f);
+    g.setColour (toy::ink.withAlpha (0.25f));
+    g.fillRect (rail);
+    if (thumbSize <= 0)
+        return;
+    const float thick = isMouseOver || isMouseDown ? 6.0f : 4.0f;
+    const auto thumb = isScrollbarVertical
+        ? juce::Rectangle<float> (area.getCentreX() - thick * 0.5f, (float) thumbStartPosition + 2.0f, thick, (float) thumbSize - 4.0f)
+        : juce::Rectangle<float> ((float) thumbStartPosition + 2.0f, area.getCentreY() - thick * 0.5f, (float) thumbSize - 4.0f, thick);
+    g.setColour (toy::ink.withAlpha (isMouseDown ? 1.0f : 0.75f));
+    g.fillRoundedRectangle (thumb, thick * 0.5f);
 }
 
 void DeHonkLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted,
@@ -254,7 +412,7 @@ void DeHonkLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectan
         return;
     }
 
-    const auto row = area.toFloat().reduced (5.0f, 1.5f);
+    const auto row = area.toFloat().reduced (4.0f, 2.0f);
     if (isHighlighted && isActive)
         Toy::flat (g, row, row.getHeight() * 0.5f, toy::sunYellow);
 

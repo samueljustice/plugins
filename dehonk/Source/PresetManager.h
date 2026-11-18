@@ -62,6 +62,7 @@ public:
     bool loadNext();
     bool loadPrevious();
     bool loadFactoryPresetForHost (int factoryIndex);
+    bool loadPresetFile (const juce::File& file);   // a preset file anywhere, as if picked from the list
 
     /** Saves the current values. Saving the current user preset under its own name writes back to
         its file; otherwise the file is named after the preset. */
@@ -121,7 +122,7 @@ private:
     std::atomic<int> applyDepth { 0 };
 
     int numParameters = 0;
-    int bypassIndex = -1;
+    std::unique_ptr<bool[]> inPreset;   // by parameter index: the parameter is part of a preset
     std::unique_ptr<std::atomic<float>[]> lastValues;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PresetManager)

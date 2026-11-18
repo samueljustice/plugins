@@ -1,43 +1,44 @@
 # De-Honk golden surround hashes (Tests/src/GoldenCases.h, runAllSurround), one "case hash" line each.
 # Architecture: x86_64. Compiler: Apple clang 21.0.0, Release (-O3), as Tests/CMakeLists.txt builds it.
 # Recorded from the core as it was before Max Cut, Release and Impact Guard became controls
-# (Tests/build/ref-dsp2/, the dehonk_golden_ref2 tool): 5.1 and 7.1.4, twelve settings at 48 kHz
+# (Tests/build/ref-dsp2/, the dehonk_golden_ref2 tool): 5.1 and 7.1.4, eleven settings at 48 kHz
 # and three at 44.1 and 96 kHz. At Max Cut 8 dB, the release the Speed control used to give and
 # Impact Guard 0 the current core must give exactly these: the golden_mono_stereo test fails if
 # this file, or any case in it, is missing or different. Replace it only on purpose.
-defaults_6ch_layout_48000 d25091b68fb12785
-always_all_modules_snap_depth1_6ch_layout_48000 00370c34c332eb55
-link50_sharp_fast_la5_6ch_layout_48000 2f18762ae05d85c7
-link0_snap_la20_6ch_layout_48000 ecfdd603cec36987
-solo_mix70_trim-3_6ch_layout_48000 47e52b465b775b59
-diff_6ch_layout_48000 bb5467f7d02648bf
-bypass_6ch_layout_48000 33f8d7bea2f02251
-mix40_trim6_detrend_6ch_layout_48000 477efe60f46d0980
-automation_6ch_layout_48000 66e46248557ca7b3
-key_6ch_layout_48000 79823581cb7ad441
-hostile_6ch_layout_48000 885f148b1ba3088c
-static_cuts_6ch_layout_48000 6db579a06ab3433d
-defaults_12ch_layout_48000 b3208f2504a4d5f3
-always_all_modules_snap_depth1_12ch_layout_48000 fa407791b9c7dc2a
-link50_sharp_fast_la5_12ch_layout_48000 8413057721e7692b
-link0_snap_la20_12ch_layout_48000 eb9a1d1d39c609d2
-solo_mix70_trim-3_12ch_layout_48000 89e0922a9f6b3b2b
-diff_12ch_layout_48000 b78314c0e208ebf8
-bypass_12ch_layout_48000 93960704a954089e
-mix40_trim6_detrend_12ch_layout_48000 a480b1d3d07f227a
-automation_12ch_layout_48000 cf59f6fac73863fb
-key_12ch_layout_48000 288c4620c18ae554
-hostile_12ch_layout_48000 609dfc4ee0035bfc
-static_cuts_12ch_layout_48000 5cba32ecb749d006
-defaults_6ch_layout_44100 2d92655959112b26
-always_all_modules_snap_depth1_6ch_layout_44100 d26edacbaf6b4579
-link50_sharp_fast_la5_6ch_layout_44100 44adead339409caf
-defaults_12ch_layout_44100 bd87a97f3a097ede
-always_all_modules_snap_depth1_12ch_layout_44100 f361ad4bf6dd5187
-link50_sharp_fast_la5_12ch_layout_44100 849ab4b2a89e011a
-defaults_6ch_layout_96000 c556f0b1fe725f76
-always_all_modules_snap_depth1_6ch_layout_96000 25904d708c46ef98
-link50_sharp_fast_la5_6ch_layout_96000 9686fd14ac4ce1c4
-defaults_12ch_layout_96000 393f665236a1b253
-always_all_modules_snap_depth1_12ch_layout_96000 350ff26a78bf9b5c
-link50_sharp_fast_la5_12ch_layout_96000 fb1de530da683f7c
+# Recorded again from that same core on 18 November 2026, when Diff's cross-fade and level match
+# changed (SPEC 13.17): the cases no longer engage Diff ("diff" is gone and "automation" does not
+# switch it) and the hash no longer takes in DisplayFrame::diffOffsetDb. Everything else is as it was.
+defaults_6ch_layout_48000 41e00e3bc369b967
+always_all_modules_snap_depth1_6ch_layout_48000 bc8c32f9d4d2b6c5
+link50_sharp_fast_la5_6ch_layout_48000 7874ffe743eb2afa
+link0_snap_la20_6ch_layout_48000 690fdb56cf04f5bf
+solo_mix70_trim-3_6ch_layout_48000 7d7a91fd1672394d
+bypass_6ch_layout_48000 95133e4f07fed735
+mix40_trim6_detrend_6ch_layout_48000 cd499a1113e050f5
+automation_6ch_layout_48000 aad9b81ed8e10fce
+key_6ch_layout_48000 1446af0eae7660b1
+hostile_6ch_layout_48000 aa8957b00c706803
+static_cuts_6ch_layout_48000 d34261ad6e48edc1
+defaults_12ch_layout_48000 2941a9934d3bc227
+always_all_modules_snap_depth1_12ch_layout_48000 1971b064623cf4f4
+link50_sharp_fast_la5_12ch_layout_48000 0b32253338d6916e
+link0_snap_la20_12ch_layout_48000 92b573c0f8f2b6b3
+solo_mix70_trim-3_12ch_layout_48000 021d9600f6d8418b
+bypass_12ch_layout_48000 91b20a505953ea57
+mix40_trim6_detrend_12ch_layout_48000 467176dcbb07e98e
+automation_12ch_layout_48000 adfc4a943192f443
+key_12ch_layout_48000 32ff3f82433734e3
+hostile_12ch_layout_48000 537dd3ddfbce1cf5
+static_cuts_12ch_layout_48000 c03e6899fdfab539
+defaults_6ch_layout_44100 98c8b440aa053a6c
+always_all_modules_snap_depth1_6ch_layout_44100 6c719be7aad9d849
+link50_sharp_fast_la5_6ch_layout_44100 7ddffd0864b0651e
+defaults_12ch_layout_44100 6926e42f23a68d0e
+always_all_modules_snap_depth1_12ch_layout_44100 a4a2b1a075e3df1b
+link50_sharp_fast_la5_12ch_layout_44100 b210f6d928cc8c27
+defaults_6ch_layout_96000 cbf64624c2ebc17b
+always_all_modules_snap_depth1_6ch_layout_96000 94f51810d46980ca
+link50_sharp_fast_la5_6ch_layout_96000 3d8fad599f825b95
+defaults_12ch_layout_96000 d0ae4b5ab2bb5f03
+always_all_modules_snap_depth1_12ch_layout_96000 982445fb92b6c274
+link50_sharp_fast_la5_12ch_layout_96000 42efa03d80c5222f

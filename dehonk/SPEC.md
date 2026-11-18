@@ -173,7 +173,7 @@ The goose makes no sound. Nothing it does is added to the audio.
 
 `juce::OpenGLContext` on the scene component, the same approach as Subbertone's waveform visualiser. The goose is built from separate parts (body, neck segments, head, beak, wings, legs, feet) positioned procedurally each frame, so the walk cycle, neck stretch and wing spread are driven by continuous values from the audio, not picked from fixed animation frames. Reeds and honk rings are instanced quads with a small fragment shader each.
 
-The audio thread writes band levels and band cuts into a lock-free FIFO about 30 times a second, and only while an editor is open. The UI thread reads the latest frame and eases towards it. No locks, no allocation on the audio thread.
+The audio thread writes band levels and band cuts into a lock-free ring 60 times a second, and only while an editor is open. Each slot is a sequence lock (a stamp before and after, the frame kept as atomic words), so any number of windows read it, each from its own place, and each sees every frame; a reader that falls a ring's length behind skips the oldest. The UI thread reads the latest frames and eases towards them. No locks, no allocation on the audio thread.
 
 If an OpenGL context cannot be created, the scene falls back to a software-painted spectrum and gain-reduction display with a still goose.
 
@@ -917,3 +917,304 @@ What it will not tell apart: a bright, full chord or a stab starting hard out of
 **Cost.** Percent of one core at 48 kHz, 512-sample blocks, on a loud minute of one reference mix, the lowest of twenty passes each, old and new built and run side by side: stereo 0.41% before the controls and 0.37% now at the defaults (0.36% at the old settings, 0.37% with the guard off); 7.1.4 0.87% and 0.88% (0.86%, 0.87%). The guard's detector and what it does add about 1%. Heaviest (all four modules, unlinked, always acting): stereo 0.85% and 0.87%, 7.1.4 4.03% and 4.23%. The first version was 0.45%, 0.96% and 5.16%: its slow hand-over kept more filters running.
 
 **Tests.** `max_cut_is_a_ceiling`, `release_time` and `impact_guard` are new, each in mono, stereo, 5.1 and 7.1.4; `golden_defaults` is new. After the review: `impact_guard` and `impacts_keep_body_tail_front` check the audio and not only the display, and fail with the guard taken out of the filters; `release_time` checks the whole time from the tone stopping, and that every notch is shut within half a second under the Threshold at any Release; `notch_count` bounds the number of filters running; `noise_is_left_alone` holds the figures from before the controls as a ceiling; the click limits for Max Cut and Impact Guard are -50 dB, where taking their smoothing out is noticed; `golden_defaults` checks that its cases cut, reach Max Cut and bring the guard up, and hashes the guard's reading. 46 tests, 43 pass. The three that fail: `noise_is_left_alone` (its own limits, as before), `automation_clicks` (switching Diff, as before), and `solo_honk_identity` (Diff's level against the treated signal over 3 s: 0.109 dB against a limit of 0.1; it failed before the controls, passed the first version by 0.002 dB, and nothing in Diff has changed).
+
+### 13.17 Dialogue sidechain, each range's own timing, link modes, and Diff's switch (18 November 2026)
+
+Three additions asked for after the first test build, and two faults in Diff put right.
+
+**What has not changed.** With Dialogue off, every range's timing locked, Link at Linked or Unlinked and Diff not engaged, the core gives the samples and the display frames it gave before, bit for bit. The core as it was the day before was kept (`Tests/build/ref-dsp3`) and run beside the new one on the golden cases: 100 renders at its own defaults, 100 at the settings that stand for the older cores, and 124 at the plug-in's defaults with the cases that reach Max Cut and bring the guard up: mono, stereo, 5.1 and 7.1.4, with Link at 0, 30, 50 and 100% and swept. All 324 are the same, on arm64 and on x86_64. The proofs against the two older cores still hold (`golden_mono_stereo`).
+
+Two things were left out of those comparisons because they changed on purpose: anything with Diff engaged, and the offset Diff reports in each frame. So the stored hashes were recorded again, deliberately:
+
+- `golden_ref_*` and `golden_surround_*` (the two older cores): from those same cores, with the "diff" case dropped, "automation" no longer switching Diff, and the offset out of the hash. Before that, each old core was built with the cases as they were and gave the old file exactly (72 of 72, both architectures), so they are the cores the files came from.
+- `golden_defaults_*` (the current core): recorded again, now with two Diff cases and the offset in the hash. Every one of its hashes differs from the day before's because the offset is in every frame; the renders without Diff are the 124 above.
+
+#### Dialogue sidechain
+
+The plug-in has a second input, and a switch, Dialogue. Feed the dialogue stem to the sidechain and switch it on: De-Honk then knows what in the mix is the voice and leaves it alone. Latency stays at zero. The key is taken in time with the mix, as the host delivers it.
+
+How it works. The key goes through the same low-pass, decimator and 1/12-octave band bank as a channel of the mix, with the same smoothing, so the two are in step. Every millisecond, per band, the key's power is set against the power the detector is working from (the louder channel per band when linked, a group's when grouped, a channel's own when unlinked):
+
+- Dialogue 9 dB or more under the band: the band is treated as ever. Build-up that stands well over the voice is still cut while the voice is in it.
+- Dialogue within 3 dB of the band (half its power or more): the band is the dialogue's. Nothing is asked for there, so it is not chosen for a notch and does not use up one of its range's two notches, and a notch already open there is eased off.
+- In between, in proportion (a smooth ramp on the power ratio: about a quarter at 6 dB under, two thirds at 4.5 dB).
+- A notch is about two bands wide, so a band next to one that is the dialogue's is left alone by half as much.
+- A band is handed to the dialogue over 15 ms and taken back over 250 ms, so the gaps between words do not pump the notch in and out. When the voice has gone the cut on what is left returns at the usual attack.
+- Dialogue Amount (0 to 100%, default 100%) is how far a band that is all dialogue is left alone: at 50% half the cut stays.
+
+Nothing else changes: what a band is compared with, the Threshold and the impact guard see the mix as they always do. So with the key in, the cut elsewhere is what it would have been, less what the rules above take off next to the voice and just after it.
+
+(Superseded the same day: see 13.18, where the level is measured.) The comparison needs the key at the level the dialogue has in the mix. A key that arrives louder is turned down to fit, by up to 12 dB: the dialogue cannot be more than the mix it is part of, so over the bands the dialogue is strongest in (within 15 dB of its loudest), the lowest the mix stands against the key (the lowest tenth of those bands, on 250 ms averages) is how far the key is over. It goes down over half a second and comes back over ten. This matters in practice: a stereo stem sent to a mono key input arrives 6 dB up for a voice in the middle. It only ever turns the key down. A key that arrives quieter than the dialogue is in the mix is taken as it is, and protects less (see the figures); turning a quiet key up by the same reasoning would hand bands to a voice that is hardly there in a dense passage.
+
+The constants (`dehonk::Tuning`): `dialogueStartDb` -9, `dialogueFullDb` -3, `dialogueSpread` 0.5, `dialogueAttackMs` 15, `dialogueReleaseMs` 250, `dialogueTrimMaxDb` 12, `dialogueTrimFallMs` 500, `dialogueTrimRiseSeconds` 10. The first two channels of the key are listened to, and a band counts as the dialogue's if it is in either.
+
+Measured on the studio library (13.14): all 47 mixes with their DX stems, 1 h 46 min, the stereo mix through the plug-in at its defaults (Threshold -16 dBFS, Tub and Fog) with the stereo DX stem as the key (`dehonk_dialogue`, `tools/dialogue_library.sh`). Every band of every frame in the two ranges was sorted by how the stem stands against the mix there, from renders without the key: the dialogue's (stem within 3 dB of the mix), not dialogue (12 dB or more under), mixed. At the median 11% of them are the dialogue's (1 to 42% by mix). 34 of the 47 mixes have a cut open (half a dB or more) in a band that is the dialogue's at some point; the figures are over those, mean of the mixes.
+
+| | No key | Keyed |
+|---|---|---|
+| Bands that are the dialogue's, where a cut was open | 1.61 dB | 0.047 dB (2% left at the median, 12% on the worst mix) |
+| The deepest cut in any band that is the dialogue's, per frame | 0.36 dB | 0.013 dB |
+| Mixed bands | 0.031 dB | 0.007 dB |
+| Bands that are not dialogue, where a cut was open | 2.33 dB | 2.20 dB (96% kept at the median, 80% on the worst mix) |
+| The key's trim | | -0.3 dB at the median (39 of 43 mixes with speech within 1 dB of 0; one at -4.3) |
+
+The 4% given up outside the dialogue is the half share next to a dialogue band and the quarter of a second after the voice.
+
+The same with other things changed:
+
+- The stem's two channels added into a mono key (6 dB hot): 1.61 to 0.040 dB on the dialogue's bands, 2.33 to 2.19 dB on the others. The trim reads -5.6 dB at the median, within 1.5 dB of -6 on 34 of 43 mixes (-8.2 to -2.4 over all of them), so a hot key does as well as a true one.
+- Always acting, all four ranges on (45 mixes with a cut in a dialogue band): 2.24 to 0.063 dB on the dialogue's bands, and the deepest cut in one, per frame, 1.69 to 0.066 dB; 2.78 to 2.55 dB on the others (93% kept at the median).
+- Dialogue Amount 50%: 1.61 to 0.75 dB (47% left at the median).
+- The key 6 dB quieter than the dialogue is in the mix: 1.61 to 0.79 dB. Half of the protection is lost. The stem should be sent at the level it has in the mix, or hotter.
+
+What it cannot do. It compares powers, not waveforms, so it does not know which channel the voice is in. Unlinked or grouped in surround, a channel with no dialogue in it has its notch eased too while the voice (in the centre) is strong in that band; the cut comes back when the voice leaves. And a mix that has passed through something that changes the dialogue's level by band before De-Honk (heavy bus processing) is compared less exactly; the 3 dB of tolerance is for that.
+
+Buses and hosts. The processor has two input buses: the main one, and "Dialogue", mono by default, which may also be stereo or off. The main input and output still have to be the same layout, mono to 7.1.4.
+
+- Pro Tools (AAX): JUCE's wrapper offers a key input only for a mono second input bus, in the layout it settles on from the defaults, and lets the host switch it off if the plug-in also takes the bus disabled. Both hold (checked by `DeHonkHostCheck` with the wrapper's own rules, for every stem format), so the plug-in shows the key input selector, mono, on every track width. The AAX build was not made or run for this change.
+- VST3: the bus is an auxiliary input; hosts show it as a sidechain, mono by default, stereo if the host asks.
+- AU: a second input element; Logic shows it in the Side Chain menu. Not built here (VST3 and the standalone app were).
+- The standalone app has no sidechain and ignores the bus.
+
+With Dialogue on and nothing connected, or silence on the key, the output is bit-identical to no key. The key's channels are only read. `DisplayFrame::keyed` is true while the dialogue is being listened for, `keyDb` is the key's level, `dialogue[band]` (0 to 1) is how far each band is being left to the dialogue, and `dialogueTrimDb` is the trim. The processor's `isSidechainConnected()` says whether the host has the bus on.
+
+The switch that was already in the core (`Params::keyOn`: the Threshold listens to the key's level instead of the mix's) is still there and still not reached by any control.
+
+#### Each range's own timing
+
+Woof, Tub, Fog and Bark each have a lock, an attack and a release. Locked, which is the default, a range follows Speed and Release exactly as before. Unlocked, its notches go in over its own attack (2 to 100 ms; Speed covers 40 ms at Slow down to 5 ms at Fast) and let go over its own release (50 ms to 1.5 s, as Release). The three cases of 13.16 where a notch goes faster than its release apply to an unlocked range as to any other, against its own release. The Threshold opening the cut still follows Speed, and closing it still takes 40 ms. Snap keeps its own fixed timing.
+
+Measured (`range_timing`, mono, stereo, 5.1 and 7.1.4): with Release at 150 ms and Fog unlocked at 1000 ms, Fog's notch falls with a time constant of 999.9 ms and Tub's with 150.0 ms. Fog's notch is at half depth 30 ms or more later with its attack at 100 ms, and sooner at 2 ms, than locked, while Tub's does not move. Locked, with other values set, the output is bit-identical to the defaults.
+
+#### Link modes
+
+The Link percentage is gone. Link is a choice:
+
+- **Linked** (default): every channel shares one detection and gets the same notches, so the image does not move. What Link 100% was.
+- **Grouped**: the front left and right, the centre, the surrounds and the heights each share within their group. The wides and inner fronts count with the front pair, rear and side surrounds and a rear centre together as the surrounds, every overhead speaker as a height. With one or two channels it is the same as Linked.
+- **Unlinked**: each channel on its own. What Link 0% was.
+
+The Threshold reads the whole mix's level in every mode, and Snap's detector is shared, as before. Checked (`link_modes`): Unlinked is bit-identical to what Link 0% was; in 5.1, 7.1.4, 7.0.2 and LCR each group comes out bit for bit as its channels do on their own in a linked instance; the LFE is untouched; switching modes while it plays does not click.
+
+A session or a user preset from the first test build still has "link" as a percentage. It is read as Linked from 50% up and Unlinked below, and the parameters that build did not have take their defaults (`DeHonkHostCheck` restores such a state). The in-between percentages, which shared part of the detection, are no longer reachable from the window; the core keeps the value (`Params::link`) for the proof above.
+
+#### Diff
+
+Two faults from 13.16's list.
+
+- *Switching it clicked.* Diff plays the untreated signal turned down to the treated one's loudness, and it used to move there with the 5 ms smoothing every output mode uses: a change of several dB in 5 ms. It is now a cross-fade of its own, 80 ms long, along a curve that starts and ends at rest and has no corner in it even when Diff is switched again half-way (a cubic from where the fade is, at the speed it has). The two signals are faded with gains that add up to one: they are the same signal but for the notches, and gains that kept the power constant, as for unrelated signals, would lift the level 3 dB half-way. `automation_clicks`: -52 dB against a limit of -40 (it was -24), -48 dB switched every 60 ms.
+- *The level match was 0.108 dB out over the last 3 s of the test, against a limit of 0.1.* The match compares the loudness of treated and untreated over about 3 s. It did so with a running average whose time constant was 3 s, which looks back further than a 3 s window does. The time constant is now half of that (the average age of what it weighs is then that of a 3 s window), and the gain it applies moves over 50 ms. The test reads 0.086 dB. That is inside the limit without much room: on that signal the treated level moves by 0.3 dB from second to second, any running measure lags a plain mean of the last 3 s, and the reading does not fall steadily as the time is shortened (0.101 dB at 2 s, 0.049 at 1.5 s, 0.082 at 1 s). Over the whole settled stretch the two agree within 0.02 dB.
+
+Bypass still wins over Diff, and Diff over Solo Honk. Neither test was changed.
+
+#### Parameters
+
+Added at the end of the host's list, except Link, whose mode took the place of the percentage (same position, new ID). IDs are for sessions, presets and automation.
+
+| ID | Name | Values | Default |
+|---|---|---|---|
+| `linkMode` | Link | Linked, Grouped, Unlinked (0, 1, 2) | Linked |
+| `dialogue` | Dialogue | Off, On | Off |
+| `dialogueAmount` | Dialogue Amount | 0 to 100%, whole percent | 100% |
+| `woofTimingLocked`, `tubTimingLocked`, `fogTimingLocked`, `barkTimingLocked` | (range) Timing Locked | Off, On | On |
+| `woofAttack`, `tubAttack`, `fogAttack`, `barkAttack` | (range) Attack | 2 to 100 ms, logarithmic; tenths up to 10 ms, then whole | 14 ms |
+| `woofRelease`, `tubRelease`, `fogRelease`, `barkRelease` | (range) Release | 50 to 1500 ms, as Release | 400 ms |
+
+`link` is no longer a parameter. The state version is 2. The factory presets leave every range locked and Link at Linked; one is new, "Master bus, dialogue keyed" (the defaults with Dialogue on).
+
+In the window so far only the Link bar has changed (it steps through the three modes). Dialogue, its Amount and the ranges' timing have no controls yet; that belongs to the window's restyle.
+
+#### Cost
+
+Percent of one core at 48 kHz, the better of 128 and 1024-sample blocks, 20 s (`surround_cpu`), old and new run on the same machine one after the other. Defaults: stereo 0.36% before and 0.36% now, 7.1.4 0.85% and 0.85%. All four ranges and Snap, always acting, linked: stereo 0.64% and 0.64%, 7.1.4 1.18% and 1.22%; unlinked: 0.88% and 0.85%, 3.77% and 3.84%. These are within what one run differs from the next. New settings: Dialogue on with a loud key adds about 0.05 points in stereo (0.42%) and 0.10 in 7.1.4 (0.95%), which is the key's own analysis; every range unlocked costs nothing measurable (0.37%, 0.87%); Grouped with everything on in 7.1.4 is 2.25%, between linked (1.22%) and unlinked (3.84%), since it runs four detectors and the notches channel by channel.
+
+#### Tests
+
+Three new tests, each at 1, 2, 6 and 12 channels: `link_modes`, `range_timing` and `dialogue_sidechain` (the mechanics on made-up signals: the dialogue's band keeps under 0.1 dB of cut and is let go within 100 ms, a tone 15 dB over the dialogue keeps its cut, the mix's own tone is cut again once the dialogue has left, a key 6 dB hot is trimmed, a hostile key does no harm, nothing clicks). `automation_clicks` also switches Diff inside its own cross-fade and with Mix moving, steps the link mode and sweeps the ranges' timing. `no_allocation_in_process` changes the new parameters and runs with and without a key. `DeHonkHostCheck` covers the sidechain bus and the old state. 49 tests, 48 pass. `automation_clicks` and `solo_honk_identity` pass now. The one that fails is `noise_is_left_alone`, on its own limits, as before (13.15, 13.16); nothing here touches it.
+
+Not done: no AAX or AU build, so the key input has not been seen in Pro Tools or Logic; no listening. The figures say the cut leaves the dialogue's bands and stays elsewhere, not how that sounds.
+
+### 13.18 After review of 13.17 and of the window (18 November 2026, later the same day)
+
+A review of the second test build before it went out found the things below. Each was put right the same day. Where this section and 13.17 disagree, this one stands; in particular the "level trim" of 13.17 (the key turned down, never up, from the lowest tenth of mix over key) is gone.
+
+**What has not changed.** With Dialogue off, every range's timing locked and Diff not engaged, the core still gives what the core of 17 November gave: the same three comparisons as in 13.17 (`dehonk_golden_ref3` against `dehonk_golden`: 100 renders at the core's defaults, 100 at the compatibility settings, 124 at the plug-in's defaults), 324 of 324 bit-identical on arm64 and on x86_64. `golden_defaults_*` was recorded again, because the offset Diff reports is in every frame and is worked out differently now (7 of its 140 hashes, the ones with no cut, did not move). `golden_ref_*` and `golden_surround_*` were not touched.
+
+#### The dialogue's level is measured, not assumed
+
+The review found that a key arriving quieter than the dialogue is in the mix lost its protection with nothing to show for it (about half at 6 dB under, nearly all at 12), that a key more than 12 dB hot, or the wrong stem, switched De-Honk off elsewhere, that a key out of time was read as a hot one, and that in surround with Link at Grouped or Unlinked a channel with no dialogue lost up to a third of its cut while the centre spoke.
+
+All four come from comparing powers. The key is now looked for in each channel of the mix. Every band of the bank gives its output (the channel's and the key's) and, for the key, the same output a quarter of a cycle behind (the band-pass's own low-pass output). The products of a channel's output with the key's two are averaged over half a second (`dialogueGainMs` 500) of the time the key was playing; they wait unchanged through its pauses. What the two share in a band, R squared plus I squared, does not depend on what else is in the band, nor on a delay of a few milliseconds between them, nor on polarity. Summed over the bands, less what two unrelated signals share by chance, and divided by the key's own power squared, it is the gain (as power) the dialogue has in that channel:
+
+- The chance level per band is K x M / (1 + 4 x T x 0.0578 f), K and M the key's and the channel's power there, T the averaging time. The 4 was measured with unrelated pink noise on mix and key (3.3 to 5.8 across the bands; with a steady tone in the mix the band it is in reads about twice the model).
+- Eight delays from 0 to 45 ms are tried, each with what it would leave of the shared part in every band ((1 + x) e^-x in amplitude, x = pi x one filter section's width x the delay), and the one that leaves the least unexplained gives the gain. So a key up to about 20 ms out of time is still read at close to its level.
+- The gain is held between -40 and +18 dB (`dialogueTrimMinDb`, `dialogueTrimMaxDb`) and followed in dB.
+- The key counts as found in a channel when the shared part is `dialogueMatchRatio` (4) times the chance level over it. While it is found the gain follows the measurement. While it is not, the gain follows the measurement down only if the key would show at the gain it is held at (so a channel the dialogue is not in goes to nothing), and otherwise stays (the dialogue is covered by a loud passage: nothing can be told).
+- Until the key has been found in some channel (the first half second of dialogue after `prepare()`, or a key that is not in the mix or is far out of time) it is taken at the level it arrives at, as before. Once found, the gains are kept through `reset()` and through the key being switched: they are how the session is routed, not audio that has gone by.
+
+The dialogue's power in a channel is then that gain times the key's band power, and the rest of 13.17 (start and full at -9 and -3 dB, the spread, the 15 and 250 ms) is as it was. Linked, the most of any channel is set against the loudest channel; Grouped and Unlinked, each group or channel has its own, so a surround with no dialogue in it keeps its cut.
+
+`DisplayFrame` has `dialogueTrimDb` (the gain the key is taken at, now either way), `keyMatch` (0 to 1: how surely the key has been found), `keyOver` (the key is nearly everything in most of the bands it is in and has been for `dialogueOverSeconds`, or its gain is at an end of its range) and `snapDialogue`. The window's Dialogue lamp turns red while `keyOver` is set, or while the key is playing and has not been found for two and a half seconds.
+
+Measured (`tools/dialogue_library.sh`, all 47 sets, plug-in defaults; the 36 mixes with a cut open in a dialogue band):
+
+| | No key | Key at mix level | 12 dB quiet | Stereo stem summed to mono |
+|---|---|---|---|---|
+| Dialogue bands where a cut was open | 1.59 dB | 0.055 dB (2% left at the median, 21% on the worst mix) | 0.119 dB (4%, 53%) | 0.065 dB (2%, 28%) |
+| Other bands where a cut was open | 2.34 dB | 2.20 dB (96% kept at the median, 81% on the worst) | 2.21 dB | 2.21 dB |
+| The gain the key was taken at (median of the mixes' medians) | | +0.1 dB | +12.1 dB | -4.8 dB |
+
+And on six of the mixes with the key as it should not be (`dehonk_realmix key`, through `tools/realmix_library.sh`): 1 ms late changes nothing; 5 ms late leaves 0.11 dB where the aligned key leaves 0.07 (one mix); 20 ms late leaves 0.13 to 0.60 dB of 1.95 to 2.44; 100 ms and more is not found and falls back to the level it arrives at (0.2 to 1.1 dB left). 12 and 24 dB hot are read as -12.4 and -24.4 dB and leave the other bands their cut (2.30 of 2.32 dB at +24, where the trim of 13.17 left 1.96 of 2.72). Another mix's stem on the key is never found (0.00) and is taken at its own level. The mix itself on the key takes every cut off, as it must, and is flagged 97 to 100% of the time; the mix without its dialogue is flagged only about a fifth of the time (while the dialogue speaks it is not most of the mix), so that mistake is caught late.
+
+Cost: dialogue keyed is now 0.51% of a core in stereo and 1.48% in 7.1.4 at 48 kHz (0.42 and 0.95 before).
+
+#### Snap and the dialogue
+
+Snap did not hear the key at all, and cut consonants: with Snap on, 8 to 24% of the 20 ms windows from 1.8 to 3.5 kHz that were mostly dialogue had a cut of 1 dB or more, against 4 to 10% of the windows with none. The key (its first two channels folded to one, through the same lookahead delay as the channels) now goes through Snap's own band filter. Its power there and the mix's are followed with 1 ms up and 50 ms down (`snapDialogueAttackMs`, `snapDialogueReleaseMs`), the key's is scaled by the gain the dialogue has in what Snap listens to, and the same ramp as for a band (start -9 dB, full -3 dB) takes Dialogue Amount times that share off Snap's cut. No latency. With the key: 0.1 to 1.5% of the dialogue windows, and the windows without dialogue as before (`dehonk_realmix snap`).
+
+#### Diff's level match
+
+The review measured Diff against the treated output on real mixes: 0.2 to 0.6 dB out over 3 s windows, with the gain moving at up to 3.5 dB a second after the averaging time had been halved to pass the test. The match is now the ratio of the two levels (each over 0.3 s) in dB, averaged with `diffMatchSeconds` (4 s), every moment counting alike, held while the programme is under the Threshold, and kept with its own weight so that it is right from the first moment. On six mixes, all ranges on, Depth 80% (`dehonk_realmix diff`): over 3 s windows Diff is 0.12 to 0.23 dB from the treated output on average and 0.27 to 0.81 dB at worst; the gain moves at 0.25 to 0.5 dB a second at most. The cut on a real mix moves faster than a steady gain can follow, so no setting gives the 0.1 dB the generated signal gives; a shorter time (1.5 s) matches no better on these mixes and moves twice as fast. `solo_honk_identity` passes with its limit untouched (0.04 dB against 0.1), but its reading still jumps about as the time constant is changed, so it says little on its own.
+
+#### The plug-in's parameters and the hosts
+
+JUCE's AU wrapper orders parameters by version hint and then by a hash of the ID. Everything added since the first test build now carries hint 2 (`ParamIDs::versionHintSecond`), and `link` is a parameter again, in its old place, doing nothing: not automatable, left out of presets, set back to its default on load. So the 22 parameters of the first test build keep the indices Logic and GarageBand address them by. `DeHonkHostCheck` checks the hints, and restores seven states that the first test build itself saved (`Tests/host/FirstBuildStates.h`: one on each of its factory presets, "After RBass" among them, one on its "User preset" entry and one with settings moved).
+
+Display frames are written a sixtieth of a second of audio apart whatever the host's buffer (the block is cut where one falls due and the remainder is kept), and the window takes them one at a time, leaving up to a buffer's worth waiting, so that a large buffer does not show as steps.
+
+Still to be seen in a host: the key input in Pro Tools and Logic. JUCE's AAX wrapper silences the output until the message thread has re-prepared the plug-in when a key connects or disconnects on a plug-in whose sidechain bus may be switched off; the README says to choose the key with the transport stopped. If that is a nuisance in practice, refusing a disabled sidechain bus under AAX avoids it.
+
+#### The pond and the window
+
+- Geese: on real mixes they came and went 59 to 98 times a minute at the defaults. A notch must now have been 1.5 dB deep for half a second (a sixth of a second from 3 dB) before a goose comes for it; a goose keeps its notch down to 0.6 dB, waits 2 to 3 s for one that has closed, and stays 3 s at least; arrivals are 2 s apart; at most five on the bank and two to a range, a much deeper notch sending the shallowest goose in its way off. Measured on four mixes with the real processor's frames (`.wip/pondcheck/beh`): 8 to 13 arrivals a minute at the defaults and 22 to 27 with everything on; the recordist changes goose 2 to 6 and 3 to 10 times a minute.
+- With a range in focus, nothing comes for a notch outside it and the geese outside it are not looked for, do not wait, walk or leave. Measured: no arrivals out of focus, none of them moving.
+- The recordist turns before he sets off (he does not move until his body is within sixty degrees of the way he is going) and only a shuffle of half a pace is taken facing the goose. At work he stands further round to the side.
+- The weather needs cuts near the ceiling in several places to turn, clears quickly in silence, and greys the characters by no more than 30%. Those out of focus fade 38% towards the paper.
+- The scene is drawn at the display's resolution (twice over and averaged down on a display of one pixel to the point), within 1.6 million pixels, and one step more coarsely if a picture takes over 7 ms on average on the machine. In the 960 by 800 window on a 2x display: 2.0 ms a picture on average, 5.6 at worst, 60 pictures a second.
+- The pond's frequency axis is laid over the band view's plot, so each tree and post stands over its edge handle.
+- In the band view a handle moves from where it was (it used to jump to the pointer, by up to 10 dB for the Threshold), Shift moves it a tenth as far, the Threshold shows red from the moment the mix is over it, and the ranges' names are drawn over the cuts.
+- A bar's value is where the pointer is (the value's label was inset, which put every value about 11 points to the left).
+
+
+### 13.19 Detection: Fast and Steady, and Diff's level match again (18 November 2026, later still)
+
+The detection trials (baseline fitting, morphological filtering, pole pulling) agreed on one thing that helps: a narrow peak should be averaged over half a second to a second before it is believed. Two of them added a second: a lift that is wide along the spectrum is not a peak. The owner chose to add these as a switch, Detection, with Fast (as before) and Steady. The trials also showed that no detector tells the honky mixes from the library ones, so Steady is offered as a choice of behaviour, not as better detection.
+
+#### What Steady does
+
+Only the detector's input changes. The notches, their attack and release, the parent rule, the Threshold, the impact guard and the dialogue sidechain work as they do at Fast.
+
+- Each band's power (per detector: the shared one when linked, a group's or a channel's otherwise) is smoothed over `steadySmoothMs` (50 ms). Its level in dB then follows that with `steadyRiseMs` (1000 ms) going up and `steadyFallMs` (400 ms) going down: the steady level. A band is never taken as more than 70 dB under the loudest.
+- The excess over the surroundings (the centre-surround ring of section 3, Sharpness as before) is taken on the steady levels, not on the levels now.
+- A floor is drawn under the steady spectrum: each band is brought down to the mean of the two bands m away, if that is lower, for m = 1, 2, 3 in turn (`steadyLumpBands` 3, a quarter of an octave; SNIP clipping). The excess used is the smaller of the ring's excess and the band's height over that floor plus `steadyLumpMarginDb` (1 dB). With the 3 dB dead zone a band must stand 2 dB over the floor to be cut at all. A lift half an octave wide or more is part of the floor.
+- The parent rule and the silence test still read the levels now. The impact guard and the notch placement (`keepPeaks`) are unchanged.
+- The steady level runs only while Steady is chosen. When it is chosen, or the link mode changes which detector a channel uses, or after `reset()`, it starts from the band's 250 ms average, which the notch placement keeps, so the first second is not a jump. That average is only up to date for a slot whose detector ran at the last tick; a channel that was not its own detector while Linked has one as old as the last time it was, so after a switch from Linked such a slot starts from its band powers now instead (a tick stamp per slot says which).
+- Cost per detector per 1 ms tick: 73 one-pole steps, 73 logarithms, 73 asymmetric steps and three passes of 73 min-of-mean. No allocation; state is 146 floats and a tick stamp per detector slot.
+
+Constants. The five are the trial's variant G, rounded. They were scanned on the tuning half of the trial's material (honky 1 and 2, library L01, L03, L05, L07, L09, L11: the loudest 60 s of each, at the plug-in's defaults): rise and fall 500/200 and 2000/800 ms, the floor's reach 0 (no floor test) and 6, the margin 0 and 2 dB, smoothing 1 and 50 ms, fall 200 ms. The faster rise cut more and spared dialogue less per dB removed (0.47 dB lost per dB removed against 0.32); the slower one cut half as often on the honky pair and took longer still to catch a build-up. A reach of 6 bands (half an octave) cut a little more with about the same harm per dB; 3 was kept, the width the trials' floor test was made for, and with it a lift an octave wide gets no notch (below). A reach of 0 (no floor test) cut more on the honky pair (51% of loud time over 1 dB against 26%) with the same harm per dB on the library; the owner asked for the floor test. The margin moves the amount up or down without much change in harm per dB. Smoothing of 1 ms and a fall of 200 ms both spared dialogue a little less. Nothing beat the trial's constants, so they stand.
+
+#### Fast against Steady on real mixes
+
+Plug-in defaults (Threshold -16, Tub and Fog, Depth 50%, Max Cut 6 dB, Release 400 ms). The loudest 60 s of the four honky mixes and of twelve library mixes with DX, MX and FX stems (`.wip/trials/baseline/excerpts.tsv`). The measures are the baseline trial's (`.wip/detect/metrics.py`): loud time is where Fast's own activity is over 0.5; dialogue cells are third-octave by 21 ms cells, 100 to 500 Hz, where the DX stem holds more than half the mix's power; hits are FX-stem onsets (9 dB in 30 ms); dense noise is where the FX or MX stem is flat (over 0.5) and steady (within 2.5 dB over 400 ms) in 100 to 500 Hz and holds more than half the mix there.
+
+| | Tuning half: honky (2) | Tuning half: library (6) | Held out: honky (2) | Held out: library (6) |
+|---|---|---|---|---|
+| Loud time with a cut over 1 dB | 83% / 26% | 81% / 41% | 89% / 55% | 86% / 62% |
+| Deepest cut, mean over loud time | 2.97 / 0.71 dB | 2.94 / 1.26 dB | 3.37 / 1.93 dB | 3.40 / 1.99 dB |
+| Level change 100 to 500 Hz, loud time | -0.58 / -0.09 dB | -0.63 / -0.28 dB | -0.75 / -0.34 dB | -0.72 / -0.33 dB |
+| Cuts over 1 dB at once / time with 3 or more | 1.9 / 1.1; 20% / 0% | 2.0 / 1.3; 24% / 1% | 2.1 / 1.4; 31% / 4% | 2.1 / 1.4; 31% / 3% |
+| Dialogue cells: loss | | -0.30 / -0.09 dB | | -0.47 / -0.20 dB |
+| Dialogue cells losing over 1 dB | | 7.1% / 1.7% | | 15.5% / 4.5% |
+| Real hits, first 60 ms: mean (worst tenth) | | -0.29 (-0.64) / -0.11 (-0.28) dB | | -0.48 (-0.91) / -0.22 (-0.38) dB |
+| Real hits, first 400 ms | | -0.41 / -0.17 dB | | -0.46 / -0.25 dB |
+| Dense noisy low mids: loss | | -0.53 / -0.17 dB | | -0.57 / -0.21 dB |
+| ... share of that time with a cut over 1 dB | | 82% / 40% | | 85% / 53% |
+
+(Fast / Steady in each cell.) Per mix, held out, share of loud time over 1 dB and mean deepest cut, Fast then Steady: honky 3 92% 3.7 dB, 68% 2.6 dB; honky 4 87% 3.1, 42% 1.2; L02 69% 2.7, 29% 0.9; L04 92% 4.0, 75% 2.6; L06 88% 3.7, 69% 2.3; L08 83% 3.2, 58% 1.7; L10 84% 3.1, 48% 1.6; L12 98% 3.9, 90% 2.9.
+
+Steady does about half as much, and most of what it no longer does was harm by these measures. Per dB taken out of the low mids, held-out library: dialogue 0.65 (Fast) against 0.61 (Steady), hits in the first 60 ms 0.67 against 0.67, hits over 400 ms 0.64 against 0.76, dense noise 0.79 against 0.64. So Steady is kinder to dense, noisy layers for what it removes, the same on dialogue and on the fronts of hits, and a little worse on the bodies of hits; the gain on dialogue in absolute terms comes from doing less. On the tuning half the per-dB figures favour Steady on all four (0.32, 0.39, 0.61, 0.61 against 0.48, 0.46, 0.65, 0.84), which is why a held-out half matters. Neither tells the honky mixes from the library ones.
+
+#### The price: time to catch a new build-up
+
+Into each of the sixteen excerpts a narrow lift (a Q 9 peaking bell, +6 or +9 dB, at 130, 160, 200, 250 or 315 Hz) is switched in at 20 s and held (`.wip/detect/probe.py`): a new steady build-up on real material. Time from then until the cut at that band or next to it reaches 1, 2 and 3 dB, where neither mode had more than 1 dB there in the 2 s before (63 cases each):
+
+| | to 1 dB | to 2 dB | to 3 dB | Steady's extra time to 3 dB (median, quartiles) |
+|---|---|---|---|---|
+| +9 dB lift, Fast / Steady (median) | 0.48 / 1.31 s | 0.56 / 1.52 s | 0.68 / 2.00 s | 0.75 s (0.10 to 2.10) |
+| +6 dB lift | 0.62 / 1.97 s | 0.70 / 2.68 s | 1.21 / 3.68 s | 2.67 s (0.60 to 6.17) |
+
+Once settled (from 5 s after the lift) the two cut a strong lift alike: 2.45 and 2.52 dB for the +9 dB lift. A moderate one they do not: 1.87 and 1.43 dB for the +6 dB lift, and per frequency Steady's settled cut is 25 to 35% under Fast's (130 Hz 1.52 against 2.01 dB, 200 Hz 1.26 against 1.80, 250 Hz 1.29 against 1.85, 315 Hz 1.10 against 1.60). Steady's median time to 3 dB on the +6 dB lift is 4.55 s at 200 Hz, 10.05 s at 250 Hz and 6.45 s at 315 Hz.
+
+A review switched the same Q 9 bell into four library mixes not used here (Raven_DigicTrail, FIFA_JOURNEY, SPARTAMP_PicV6, 2K_BattBorn; 160 and 280 Hz, +6 and +9 dB, plug-in defaults; FIFA had no 8 s stretch loud enough). Median time to a 3 dB cut: +6 dB Fast 1.67 s, Steady 3.44 s; +9 dB Fast 0.50 s, Steady 1.97 s. But at 280 Hz in the two densest mixes (SPARTAMP, BattBorn) Steady took 10 to 59 s for the +6 dB lift and 4.5 to 11 s for the +9 dB one, and from 6 to 8 s after the switch its cut there was 0.00 dB in five of the eight cases where Fast's was 0.25 to 3.26 dB. Mean cut from 2 to 12 s: SPARTAMP 280 Hz +9 dB, Fast 2.26 and Steady 0.54 dB; BattBorn 280 Hz +6 dB, Fast 0.98 and Steady 0.12 dB. Neither the floor test (`steadyLumpBands` 0: 0.54 / 0.12 dB) nor the parent rule (off: 0.59 / 0.15 dB) is the cause, nor the rise and fall (700/700 or 400/1000: 0.45 to 0.55 / 0.11 to 0.12 dB). The cause is that the steady level averages an excess that sits near the 3 dB dead zone, so a moderate build-up in a dense mix is only sometimes over it; a dead zone of 2 dB for the whole detector gives 0.85 dB. If Steady should match Fast once settled, a Steady-only offset on the dead zone, scanned on the tuning half with the probe at 200 to 315 Hz, is the thing to try; it has not been done.
+
+So Steady is slower to catch a new build-up, typically by one to three seconds, and in a dense mix it may take much longer or leave a mild build-up mostly alone. The window's tooltip says this and promises no figure.
+
+#### Generated signals (mechanics only)
+
+`noise_is_left_alone` at Fast is judged as before and fails as before (Tub and Fog 72.51% of frames under 0.5 dB, mean 0.371 dB; all four 42.24%, 1.204 dB; the resonances 0.15 and 1.58 dB). The same test at Steady (`steady_noise_is_left_alone`, figures from 4 s) also fails, on less: the noise passes with Tub and Fog (100%, 0.000 dB) and nearly with all four (95.67%, mean 0.033 dB, never over 0.63 dB), but the resonances 6 dB proud are cut 0.43 to 0.55 dB at 160 Hz and 2.22 to 2.39 dB at 250 Hz, against the 3 dB asked. At 160 Hz the parent rule is what stops it, at both settings: with it off, Fast cuts the 160 and 250 Hz sines 4.19 and 5.92 dB and Steady 3.55 and 5.92 dB. A +6 dB lift an octave wide at 200 Hz gets no notch at Steady (Fast: 0.37 dB on average, 2.39 dB at the 99th percentile); half an octave wide, 0.63 dB on average against 0.98.
+
+#### Peaks
+
+Narrow cuts shift phase near their centre, and on these mixes that raises sample peaks a little. Per 100 ms window whose input peak is within 6 dB of the mix's highest, the output's peak against the input's (the four honky mixes whole, the twelve library excerpts, 11,041 windows):
+
+| | median | 90% | 99% | highest | windows over +0.5 dB / +1 dB |
+|---|---|---|---|---|---|
+| Fast | 0.00 dB | +0.23 dB | +0.66 dB | +1.55 dB (honky 2) | 2.6% / 0.1% |
+| Steady | 0.00 dB | +0.08 dB | +0.38 dB | +1.26 dB (honky 2) | 0.5% / 0.0% |
+
+The highest sample of each mix rises by +0.44 to +1.55 dB at Fast and +0.27 to +1.26 dB at Steady. With a limiter after it (the reference limiter of 13.6: -1 dBFS ceiling, 5 ms look-ahead, 100 ms release, each mix raised so its untreated peak is at 0 dBFS), the gain reduction averages 0.325 dB untreated, 0.319 at Fast and 0.321 at Steady (De-Honk takes a little level out of the low mids, which pays for the peaks); the deepest moment of limiting goes from 1.00 to 1.80 dB at Fast and 1.58 at Steady, and the share of time limiting from 60.0% to 58.4% and 59.4%. Nothing was changed. What could be done:
+
+- Nothing, as now: the limiter that follows on a master takes the extra in its stride; it costs up to 0.8 dB more limiting at the few highest moments and nothing on average. This is the recommendation.
+- A ceiling inside De-Honk that holds the output's peaks to the input's: without look-ahead it can only clip or duck the whole signal for a few milliseconds, which is distortion or a broadband dip on 1 to 3% of the loudest windows; with look-ahead it is a limiter in the plug-in, with the latency De-Honk avoids at Lookahead Off and a second limiter's character before the real one.
+- Notches without the phase shift (linear-phase): the peaks would not rise, but at 110 Hz and Q 9 that is tens of milliseconds of latency and pre-ringing.
+
+#### Diff's level match
+
+13.18 left Diff 0.1 to 0.2 dB from the treated output on average over 3 s windows of real mixes and up to 0.8 dB at worst, against the 0.1 dB the generated signal shows. Measured again, Diff against the treated output over 3 s and 0.4 s windows (both channels, input over -40 dBFS, from 5 s), on the four honky mixes whole and two library mixes whole (JFO Reveal, LSEVTRL), at the defaults and with all four ranges at Depth 80% (`.wip/detect/diffm.py`, and `diffsim.py`, which works the gain out offline from the same treated and untreated signals and reproduces the core's to the figure):
+
+- Most of it is lag. The cut follows the programme, so the treated signal's loudness against the untreated one moves by several tenths of a dB from one few seconds to the next; a gain that must not pump follows with a delay, and the worst windows are where the cut changes most. Every causal match has this.
+- Under the Threshold the match was held where the last treated passage left it, so Diff stayed turned down where nothing is cut: in the windows under the Threshold Diff was 0.38 dB out on average with all four ranges (0.07 at the defaults), twice as far as in the loud ones.
+- Averaging decibels, every moment alike, weighs quiet moments as much as loud ones: worth a few hundredths.
+
+The match is now the ratio of two powers: the treated and the untreated signal's mean square, each averaged with a time constant of `diffMatchSeconds` (now 1.5 s), all the time. Where nothing is cut the two come together by themselves; the gain still moves over 50 ms (`diffGainMs`).
+
+| Over 3 s windows (six mixes) | Defaults: worst, mean | All four, Depth 80%: worst, mean | Gain moves (all four): 99th percentile |
+|---|---|---|---|
+| Before (dB average over 4 s, held under the Threshold) | 0.37, 0.05 dB | 0.99, 0.22 dB | 0.34 dB/s |
+| Power ratio, 4 s | 0.33, 0.05 dB | 0.91, 0.18 dB | 0.76 dB/s |
+| Power ratio, 2 s | 0.26, 0.04 dB | 0.85, 0.15 dB | 1.21 dB/s |
+| Power ratio, 1.5 s (chosen) | 0.25, 0.03 dB | 0.83, 0.13 dB | 1.44 dB/s |
+| Power ratio, 1 s | 0.22, 0.03 dB | 0.76, 0.11 dB | 1.72 dB/s |
+
+Over 0.4 s windows: 1.09 and 0.07 dB at the defaults (was 1.22 and 0.09), 1.99 and 0.27 dB with all four (was 2.56 and 0.34). Under the Threshold the average error with all four is now 0.19 dB (was 0.38). The worst windows improve least; they are lag, and only a shorter average (which moves the gain faster still) or a look-ahead could do better. 1.5 s is the shortest that keeps `solo_honk_identity` inside its limit; that test reads 0.085 dB against 0.1 (0.126 at 1 s, 0.129 at 2 s, 0.110 at 3 s, 0.036 at 4 s: its single 3 s window makes it jump about, as 13.17 said). `automation_clicks` is unchanged (-43.9 dB). The gain Diff applies moves at up to about 1.4 dB a second with everything on (0.35 at the defaults), against 0.34 and 0.11 before; it follows a change of the same size in the treated signal, so the comparison stays fair.
+
+#### What has not changed
+
+At Detection Fast, with Diff not engaged, the core gives what the core before this section gave: `dehonk_golden_ref4` (that core, copied to `Tests/build-detect/ref-dsp4/`) against `dehonk_golden` with `--surround` (100 renders), `--compat --surround` (100) and `--defaults-no-diff` (124): 324 of 324 bit-identical on arm64 and on x86_64. `golden_defaults_*` was recorded again because the offset Diff reports is in every frame (133 of 140 hashes moved; the 7 with no cut did not). `golden_ref_*` and `golden_surround_*` were not touched.
+
+#### Parameter, preset and window
+
+- `detection`, a choice (Fast, Steady; default Fast), last in the host's order with version hint 2 like everything else added since the first test build. Older sessions and presets without it load at Fast. `DeHonkHostCheck` passes (the 22 first-build parameters at hint 1, the 16 added since higher).
+- A seventh factory preset, "Master bus, steady": the defaults at Steady. It is last, so the host's program numbers of the other six do not move.
+- In the window a two-part pill, fast and steady, as Link's, sits under Sharpness in a row of its own below the knobs, with its name to its left. The pond is 24 points shorter to make room.
+
+#### Cost
+
+Percent of one core at 48 kHz (`surround_cpu`, the better of blocks of 128 and 1024, run on its own), Fast / Steady: defaults stereo 0.36 / 0.38, 7.1.4 0.83 / 0.85; all four and Snap always, linked, stereo 0.64 / 0.63, 7.1.4 1.21 / 1.23; the same unlinked (every channel its own detector, the heaviest), stereo 0.86 / 0.86, 7.1.4 3.82 / 3.75. At 96 kHz the heaviest 7.1.4 is 5.00 / 4.74. The difference is inside the run-to-run spread: the steady level is a few hundred simple operations a millisecond per detector.
+
+#### Tests
+
+New: `steady_noise_is_left_alone` (fails, as above) and `steady_detection` (passes: both peaks found at 1, 2, 6 and 12 channels, Unlinked exact against mono, Grouped front pair exact against stereo, block sizes exact, switching every 0.7 s and every 60 ms under -54 dB above 6 kHz against the -40 limit). Extended: `automation_clicks` and `no_allocation_in_process` and the stability tests switch Detection; `surround_cpu` has three Steady rows; `noise_is_left_alone` prints the parent-rule-off and broad-lift figures. `dehonk_render --detection fast|steady`.
+
+### 13.20 After review of 13.19 and of the window's drawing (18 November 2026, last of the day)
+
+- **CI.** `steady_noise_is_left_alone` fails on purpose (13.19) and is now on both non-blocking lists of `build-release_dehonk.yml`.
+- **Detection's tooltip** promises no figure: Steady "waits until a build-up has held for a while … slower to catch a new build-up, and it may leave a mild one alone in a dense mix". 13.19's price paragraph is corrected (a moderate lift is cut 25 to 35% less once settled, and in dense mixes can take tens of seconds or stay mostly uncut). The Steady-only dead-zone offset it names has not been tried.
+- **Steady's re-prime.** A slot's slow average is only fresh if its detector ran at the last tick. A tick stamp per slot (`slowStamp`) now says so, and a slot whose average is stale (a channel that was not its own detector while Linked) starts its steady level from the band powers now. Fast is untouched: `dehonk_golden_ref4` against `dehonk_golden` (`--surround`, `--compat --surround`, `--defaults-no-diff`), 324 of 324 bit-identical on arm64.
+- **Host check.** Both restore loops set Detection to Steady first and require Fast after an old state; an early-0.0.2 state (stateVersion 2, no `detection`) and a user preset file from before Detection (loaded through the new `PresetManager::loadPresetFile`, from a temporary folder) both come back at Fast.
+- **Band view.** It is opaque, and draws itself with JUCE's own renderer into one image at the screen's scale: the window's background behind it (the editor's own paint) and everything that stays put are in a backdrop made only when something in it changes; the bars, cuts, lines and readings are drawn over a copy of it at each picture. Measured with `sample` on the main thread over 5 s, busy, every range on, a 960x800 window at 2x: the CoreAnimation commit took 50.7% of the main thread before and 19.5% after (7.4% with the band view hidden); at 1800x1400, 76% (the review's figure) to 42.6% (23.2% hidden: what is left is mostly CoreGraphics converting the pond's picture). Process CPU at the default size 461 to 391 ms/s. Followers stay at every picture.
+- **Resizing.** For the refresh after a size change the old picture is drawn as it is, at its own scale, over paper, instead of being resampled to fit. Resizing up to every refresh for 4 s: 1384 ms/s of CPU, gaps median 31 ms and 99th percentile 70 ms (the review measured 5153 to 5304 ms/s and 475 to 482 ms before).
+- **Refreshes are counted.** At the full rate a picture goes with every refresh (every other one only above about 150 Hz) as long as a third of a refresh has passed, instead of a fixed 6.5 ms gap. With the clock driven at 120 Hz: 119.9 pictures a second (was 104.5), 111.6 under message-thread load from 1118 ticks.
+- **Several windows.** The display frames are a ring that any number of windows read, each from its own place (section 4). Three windows on one instance: 355, 356 and 361 frames each in 8 s, all three at 60 pictures a second (was 86, 68 and 406 frames, 47.6 to 60 pictures a second).
+- **Trim's value** no longer sits on a paper patch: each letter has a thin paper edge, so the whole fill shows at small trims.
+- **Geese.** A goose taking off holds its place in the spacing until it is half way up, so the others do not walk into it; a goose hopping in is placed with the rest and lands where it will stand; the two rows behind the log, being close together, are spaced nearly as one row; a goose with far to go walks a little faster. On the recorded busy frames (1800 pictures), with a wider count that includes landing and leaving geese: at 1868x588 (the default picture) 92 to 88 pictures with two on top of each other (57 to 58 counting only geese on the ground), at 934x331 70 to 51 (35 to 14), at 333x187 65 to 35 (30 to 0). At the default size what is left is crowding at the log end of the bank, where there is not room for every goose within reach of its notch, and geese swapping rows when one joins a run.
