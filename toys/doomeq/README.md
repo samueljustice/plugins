@@ -29,7 +29,7 @@ A six-band parametric EQ whose curve display runs DOOM.
 
 ## Downloads
 
-Test builds are pre-releases tagged `doomeq-v*` on the [releases page](https://github.com/samueljustice/plugins/releases). Each one has zips of the VST3, AU and app; the AAX is added once it has been PACE-signed. DOOM EQ isn't in the combined installer or on the website.
+Test builds are pre-releases tagged `doomeq-v*` on the [releases page](https://github.com/samueljustice/plugins/releases). Each one has a macOS and a Windows installer, plus the plug-ins as zips. Once the AAX is PACE-signed, `doomeq-test-installers.yml` rebuilds both installers with it in. DOOM EQ isn't in the combined installer or on the website.
 
 ## Building
 

@@ -7,8 +7,9 @@ name: Build and Release DOOM EQ
 # (workflow_dispatch) to get the same artefacts without a release. A pull request that changes DOOM EQ,
 # the shared CMake or this file runs it too (also without a release), so the pull request is the dry run.
 #
-# Test builds only, for now: no installers. The release has the notarised macOS VST3/AU/app zips and the
-# Windows VST3/app zips. Versions 0.0.x are published as pre-releases, so they never become the
+# The release has an installer per system (macOS .pkg with VST3/AU/app, Windows .exe with VST3/app), plus
+# the bundles as zips. Once the AAX is PACE-signed, doomeq-test-installers.yml rebuilds both installers with
+# it in. Versions 0.0.x are published as pre-releases, so they never become the
 # repository's "Latest", the update checks skip them, and the combined installer leaves them out.
 # DOOM EQ is in bundle/plugins.txt only as a "#test" line, for sign-aax.
 #
@@ -129,6 +130,18 @@ jobs:
         Compress-Archive -Path "$out\Standalone\SammyJs DOOM EQ.exe" -DestinationPath "DoomEQ-Windows-App.zip" -Force
         Get-Item DoomEQ-Windows-*.zip
 
+    - name: Build installer
+      run: |
+        cd toys/doomeq
+        $out = "build\DoomEQ_artefacts\Release"
+        New-Item -ItemType Directory -Force -Path windows-package\app, windows-package\vst3 | Out-Null
+        Copy-Item "$out\Standalone\SammyJs DOOM EQ.exe" windows-package\app\
+        Copy-Item "$out\VST3\SammyJs DOOM EQ.vst3" windows-package\vst3\ -Recurse
+        choco install innosetup -y --no-progress
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item DoomEQ_Installer.exe
+
     - name: Upload Windows files
       uses: actions/upload-artifact@v6
       with:
@@ -136,6 +149,7 @@ jobs:
         path: |
           toys/doomeq/DoomEQ-Windows-VST3.zip
           toys/doomeq/DoomEQ-Windows-App.zip
+          toys/doomeq/DoomEQ_Installer.exe
         if-no-files-found: error
 
   build-macos:
@@ -258,6 +272,48 @@ jobs:
         staple "au/SammyJs DOOM EQ.component"
         spctl --assess --type execute -vv "app/SammyJs DOOM EQ.app"
 
+    # VST3, AU and the app. No AAX yet: it is signed after the release, and doomeq-test-installers.yml
+    # then replaces this installer with one that has it.
+    - name: Build installer package
+      run: |
+        cd toys/doomeq
+        ./make-installer-macos.sh staging "$VERSION" DoomEQ_Installer.pkg
+
+    - name: Sign installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd toys/doomeq
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp DoomEQ_Installer.pkg DoomEQ_Installer_Signed.pkg
+        mv DoomEQ_Installer_Signed.pkg DoomEQ_Installer.pkg
+        pkgutil --check-signature DoomEQ_Installer.pkg
+
+    - name: Notarise installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd toys/doomeq
+        f=DoomEQ_Installer.pkg
+        ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+        if [ "$STATUS" != "Accepted" ]; then
+          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          exit 1
+        fi
+        delay=30
+        for attempt in 1 2 3 4 5 6 7; do
+          if xcrun stapler staple "$f"; then break; fi
+          if [ "$attempt" -eq 7 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 7), retrying in $delay s"
+          sleep "$delay"
+          delay=$((delay + 30))
+        done
+        spctl --assess --type install -vv "$f"
+
     - name: Zip bundles
       run: |
         cd toys/doomeq/staging
@@ -273,6 +329,7 @@ jobs:
           toys/doomeq/DoomEQ-macOS-VST3.zip
           toys/doomeq/DoomEQ-macOS-AU.zip
           toys/doomeq/DoomEQ-macOS-App.zip
+          toys/doomeq/DoomEQ_Installer.pkg
         if-no-files-found: error
 
   create-release:
@@ -310,6 +367,8 @@ jobs:
           base=$(basename "$f")
           cp "$f" "release/${base/DoomEQ-/DoomEQ-$VERSION-}"
         done
+        cp macos/DoomEQ_Installer.pkg "release/DoomEQ-$VERSION-macOS-Installer.pkg"
+        cp windows/DoomEQ_Installer.exe "release/DoomEQ-$VERSION-Windows-Installer.exe"
         ls -la release
 
     - name: Create release
