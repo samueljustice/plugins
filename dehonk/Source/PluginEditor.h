@@ -4,12 +4,17 @@
 
 #include "DeHonkLookAndFeel.h"
 #include "DisplayComponent.h"
+#include "Overlays.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
+#include "Widgets.h"
+
+#include "SammyJUpdateCheck.h"
 
 #include <array>
 #include <functional>
 #include <memory>
+#include <optional>
 
 /** A large listening button (Solo Honk, Diff): a rounded square that stays pressed down, in its
     second colour, with its name bobbing, while on. */
@@ -64,54 +69,38 @@ private:
     static constexpr juce::uint32 clickMs = 350;  // longer than this is a hold, not a click
 };
 
-/** A module switch (Woof, Tub, Fog, Bark, Snap): a fat pill in the module's colour while on, with a
-    light that comes on while it is cutting and a small meter of the cut beside its name.
-
-    The meter reads 0 to fullScaleDb. With a hold time it jumps up at once and falls back to zero
-    over that time (Click: its cuts are over in milliseconds); without one it follows the value. */
-class ModuleButton : public juce::Button
+//==============================================================================
+/** Detection: one pill in two parts, Fast and Steady, the chosen one filled, as Link's. */
+class DetectionSelector : public juce::Component,
+                          public juce::SettableTooltipClient
 {
 public:
-    ModuleButton (const juce::String& name, juce::Colour colour, float fullScaleDb, double holdSeconds = 0.0);
+    DetectionSelector (juce::RangedAudioParameter& detection, const Theme::Fonts&);
 
-    /** The module's deepest cut, dB (positive = reduction). */
-    void setCutDb (float db);
-    /** What a full meter stands for, dB. For Woof, Tub, Fog and Bark it is Max Cut as it is set,
-        so a module cutting as deep as it may shows a full meter. */
-    void setFullScaleDb (float db);
-    /** Lets a held reading fall. Called by the editor's timer with the time since the last call. */
-    void advance (double seconds);
-
-    float shownDb() const noexcept { return shown; }
-
-protected:
-    void paintButton (juce::Graphics&, bool isMouseOver, bool isButtonDown) override;
-
-private:
-    void show (float db);
-
-    juce::SharedResourcePointer<Theme::Fonts> fonts;
-    juce::Colour colour;
-    float fullScale;
-    const double hold;
-    float shown = 0.0f, peak = 0.0f;
-    double sincePeak = 0.0;
-};
-
-/** A small round lamp, a disc like the big buttons: lit while the impact guard is up. Its
-    value is how far, 0 to 1. */
-class GuardLamp : public juce::Component,
-                  public juce::SettableTooltipClient
-{
-public:
-    void setHeld (float amount);
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    bool keyPressed (const juce::KeyPress&) override;
+    void focusGained (FocusChangeType) override { repaint(); }
+    void focusLost (FocusChangeType) override { repaint(); }
 
 private:
-    float held = 0.0f;
+    int segmentAt (juce::Point<float>) const noexcept;
+    void choose (int mode);
+
+    const Theme::Fonts& fonts;
+    juce::ParameterAttachment attachment;
+    int mode = 0, hotSegment = -1;
 };
 
 //==============================================================================
+/** De-Honk's window. From the top: the name and the presets; the pond; the band view, where the
+    range edges, the Threshold and Max Cut are dragged; the shelf of range tabs with the selected
+    range's drawer; the knobs with the listening buttons, Mix and Trim; and the row of Impact
+    Guard, Link, Lookahead and Dialogue.
+
+    Its dialogs, its About page, its menus and its tooltips are all drawn inside it. */
 class DeHonkAudioProcessorEditor : public juce::AudioProcessorEditor,
                                    private juce::Timer
 {
@@ -124,10 +113,22 @@ public:
     void visibilityChanged() override;
     bool keyStateChanged (bool isKeyDown) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void parentHierarchyChanged() override;
 
     static constexpr int defaultWidth = 960, defaultHeight = 800;
     static constexpr int minWidth = 820, minHeight = 700;
+
+    //============================================================================== for pictures and checks
+    /** Selects a range's tab: 0 Woof, 1 Tub, 2 Fog, 3 Bark, 4 Snap, -1 none. */
+    void selectRange (int range) { shelf.select (range); }
+    void showAbout();
+    void showUpdate (const sammyj::UpdateInfo&);
+    void showPresetMenu();
+    void savePreset();
+    void deletePreset();
+    ToyTooltip& tips() noexcept { return tooltip; }
+    OverlayCard* currentOverlay() const noexcept { return overlay.get(); }
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -136,53 +137,61 @@ private:
 
     void timerCallback() override;
     void updateShowing();
-    juce::RangedAudioParameter* edgeParam (int edge) const;
+    void startUpdateCheckWhenShown();
+    juce::RangedAudioParameter* handleParam (int handle) const;
     void setUpKnob (juce::Slider&, juce::Label&, const juce::String& caption, const char* paramID, const juce::String& tip);
     void setUpBar (juce::Slider&, juce::Label&, const juce::String& caption, const char* paramID, const juce::String& tip);
     void setUpCaption (juce::Label&, const juce::String& text);
     void setSoloHonk (bool on);
     void setDiff (bool on);
+    void toggleGuard();
     void updatePresetBar();
-    void showPresetMenu();
-    void savePreset();
-    void deletePreset();
+    void showOverlay (std::unique_ptr<OverlayCard>);
+    void overlayClosed (OverlayCard*);
+    void showFrame (const dehonk::DisplayFrame&);
 
     DeHonkAudioProcessor& deHonk;
     juce::SharedResourcePointer<Theme::Fonts> fonts;
     DeHonkLookAndFeel lookAndFeel { *fonts };
-    juce::TooltipWindow tooltipWindow { this, 700 };
 
     DisplayComponent display;
     dehonk::scene::BandView bandView;
+    RangeShelf shelf;
 
-    juce::Label title;
+    TitleBlock title { *fonts };
     juce::TextButton previousButton { "<" }, nextButton { ">" }, presetButton, saveButton { "Save" }, deleteButton { "Delete" };
     juce::TextButton bypassButton { "Bypass" };
 
     juce::Slider thresholdKnob, depthKnob, maxCutKnob, sharpnessKnob, speedKnob, releaseKnob;
     juce::Label thresholdCaption, depthCaption, maxCutCaption, sharpnessCaption, speedCaption, releaseCaption;
-    std::array<std::unique_ptr<ModuleButton>, dehonk::kNumModules> moduleButtons;
-    ModuleButton snapButton;
+    DetectionSelector detectionSelector;    // under Sharpness, with its name to its left
+    juce::Label detectionCaption;
     ListenButton soloButton { "Solo Honk", dehonk::toy::sunYellow, dehonk::toy::jacketRed };
     DiffButton diffButton;
 
-    juce::Slider guardBar, linkBar, mixBar, trimBar;
-    GuardLamp guardLamp;
+    juce::Slider guardBar, dialogueBar, mixBar, trimBar;
+    SwitchLamp guardSwitch { "Impact Guard" }, dialogueSwitch { "Dialogue" };
+    LinkSelector linkSelector;
     juce::ComboBox lookaheadBox;
-    juce::Label guardCaption, linkCaption, mixCaption, trimCaption, lookaheadCaption;
+    juce::Label guardCaption, linkCaption, dialogueCaption, mixCaption, trimCaption, lookaheadCaption;
 
     std::unique_ptr<SliderAttachment> thresholdAttachment, depthAttachment, maxCutAttachment, sharpnessAttachment, speedAttachment,
-                                      releaseAttachment, guardAttachment, linkAttachment, mixAttachment, trimAttachment;
-    std::array<std::unique_ptr<ButtonAttachment>, dehonk::kNumModules> moduleAttachments;
-    std::unique_ptr<ButtonAttachment> snapAttachment;
+                                      releaseAttachment, guardAttachment, dialogueAmountAttachment, mixAttachment, trimAttachment;
     std::unique_ptr<ComboBoxAttachment> lookaheadAttachment;
-    std::unique_ptr<ButtonAttachment> bypassAttachment;
+    std::unique_ptr<ButtonAttachment> bypassAttachment, dialogueAttachment;
 
-    std::unique_ptr<juce::AlertWindow> dialog;
+    std::unique_ptr<OverlayCard> overlay;
+    std::optional<sammyj::UpdateInfo> pendingUpdate;
+    std::unique_ptr<sammyj::UpdateCheck> updateCheck;
+    ToyTooltip tooltip { *this, *fonts };      // after everything it may be shown over
 
     bool showing = false;  // registered with the processor as showing; display timer running
     juce::String shownPresetText;
-    double lastTimerMs = 0.0;
+    std::array<bool, dehonk::kNumModules + 1> cutting {};
+    double snapLitUntilMs = 0.0;
+    float shownKeyLamp = -1.0f;
+    bool shownKeyWarn = false;
+    double keyUnfoundMs = 0.0, keyWarnUntilMs = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeHonkAudioProcessorEditor)
 };

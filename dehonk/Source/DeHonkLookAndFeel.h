@@ -4,11 +4,16 @@
 #include "Theme.h"
 
 /** De-Honk's LookAndFeel: the toy-box versions of knobs, bar sliders, buttons, the choice box, menus,
-    tooltips and alerts. Flat colour, ink outlines, flat shadows; nothing blurred, nothing cached.
+    text boxes, scrollbars and alerts. Flat colour, ink outlines; nothing blurred, nothing cached.
+    Menus are drawn inside the editor (not as windows of their own), as rounded cards.
 
     A control picks its colour with a property: slider.getProperties().set ("toyColour", (juce::int64) argb).
-    A bar slider with the property "fromCentre" fills from its middle (Trim). A label with the
-    property "pill" is drawn on a white pill. */
+    A bar slider with the property "fromCentre" fills from its middle (Trim); with "shownProportion"
+    (0..1) it fills that far whatever its value (a locked range's timing); with "lamp" (0..1) it
+    has a small round lamp at its right-hand end, lit that far (the dialogue key arriving). A
+    disabled bar is greyed. A text button with the property "link" is drawn as a line of text,
+    underlined under the pointer; with "keepCase" its text is not lowered. A text box with the
+    property "card" is a quiet panel (the licence). */
 class DeHonkLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
@@ -47,7 +52,19 @@ public:
                             bool isTicked, bool hasSubMenu, const juce::String& text, const juce::String& shortcutKeyText,
                             const juce::Drawable* icon, const juce::Colour* textColour) override;
     void drawPopupMenuSectionHeader (juce::Graphics&, const juce::Rectangle<int>& area, const juce::String& sectionName) override;
-    int getPopupMenuBorderSize() override { return 6; }
+    int getPopupMenuBorderSize() override { return 7; }
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu (juce::ComboBox&, juce::Label&) override;
+    void drawPopupMenuUpDownArrow (juce::Graphics&, int width, int height, bool isScrollUpArrow) override;
+    /** A menu drawn inside the editor asks for this round its edge: the card needs no second frame. */
+    void drawResizableFrame (juce::Graphics&, int, int, const juce::BorderSize<int>&) override {}
+
+    void fillTextEditorBackground (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+    void drawTextEditorOutline (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+
+    bool areScrollbarButtonsVisible() override { return false; }
+    int getDefaultScrollbarWidth() override { return 12; }
+    void drawScrollbar (juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,
+                        int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown) override;
 
     juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos,
                                            juce::Rectangle<int> parentArea) override;

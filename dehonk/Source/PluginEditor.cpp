@@ -55,105 +55,6 @@ void ListenButton::paintButton (juce::Graphics& g, bool, bool isButtonDown)
 }
 
 //==============================================================================
-ModuleButton::ModuleButton (const juce::String& name, juce::Colour c, float fullScaleDb, double holdSeconds)
-    : juce::Button (name), colour (c), fullScale (fullScaleDb), hold (holdSeconds)
-{
-    setButtonText (name);
-    setClickingTogglesState (true);
-}
-
-void ModuleButton::show (float db)
-{
-    if (std::abs (db - shown) >= 0.05f || (db == 0.0f && shown != 0.0f))
-    {
-        shown = db;
-        repaint();
-    }
-}
-
-void ModuleButton::setFullScaleDb (float db)
-{
-    db = juce::jmax (0.5f, std::isfinite (db) ? db : fullScale);
-    if (std::abs (db - fullScale) >= 0.05f)
-    {
-        fullScale = db;
-        repaint();
-    }
-}
-
-void ModuleButton::setCutDb (float db)
-{
-    db = juce::jlimit (0.0f, fullScale, std::isfinite (db) ? db : 0.0f);
-    if (hold <= 0.0)
-    {
-        show (db);
-    }
-    else if (db >= shown && db > 0.0f)
-    {
-        peak = db;
-        sincePeak = 0.0;
-        show (db);
-    }
-}
-
-void ModuleButton::advance (double seconds)
-{
-    if (hold <= 0.0 || peak <= 0.0f)
-        return;
-
-    sincePeak += juce::jmax (0.0, seconds);
-    const float db = peak * (float) juce::jmax (0.0, 1.0 - sincePeak / hold);
-    if (db <= 0.0f)
-        peak = 0.0f;
-    show (db);
-}
-
-void ModuleButton::paintButton (juce::Graphics& g, bool, bool isButtonDown)
-{
-    // A flat tab: a small square lamp, the name, and a thin meter of what it is taking out.
-    const bool on = getToggleState();
-    const auto body = Toy::body (getLocalBounds());
-    const auto fill = on ? (isButtonDown ? colour.darker (0.08f) : colour) : toy::paper;
-    Toy::shape (g, body, 8.0f, fill);
-    if (auto* look = dynamic_cast<DeHonkLookAndFeel*> (&getLookAndFeel()))
-        look->drawFocus (g, *this, body, 8.0f);
-
-    auto inner = body.reduced (12.0f, 0.0f);
-
-    // The lamp: red while the module is cutting.
-    const auto lamp = juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ inner.getX() + 4.5f, body.getCentreY() });
-    g.setColour (on && shown > 0.5f ? toy::jacketRed : toy::paper);
-    g.fillRect (lamp);
-    g.setColour (toy::ink.withAlpha (on ? 1.0f : 0.4f));
-    g.drawRect (lamp, toy::outline);
-    inner.removeFromLeft (9.0f + 9.0f);
-
-    const auto font = fonts->name (12.0f);
-    const auto text = getButtonText().toLowerCase();
-    const float nameWidth = juce::GlyphArrangement::getStringWidth (font, text) + 4.0f;
-    g.setFont (font);
-    g.setColour (toy::ink.withAlpha (on ? 1.0f : 0.45f));
-    g.drawText (text, inner.removeFromLeft (nameWidth), juce::Justification::centredLeft, false);
-    inner.removeFromLeft (10.0f);
-
-    if (inner.getWidth() >= 16.0f)
-    {
-        // A thin line that fills from the left.
-        const auto track = inner.withSizeKeepingCentre (inner.getWidth(), 5.0f);
-        const float t = juce::jlimit (0.0f, 1.0f, shown / fullScale);
-        g.setColour (toy::ink.withAlpha (on ? 0.22f : 0.12f));
-        g.fillRect (track.withSizeKeepingCentre (track.getWidth(), 1.0f));
-        if (t > 0.0f)
-        {
-            g.setColour (toy::jacketRed);
-            g.fillRect (track.withWidth (juce::jmax (4.0f, t * track.getWidth())));
-        }
-        g.setColour (toy::ink.withAlpha (on ? 1.0f : 0.4f));
-        g.fillRect (juce::Rectangle<float> (track.getRight() - 1.0f, track.getY() - 2.0f, 1.0f, track.getHeight() + 4.0f));
-    }
-}
-
-//==============================================================================
 DiffButton::DiffButton() : ListenButton ("Diff", toy::mint, toy::mint) {}
 
 void DiffButton::setActive (bool shouldBeOn)
@@ -234,32 +135,119 @@ void DiffButton::clicked()
 }
 
 //==============================================================================
-void GuardLamp::setHeld (float amount)
+DetectionSelector::DetectionSelector (juce::RangedAudioParameter& detection, const Theme::Fonts& f)
+    : fonts (f),
+      attachment (detection, [this] (float v)
+                  {
+                      const int now = juce::jlimit (0, ParamRanges::numDetectionModes - 1, juce::roundToInt (v));
+                      if (now != mode)
+                      {
+                          mode = now;
+                          repaint();
+                      }
+                  })
 {
-    amount = juce::jlimit (0.0f, 1.0f, amount);
-    if (std::abs (amount - held) > 0.01f || (amount == 0.0f) != (held == 0.0f))
+    setTitle ("Detection");
+    setWantsKeyboardFocus (true);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    attachment.sendInitialUpdate();
+}
+
+int DetectionSelector::segmentAt (juce::Point<float> at) const noexcept
+{
+    const auto r = Toy::body (getLocalBounds());
+    if (! r.contains (at))
+        return -1;
+    return juce::jlimit (0, ParamRanges::numDetectionModes - 1,
+                         (int) ((at.x - r.getX()) / r.getWidth() * (float) ParamRanges::numDetectionModes));
+}
+
+void DetectionSelector::choose (int newMode)
+{
+    if (newMode != mode)
+        attachment.setValueAsCompleteGesture ((float) newMode);
+}
+
+void DetectionSelector::paint (juce::Graphics& g)
+{
+    const auto r = Toy::body (getLocalBounds());
+    const float corner = r.getHeight() * 0.5f;
+    constexpr int n = ParamRanges::numDetectionModes;
+    const float w = r.getWidth() / (float) n;
+
+    g.setColour (toy::paper);
+    g.fillRoundedRectangle (r, corner);
     {
-        held = amount;
+        juce::Path clip;
+        clip.addRoundedRectangle (r, corner);
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (clip);
+        for (int s = 0; s < n; ++s)
+            if (s == mode || s == hotSegment)
+            {
+                g.setColour (s == mode ? toy::sunYellow : toy::sunYellow.withAlpha (0.28f));
+                g.fillRect (juce::Rectangle<float> (r.getX() + w * (float) s, r.getY(), w, r.getHeight()));
+            }
+    }
+    g.setColour (toy::ink);
+    for (int s = 1; s < n; ++s)
+        g.fillRect (juce::Rectangle<float> (r.getX() + w * (float) s - toy::outline * 0.5f, r.getY(), toy::outline, r.getHeight()));
+    g.drawRoundedRectangle (r, corner, toy::outline);
+
+    g.setFont (fonts.value (juce::jlimit (9.5f, 12.0f, w / 6.4f)));
+    for (int s = 0; s < n; ++s)
+    {
+        const auto seg = juce::Rectangle<float> (r.getX() + w * (float) s, r.getY(), w, r.getHeight());
+        g.setColour (toy::ink.withAlpha (s == mode ? 1.0f : 0.7f));
+        g.drawFittedText (juce::String (ParamRanges::detectionNames[s]).toLowerCase(),
+                          seg.toNearestInt().reduced (s == 0 || s == n - 1 ? 5 : 3, 0), juce::Justification::centred, 1, 0.8f);
+    }
+
+    if (auto* look = dynamic_cast<DeHonkLookAndFeel*> (&getLookAndFeel()))
+        look->drawFocus (g, *this, r, 100.0f);
+}
+
+void DetectionSelector::mouseMove (const juce::MouseEvent& e)
+{
+    const int now = segmentAt (e.position);
+    if (now != hotSegment)
+    {
+        hotSegment = now;
         repaint();
     }
 }
 
-void GuardLamp::paint (juce::Graphics& g)
+void DetectionSelector::mouseExit (const juce::MouseEvent&)
 {
-    // A small round lamp, a disc like the big buttons: cream when off, mustard while the guard is
-    // up (more of it, the further up).
-    const float d = juce::jmin (11.0f, (float) juce::jmin (getWidth(), getHeight()) - toy::outline);
-    const auto lamp = juce::Rectangle<float> (d, d).withCentre (getLocalBounds().toFloat().getCentre());
-    g.setColour (held > 0.02f ? toy::paper.interpolatedWith (toy::sunYellow, juce::jlimit (0.35f, 1.0f, held)) : toy::paper);
-    g.fillEllipse (lamp);
-    g.setColour (toy::ink);
-    g.drawEllipse (lamp, toy::outline);
+    if (hotSegment >= 0)
+    {
+        hotSegment = -1;
+        repaint();
+    }
+}
+
+void DetectionSelector::mouseUp (const juce::MouseEvent& e)
+{
+    const int segment = segmentAt (e.position);
+    if (segment >= 0 && ! e.mods.isPopupMenu())
+        choose (segment);
+}
+
+bool DetectionSelector::keyPressed (const juce::KeyPress& key)
+{
+    const int step = key == juce::KeyPress::leftKey || key == juce::KeyPress::downKey ? -1
+                   : key == juce::KeyPress::rightKey || key == juce::KeyPress::upKey ? 1 : 0;
+    if (step == 0)
+        return false;
+    choose (juce::jlimit (0, ParamRanges::numDetectionModes - 1, mode + step));
+    return true;
 }
 
 //==============================================================================
 DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
-    : AudioProcessorEditor (&p), deHonk (p), display (p),
-      snapButton ("Snap", toy::click, dehonk::Tuning {}.clickMaxCutDb, 0.3)
+    : AudioProcessorEditor (&p), deHonk (p), display (p), shelf (p.getParameters(), *fonts),
+      detectionSelector (*p.getParameters().getParameter (ParamIDs::detection), *fonts),
+      linkSelector (*p.getParameters().getParameter (ParamIDs::linkMode), *fonts)
 {
     setLookAndFeel (&lookAndFeel);
     auto& apvts = deHonk.getParameters();
@@ -267,13 +255,8 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     addAndMakeVisible (display);
 
     // Header: name, presets, bypass
-    title.setText ("De-Honk", juce::dontSendNotification);
-    title.setText ("de-honk", juce::dontSendNotification);
-    title.setFont (fonts->title (22.0f));
-    title.setJustificationType (juce::Justification::centredLeft);
-    title.setColour (juce::Label::textColourId, toy::ink);
-    title.setTooltip ("De-Honk by Samuel Justice. Finds build-ups in the low end and low mids as they happen and takes "
-                      "them down with narrow cuts, while the mix is louder than the threshold.");
+    title.onAbout = [this] { showAbout(); };
+    title.onSite = [] { juce::URL (TitleBlock::siteUrl).launchInDefaultBrowser(); };
     addAndMakeVisible (title);
 
     previousButton.setTooltip ("Previous preset");
@@ -299,22 +282,31 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     // Main knobs
     setUpKnob (thresholdKnob, thresholdCaption, "Threshold", ParamIDs::threshold,
                "De-Honk acts only while the mix is louder than this. It is fully off below it and fully on 6 dB above. "
-               "At Always (the bottom of the range) it acts at any level. The bar at the left of the band view shows "
-               "the mix level with the threshold marked on it.");
+               "At Always (the bottom of the range) it acts at any level. It can also be dragged in the band view: "
+               "the grip on the level bar at the left, or its line across the bands.");
     setUpKnob (depthKnob, depthCaption, "Depth", ParamIDs::depth,
                "How much of the detected excess is removed. No cut goes deeper than Max Cut. At 0 nothing is cut.");
     setUpKnob (maxCutKnob, maxCutCaption, "Max Cut", ParamIDs::maxCut,
                "The deepest any one cut may go, whatever Depth is set to. Two cuts side by side never add up to more. "
-               "The dashed line across the top of the band view marks it.");
+               "It is the dashed line across the top of the band view, which can be dragged too.");
     setUpKnob (sharpnessKnob, sharpnessCaption, "Sharpness", ParamIDs::sharpness,
                "How wide a build-up has to be to count. Broad responds to a whole bump; Narrow responds only to "
                "single ringing resonances. The cuts themselves are narrow either way.");
     setUpKnob (speedKnob, speedCaption, "Speed", ParamIDs::speed,
-               "How quickly a cut goes in once a build-up has been found. Release sets how it lets go.");
+               "How quickly a cut goes in once a build-up has been found. Release sets how it lets go. "
+               "A range whose timing is unlocked uses its own attack.");
     setUpKnob (releaseKnob, releaseCaption, "Release", ParamIDs::release,
                "How slowly a cut lets go once its build-up has gone. Longer holds each cut steadier; shorter follows the mix more closely. "
                "It is for cuts that have settled on a clear build-up: a light cut that comes and goes, or one whose build-up has moved to the next note, "
-               "lets go quickly whatever is set here. Under the Threshold every cut closes straight away.");
+               "lets go quickly whatever is set here. Under the Threshold every cut closes straight away. "
+               "A range whose timing is unlocked uses its own release.");
+    setUpCaption (detectionCaption, "Detection");
+    const juce::String detectionTip ("Fast cuts a build-up as soon as it shows. Steady waits until a build-up has held for a while, "
+                                     "and leaves a broad lift alone: steadier, and kinder to dense, noisy textures, "
+                                     "but slower to catch a new build-up, and it may leave a mild one alone in a dense mix.");
+    detectionSelector.setTooltip (detectionTip);
+    detectionCaption.setTooltip (detectionTip);
+    addAndMakeVisible (detectionSelector);
     thresholdKnob.getProperties().set ("toyColour", (juce::int64) toy::orange.getARGB());
     depthKnob.getProperties().set ("toyColour", (juce::int64) toy::sunYellow.getARGB());
     sharpnessKnob.getProperties().set ("toyColour", (juce::int64) toy::mint.getARGB());
@@ -327,66 +319,65 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     speedAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::speed, speedKnob);
     maxCutAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::maxCut, maxCutKnob);
     releaseAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::release, releaseKnob);
+    thresholdKnob.setComponentID ("threshold");
 
-    // Modules
-    static const char* const moduleTips[dehonk::kNumModules]
-    {
-        "the low end barking on every hit, about 60 to 110 Hz.",
-        "tubby weight just above the bass, about 110 to 200 Hz. This is where added bass harmonics pile up first.",
-        "low mids clouding over when music and effects stack up, about 200 to 400 Hz.",
-        "hard, shouty midrange, about 400 Hz to 1.5 kHz.",
-    };
-    for (int m = 0; m < dehonk::kNumModules; ++m)
-    {
-        auto& button = moduleButtons[(size_t) m];
-        button = std::make_unique<ModuleButton> (ParamRanges::moduleNames[m], toy::module[m], ParamRanges::maxCutDefault);
-        button->setTooltip (juce::String (ParamRanges::moduleNames[m]) + ": " + moduleTips[m]
-                            + " Click to switch it on or off. The light is on while it is cutting and the meter shows how deep: full is Max Cut. "
-                              "Drag the handles in the band view to move its edges.");
-        moduleAttachments[(size_t) m] = std::make_unique<ButtonAttachment> (apvts, ParamIDs::moduleOn[m], *button);
-        addAndMakeVisible (*button);
-    }
-    snapButton.setTooltip ("Snap: sharp clicks and pops around 2.5 kHz. Takes the edge off a pop that the rest of the sound does not share, "
-                           "and leaves drum hits and steady sounds alone. Works at any level.");
-    snapAttachment = std::make_unique<ButtonAttachment> (apvts, ParamIDs::snapOn, snapButton);
-    addAndMakeVisible (snapButton);
-
-    // The band view: fed from the display's clock, and where the edges are dragged.
+    // The band view: fed from the display's clock, and where the edges, the Threshold and Max Cut
+    // are dragged. Each drag is one gesture on its parameter.
     addAndMakeVisible (bandView);
     display.onTick = [this] (const dehonk::scene::BandViewState& state, double seconds) { bandView.update (state, seconds); };
-    bandView.onEdgeDragStarted = [this] (int e) { if (auto* edge = edgeParam (e)) edge->beginChangeGesture(); };
-    bandView.onEdgeDragEnded = [this] (int e) { if (auto* edge = edgeParam (e)) edge->endChangeGesture(); };
-    bandView.onEdgeDragged = [this] (int e, float hz)
+    // The view is told of new values with every picture of the pond, so the two move together.
+    bandView.onHandleDragStarted = [this] (int h)
     {
-        auto* edge = edgeParam (e);
-        if (edge == nullptr)
+        if (auto* param = handleParam (h))
+            param->beginChangeGesture();
+    };
+    bandView.onHandleDragEnded = [this] (int h)
+    {
+        if (auto* param = handleParam (h))
+            param->endChangeGesture();
+    };
+    bandView.onHandleReset = [this] (int h)
+    {
+        if (auto* param = handleParam (h))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->getDefaultValue());
+            param->endChangeGesture();
+        }
+    };
+    bandView.onHandleDragged = [this] (int h, float value)
+    {
+        auto* param = handleParam (h);
+        if (param == nullptr)
             return;
-        // Inside its own range, and never within a tenth of its neighbours.
-        const auto used = display.edgesAsUsed();
-        float lo = dehonk::kEdgeMinHz[e], hi = dehonk::kEdgeMaxHz[e];
-        if (e > 0)                       lo = juce::jmax (lo, used[(size_t) e - 1] * ParamRanges::minEdgeRatio);
-        if (e + 1 < dehonk::kNumEdges)   hi = juce::jmin (hi, used[(size_t) e + 1] / ParamRanges::minEdgeRatio);
-        if (hi > lo)
-            edge->setValueNotifyingHost (edge->convertTo0to1 (juce::jlimit (lo, hi, hz)));
+        if (h < dehonk::kNumEdges)
+        {
+            // Inside its own range, and never within a tenth of its neighbours.
+            const auto used = display.edgesAsUsed();
+            float lo = dehonk::kEdgeMinHz[h], hi = dehonk::kEdgeMaxHz[h];
+            if (h > 0)                       lo = juce::jmax (lo, used[(size_t) h - 1] * ParamRanges::minEdgeRatio);
+            if (h + 1 < dehonk::kNumEdges)   hi = juce::jmin (hi, used[(size_t) h + 1] / ParamRanges::minEdgeRatio);
+            if (hi <= lo)
+                return;
+            value = juce::jlimit (lo, hi, value);
+        }
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
     };
 
-    display.onFrame = [this] (const dehonk::DisplayFrame& frame)
+    // The shelf of range tabs. Selecting one puts the pond and the band view on that range alone.
+    addAndMakeVisible (shelf);
+    shelf.onSelectionChanged = [this] (int range)
     {
-        // A full meter is Max Cut as it is set now.
-        const auto maxCut = (float) maxCutKnob.getValue();
-        for (int m = 0; m < dehonk::kNumModules; ++m)
-        {
-            moduleButtons[(size_t) m]->setFullScaleDb (maxCut);
-            moduleButtons[(size_t) m]->setCutDb (frame.moduleCutDb[m]);
-        }
-        snapButton.setCutDb (frame.snapCutDb);
-        guardLamp.setHeld (frame.guard);
+        display.setFocusModule (range);
+        bandView.setFocus (range);
     };
+
+    display.onFrame = [this] (const dehonk::DisplayFrame& frame) { showFrame (frame); };
 
     // Listening tools
     soloButton.setClickingTogglesState (true);
     soloButton.setTooltip ("Plays only what is being removed. If it sounds only ugly, the settings are right. "
-                           "If you hear wanted bass or body in it, lower Depth or switch off the lowest module. Not saved with the session.");
+                           "If you hear wanted bass or body in it, lower Depth or switch off the lowest range. Not saved with the session.");
     soloButton.onClick = [this] { setSoloHonk (soloButton.getToggleState()); };
     addAndMakeVisible (soloButton);
 
@@ -395,31 +386,47 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     diffButton.onActiveChange = [this] (bool on) { setDiff (on); };
     addAndMakeVisible (diffButton);
 
-    // Secondary row
-    const juce::String guardTip ("Keeps the cuts out of big hits. When something lands across the whole spectrum at once (an explosion, a slam, a hit), "
-                                 "no new cut is made while it sounds, and a cut that is already open is eased off as far as the hit drowns out what it was there for, "
-                                 "by up to this much. The cuts come back as the hit dies away. At Off, hits are treated like anything else. "
-                                 "The lamp is lit while the guard is up.");
-    setUpBar (guardBar, guardCaption, "Impact Guard", ParamIDs::impactGuard, guardTip);
-    guardLamp.setTooltip (guardTip);
-    guardLamp.setInterceptsMouseClicks (true, false);
-    addAndMakeVisible (guardLamp);
-    guardAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::impactGuard, guardBar);
-    setUpBar (linkBar, linkCaption, "Link", ParamIDs::link,
-              "At 100% every channel shares one detection, so the image does not move. Lower values let each channel be cut on its own.");
     setUpBar (mixBar, mixCaption, "Mix", ParamIDs::mix,
               "Balance between the untreated signal (0%) and the treated signal (100%).");
     setUpBar (trimBar, trimCaption, "Trim", ParamIDs::trim, "Output level, after the mix.");
-    linkAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::link, linkBar);
     mixAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::mix, mixBar);
     trimAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::trim, trimBar);
 
+    // The bottom row: Impact Guard, Link, Lookahead, Dialogue.
+    const juce::String guardTip ("Keeps the cuts out of big hits (an explosion, a slam): no new cut while one sounds, and open cuts eased off by up to this amount. "
+                                 "The square lamp switches it off and on, and fills with yellow while the guard is up.");
+    setUpBar (guardBar, guardCaption, "Impact Guard", ParamIDs::impactGuard, guardTip);
+    guardAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::impactGuard, guardBar);
+    guardSwitch.setTooltip (guardTip);
+    guardSwitch.setClickingTogglesState (false);     // it follows the amount: see toggleGuard()
+    guardSwitch.onClick = [this] { toggleGuard(); };
+    addAndMakeVisible (guardSwitch);
+
+    setUpCaption (linkCaption, "Link");
+    const juce::String linkTip ("Linked: every channel gets the same cuts, so the image does not move. Grouped (surround only): the front pair, the centre, "
+                                "the surrounds and the heights each share theirs. Unlinked: each channel on its own.");
+    linkSelector.setTooltip (linkTip);
+    linkCaption.setTooltip (linkTip);
+    addAndMakeVisible (linkSelector);
+
     setUpCaption (lookaheadCaption, "Lookahead");
+    const juce::String lookaheadTip ("Delays the audio so each cut is in place when a transient arrives. "
+                                     "Adds the chosen latency, which is reported to the host.");
     lookaheadBox.addItemList (juce::StringArray { "Off", "5 ms", "10 ms", "20 ms" }, 1);
-    lookaheadBox.setTooltip ("Delays the audio so each cut is in place when a transient arrives. "
-                             "Adds the chosen latency, which is reported to the host.");
+    lookaheadBox.setTooltip (lookaheadTip);
+    lookaheadCaption.setTooltip (lookaheadTip);
     lookaheadAttachment = std::make_unique<ComboBoxAttachment> (apvts, ParamIDs::lookahead, lookaheadBox);
     addAndMakeVisible (lookaheadBox);
+
+    const juce::String dialogueTip ("With the dialogue stem on the sidechain (key input) and this switched on, bands and clicks that are the dialogue's are left alone. "
+                                    "The bar sets how far. The round lamp is lit while the stem arrives, and turns red if the stem is not found in the mix or is most of it.");
+    setUpBar (dialogueBar, dialogueCaption, "Dialogue", ParamIDs::dialogueAmount, dialogueTip);
+    dialogueBar.getProperties().set ("lamp", 0.0);
+    dialogueBar.getProperties().set ("toyColour", (juce::int64) toy::lavender.getARGB());
+    dialogueAmountAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::dialogueAmount, dialogueBar);
+    dialogueSwitch.setTooltip (dialogueTip);
+    dialogueAttachment = std::make_unique<ButtonAttachment> (apvts, ParamIDs::dialogue, dialogueSwitch);
+    addAndMakeVisible (dialogueSwitch);
 
     setResizable (true, true);
     setResizeLimits (minWidth, minHeight, 1800, 1400);
@@ -437,12 +444,14 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     addMouseListener (this, true);
 
     updatePresetBar();
+    timerCallback();
     startTimerHz (30);
 }
 
 DeHonkAudioProcessorEditor::~DeHonkAudioProcessorEditor()
 {
     stopTimer();
+    updateCheck.reset();        // cancels a request in flight: its callback never runs after this
     display.setActive (false);
     if (showing)
         deHonk.setEditorOpen (false);
@@ -452,17 +461,15 @@ DeHonkAudioProcessorEditor::~DeHonkAudioProcessorEditor()
     deHonk.setDiff (false);
 
     juce::PopupMenu::dismissAllActiveMenus();
-    dialog.reset();
+    overlay.reset();
     setLookAndFeel (nullptr);
 }
 
 void DeHonkAudioProcessorEditor::setUpCaption (juce::Label& label, const juce::String& text)
 {
-    label.setText (text, juce::dontSendNotification);
     label.setText (text.toLowerCase(), juce::dontSendNotification);
     label.setFont (fonts->name (11.0f));
     label.setColour (juce::Label::textColourId, toy::ink);
-    label.getProperties().set ("pill", true);
     label.setJustificationType (juce::Justification::centred);
     label.setMinimumHorizontalScale (0.8f);
     addAndMakeVisible (label);
@@ -528,8 +535,70 @@ void DeHonkAudioProcessorEditor::setDiff (bool on)
     }
 }
 
+void DeHonkAudioProcessorEditor::toggleGuard()
+{
+    // Off is the amount at 0. Switching it on again brings back the amount it had.
+    auto* param = deHonk.getParameters().getParameter (ParamIDs::impactGuard);
+    if (param == nullptr)
+        return;
+    const float now = param->convertFrom0to1 (param->getValue());
+    float next = 0.0f;
+    if (now > 0.5f)
+        deHonk.setGuardAmountMemory (now);
+    else
+        next = juce::jmax (1.0f, deHonk.getGuardAmountMemory());
+    param->beginChangeGesture();
+    param->setValueNotifyingHost (param->convertTo0to1 (next));
+    param->endChangeGesture();
+}
+
+void DeHonkAudioProcessorEditor::showFrame (const dehonk::DisplayFrame& frame)
+{
+    // The tabs' lamps: a range is cutting from half a decibel, and has stopped under a quarter.
+    // Snap's cuts are over in milliseconds, so its lamp stays lit for a moment after each.
+    auto now = cutting;
+    for (int m = 0; m < dehonk::kNumModules; ++m)
+        now[(size_t) m] = frame.moduleCutDb[m] > (cutting[(size_t) m] ? 0.25f : 0.5f);
+    const double ms = juce::Time::getMillisecondCounterHiRes();
+    if (frame.snapCutDb > 0.5f)
+        snapLitUntilMs = ms + 300.0;
+    now[dehonk::kNumModules] = ms < snapLitUntilMs;
+    if (now != cutting)
+    {
+        cutting = now;
+        shelf.setCutting (cutting);
+    }
+
+    guardSwitch.setGlow (frame.guard);
+
+    // The dialogue lamp: from -60 dBFS (just lit) to -20 (full), in five steps.
+    // It turns to a warning (red) while Dialogue is listening and the key is not doing what it is
+    // there for: it is not found in the mix (the wrong stem, or far out of time with it), or it is
+    // most of the mix (the mix itself on the key), so that De-Honk is being switched off by it.
+    // Held a moment, so that it does not flicker.
+    const float lamp = frame.keyDb > -60.0f ? std::ceil (juce::jlimit (0.0f, 1.0f, (frame.keyDb + 60.0f) / 40.0f) * 5.0f) / 5.0f : 0.0f;
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    if (frame.keyed && frame.keyDb > -50.0f && frame.keyMatch < 0.3f)
+        keyUnfoundMs = keyUnfoundMs <= 0.0 ? nowMs : keyUnfoundMs;
+    else
+        keyUnfoundMs = 0.0;
+    if (frame.keyed && (frame.keyOver || (keyUnfoundMs > 0.0 && nowMs - keyUnfoundMs > 2500.0)))
+        keyWarnUntilMs = nowMs + 1500.0;
+    const bool warn = nowMs < keyWarnUntilMs;
+    if (! juce::approximatelyEqual (lamp, shownKeyLamp) || warn != shownKeyWarn)
+    {
+        shownKeyLamp = lamp;
+        shownKeyWarn = warn;
+        dialogueBar.getProperties().set ("lamp", (double) lamp);
+        dialogueBar.getProperties().set ("lampWarn", warn);
+        dialogueBar.repaint();
+    }
+}
+
 bool DeHonkAudioProcessorEditor::keyStateChanged (bool isKeyDown)
 {
+    if (isKeyDown)
+        tooltip.hideNow();
     if (isKeyDown && ! lookAndFeel.showFocus)
     {
         lookAndFeel.showFocus = true;
@@ -540,11 +609,20 @@ bool DeHonkAudioProcessorEditor::keyStateChanged (bool isKeyDown)
 
 void DeHonkAudioProcessorEditor::mouseDown (const juce::MouseEvent&)
 {
+    tooltip.hideNow();
     if (lookAndFeel.showFocus)
     {
         lookAndFeel.showFocus = false;
         repaint();
     }
+}
+
+void DeHonkAudioProcessorEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    // (Also called for every control in the window: the editor listens to them all.)
+    tooltip.hideNow();
+    if (e.eventComponent == this)
+        juce::AudioProcessorEditor::mouseWheelMove (e, wheel);
 }
 
 void DeHonkAudioProcessorEditor::visibilityChanged()      { updateShowing(); }
@@ -563,14 +641,35 @@ void DeHonkAudioProcessorEditor::updateShowing()
     display.setActive (showing);
     startTimerHz (showing ? 30 : 4);  // while hidden, only this check runs
 
-    if (! showing)
+    if (showing)
+    {
+        startUpdateCheckWhenShown();
+    }
+    else
     {
         // Out of sight, a listening tool would be engaged with nothing saying so.
         soloButton.setToggleState (false, juce::dontSendNotification);
         diffButton.release();
         deHonk.setSoloHonk (false);
         deHonk.setDiff (false);
+        tooltip.hideNow();
     }
+}
+
+void DeHonkAudioProcessorEditor::startUpdateCheckWhenShown()
+{
+    // Once per editor, and only when it is on screen in a host or the app: an editor that is only
+    // built around a bare processor (a test, a picture) never goes online. Never from the
+    // processor or the audio thread.
+    if (updateCheck != nullptr || deHonk.wrapperType == juce::AudioProcessor::wrapperType_Undefined)
+        return;
+    // A test build (0.0.x) does not look by itself. The shared check only ever reports a full
+    // release, and until De-Honk has one it finds nothing to remember, so it would ask the
+    // release server again each time a window opened. About's own check still works.
+    if (juce::String (JucePlugin_VersionString).startsWith ("0.0."))
+        return;
+    updateCheck = std::make_unique<sammyj::UpdateCheck> ("dehonk", "dehonk-v", JucePlugin_VersionString,
+                                                         [this] (const sammyj::UpdateInfo& info) { showUpdate (info); });
 }
 
 void DeHonkAudioProcessorEditor::timerCallback()
@@ -596,11 +695,19 @@ void DeHonkAudioProcessorEditor::timerCallback()
     soloButton.setPulse (solo ? pulse : 0.0f);
     diffButton.setPulse (diffOn ? pulse : 0.0f);
 
-    // Click's held meter falls back on its own.
-    const double nowMs = juce::Time::getMillisecondCounterHiRes();
-    snapButton.advance (lastTimerMs > 0.0 ? (nowMs - lastTimerMs) * 0.001 : 0.0);
-    lastTimerMs = nowMs;
+    // The guard's switch follows its amount, and remembers the last amount that was not off.
+    const float guard = (float) guardBar.getValue();
+    if (guard > 0.5f)
+        deHonk.setGuardAmountMemory (guard);
+    guardSwitch.setToggleState (guard > 0.5f, juce::dontSendNotification);
 
+    // Grouped means something only with more than two channels.
+    linkSelector.setGroupedShown (deHonk.getMainBusNumInputChannels() > 2);
+
+    // The dialogue amount is greyed while Dialogue is off (its lamp still shows the key arriving).
+    dialogueBar.setEnabled (dialogueSwitch.getToggleState());
+
+    shelf.refresh();
     updatePresetBar();
 }
 
@@ -628,6 +735,7 @@ void DeHonkAudioProcessorEditor::showPresetMenu()
     const int current = presets.getCurrentIndex();
 
     juce::PopupMenu menu;
+    menu.setLookAndFeel (&lookAndFeel);
     menu.addSectionHeader ("Factory");
     for (int i = 0; i < list.size(); ++i)
     {
@@ -636,8 +744,11 @@ void DeHonkAudioProcessorEditor::showPresetMenu()
         menu.addItem (i + 1, list[i].name, true, i == current);
     }
 
+    // Drawn inside the editor, as a card, under the preset's name.
+    tooltip.hideNow();
     juce::Component::SafePointer<DeHonkAudioProcessorEditor> safe (this);
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetButton).withMinimumWidth (presetButton.getWidth()),
+    menu.showMenuAsync (juce::PopupMenu::Options().withParentComponent (this).withTargetComponent (&presetButton)
+                            .withMinimumWidth (presetButton.getWidth()).withStandardItemHeight (26).withMaximumNumColumns (1),
                         [safe] (int result)
                         {
                             if (safe != nullptr && result > 0)
@@ -648,52 +759,112 @@ void DeHonkAudioProcessorEditor::showPresetMenu()
                         });
 }
 
+void DeHonkAudioProcessorEditor::showOverlay (std::unique_ptr<OverlayCard> card)
+{
+    tooltip.hideNow();
+    juce::PopupMenu::dismissAllActiveMenus();
+
+    if (overlay != nullptr)
+    {
+        // The card being replaced may be the one whose button was just clicked: it goes once this
+        // call has unwound.
+        overlay->setVisible (false);
+        overlay->onClose = nullptr;
+        juce::MessageManager::callAsync ([old = std::shared_ptr<OverlayCard> (std::move (overlay))] {});
+    }
+
+    overlay = std::move (card);
+    auto* raw = overlay.get();
+    juce::Component::SafePointer<DeHonkAudioProcessorEditor> safe (this);
+    overlay->onClose = [safe, raw] { if (safe != nullptr) safe->overlayClosed (raw); };
+    addAndMakeVisible (*overlay);
+    overlay->setBounds (getLocalBounds());
+    overlay->toFront (true);
+}
+
+void DeHonkAudioProcessorEditor::overlayClosed (OverlayCard* card)
+{
+    if (overlay.get() != card)
+        return;
+    overlay.reset();
+
+    // A newer version found while another card was up is offered now.
+    if (pendingUpdate.has_value())
+    {
+        const auto info = *pendingUpdate;
+        pendingUpdate.reset();
+        showUpdate (info);
+    }
+}
+
+void DeHonkAudioProcessorEditor::showAbout()
+{
+    showOverlay (std::make_unique<AboutCard> (lookAndFeel));
+}
+
+void DeHonkAudioProcessorEditor::showUpdate (const sammyj::UpdateInfo& info)
+{
+    if (overlay != nullptr)
+    {
+        pendingUpdate = info;
+        return;
+    }
+    showOverlay (std::make_unique<UpdateCard> (lookAndFeel, info));
+}
+
 void DeHonkAudioProcessorEditor::savePreset()
 {
     auto& presets = deHonk.getPresetManager();
-
-    dialog = std::make_unique<juce::AlertWindow> ("Save preset", "Name for the user preset:", juce::MessageBoxIconType::NoIcon, this);
-    dialog->setLookAndFeel (&lookAndFeel);
-    dialog->addTextEditor ("name", presets.isCurrentUserPreset() ? presets.getCurrentName() : juce::String());
-    dialog->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
-    dialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
     juce::Component::SafePointer<DeHonkAudioProcessorEditor> safe (this);
-    dialog->enterModalState (true, juce::ModalCallbackFunction::create ([safe] (int result)
+
+    const auto couldNotSave = [safe]
     {
-        if (safe == nullptr || safe->dialog == nullptr)
+        if (safe != nullptr)
+            safe->showOverlay (std::make_unique<PromptCard> (safe->lookAndFeel, "save preset",
+                                                             "Could not save the preset: the presets folder could not be written to.",
+                                                             false, juce::String(), "OK", [] (bool, juce::String) {}));
+    };
+    auto card = std::make_unique<PromptCard> (lookAndFeel, "save preset", "Name for the user preset:", true,
+                                               presets.isCurrentUserPreset() ? presets.getCurrentName() : juce::String(), "Save",
+                                               [safe, couldNotSave] (bool accepted, juce::String typed)
+    {
+        if (safe == nullptr)
             return;
-
-        const auto name = safe->dialog->getTextEditorContents ("name").trim();
-        safe->dialog.reset();
-
+        const auto name = typed.trim();
         auto& pm = safe->deHonk.getPresetManager();
-        if (result != 1 || ! PresetManager::isValidPresetName (name))
+        if (! accepted || ! PresetManager::isValidPresetName (name))
             return;
 
         const bool overwritesOther = pm.userPresetExists (name) && ! (pm.isCurrentUserPreset() && pm.getCurrentName() == name);
         if (! overwritesOther)
         {
-            pm.saveUserPreset (name);
+            const bool saved = pm.saveUserPreset (name);
             safe->updatePresetBar();
+            if (! saved)
+                couldNotSave();
             return;
         }
 
-        safe->dialog = std::make_unique<juce::AlertWindow> ("Replace preset", "A user preset called \"" + name + "\" already exists. Replace it?",
-                                                            juce::MessageBoxIconType::QuestionIcon, safe.getComponent());
-        safe->dialog->setLookAndFeel (&safe->lookAndFeel);
-        safe->dialog->addButton ("Replace", 1, juce::KeyPress (juce::KeyPress::returnKey));
-        safe->dialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-        safe->dialog->enterModalState (true, juce::ModalCallbackFunction::create ([safe, name] (int confirmed)
+        safe->showOverlay (std::make_unique<PromptCard> (safe->lookAndFeel, "replace preset",
+                                                         "A user preset called \"" + name + "\" already exists. Replace it?", false, juce::String(), "Replace",
+                                                         [safe, name, couldNotSave] (bool confirmed, juce::String)
         {
             if (safe == nullptr)
                 return;
-            safe->dialog.reset();
-            if (confirmed == 1)
-                safe->deHonk.getPresetManager().saveUserPreset (name);
+            const bool saved = ! confirmed || safe->deHonk.getPresetManager().saveUserPreset (name);
             safe->updatePresetBar();
-        }), false);
-    }), false);
+            if (! saved)
+                couldNotSave();
+        }));
+    });
+    card->setValidator ([] (const juce::String& typed)
+    {
+        const auto name = typed.trim();
+        return name.isEmpty() ? juce::String ("Type a name.")
+             : PresetManager::isValidPresetName (name) ? juce::String()
+             : juce::String ("That name has no letters or numbers a file can be called.");
+    });
+    showOverlay (std::move (card));
 }
 
 void DeHonkAudioProcessorEditor::deletePreset()
@@ -703,129 +874,148 @@ void DeHonkAudioProcessorEditor::deletePreset()
         return;
 
     const auto file = presets.getCurrentFile();
-    dialog = std::make_unique<juce::AlertWindow> ("Delete preset", "Delete the user preset \"" + presets.getCurrentName() + "\"? This cannot be undone.",
-                                                  juce::MessageBoxIconType::WarningIcon, this);
-    dialog->setLookAndFeel (&lookAndFeel);
-    dialog->addButton ("Delete", 1);
-    dialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
     juce::Component::SafePointer<DeHonkAudioProcessorEditor> safe (this);
-    dialog->enterModalState (true, juce::ModalCallbackFunction::create ([safe, file] (int result)
+    showOverlay (std::make_unique<PromptCard> (lookAndFeel, "delete preset",
+                                               "Delete the user preset \"" + presets.getCurrentName() + "\"? This cannot be undone.", false, juce::String(), "Delete",
+                                               [safe, file] (bool confirmed, juce::String)
     {
         if (safe == nullptr)
             return;
-        safe->dialog.reset();
-        if (result == 1)
+        if (confirmed)
             safe->deHonk.getPresetManager().deleteUserPreset (file);
         safe->updatePresetBar();
-    }), false);
+    }));
 }
 
 //==============================================================================
-juce::RangedAudioParameter* DeHonkAudioProcessorEditor::edgeParam (int e) const
+juce::RangedAudioParameter* DeHonkAudioProcessorEditor::handleParam (int h) const
 {
-    return e >= 0 && e < dehonk::kNumEdges ? deHonk.getParameters().getParameter (ParamIDs::edges[e]) : nullptr;
+    using View = dehonk::scene::BandView;
+    auto& apvts = deHonk.getParameters();
+    if (h >= 0 && h < dehonk::kNumEdges)
+        return apvts.getParameter (ParamIDs::edges[h]);
+    if (h == View::thresholdHandle)
+        return apvts.getParameter (ParamIDs::threshold);
+    if (h == View::maxCutHandle)
+        return apvts.getParameter (ParamIDs::maxCut);
+    return nullptr;
 }
 
 void DeHonkAudioProcessorEditor::paint (juce::Graphics& g)
 {
     // Cream, with pale rays fanning out from below the window's right-hand corner.
     g.fillAll (toy::cream);
+    const juce::Point<float> origin ((float) getWidth() * 0.86f, (float) getHeight() + 60.0f);
+    const float reach = (float) (getWidth() + getHeight()) * 1.2f;
+    constexpr int rays = 22;
+    g.setColour (toy::creamDeep);
+    for (int i = 0; i < rays; i += 2)
     {
-        const juce::Point<float> origin ((float) getWidth() * 0.86f, (float) getHeight() + 60.0f);
-        const float reach = (float) (getWidth() + getHeight()) * 1.2f;
-        constexpr int rays = 22;
-        g.setColour (toy::creamDeep);
-        for (int i = 0; i < rays; i += 2)
-        {
-            const float a0 = juce::MathConstants<float>::pi * (1.0f + (float) i / (float) rays);
-            const float a1 = juce::MathConstants<float>::pi * (1.0f + (float) (i + 1) / (float) rays);
-            juce::Path ray;
-            ray.addTriangle (origin.x, origin.y, origin.x + reach * std::cos (a0), origin.y + reach * std::sin (a0),
-                             origin.x + reach * std::cos (a1), origin.y + reach * std::sin (a1));
-            g.fillPath (ray);
-        }
-    }
-
-    // A small rainbow rule under the name, and a dot before it.
-    const auto name = title.getBounds().toFloat();
-    for (int i = 0; i < 5; ++i)
-    {
-        g.setColour (toy::rainbow[i]);
-        g.fillRect (juce::Rectangle<float> (name.getX() + 4.0f, name.getBottom() - 9.0f + (float) i * 2.0f, 118.0f, 2.0f));
-    }
-
-    // A rainbow rule between the pictures and the controls.
-    const float y = (float) bandView.getBottom() + 7.0f;
-    for (int i = 0; i < 5; ++i)
-    {
-        g.setColour (toy::rainbow[i].withAlpha (0.9f));
-        g.fillRect (juce::Rectangle<float> ((float) bandView.getX(), y + (float) i * 1.5f, (float) bandView.getWidth(), 1.5f));
+        const float a0 = juce::MathConstants<float>::pi * (1.0f + (float) i / (float) rays);
+        const float a1 = juce::MathConstants<float>::pi * (1.0f + (float) (i + 1) / (float) rays);
+        juce::Path ray;
+        ray.addTriangle (origin.x, origin.y, origin.x + reach * std::cos (a0), origin.y + reach * std::sin (a0),
+                         origin.x + reach * std::cos (a1), origin.y + reach * std::sin (a1));
+        g.fillPath (ray);
     }
 }
 
 void DeHonkAudioProcessorEditor::resized()
 {
-    constexpr int margin = 12, gap = 10, drop = (int) toy::dropY;
+    constexpr int margin = 12, gap = 10;
     auto r = getLocalBounds().reduced (margin);
 
     // Top bar: name, presets, bypass.
-    auto header = r.removeFromTop (40 + drop);
-    r.removeFromTop (gap - drop);
-    title.setBounds (header.removeFromLeft (150).withTrimmedBottom (8));
+    auto header = r.removeFromTop (40);
+    r.removeFromTop (gap);
+    title.setBounds (header.removeFromLeft (236));
     header.removeFromLeft (gap);
-    bypassButton.setBounds (header.removeFromRight (104));
+    bypassButton.setBounds (header.removeFromRight (90));
     header.removeFromRight (gap);
-    deleteButton.setBounds (header.removeFromRight (88));
+    deleteButton.setBounds (header.removeFromRight (74));
     header.removeFromRight (6);
-    saveButton.setBounds (header.removeFromRight (76));
+    saveButton.setBounds (header.removeFromRight (64));
     header.removeFromRight (gap);
-    previousButton.setBounds (header.removeFromLeft (header.getHeight() - drop + 4));
+    previousButton.setBounds (header.removeFromLeft (36));
     header.removeFromLeft (6);
-    nextButton.setBounds (header.removeFromRight (header.getHeight() - drop + 4));
+    nextButton.setBounds (header.removeFromRight (36));
     header.removeFromRight (6);
     presetButton.setBounds (header);
 
-    // From the bottom up: the small controls, the knobs with the listening buttons, the modules,
-    // the band view. The pond takes everything that is left, up to 16:9.
-    auto small = r.removeFromBottom (28 + drop);
+    // From the bottom up: the small controls, the knobs with the listening buttons, the shelf of
+    // range tabs, the band view. The pond takes everything that is left, up to 16:9.
+    auto small = r.removeFromBottom (28);
     r.removeFromBottom (gap);
-    auto knobs = r.removeFromBottom (132);
+    constexpr int detectionRow = 24;
+    auto knobs = r.removeFromBottom (132 + detectionRow);
     r.removeFromBottom (gap);
-    auto modules = r.removeFromBottom (36 + drop);
-    r.removeFromBottom (gap + 12);       // room for the rainbow rule
+    auto shelfArea = r.removeFromBottom (RangeShelf::height);
+    r.removeFromBottom (5);
     auto band = r.removeFromBottom (dehonk::scene::BandView::heightForWidth (r.getWidth()));
-    r.removeFromBottom (gap - drop);
-    const int pondMax = r.getWidth() * 9 / 16 + drop;
+    r.removeFromBottom (gap);
+    const int pondMax = r.getWidth() * 9 / 16 + DisplayComponent::treeRoom;
     display.setBounds (r.withHeight (juce::jmin (r.getHeight(), pondMax)));
     if (r.getHeight() > pondMax)
     {
-        // A very tall window: everything below the pond moves up under it and the lawn shows beneath.
+        // A very tall window: everything below the pond moves up under it.
         const int shift = r.getHeight() - pondMax;
-        for (auto* area : { &band, &modules, &knobs, &small })
+        for (auto* area : { &band, &shelfArea, &knobs, &small })
             area->translate (0, -shift);
     }
     bandView.setBounds (band);
-
-    // The five module pills.
-    constexpr int numSwitches = dehonk::kNumModules + 1;
-    const int moduleWidth = (modules.getWidth() - (numSwitches - 1) * gap) / numSwitches;
-    for (auto& button : moduleButtons)
+    shelf.setBounds (shelfArea);
+    // The pond's frequency axis is laid over the band view's plot, so that each tree and post
+    // stands over its handle.
     {
-        button->setBounds (modules.removeFromLeft (moduleWidth));
-        modules.removeFromLeft (gap);
+        const auto plot = bandView.plotArea().translated ((float) bandView.getX(), 0.0f);
+        const auto card = display.pictureBounds().toFloat().translated ((float) display.getX(), 0.0f);
+        if (card.getWidth() > 1.0f)
+            display.setAxisSpan ((plot.getX() - card.getX()) / card.getWidth(), (plot.getRight() - card.getX()) / card.getWidth());
     }
-    snapButton.setBounds (modules);
 
-    // Six knobs on the left, each with its name above; the listening buttons on the right.
-    auto listen = knobs.removeFromRight (juce::jlimit (200, 300, knobs.getWidth() / 4));
+    auto captionWidth = [] (const juce::Label& label)
+    {
+        return juce::roundToInt (std::ceil (juce::GlyphArrangement::getStringWidth (label.getFont(), label.getText()))) + 6;
+    };
+
+    // Six knobs on the left, each with its name above. On the right, what is heard and what goes
+    // out: the two listening buttons, and Mix and Trim under them.
+    auto listen = knobs.removeFromRight (juce::jlimit (252, 320, knobs.getWidth() * 3 / 10));
     knobs.removeFromRight (gap);
+    listen.removeFromBottom (detectionRow);
+    auto output = listen.removeFromBottom (28);
+    listen.removeFromBottom (6);
     const int listenWidth = (listen.getWidth() - gap) / 2;
-    const auto listenRow = listen.withSizeKeepingCentre (listen.getWidth(), juce::jmin (listen.getHeight(), 104));
-    soloButton.setBounds (listenRow.withWidth (listenWidth));
-    diffButton.setBounds (listenRow.withLeft (listenRow.getRight() - listenWidth));
+    soloButton.setBounds (listen.withWidth (listenWidth));
+    diffButton.setBounds (listen.withLeft (listen.getRight() - listenWidth));
+    {
+        constexpr int tagGap = 4;
+        const int mixCaptionW = captionWidth (mixCaption), trimCaptionW = captionWidth (trimCaption);
+        // Trim's longest value ("-12.0 dB") is wider than Mix's ("100 %"): it has the larger share.
+        const int barWidth = juce::jmax (40, (output.getWidth() - mixCaptionW - trimCaptionW - 2 * tagGap - gap) * 9 / 20);
+        mixCaption.setBounds (output.removeFromLeft (mixCaptionW));
+        output.removeFromLeft (tagGap);
+        mixBar.setBounds (output.removeFromLeft (barWidth));
+        output.removeFromLeft (gap);
+        trimCaption.setBounds (output.removeFromLeft (trimCaptionW));
+        output.removeFromLeft (tagGap);
+        trimBar.setBounds (output);
+        mixCaption.setJustificationType (juce::Justification::centredRight);
+        trimCaption.setJustificationType (juce::Justification::centredRight);
+    }
 
+    // Detection's row under the knobs: its pill under Sharpness, its name under Max Cut, to the left.
+    auto detectionArea = knobs.removeFromBottom (detectionRow);
     const int knobWidth = knobs.getWidth() / 6;
+    {
+        auto row = detectionArea.withTrimmedTop (2);
+        const int pillWidth = juce::jmin (knobWidth - 4, 118);
+        const int pillX = knobs.getX() + 3 * knobWidth + (knobWidth - pillWidth) / 2;
+        detectionSelector.setBounds (pillX, row.getY(), pillWidth, row.getHeight());
+        const int captionW = captionWidth (detectionCaption);
+        detectionCaption.setBounds (pillX - 6 - captionW, row.getY(), captionW, row.getHeight());
+        detectionCaption.setJustificationType (juce::Justification::centredRight);
+    }
     for (auto [knob, caption] : { std::pair<juce::Slider*, juce::Label*> { &thresholdKnob, &thresholdCaption },
                                   { &depthKnob, &depthCaption },
                                   { &maxCutKnob, &maxCutCaption },
@@ -838,35 +1028,41 @@ void DeHonkAudioProcessorEditor::resized()
         knob->setBounds (column);
     }
 
-    // Impact Guard (with its lamp), Link, Lookahead, Mix, Trim: each a name tag with its pill beside
-    // it. Every name gets the width its own text needs, and the pills share what is left.
+    // The bottom row: Impact Guard and Dialogue each have their switch before the name and their
+    // amount after it; Link is one pill in three parts; Lookahead is a choice. Every name gets the
+    // width its own text needs; Link's pill gets about twice a share of what is left.
     struct Cell
     {
+        juce::Component* lamp;
         juce::Label* caption;
         juce::Component* control;
-        juce::Component* lamp;
+        float share;
     };
-    const Cell cells[] { { &guardCaption, &guardBar, &guardLamp }, { &linkCaption, &linkBar, nullptr }, { &lookaheadCaption, &lookaheadBox, nullptr },
-                         { &mixCaption, &mixBar, nullptr }, { &trimCaption, &trimBar, nullptr } };
-    constexpr int numCells = (int) std::size (cells), tagGap = 6, lampWidth = 13;
-    int captionWidth[numCells] {}, fixed = (numCells - 1) * gap;
-    for (int i = 0; i < numCells; ++i)
+    const Cell cells[] { { &guardSwitch, &guardCaption, &guardBar, 1.0f },
+                         { nullptr, &linkCaption, &linkSelector, 1.9f },
+                         { nullptr, &lookaheadCaption, &lookaheadBox, 1.0f },
+                         { &dialogueSwitch, &dialogueCaption, &dialogueBar, 1.0f } };
+    constexpr int numCells = (int) std::size (cells), tagGap = 6, lampWidth = 20;
+    int fixed = (numCells - 1) * (gap + 4);
+    float shares = 0.0f;
+    for (const auto& cell : cells)
     {
-        captionWidth[i] = juce::roundToInt (std::ceil (juce::GlyphArrangement::getStringWidth (cells[i].caption->getFont(), cells[i].caption->getText()))) + 6;
-        fixed += captionWidth[i] + tagGap + (cells[i].lamp != nullptr ? lampWidth + 2 : 0);
+        fixed += captionWidth (*cell.caption) + tagGap + (cell.lamp != nullptr ? lampWidth : 0);
+        shares += cell.share;
     }
-    const int controlWidth = juce::jmax (48, (small.getWidth() - fixed) / numCells);
+    const float shareWidth = (float) juce::jmax (0, small.getWidth() - fixed) / shares;
     for (int i = 0; i < numCells; ++i)
     {
-        cells[i].caption->setBounds (small.removeFromLeft (captionWidth[i]).withTrimmedBottom (drop));
-        cells[i].caption->setJustificationType (juce::Justification::centredRight);
-        if (cells[i].lamp != nullptr)
-        {
-            small.removeFromLeft (2);
-            cells[i].lamp->setBounds (small.removeFromLeft (lampWidth).withTrimmedBottom (drop));
-        }
+        const auto& cell = cells[i];
+        if (cell.lamp != nullptr)
+            cell.lamp->setBounds (small.removeFromLeft (lampWidth));
+        cell.caption->setBounds (small.removeFromLeft (captionWidth (*cell.caption)));
+        cell.caption->setJustificationType (juce::Justification::centredRight);
         small.removeFromLeft (tagGap);
-        cells[i].control->setBounds (i + 1 < numCells ? small.removeFromLeft (controlWidth) : small);
-        small.removeFromLeft (gap);
+        cell.control->setBounds (i + 1 < numCells ? small.removeFromLeft (juce::jmax (48, juce::roundToInt (shareWidth * cell.share))) : small);
+        small.removeFromLeft (gap + 4);
     }
+
+    if (overlay != nullptr)
+        overlay->setBounds (getLocalBounds());
 }

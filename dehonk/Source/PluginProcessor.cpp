@@ -6,6 +6,23 @@
 namespace
 {
     const juce::Identifier stateVersionAttr { "stateVersion" };
+    // How juce::AudioProcessorValueTreeState keeps a parameter in its state.
+    const juce::Identifier stateParamType { "PARAM" }, stateParamId { "id" }, stateParamValue { "value" };
+
+    juce::AudioParameterFloatAttributes milliseconds()
+    {
+        return juce::AudioParameterFloatAttributes()
+            .withLabel ("ms")
+            .withStringFromValueFunction ([] (float v, int)
+            { return (v < 10.0f ? juce::String (v, 1) : juce::String (juce::roundToInt (v))) + " ms"; })
+            .withValueFromStringFunction ([] (const juce::String& s)
+            {
+                // "1.2 s" as well as "1200 ms" or "1200".
+                const auto text = s.trim().toLowerCase();
+                const float number = text.retainCharacters ("0123456789.").getFloatValue();
+                return text.endsWithChar ('s') && ! text.endsWith ("ms") ? number * 1000.0f : number;
+            });
+    }
 
     juce::AudioParameterFloatAttributes percent()
     {
@@ -80,12 +97,36 @@ namespace
         return dehonk::Position::unknown;
     }
 
+    // Which channels share their detection when Link is Grouped: the front pair (with the wides
+    // and the inner fronts), the centre, the surrounds, and the heights.
+    dehonk::Group groupOf (juce::AudioChannelSet::ChannelType type) noexcept
+    {
+        using T = juce::AudioChannelSet;
+        for (auto t : { T::left, T::right, T::leftCentre, T::rightCentre, T::wideLeft, T::wideRight })
+            if (type == t)
+                return dehonk::Group::front;
+        if (type == T::centre)
+            return dehonk::Group::centre;
+        for (auto t : { T::topMiddle, T::topFrontLeft, T::topFrontCentre, T::topFrontRight, T::topRearLeft, T::topRearCentre,
+                        T::topRearRight, T::topSideLeft, T::topSideRight })
+            if (type == t)
+                return dehonk::Group::height;
+        for (auto t : { T::leftSurround, T::rightSurround, T::centreSurround, T::leftSurroundSide, T::rightSurroundSide,
+                        T::leftSurroundRear, T::rightSurroundRear })
+            if (type == t)
+                return dehonk::Group::surround;
+        return dehonk::Group::automatic;
+    }
+
     dehonk::ChannelLayout coreLayoutFor (const juce::AudioChannelSet& set)
     {
         dehonk::ChannelLayout layout;
         const int n = juce::jmin (set.size(), dehonk::kMaxChannels);
         for (int ch = 0; ch < n; ++ch)
+        {
             layout.position[ch] = positionOf (set.getTypeOfChannel (ch));
+            layout.group[ch] = groupOf (set.getTypeOfChannel (ch));
+        }
 
         // The LFE, found by type, so it is right whatever order the host's format puts it in.
         for (auto type : { juce::AudioChannelSet::LFE, juce::AudioChannelSet::LFE2 })
@@ -121,7 +162,10 @@ namespace
 //==============================================================================
 DeHonkAudioProcessor::DeHonkAudioProcessor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
-                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                                       // The dialogue sidechain. Mono by default: JUCE's AAX wrapper offers Pro
+                                       // Tools a key input only for a mono second input bus.
+                                       .withInput ("Dialogue", juce::AudioChannelSet::mono(), true)),
       parameters (*this, nullptr, "DeHonk", createParameterLayout()),
       presetManager (parameters, [this] (const juce::AudioProcessorListener::ChangeDetails& details)
                                  { updateHostDisplay (details); })
@@ -138,7 +182,16 @@ DeHonkAudioProcessor::DeHonkAudioProcessor()
     clickOnValue   = parameters.getRawParameterValue (ParamIDs::snapOn);
     for (int e = 0; e < dehonk::kNumEdges; ++e)
         edgeValues[static_cast<size_t> (e)] = parameters.getRawParameterValue (ParamIDs::edges[e]);
-    linkValue      = parameters.getRawParameterValue (ParamIDs::link);
+    linkModeValue  = parameters.getRawParameterValue (ParamIDs::linkMode);
+    dialogueValue  = parameters.getRawParameterValue (ParamIDs::dialogue);
+    dialogueAmountValue = parameters.getRawParameterValue (ParamIDs::dialogueAmount);
+    for (size_t m = 0; m < dehonk::kNumModules; ++m)
+    {
+        timingLockedValues[m] = parameters.getRawParameterValue (ParamIDs::timingLocked[m]);
+        rangeAttackValues[m]  = parameters.getRawParameterValue (ParamIDs::rangeAttack[m]);
+        rangeReleaseValues[m] = parameters.getRawParameterValue (ParamIDs::rangeRelease[m]);
+    }
+    detectionValue = parameters.getRawParameterValue (ParamIDs::detection);
     lookaheadValue = parameters.getRawParameterValue (ParamIDs::lookahead);
     mixValue       = parameters.getRawParameterValue (ParamIDs::mix);
     trimValue      = parameters.getRawParameterValue (ParamIDs::trim);
@@ -161,8 +214,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout DeHonkAudioProcessor::create
 {
     using namespace ParamRanges;
     const auto id = [] (const char* name) { return juce::ParameterID { name, ParamIDs::versionHint }; };
+    const auto added = [] (const char* name) { return juce::ParameterID { name, ParamIDs::versionHintSecond }; };
 
-    // The order here is the order hosts see. Once released, new parameters go at the end.
+    // The first test build's parameters, in its order and with its version hint, then everything
+    // added since with a higher one (see Parameters.h: that is what keeps an AU's indices where
+    // they were).
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::threshold), "Threshold",
@@ -190,14 +246,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout DeHonkAudioProcessor::create
     for (int m = 0; m < dehonk::kNumModules; ++m)
         layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::moduleOn[m]), moduleNames[m],
                                                                 coreDefaults.moduleOn[m]));
-    layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::snapOn), "Click", coreDefaults.snapOn));
+    layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::snapOn), "Snap", coreDefaults.snapOn));
 
     for (int e = 0; e < dehonk::kNumEdges; ++e)
         layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::edges[e]), edgeNames[e],
                                                                  edgeRange (e), dehonk::kDefaultEdgesHz[e], hertz()));
 
-    layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::link), "Link",
-                    juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percent()));
+    // In its old place and doing nothing: Link is linkMode now.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::legacyLink), "Link (not used)",
+                    juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+                    percent().withAutomatable (false)));
     layout.add (std::make_unique<juce::AudioParameterChoice> (id (ParamIDs::lookahead), "Lookahead",
                     juce::StringArray { "Off", "5 ms", "10 ms", "20 ms" }, 0));
     layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::mix), "Mix",
@@ -250,6 +308,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout DeHonkAudioProcessor::create
                             return s.retainCharacters ("0123456789.").getFloatValue();
                         })));
 
+    layout.add (std::make_unique<juce::AudioParameterChoice> (added (ParamIDs::linkMode), "Link",
+                    juce::StringArray { linkModeNames, numLinkModes }, linkModeDefault));
+
+    // The dialogue sidechain.
+    layout.add (std::make_unique<juce::AudioParameterBool> (added (ParamIDs::dialogue), "Dialogue", coreDefaults.dialogueOn));
+    layout.add (std::make_unique<juce::AudioParameterFloat> (added (ParamIDs::dialogueAmount), "Dialogue Amount",
+                    juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f), dialogueAmountDefault, percent()));
+
+    // Each range's own timing: the lock, then the attack and release it uses when unlocked.
+    for (int m = 0; m < dehonk::kNumModules; ++m)
+    {
+        const juce::String range (moduleNames[m]);
+        layout.add (std::make_unique<juce::AudioParameterBool> (added (ParamIDs::timingLocked[m]), range + " Timing Locked",
+                                                                coreDefaults.rangeTimingLocked[m]));
+        layout.add (std::make_unique<juce::AudioParameterFloat> (added (ParamIDs::rangeAttack[m]), range + " Attack",
+                                                                 rangeAttackRange(), rangeAttackDefault, milliseconds()));
+        layout.add (std::make_unique<juce::AudioParameterFloat> (added (ParamIDs::rangeRelease[m]), range + " Release",
+                                                                 releaseRange(), rangeReleaseDefault, milliseconds()));
+    }
+
+    // How long a peak must stand before it is cut (SPEC 13.19).
+    layout.add (std::make_unique<juce::AudioParameterChoice> (added (ParamIDs::detection), "Detection",
+                    juce::StringArray { detectionNames, numDetectionModes }, detectionDefault));
+
     return layout;
 }
 
@@ -260,6 +342,16 @@ bool DeHonkAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     const auto& out = layouts.getMainOutputChannelSet();
 
     if (in != out || out.size() > dehonk::kMaxChannels)
+        return false;
+
+    // The dialogue sidechain: off, mono (all Pro Tools offers) or stereo.
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto& key = layouts.inputBuses.getReference (1);
+        if (! key.isDisabled() && key != juce::AudioChannelSet::mono() && key != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    if (layouts.inputBuses.size() > 2 || layouts.outputBuses.size() > 1)
         return false;
 
     // JUCE's AAX wrapper offers Pro Tools every stem format this accepts, so nothing else is
@@ -347,7 +439,16 @@ dehonk::Params DeHonkAudioProcessor::readParams (bool bypassed) const noexcept
     p.snapOn = clickOnValue->load() >= 0.5f;
     for (size_t e = 0; e < dehonk::kNumEdges; ++e)
         p.edgeHz[e] = juce::jlimit (dehonk::kEdgeMinHz[e], dehonk::kEdgeMaxHz[e], edgeValues[e]->load());
-    p.link = linkValue->load() * 0.01f;
+    p.linkMode = static_cast<dehonk::LinkMode> (juce::jlimit (0, ParamRanges::numLinkModes - 1, juce::roundToInt (linkModeValue->load())));
+    p.dialogueOn = dialogueValue->load() >= 0.5f;
+    p.dialogueAmount = juce::jlimit (0.0f, 1.0f, dialogueAmountValue->load() * 0.01f);
+    for (size_t m = 0; m < dehonk::kNumModules; ++m)
+    {
+        p.rangeTimingLocked[m] = timingLockedValues[m]->load() >= 0.5f;
+        p.rangeAttackMs[m] = juce::jlimit (ParamRanges::rangeAttackMin, ParamRanges::rangeAttackMax, rangeAttackValues[m]->load());
+        p.rangeReleaseMs[m] = juce::jlimit (ParamRanges::releaseMin, ParamRanges::releaseMax, rangeReleaseValues[m]->load());
+    }
+    p.detection = juce::roundToInt (detectionValue->load()) >= 1 ? dehonk::Detection::steady : dehonk::Detection::fast;
     p.lookaheadMs = ParamRanges::lookaheadMsForIndex (juce::roundToInt (lookaheadValue->load()));
     p.mix = mixValue->load() * 0.01f;
     p.trimDb = trimValue->load();
@@ -398,17 +499,40 @@ void DeHonkAudioProcessor::render (juce::AudioBuffer<float>& buffer, bool hostBy
     const bool watchClick = params.snapOn && editorsOpen.load (std::memory_order_relaxed) > 0;
     const int piece = watchClick ? juce::jmin (preparedBlockSize, clickPieceSamples) : preparedBlockSize;
 
+    // The dialogue sidechain: the channels after the main input's, when the host has the bus on
+    // and has handed them over. They are only read. (The standalone app has no sidechain to feed.)
+    static_assert (static_cast<int> (dehonk::LinkMode::grouped) == 1 && static_cast<int> (dehonk::LinkMode::unlinked) == 2);
+    const int keyFirst = getChannelCountOfBus (true, 0);
+    int numKey = juce::jmin (2, getChannelCountOfBus (true, 1));
+    if (wrapperType == wrapperType_Standalone || keyFirst < numChannels || keyFirst + numKey > buffer.getNumChannels())
+        numKey = 0;
+    sidechainConnected.store (numKey > 0, std::memory_order_relaxed);
+
+    // With a window open the block is also cut where a display frame falls due, so the frames
+    // are a steady sixtieth of a second of audio apart whatever the host's buffer is. (The core
+    // gives the same output however its input is cut up.)
+    const bool showing = editorsOpen.load (std::memory_order_relaxed) > 0;
+    if (showing)
+        displayBurst.store (juce::jlimit (1, displayFifoSize - 2, (numSamples + samplesPerDisplayFrame - 1) / samplesPerDisplayFrame),
+                            std::memory_order_relaxed);
+
     float* channels[dehonk::kMaxChannels] {};
-    for (int start = 0; start < numSamples; start += piece)
+    const float* key[2] {};
+    for (int start = 0; start < numSamples;)
     {
-        const int n = juce::jmin (piece, numSamples - start);
+        int n = juce::jmin (piece, numSamples - start);
+        if (showing)
+            n = juce::jmin (n, juce::jmax (1, samplesPerDisplayFrame - samplesSinceDisplayFrame));
         for (int ch = 0; ch < numChannels; ++ch)
             channels[ch] = buffer.getWritePointer (ch, start);
+        for (int ch = 0; ch < numKey; ++ch)
+            key[ch] = buffer.getReadPointer (keyFirst + ch, start);
 
-        core.process (channels, numChannels, n);
+        core.processWithKey (channels, numChannels, numKey > 0 ? key : nullptr, numKey, n);
         if (watchClick)
             collectClick();
         pushDisplayFrame (n);
+        start += n;
     }
 
     if (bypassed)
@@ -430,29 +554,40 @@ void DeHonkAudioProcessor::pushDisplayFrame (int numSamples) noexcept
     if (editorsOpen.load (std::memory_order_relaxed) <= 0)
         return;  // no editor: nothing is written
 
-    // Capped, so a long run with a full FIFO or an unchanged frame cannot overflow it.
-    samplesSinceDisplayFrame = juce::jmin (samplesSinceDisplayFrame + numSamples, samplesPerDisplayFrame);
+    // render() cuts the block where a frame falls due, so this lands on the due sample. What is
+    // left over is kept, so the frames stay evenly spaced; it is capped at a frame's worth, so a
+    // long run with a full FIFO or an unchanged frame cannot let it grow.
+    samplesSinceDisplayFrame += numSamples;
     if (samplesSinceDisplayFrame < samplesPerDisplayFrame)
         return;
 
     const auto counter = core.frameCounter();
     if (counter == lastFrameCounter)
+    {
+        samplesSinceDisplayFrame = juce::jmin (samplesSinceDisplayFrame, 2 * samplesPerDisplayFrame);
         return;
+    }
 
-    const auto scope = displayFifo.write (1);
-    dehonk::DisplayFrame* slot = nullptr;
-    if (scope.blockSize1 > 0)
-        slot = &displayFrames[static_cast<size_t> (scope.startIndex1)];
-    else if (scope.blockSize2 > 0)
-        slot = &displayFrames[static_cast<size_t> (scope.startIndex2)];
-    else
-        return;  // full: the reader is behind; try again next block
-
-    *slot = core.displayFrame();
-    slot->snapCutDb = juce::jmax (slot->snapCutDb, clickHeldDb);
+    // The ring never fills: the oldest frame is written over, and a reader that far behind skips it.
+    auto frame = core.displayFrame();
+    frame.snapCutDb = juce::jmax (frame.snapCutDb, clickHeldDb);
     clickHeldDb = 0.0f;
     lastFrameCounter = counter;
-    samplesSinceDisplayFrame = 0;
+
+    const std::uint64_t n = framesWritten.load (std::memory_order_relaxed);   // this thread is the only writer
+    auto& slot = frameSlots[(size_t) (n % (std::uint64_t) displayFifoSize)];
+    slot.stamp.store (2 * n + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+    const auto* bytes = reinterpret_cast<const unsigned char*> (&frame);
+    for (int i = 0; i < frameWords; ++i)
+    {
+        std::uint32_t w = 0;
+        std::memcpy (&w, bytes + 4 * i, juce::jmin<size_t> (4, sizeof (frame) - (size_t) (4 * i)));
+        slot.words[(size_t) i].store (w, std::memory_order_relaxed);
+    }
+    slot.stamp.store (2 * n + 2, std::memory_order_release);
+    framesWritten.store (n + 1, std::memory_order_release);
+    samplesSinceDisplayFrame = juce::jmin (samplesSinceDisplayFrame - samplesPerDisplayFrame, samplesPerDisplayFrame);
 }
 
 void DeHonkAudioProcessor::setEditorOpen (bool open) noexcept
@@ -460,23 +595,57 @@ void DeHonkAudioProcessor::setEditorOpen (bool open) noexcept
     editorsOpen.fetch_add (open ? 1 : -1);
 }
 
-bool DeHonkAudioProcessor::popLatestDisplayFrame (dehonk::DisplayFrame& latest) noexcept
+bool DeHonkAudioProcessor::readFrame (std::uint64_t n, dehonk::DisplayFrame& out) const noexcept
+{
+    const auto& slot = frameSlots[(size_t) (n % (std::uint64_t) displayFifoSize)];
+    const auto before = slot.stamp.load (std::memory_order_acquire);
+    if (before != 2 * n + 2)
+        return false;   // being written, or already written over by a newer frame
+    std::array<std::uint32_t, (size_t) frameWords> words;
+    for (int i = 0; i < frameWords; ++i)
+        words[(size_t) i] = slot.words[(size_t) i].load (std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_acquire);
+    if (slot.stamp.load (std::memory_order_relaxed) != before)
+        return false;
+    std::memcpy (&out, words.data(), sizeof (out));
+    return true;
+}
+
+bool DeHonkAudioProcessor::popLatestDisplayFrame (DisplayReader& reader, dehonk::DisplayFrame& latest, bool paced) noexcept
 {
     bool any = false;
     float click = 0.0f;   // a click lasts milliseconds: keep the deepest of every frame taken
 
-    while (displayFifo.getNumReady() > 0)
+    const std::uint64_t written = framesWritten.load (std::memory_order_acquire);
+    if (! reader.started)
     {
-        const auto scope = displayFifo.read (1);
-        if (scope.blockSize1 > 0)
-            latest = displayFrames[static_cast<size_t> (scope.startIndex1)];
-        else if (scope.blockSize2 > 0)
-            latest = displayFrames[static_cast<size_t> (scope.startIndex2)];
-        else
-            break;
+        // A new reader starts at the newest frame.
+        reader.started = true;
+        reader.next = written > 0 ? written - 1 : 0;
+    }
+    // Far behind (or the writer has been reset under it): skip to what the ring still holds.
+    constexpr std::uint64_t reach = (std::uint64_t) displayFifoSize - 2;
+    if (reader.next > written)
+        reader.next = written;
+    if (written - reader.next > reach)
+        reader.next = written - reach;
 
-        click = juce::jmax (click, latest.snapCutDb);
-        any = true;
+    // The host hands over audio a buffer at a time, so with a large buffer several frames arrive
+    // at once. A reader that draws at the frame rate takes them one at a time and leaves up to a
+    // buffer's worth waiting, so what it shows moves evenly; anything beyond that is skipped.
+    const auto ready = (int) (written - reader.next);
+    const int keep = paced ? displayBurst.load (std::memory_order_relaxed) - 1 : 0;
+    int take = ready > 0 ? juce::jmax (1, ready - juce::jmax (0, keep)) : 0;
+
+    dehonk::DisplayFrame got;
+    while (take-- > 0 && reader.next < written)
+    {
+        if (readFrame (reader.next++, got))
+        {
+            latest = got;
+            click = juce::jmax (click, got.snapCutDb);
+            any = true;
+        }
     }
 
     if (any)
@@ -573,13 +742,50 @@ void DeHonkAudioProcessor::setStateInformation (const void* data, int sizeInByte
 
     presetManager.restoreState (*xml, [this, &xml]
     {
-        parameters.replaceState (juce::ValueTree::fromXml (*xml));
+        auto state = juce::ValueTree::fromXml (*xml);
+        migrateState (state);
+        parameters.replaceState (state);
     });
 
     if (juce::MessageManager::existsAndIsCurrentThread())
         updateReportedLatency();
     else
         latencyDirty.store (true);
+}
+
+/** Brings a saved state up to date before it replaces the parameters. A state from the first test
+    build has Link as a percentage ("link") and none of the parameters added since: Link becomes
+    Linked from 50 % up and Unlinked below, and every parameter the state does not have takes its
+    default (left out, it would keep whatever this instance happened to be set to). The "link"
+    parameter itself, which does nothing now, goes back to its default either way. */
+void DeHonkAudioProcessor::migrateState (juce::ValueTree& state) const
+{
+    const auto childFor = [&state] (const juce::String& paramId)
+    {
+        return state.getChildWithProperty (stateParamId, paramId);
+    };
+    const auto add = [&state] (const juce::String& paramId, float value)
+    {
+        juce::ValueTree child (stateParamType);
+        child.setProperty (stateParamId, paramId, nullptr);
+        child.setProperty (stateParamValue, value, nullptr);
+        state.appendChild (child, nullptr);
+    };
+
+    if (auto old = childFor (ParamIDs::legacyLink); old.isValid())
+    {
+        if (! childFor (ParamIDs::linkMode).isValid())
+        {
+            const float percent = static_cast<float> (static_cast<double> (old.getProperty (stateParamValue, 100.0)));
+            add (ParamIDs::linkMode, static_cast<float> (ParamRanges::legacyLinkMode (std::isfinite (percent) ? percent : 100.0f)));
+        }
+        state.removeChild (old, nullptr);
+    }
+
+    for (auto* p : juce::AudioProcessor::getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! childFor (ranged->getParameterID()).isValid())
+                add (ranged->getParameterID(), ranged->convertFrom0to1 (ranged->getDefaultValue()));
 }
 
 //==============================================================================

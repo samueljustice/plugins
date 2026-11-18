@@ -65,13 +65,14 @@ PresetManager::PresetManager (juce::AudioProcessorValueTreeState& apvts, HostNot
     const auto& params = parameters.processor.getParameters();
     numParameters = params.size();
     lastValues = std::make_unique<std::atomic<float>[]> (static_cast<size_t> (numParameters));
+    inPreset = std::make_unique<bool[]> (static_cast<size_t> (numParameters));
 
     for (int i = 0; i < numParameters; ++i)
     {
         lastValues[static_cast<size_t> (i)].store (params[i]->getValue());
 
-        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (params[i]); ranged != nullptr && ! isPresetParameter (*ranged))
-            bypassIndex = i;
+        auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (params[i]);
+        inPreset[static_cast<size_t> (i)] = ranged == nullptr || isPresetParameter (*ranged);
     }
 
     // Called on whatever thread changes a value (the audio thread for automation): atomics only.
@@ -119,7 +120,9 @@ bool PresetManager::isValidPresetName (const juce::String& n)
 
 bool PresetManager::isPresetParameter (const juce::RangedAudioParameter& p)
 {
-    return p.getParameterID() != ParamIDs::bypass;
+    // Not Bypass, and not the Link percentage that no control sets any more (it is still a
+    // parameter so that the ones after it keep their places in a host's list).
+    return p.getParameterID() != ParamIDs::bypass && p.getParameterID() != ParamIDs::legacyLink;
 }
 
 PresetManager::Values PresetManager::factoryValues (int index)
@@ -132,7 +135,9 @@ PresetManager::Values PresetManager::factoryValues (int index)
                     { ParamIDs::release, v.release },
                     { ParamIDs::maxCut, v.maxCut },
                     { ParamIDs::impactGuard, v.impactGuard },
-                    { ParamIDs::link, v.link },
+                    { ParamIDs::linkMode, static_cast<float> (v.linkMode) },
+                    { ParamIDs::dialogue, v.dialogue ? 1.0f : 0.0f },
+                    { ParamIDs::detection, static_cast<float> (v.detection) },
                     { ParamIDs::lookahead, static_cast<float> (v.lookahead) },
                     { ParamIDs::mix, v.mix },
                     { ParamIDs::trim, v.trim } };
@@ -263,6 +268,12 @@ bool PresetManager::loadFactoryPresetForHost (int index)
 {
     const juce::ScopedLock op (operationLock);
     return applyFactory (index, true);
+}
+
+bool PresetManager::loadPresetFile (const juce::File& f)
+{
+    const juce::ScopedLock op (operationLock);
+    return applyUserFile (f);
 }
 
 bool PresetManager::loadNext()
@@ -544,6 +555,19 @@ bool PresetManager::readPresetFile (const juce::File& f, Values& values, juce::S
             values.emplace_back (id, static_cast<float> (value));
     }
 
+    // A preset from the first test build has Link as a percentage: Linked from 50 % up, Unlinked below.
+    const auto has = [&values] (const char* wanted)
+    {
+        return std::any_of (values.begin(), values.end(), [wanted] (const auto& v) { return v.first == wanted; });
+    };
+    if (! has (ParamIDs::linkMode))
+        for (const auto& [id, value] : values)
+            if (id == ParamIDs::legacyLink)
+            {
+                values.emplace_back (ParamIDs::linkMode, static_cast<float> (ParamRanges::legacyLinkMode (value)));
+                break;
+            }
+
     return true;
 }
 
@@ -559,7 +583,7 @@ void PresetManager::parameterValueChanged (int parameterIndex, float newValue)
         return;
 
     // Bypass is not part of a preset, so switching it does not mark the preset edited.
-    if (parameterIndex != bypassIndex)
+    if (inPreset[static_cast<size_t> (parameterIndex)])
         modified = true;
 }
 
@@ -591,8 +615,12 @@ void PresetManager::restoreState (const juce::XmlElement& state, const std::func
 
     refreshLocked();
 
-    const auto savedName = state.getStringAttribute (statePresetName.toString());
+    auto savedName = state.getStringAttribute (statePresetName.toString());
     const auto savedKind = state.getStringAttribute (statePresetKind.toString());
+    // One factory preset has a new name since the first test build: a session saved on it then
+    // still comes back on it.
+    if (savedKind == "factory" && savedName == "After RBass")
+        savedName = "After a bass enhancer";
     const auto savedFile = state.getStringAttribute (statePresetFile.toString())
                                .fromLastOccurrenceOf ("/", false, false)
                                .fromLastOccurrenceOf ("\\", false, false);

@@ -1643,6 +1643,18 @@ dehonk::Params randomParams (Rng& rng, const dehonk::Params& prev, bool changeLo
                     : wild < 0.3 ? prev.edgeHz[e]
                                  : (float) rng.uniform (dehonk::kEdgeMinHz[e], dehonk::kEdgeMaxHz[e]);
     p.link = (float) rng.uniform();
+    // The mode stays for a while (as a user would leave it); the in-between Link values above
+    // are only reached in Linked and Grouped.
+    p.linkMode = rng.uniform() < 0.1 ? (dehonk::LinkMode) rng.uniformInt (0, 2) : prev.linkMode;
+    p.dialogueOn = rng.uniform() < 0.1 ? ! prev.dialogueOn : prev.dialogueOn;
+    p.dialogueAmount = (float) rng.uniform();
+    p.detection = rng.uniform() < 0.1 ? (prev.detection == dehonk::Detection::fast ? dehonk::Detection::steady : dehonk::Detection::fast) : prev.detection;
+    for (int m = 0; m < dehonk::kNumModules; ++m)
+    {
+        p.rangeTimingLocked[m] = rng.uniform() < 0.1 ? ! prev.rangeTimingLocked[m] : prev.rangeTimingLocked[m];
+        p.rangeAttackMs[m] = (float) (2.0 * std::pow (50.0, rng.uniform()));
+        p.rangeReleaseMs[m] = (float) (50.0 * std::pow (30.0, rng.uniform()));
+    }
     p.mix = (float) rng.uniform();
     p.trimDb = (float) rng.uniform (-12.0, 12.0);
     p.thresholdDb = (float) rng.uniform (-60.0, 0.0);
@@ -1949,7 +1961,25 @@ void testAutomationClicks (Ctx& t)
         { "release 50-1500 ms", [sweep] (double s, dehonk::Params& p) { p.releaseMs = (float) (50.0 * std::pow (30.0, sweep (s, 0.47, 0.0))); }, noTrim },
         { "impact guard 0-100%", [sweep] (double s, dehonk::Params& p) { p.impactGuard = (float) sweep (s, 0.83, 0.0); }, noTrim },
         { "diff on/off every 0.7 s", [toggled] (double s, dehonk::Params& p) { p.diff = toggled (s); }, noTrim },
+        { "diff on/off every 60 ms (switched again inside its cross-fade)", [] (double s, dehonk::Params& p) { p.diff = std::fmod (s, 0.12) >= 0.06; }, noTrim },
+        // (Not with Trim moving: Diff plays the untreated signal without Trim, so switching it then
+        // is a change of level by design, which this measure would call a click.)
+        { "diff on/off every 0.7 s while mix and depth move",
+          [toggled, sweep] (double s, dehonk::Params& p) { p.diff = toggled (s); p.mix = (float) sweep (s, 0.37, 0.0); p.depth = (float) sweep (s, 0.3, 1.0); }, noTrim },
         { "bypass on/off every 0.7 s", [toggled] (double s, dehonk::Params& p) { p.bypass = toggled (s); }, noTrim },
+        { "detection Fast / Steady every 0.7 s", [toggled] (double s, dehonk::Params& p) { p.detection = toggled (s) ? dehonk::Detection::steady : dehonk::Detection::fast; }, noTrim },
+        { "detection Fast / Steady every 60 ms", [] (double s, dehonk::Params& p) { p.detection = std::fmod (s, 0.12) >= 0.06 ? dehonk::Detection::steady : dehonk::Detection::fast; }, noTrim },
+        { "link mode Linked / Grouped / Unlinked every 0.35 s", [] (double s, dehonk::Params& p) { p.linkMode = (dehonk::LinkMode) (((int) (s / 0.35)) % 3); }, noTrim },
+        { "range timing: locks switched, attack and release swept",
+          [sweep] (double s, dehonk::Params& p) {
+              for (int m = 0; m < dehonk::kNumModules; ++m)
+              {
+                  p.rangeTimingLocked[m] = std::fmod (s + 0.13 * m, 0.5 + 0.1 * m) < 0.25;
+                  p.rangeAttackMs[m] = (float) (2.0 * std::pow (50.0, sweep (s, 0.7 + 0.2 * m, 0.0)));
+                  p.rangeReleaseMs[m] = (float) (50.0 * std::pow (30.0, sweep (s, 0.9 + 0.3 * m, 1.0)));
+              }
+          },
+          noTrim },
         { "everything at once",
           [sweep, trimOf, sweepEdges, toggleModules] (double s, dehonk::Params& p) {
               p.depth = (float) sweep (s, 0.3, 0.0);
@@ -3336,9 +3366,13 @@ void scaleTo (Audio& a, double rmsDbFs)
         applyGain (c, dbToAmp (rmsDbFs - loud));
 }
 
-void testNoiseIsLeftAlone (Ctx& t)
+/** The same checks at either Detection. noise_is_left_alone runs it at Fast (the default) and
+    steady_noise_is_left_alone at Steady, whose steady level needs longer to settle on a new
+    signal, so its figures are taken from 4 s on rather than 2. */
+void noiseIsLeftAlone (Ctx& t, dehonk::Detection detection)
 {
-    const double seconds = 20.0, settle = 2.0;
+    const bool steady = detection == dehonk::Detection::steady;
+    const double seconds = 20.0, settle = steady ? 4.0 : 2.0;
     const dehonk::Params defaults;
     const double programDb = (double) defaults.thresholdDb + 8.0;   // 8 dB above the default threshold
     Audio noise = bandNoise (seconds, 1301);
@@ -3349,6 +3383,7 @@ void testNoiseIsLeftAlone (Ctx& t)
     for (int config = 0; config < 2; ++config)
     {
         RenderSpec s;
+        s.params.detection = detection;
         if (config == 1)
             for (auto& on : s.params.moduleOn)
                 on = true;
@@ -3433,6 +3468,7 @@ void testNoiseIsLeftAlone (Ctx& t)
                     applyGain (in.ch[(std::size_t) c], dbToAmp (rmsDb (noise.ch[(std::size_t) c]) - rmsDb (plain.ch[(std::size_t) c])));
             }
             RenderSpec s;
+            s.params.detection = detection;
             s.collectFrames = true;
             const auto r = render (in, s);
             const auto [k0, k1] = bandsAround (r.bandHz, hz);
@@ -3446,9 +3482,48 @@ void testNoiseIsLeftAlone (Ctx& t)
                                        kind == 0 ? "sine" : "1/12-octave band", hz, m0, (double) r.bandHz[(std::size_t) k0], m1,
                                        (double) r.bandHz[(std::size_t) k1], hz, realised, sideLo, sideHi));
             head += fmt ("; %s %.0f Hz %.2f dB", kind == 0 ? "sine" : "band", hz, best);
+            if (kind == 0)
+            {
+                // For the record: the same with the parent rule off (a resonance in this noise has
+                // nothing an octave below it, so the rule takes it for a fundamental).
+                RenderSpec off = s;
+                off.useTuning = true;
+                off.tuning = defaultTuning();
+                off.tuning.parentRule = 0.0f;
+                const auto ro = render (in, off);
+                t.info (fmt ("sine at %.0f Hz with the parent rule off: mean cut %.2f / %.2f dB at %.1f / %.1f Hz",
+                             hz, meanBandCut (ro, k0, settle), meanBandCut (ro, k1, settle), (double) ro.bandHz[(std::size_t) k0], (double) ro.bandHz[(std::size_t) k1]));
+            }
         }
+
+    // For the record: a broad lift, +6 dB over half an octave and over an octave (raised cosine in
+    // log frequency, full width at half height) centred on 200 Hz: the deepest notch it gets. A lift
+    // that wide is not a build-up to be notched.
+    for (double widthOct : { 0.5, 1.0 })
+    {
+        Audio in = bandNoise (seconds, 1301, [widthOct] (double f) {
+            const double x = std::log2 (f / 200.0) / widthOct;   // half height at x = +-0.5
+            return std::abs (x) >= 1.0 ? 0.0 : 6.0 * 0.5 * (1.0 + std::cos (std::numbers::pi * x));
+        });
+        scaleTo (in, programDb);
+        RenderSpec s;
+        s.params.detection = detection;
+        s.collectFrames = true;
+        const auto r = render (in, s);
+        std::vector<double> deepest;
+        for (const auto& f : r.frames)
+            if (f.timeSec >= settle)
+                deepest.push_back (f.totalCutDb);
+        const double mean = deepest.empty() ? 0.0 : std::accumulate (deepest.begin(), deepest.end(), 0.0) / (double) deepest.size();
+        const Spectrum si = powerSpectrum (in, S (settle), in.length()), so = powerSpectrum (r.out, S (settle), r.out.length());
+        t.info (fmt ("+6 dB lift %.1f octave wide at 200 Hz: deepest notch mean %.2f dB, 99%% %.2f dB; level at 200 Hz %+.2f dB",
+                     widthOct, mean, percentile (deepest, 0.99), bandLevelDb (so, 200.0) - bandLevelDb (si, 200.0)));
+    }
     t.headline = head;
 }
+
+void testNoiseIsLeftAlone (Ctx& t)       { noiseIsLeftAlone (t, dehonk::Detection::fast); }
+void testSteadyNoiseIsLeftAlone (Ctx& t) { noiseIsLeftAlone (t, dehonk::Detection::steady); }
 
 //==============================================================================
 // impacts_keep_body_tail_front (SPEC 13.2)
@@ -4254,7 +4329,13 @@ void testNoAllocation (Ctx& t)
                     core.setTuning (tuning);
                 if (block % 400 == 399)
                     core.reset();
-                core.process (ptrs, nch, bs);
+                // Every other stretch of 64 blocks with a sidechain (the first channel of the signal,
+                // later in time), so the dialogue's analysis starts, runs and stops inside the count.
+                const float* keyPtr = sig.ch[0].data() + (pos + 4096 < sig.length() ? pos + 4096 - (std::size_t) bs : 0);
+                if ((block / 64) % 2 == 0)
+                    core.processWithKey (ptrs, nch, &keyPtr, 1, bs);
+                else
+                    core.process (ptrs, nch, bs);
                 (void) core.displayFrame();
                 (void) core.latencySamples();
                 alloc += gAllocations.load() - a0;
@@ -4266,7 +4347,7 @@ void testNoAllocation (Ctx& t)
             totalAlloc += alloc;
             totalFree += freed;
             calls += n;
-            t.check (alloc == 0 && freed == 0, fmt ("%.0f kHz %s, %lld blocks of 1 to %d samples, every parameter changing (Snap included), lookahead, tuning and reset() included: %lld allocations, %lld frees (limit 0)",
+            t.check (alloc == 0 && freed == 0, fmt ("%.0f kHz %s, %lld blocks of 1 to %d samples, every parameter changing (Snap, the link mode, the dialogue sidechain and each range's timing included), with and without a key, lookahead, tuning and reset() included: %lld allocations, %lld frees (limit 0)",
                                                     sr / 1000.0, nch == 1 ? "mono" : nch == 2 ? "stereo" : nch == 6 ? "6 channels (LFE at 3)" : "12 channels (LFE at 3)",
                                                     n, maxBlock, alloc, freed));
         }
@@ -4295,6 +4376,9 @@ dehonk::ChannelLayout layoutOf (const std::vector<std::string>& names)
         else if (s[0] == 'L') p = dehonk::Position::leftOther;
         else if (s[0] == 'R') p = dehonk::Position::rightOther;
         else p = dehonk::Position::middleOther;
+        // Overhead speakers (Lts, Ltf, Rtr, ...) are the heights, for Link's Grouped mode.
+        if (s.size() > 2 && (s[0] == 'L' || s[0] == 'R') && s[1] == 't')
+            l.group[i] = dehonk::Group::height;
     }
     return l;
 }
@@ -5256,14 +5340,14 @@ void testGoldenDefaults (Ctx& t)
         float capReached = 0.0f, guardReached = 1.0f;
         for (double sr : { 44100.0, 48000.0, 96000.0 })
             for (int nch : { 1, 2 })
-                for (const auto& cs : golden::cases (true))
+                for (const auto& cs : golden::cases (true, true))
                 {
                     const std::string name = cs.name;
                     const bool plain = name == "defaults" || name == "key" || name == "defaults_threshold-34";
                     if (! plain && ! cs.impacts)
                         continue;
                     golden::Reached got;
-                    golden::run (cs, sr, nch, 4.0, golden::PlainPrepare {}, false, true, &got);
+                    golden::run (cs, sr, nch, 4.0, golden::PlainPrepare {}, false, true, &got, true);
                     ++total;
                     if (got.deepestCutDb < 0.5f)
                     {
@@ -5282,12 +5366,12 @@ void testGoldenDefaults (Ctx& t)
                       (double) dehonk::Params {}.maxCutDb, (double) guardReached));
     }
 
-    auto now = golden::runAll (golden::PlainPrepare {}, false, true);
-    const auto viaLayout = golden::runAll (pluginPrepare, false, true);
+    auto now = golden::runAll (golden::PlainPrepare {}, false, true, true);
+    const auto viaLayout = golden::runAll (pluginPrepare, false, true, true);
     int layoutDiffer = 0;
     for (std::size_t i = 0; i < now.size(); ++i)
         layoutDiffer += viaLayout[i].hash != now[i].hash ? 1 : 0;
-    const auto surroundNow = golden::runAllSurround (golden::SurroundPrepare {}, "layout", false, true);
+    const auto surroundNow = golden::runAllSurround (golden::SurroundPrepare {}, "layout", false, true, true);
     now.insert (now.end(), surroundNow.begin(), surroundNow.end());
     const GoldenTally g = compareGolden (t, now, ref, file);
     t.check (g.differ == 0 && g.missing == 0 && g.same == (int) ref.size() && ! ref.empty(),
@@ -5931,9 +6015,15 @@ void testSurroundCpu (Ctx& t)
     // Percent of one core, average over 20 s after 1 s of warm-up.
     const double warm = 1.0, timed = 20.0;
     std::string table;
-    const char* settingNames[] = { "defaults", "all four+Snap, always, Link 100%", "all four+Snap, always, Link 50%", "all four+Snap, always, Link 0% (heaviest)" };
+    // Then the three additions of SPEC 13.17: Grouped (one detector per group), every range's
+    // timing unlocked, and the dialogue sidechain (the key's own analysis and the comparison).
+    const char* settingNames[] = { "defaults", "all four+Snap, always, Link 100%", "all four+Snap, always, Link 50%", "all four+Snap, always, Link 0% (heaviest)",
+                                   "all four+Snap, always, Grouped", "defaults, every range's timing unlocked", "defaults, dialogue keyed", "all four+Snap, always, Unlinked, dialogue keyed",
+                                   "defaults, Detection Steady", "all four+Snap, always, Link 100%, Detection Steady", "all four+Snap, always, Unlinked, Detection Steady" };
+    // And Detection Steady (SPEC 13.19): at the defaults, and all four + Snap linked and unlinked.
+    constexpr int numSettings = (int) std::size (settingNames);
     for (double sr : { 48000.0, 96000.0 })
-        for (int heavy = 0; heavy < 4; ++heavy)
+        for (int heavy = 0; heavy < numSettings; ++heavy)
         {
             std::string row = fmt ("%.0f kHz %s:", sr / 1000.0, settingNames[heavy]);
             for (const char* name : { "stereo", "5.1", "7.1", "7.1.4" })
@@ -5941,14 +6031,30 @@ void testSurroundCpu (Ctx& t)
                 const auto& l = layoutNamed (name);
                 const Audio in = surroundSignal (sr, warm + timed, l.size(), 1400, -10.0);
                 dehonk::Params p;
-                if (heavy)
+                if ((heavy >= 1 && heavy <= 4) || heavy == 7 || heavy == 9 || heavy == 10)
                 {
                     p = alwaysOn();
                     for (auto& on : p.moduleOn)
                         on = true;
                     p.snapOn = true;
-                    p.link = heavy == 1 ? 1.0f : (heavy == 2 ? 0.5f : 0.0f);
+                    p.link = heavy == 1 ? 1.0f : (heavy == 2 ? 0.5f : (heavy == 3 ? 0.0f : 1.0f));
+                    if (heavy == 4) p.linkMode = dehonk::LinkMode::grouped;
+                    if (heavy == 7 || heavy == 10) p.linkMode = dehonk::LinkMode::unlinked;
                 }
+                if (heavy >= 8)
+                    p.detection = dehonk::Detection::steady;
+                if (heavy == 5)
+                    for (int m = 0; m < dehonk::kNumModules; ++m)
+                    {
+                        p.rangeTimingLocked[m] = false;
+                        p.rangeAttackMs[m] = 5.0f + 10.0f * (float) m;
+                        p.rangeReleaseMs[m] = 200.0f + 100.0f * (float) m;
+                    }
+                p.dialogueOn = heavy == 6 || heavy == 7;
+                // The key: the first channel's own signal, a quarter of a second on, so it is loud and unrelated in time.
+                Audio key = Audio::make (sr, 1, in.length());
+                for (std::size_t i = S (0.25, sr); i < in.length(); ++i)
+                    key.ch[0][i] = in.ch[0][i - S (0.25, sr)];
                 double best = 1e9;
                 for (int bs : { 128, 1024 })
                 {
@@ -5957,6 +6063,8 @@ void testSurroundCpu (Ctx& t)
                     s.timeBlocks = true;
                     s.compensateLatency = false;
                     s.collectFrames = false;
+                    if (heavy == 6 || heavy == 7)
+                        s.key = &key;
                     const auto r = render (in, s);
                     double sum = 0.0;
                     std::size_t samples = 0;
@@ -5977,6 +6085,765 @@ void testSurroundCpu (Ctx& t)
         }
     t.info ("timed with std::chrono::steady_clock, single thread, core only; informational, nothing is checked");
     t.headline = table;
+}
+
+//==============================================================================
+// SPEC 13.17: link modes, each range's own timing, the dialogue sidechain
+
+/** A group's speakers of a layout, in order, by name: the fronts, the centre, the surrounds (any
+    other L.. or R.. that is not overhead) and the heights (Lt.., Rt..). */
+std::vector<int> groupMembers (const SurroundLayout& l, dehonk::Group g)
+{
+    std::vector<int> m;
+    for (int c = 0; c < l.size(); ++c)
+    {
+        const auto& s = l.speakers[(std::size_t) c];
+        dehonk::Group is = dehonk::Group::surround;
+        if (s == "LFE") continue;
+        if (s == "L" || s == "R") is = dehonk::Group::front;
+        else if (s == "C") is = dehonk::Group::centre;
+        else if (s.size() > 1 && s[1] == 't') is = dehonk::Group::height;
+        if (is == g)
+            m.push_back (c);
+    }
+    return m;
+}
+
+/** The worst the click metric of automation_clicks reads on any channel: energy above 6 kHz in
+    a 10 ms window that the input times a slowly moving gain does not explain. */
+double worstUnexplained (const Audio& in, const Audio& out, const std::vector<int>& skip = {})
+{
+    double worst = -400.0;
+    for (int c = 0; c < in.numChannels(); ++c)
+    {
+        if (std::find (skip.begin(), skip.end(), c) != skip.end())
+            continue;
+        const auto [m, at] = hfUnexplained (highpass4 (in.ch[(std::size_t) c], kSr, 6000.0), highpass4 (out.ch[(std::size_t) c], kSr, 6000.0), S (0.5), S (0.010));
+        (void) at;
+        worst = std::max (worst, m);
+    }
+    return worst;
+}
+
+void testLinkModes (Ctx& t)
+{
+    // Threshold at Always and Snap off throughout: the programme level and Snap's detector are
+    // shared by design, whatever Link is.
+    int wrong = 0;
+
+    // 1. Unlinked is what Link 0% was, Linked what Link 100% was, and Grouped is Linked with one
+    //    or two channels. Bit for bit, output and frames.
+    for (int nch : { 1, 2, 6, 12 })
+    {
+        const Audio in = surroundSignal (kSr, 3.0, nch, 2100 + (std::uint64_t) nch, -14.0);
+        auto run = [&] (dehonk::LinkMode mode, float link) {
+            dehonk::Params p = alwaysOn();
+            p.depth = 0.8f;
+            p.linkMode = mode;
+            p.link = link;
+            RenderSpec s = specForChannels (p, nch);
+            s.collectFrames = true;
+            return render (in, s);
+        };
+        auto same = [&] (const RenderResult& a, const RenderResult& b) {
+            std::size_t d = 0;
+            for (int c = 0; c < nch; ++c)
+                d += samplesDiffering (a.out, c, b.out, c);
+            for (std::size_t f = 0; f < std::min (a.frames.size(), b.frames.size()); ++f)
+                d += std::memcmp (a.frames[f].cutDb.data(), b.frames[f].cutDb.data(), sizeof (float) * dehonk::kMaxBands) != 0 ? 1 : 0;
+            return d + (a.frames.size() != b.frames.size() ? 1 : 0);
+        };
+        const auto linked = run (dehonk::LinkMode::linked, 1.0f);
+        const auto oldUnlinked = run (dehonk::LinkMode::linked, 0.0f);
+        const auto unlinked = run (dehonk::LinkMode::unlinked, 1.0f);
+        const auto grouped = run (dehonk::LinkMode::grouped, 1.0f);
+        const auto d1 = same (unlinked, oldUnlinked);
+        wrong += d1 == 0 ? 0 : 1;
+        t.check (d1 == 0, fmt ("%s: Unlinked is bit-identical to what Link 0%% was: %zu samples or frames differ; deepest cut %.2f dB", channelsName (nch), d1, cutStats (unlinked, 0.5).maxTotal));
+        if (nch <= 2)
+        {
+            const auto d2 = same (grouped, linked);
+            wrong += d2 == 0 ? 0 : 1;
+            t.check (d2 == 0, fmt ("%s: Grouped is bit-identical to Linked: %zu samples or frames differ", channelsName (nch), d2));
+        }
+        if (nch >= 2)
+        {
+            const double apart = residualDb (channelOf (unlinked.out, 0), channelOf (linked.out, 0), 1.0, S (0.5), in.length());
+            wrong += apart > -60.0 ? 0 : 1;
+            t.check (apart > -60.0, fmt ("%s, control: Unlinked comes out differently from Linked on channel 0 (residual %s dB, need above -60)", channelsName (nch), dbStr (apart).c_str()));
+        }
+    }
+
+    // 2. Grouped with more than two channels: every group comes out exactly as its channels do
+    //    on their own, linked (the front pair as a stereo instance, the centre as a mono one,
+    //    the surrounds and the heights as instances of their own).
+    for (const char* name : { "5.1", "7.1.4", "7.0.2", "LCR" })
+    {
+        const auto& l = layoutNamed (name);
+        Audio in = surroundSignal (kSr, 3.0, l.size(), 2200, -14.0);
+        // A different peak in every group, so the groups want different notches.
+        const double extra[] = { 0.0, 180.0, 300.0, 131.0, 220.0 };
+        for (auto g : { dehonk::Group::front, dehonk::Group::centre, dehonk::Group::surround, dehonk::Group::height })
+            for (int c : groupMembers (l, g))
+            {
+                const auto tone = sine (kSr, in.length(), extra[(int) g], dbToAmp (-16.0));
+                for (std::size_t i = 0; i < in.length(); ++i)
+                    in.ch[(std::size_t) c][i] += tone[i];
+            }
+        dehonk::Params p = alwaysOn();
+        p.depth = 0.8f;
+        p.linkMode = dehonk::LinkMode::grouped;
+        RenderSpec s = surroundSpec (p, l);
+        s.useTuning = true;
+        s.tuning = noParentTuning();
+        const auto r = render (in, s);
+        dehonk::Params q = p;
+        q.linkMode = dehonk::LinkMode::linked;
+        std::string sizes;
+        for (auto g : { dehonk::Group::front, dehonk::Group::centre, dehonk::Group::surround, dehonk::Group::height })
+        {
+            const auto members = groupMembers (l, g);
+            if (members.empty())
+                continue;
+            std::vector<std::vector<float>> chans;
+            for (int c : members)
+                chans.push_back (in.ch[(std::size_t) c]);
+            RenderSpec gs;
+            gs.params = q;
+            gs.useTuning = true;
+            gs.tuning = noParentTuning();
+            gs.collectFrames = true;
+            if (members.size() > 2)
+            {
+                gs.useLayout = true;
+                for (std::size_t i = 0; i < members.size(); ++i)
+                    gs.layout.position[i] = i % 2 == 0 ? dehonk::Position::leftOther : dehonk::Position::rightOther;
+            }
+            const auto alone = render (fromChannels (kSr, chans), gs);
+            std::size_t d = 0;
+            for (std::size_t i = 0; i < members.size(); ++i)
+                d += samplesDiffering (r.out, members[i], alone.out, (int) i);
+            wrong += d == 0 ? 0 : 1;
+            const char* gname = g == dehonk::Group::front ? "front pair" : g == dehonk::Group::centre ? "centre" : g == dehonk::Group::surround ? "surrounds" : "heights";
+            t.check (d == 0, fmt ("%s Grouped, %s (%zu channels): bit-identical to those channels on their own, linked: %zu samples differ; their deepest cut %.2f dB",
+                                  name, gname, members.size(), d, cutStats (alone, 0.5).maxTotal));
+            sizes += fmt ("%s%zu", sizes.empty() ? "" : "+", members.size());
+        }
+        // And it is neither Linked nor Unlinked.
+        for (auto other : { dehonk::LinkMode::linked, dehonk::LinkMode::unlinked })
+        {
+            dehonk::Params o = p;
+            o.linkMode = other;
+            RenderSpec os = s;
+            os.params = o;
+            const auto ro = render (in, os);
+            double apart = -400.0;
+            for (int c = 0; c < l.size(); ++c)
+                if (c != l.lfe())
+                    apart = std::max (apart, residualDb (channelOf (ro.out, c), channelOf (r.out, c), 1.0, S (0.5), in.length()));
+            wrong += apart > -60.0 ? 0 : 1;
+            t.check (apart > -60.0, fmt ("%s (%s), control: Grouped comes out differently from %s (largest residual on a channel %s dB, need above -60)", name, sizes.c_str(),
+                                         other == dehonk::LinkMode::linked ? "Linked" : "Unlinked", dbStr (apart).c_str()));
+        }
+        if (l.lfe() >= 0)
+        {
+            const auto d = samplesDiffering (r.out, l.lfe(), in, l.lfe());
+            wrong += d == 0 ? 0 : 1;
+            t.check (d == 0, fmt ("%s Grouped: the LFE is untouched (%zu samples differ)", name, d));
+        }
+    }
+
+    // 3. Switching the mode while it plays makes no click, and neither does every block size.
+    for (int nch : { 2, 6, 12 })
+    {
+        Audio in = surroundSignal (kSr, 6.0, nch, 2300, -14.0);
+        for (int c = 0; c < nch; ++c)
+        {
+            const auto tone = sine (kSr, in.length(), 180.0 + 23.0 * c, dbToAmp (-16.0));
+            for (std::size_t i = 0; i < in.length(); ++i)
+                in.ch[(std::size_t) c][i] += tone[i];
+        }
+        dehonk::Params p = alwaysOn();
+        p.depth = 1.0f;
+        p.snapOn = false;
+        RenderSpec s = specForChannels (p, nch);
+        s.useTuning = true;
+        s.tuning = noParentTuning();
+        s.blockSize = 32;
+        s.automate = [] (std::int64_t pos, dehonk::Params& q) { q.linkMode = (dehonk::LinkMode) (((int) ((double) pos / kSr / 0.35)) % 3); };
+        const auto r = render (in, s);
+        const std::vector<int> skip = nch > 2 ? std::vector<int> { 3 } : std::vector<int> {};
+        const double hf = worstUnexplained (in, r.out, skip);
+        wrong += hf < -40.0 ? 0 : 1;
+        t.check (hf < -40.0, fmt ("%s: Linked, Grouped, Unlinked switched every 0.35 s: unexplained energy above 6 kHz, worst 10 ms window on any channel %s dB (limit -40)", channelsName (nch), dbStr (hf).c_str()));
+        if (nch > 2)
+        {
+            Rng rng (2301);
+            RenderSpec v = s;
+            v.automate = nullptr;
+            v.params.linkMode = dehonk::LinkMode::grouped;
+            v.blockSize = 512;
+            const auto a = render (in, v);
+            v.maxBlockSize = 1024;
+            v.nextBlockSize = [&rng] { return rng.uniformInt (1, 1024); };
+            const auto b = render (in, v);
+            std::size_t d = 0;
+            for (int c = 0; c < nch; ++c)
+                d += samplesDiffering (a.out, c, b.out, c);
+            wrong += d == 0 ? 0 : 1;
+            t.check (d == 0, fmt ("%s Grouped: blocks of 512 and random blocks of 1 to 1024 give the same output: %zu samples differ", channelsName (nch), d));
+        }
+    }
+    t.headline = fmt ("%d checks wrong; Unlinked = old Link 0%% and Grouped = Linked in mono and stereo, bit for bit; each group of 5.1, 7.1.4, 7.0.2 and LCR as its channels on their own", wrong);
+}
+
+void testRangeTiming (Ctx& t)
+{
+    // Two tones 20 dB over quiet noise, 151 Hz in Tub and 247 Hz in Fog, on until 4 s. Fog's
+    // timing is unlocked; Tub's stays locked to Speed and Release.
+    const double offSec = 4.0;
+    auto signal = [&] (int nch, double onSec = 0.0) {
+        Audio a = toneOverNoise (9.0, nch, 246.94, -12.0, -36.0, 2401, onSec, offSec);
+        const Audio b = toneOverNoise (9.0, nch, 155.56, -12.0, -90.0, 2402, onSec, offSec);
+        for (int c = 0; c < nch; ++c)
+            for (std::size_t i = 0; i < a.length(); ++i)
+                a.ch[(std::size_t) c][i] += b.ch[(std::size_t) c][i];
+        return a;
+    };
+    struct Got
+    {
+        double tauMs = 0.0, attackMs = 0.0, settled = 0.0;
+    };
+    auto measure = [&] (const RenderResult& r, double hz, double onSec = 0.0) {
+        const auto band = (std::size_t) nearestBand (r.bandHz, hz);
+        Got g;
+        double ratio = 1.0, period = 0.0;
+        std::size_t counted = 0;
+        for (std::size_t f = 1; f < r.frames.size(); ++f)
+        {
+            const double a = r.frames[f - 1].cutDb[band], b = r.frames[f].cutDb[band], tf = r.frames[f].timeSec;
+            if (r.frames[f].counter == r.frames[f - 1].counter + 1)
+            {
+                period += tf - r.frames[f - 1].timeSec;
+                ++counted;
+                if (tf > offSec && a > 0.2 && b > 0.0 && b < a)
+                    ratio = std::min (ratio, b / a);
+            }
+            if (tf >= offSec - 0.6 && tf < offSec - 0.1)
+                g.settled = std::max (g.settled, b);
+        }
+        period /= (double) std::max<std::size_t> (1, counted);
+        g.tauMs = ratio < 1.0 ? -1000.0 * period / std::log (ratio) : 0.0;
+        for (const auto& f : r.frames)
+            if (g.attackMs == 0.0 && f.timeSec > onSec && (double) f.cutDb[band] >= 0.5 * g.settled && g.settled > 0.0)
+                g.attackMs = 1000.0 * (f.timeSec - onSec);
+        return g;
+    };
+    auto spec = [&] (const dehonk::Params& p, int nch) {
+        RenderSpec s = specForChannels (p, nch);
+        s.useTuning = true;
+        s.tuning = noParentTuning();
+        s.tuning.notchesPerModule = 8.0f;
+        s.collectFrames = true;
+        s.frameEveryTick = true;
+        s.blockSize = 64;
+        return s;
+    };
+    dehonk::Params base = alwaysOn();
+    base.depth = 1.0f;
+    base.releaseMs = 150.0f;
+    base.impactGuard = 0.0f;
+
+    int wrong = 0;
+    double worstErr = 0.0;
+    for (int nch : { 1, 2, 6, 12 })
+    {
+        const Audio in = signal (nch);
+        const auto plain = render (in, spec (base, nch));
+
+        // Locked: the range's own values do nothing, whatever they are.
+        {
+            dehonk::Params p = base;
+            for (int m = 0; m < dehonk::kNumModules; ++m)
+            {
+                p.rangeAttackMs[m] = 2.0f + 30.0f * (float) m;
+                p.rangeReleaseMs[m] = 1500.0f - 400.0f * (float) m;
+            }
+            const auto r = render (in, spec (p, nch));
+            std::size_t d = 0;
+            for (int c = 0; c < nch; ++c)
+                d += samplesDiffering (r.out, c, plain.out, c);
+            wrong += d == 0 ? 0 : 1;
+            t.check (d == 0, fmt ("%s: every range locked, with other values of its own set: bit-identical to the defaults (%zu samples differ)", channelsName (nch), d));
+        }
+        // Fog unlocked with a release of 1000 ms: Fog's notch lets go at 1000 ms, Tub's still at Release (150 ms).
+        {
+            dehonk::Params p = base;
+            p.rangeTimingLocked[dehonk::Fog] = false;
+            p.rangeReleaseMs[dehonk::Fog] = 1000.0f;
+            p.rangeAttackMs[dehonk::Fog] = 14.0f;
+            const auto r = render (in, spec (p, nch));
+            const Got fog = measure (r, 246.94), tub = measure (r, 155.56), tubPlain = measure (plain, 155.56), fogPlain = measure (plain, 246.94);
+            const double eFog = 100.0 * (fog.tauMs - 1000.0) / 1000.0, eTub = 100.0 * (tub.tauMs - 150.0) / 150.0, ePlain = 100.0 * (fogPlain.tauMs - 150.0) / 150.0;
+            worstErr = std::max ({ worstErr, std::abs (eFog), std::abs (eTub) });
+            const bool ok = std::abs (eFog) < 2.0 && std::abs (eTub) < 2.0 && std::abs (ePlain) < 2.0 && fog.settled > 3.0 && tub.settled > 3.0;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, Release 150 ms, Fog unlocked at 1000 ms: Fog's notch (%.1f dB) falls with a time constant of %.1f ms (%+.2f%%), Tub's (%.1f dB) with %.1f ms (%+.2f%%); locked, Fog's fell with %.1f ms (limit 2%% each)",
+                              channelsName (nch), fog.settled, fog.tauMs, eFog, tub.settled, tub.tauMs, eTub, fogPlain.tauMs));
+            (void) tubPlain;
+        }
+        // Fog unlocked with an attack of 100 ms and of 2 ms: it comes in later and sooner; Tub does
+        // not move. The tones start at 1 s, once the Threshold's own opening (which follows Speed)
+        // is over, and at a Depth and Max Cut at which the notch does not reach the ceiling, so
+        // that how fast it comes in is the attack and not how far over the ceiling it is asked.
+        {
+            const double onSec = 1.0;
+            const Audio late = signal (nch, onSec);
+            dehonk::Params locked = base;
+            locked.depth = 0.2f;
+            locked.maxCutDb = 12.0f;
+            dehonk::Params slow = locked, fast = locked;
+            slow.rangeTimingLocked[dehonk::Fog] = fast.rangeTimingLocked[dehonk::Fog] = false;
+            slow.rangeReleaseMs[dehonk::Fog] = fast.rangeReleaseMs[dehonk::Fog] = 150.0f;
+            slow.rangeAttackMs[dehonk::Fog] = 100.0f;
+            fast.rangeAttackMs[dehonk::Fog] = 2.0f;
+            const auto rl = render (late, spec (locked, nch)), rs = render (late, spec (slow, nch)), rf = render (late, spec (fast, nch));
+            const Got fs = measure (rs, 246.94, onSec), ff = measure (rf, 246.94, onSec), fl = measure (rl, 246.94, onSec);
+            const Got ts = measure (rs, 155.56, onSec), tf = measure (rf, 155.56, onSec), tl = measure (rl, 155.56, onSec);
+            const bool ok = fs.attackMs > fl.attackMs + 30.0 && ff.attackMs < fl.attackMs - 3.0 && std::abs (ts.attackMs - tl.attackMs) < 1.5 && std::abs (tf.attackMs - tl.attackMs) < 1.5
+                         && fl.settled < 11.9 && fl.settled > 3.0;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s: Fog's notch (%.1f dB, under a 12 dB ceiling) is at half depth %.0f ms after its tone starts with its attack at 100 ms, %.0f ms at 2 ms, %.0f ms locked (Speed 50, about 14 ms): 30 ms later and 3 ms sooner at least; Tub's at %.0f, %.0f and %.0f ms (must not move)",
+                              channelsName (nch), fl.settled, fs.attackMs, ff.attackMs, fl.attackMs, ts.attackMs, tf.attackMs, tl.attackMs));
+        }
+    }
+
+    // Snap keeps its own timing: with only Snap on, unlocking every range changes nothing.
+    {
+        const auto clicky = clickSignal (kSr, 2500.0, 3.0, 2, 4.0, 2403);
+        dehonk::Params p = clickOnly();
+        RenderSpec s;
+        s.params = p;
+        const auto a = render (clicky.in, s);
+        for (int m = 0; m < dehonk::kNumModules; ++m)
+        {
+            s.params.rangeTimingLocked[m] = false;
+            s.params.rangeAttackMs[m] = 100.0f;
+            s.params.rangeReleaseMs[m] = 50.0f;
+        }
+        const auto b = render (clicky.in, s);
+        const auto d = samplesDiffering (a.out, 0, b.out, 0) + samplesDiffering (a.out, 1, b.out, 1);
+        const double took = residualDb (a.out, clicky.in, 1.0, S (0.5), clicky.in.length());
+        wrong += d == 0 && took > -80.0 ? 0 : 1;
+        t.check (d == 0 && took > -80.0, fmt ("only Snap on: every range unlocked at 100 ms and 50 ms changes nothing (%zu samples differ); Snap itself takes out %s dB", d, dbStr (took).c_str()));
+    }
+
+    // Switching the locks and sweeping the times while it plays makes no click.
+    for (int nch : { 1, 2, 6, 12 })
+    {
+        Audio in = surroundSignal (kSr, 6.0, nch, 2404, -14.0);
+        for (int c = 0; c < nch; ++c)
+        {
+            const auto tone = sine (kSr, in.length(), 200.0, dbToAmp (-14.0));
+            for (std::size_t i = 0; i < in.length(); ++i)
+                in.ch[(std::size_t) c][i] += tone[i];
+        }
+        dehonk::Params p = alwaysOn();
+        p.depth = 1.0f;
+        for (auto& on : p.moduleOn)
+            on = true;
+        RenderSpec s = specForChannels (p, nch);
+        s.useTuning = true;
+        s.tuning = noParentTuning();
+        s.blockSize = 32;
+        s.automate = [] (std::int64_t pos, dehonk::Params& q) {
+            const double sec = (double) pos / kSr;
+            for (int m = 0; m < dehonk::kNumModules; ++m)
+            {
+                q.rangeTimingLocked[m] = std::fmod (sec + 0.13 * m, 0.5 + 0.1 * m) < 0.25;
+                q.rangeAttackMs[m] = (float) (2.0 * std::pow (50.0, 0.5 + 0.5 * std::sin (6.283 * (0.7 + 0.2 * m) * sec)));
+                q.rangeReleaseMs[m] = (float) (50.0 * std::pow (30.0, 0.5 + 0.5 * std::sin (6.283 * (0.9 + 0.3 * m) * sec)));
+            }
+        };
+        const auto r = render (in, s);
+        const std::vector<int> skip = nch > 2 ? std::vector<int> { 3 } : std::vector<int> {};
+        const double hf = worstUnexplained (in, r.out, skip);
+        wrong += hf < -40.0 ? 0 : 1;
+        t.check (hf < -40.0, fmt ("%s: every range's lock switched and its attack and release swept: unexplained energy above 6 kHz, worst 10 ms window on any channel %s dB (limit -40)",
+                                  channelsName (nch), dbStr (hf).c_str()));
+    }
+    t.headline = fmt ("%d checks wrong; an unlocked range's release within %.2f%% of its own setting (limit 2%%), the locked ranges unmoved", wrong, worstErr);
+}
+
+void testDialogueSidechain (Ctx& t)
+{
+    // The mix: quiet pink noise, a 155.6 Hz tone (in Tub) that is never in the key, a quiet tone
+    // at 244 Hz (in Fog) that is the mix's own, and "dialogue": a tone at 250 Hz, in the same
+    // analysis band as the 244 Hz one and 12 dB over it, from 3 s to 6 s. The key is the dialogue
+    // alone, with a little of the 155.6 Hz band in it, 15 dB under the mix's tone there (a voice
+    // has something everywhere).
+    //   before 3 s  nothing in the key: both tones are cut as without a key
+    //   3 s to 6 s  the 247 Hz band is the dialogue's: its cut goes, the 155.6 Hz cut stays
+    //   after 6 s   the dialogue has left: the cut on the mix's own 244 Hz tone comes back
+    const double from = 3.0, to = 6.0, len = 9.0;
+    const std::size_t n = S (len);
+    auto gate = [&] (std::vector<float> x) {
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const double sec = (double) i / kSr;
+            x[i] *= (float) (std::clamp ((sec - from) / 0.01, 0.0, 1.0) * std::clamp ((to - sec) / 0.01, 0.0, 1.0));
+        }
+        return x;
+    };
+    auto pink = pinkNoise (kSr, n, 2501);
+    normaliseRms (pink, -40.0);
+    const auto low = sine (kSr, n, 155.56, dbToAmp (-12.0));
+    const auto own = sine (kSr, n, 244.0, dbToAmp (-20.0));
+    const auto voice = gate (sine (kSr, n, 250.0, dbToAmp (-8.0)));
+    const auto voiceLow = gate (sine (kSr, n, 155.56, dbToAmp (-27.0)));
+    std::vector<float> mixCh (n), keyCh (n);
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        keyCh[i] = voice[i] + voiceLow[i];
+        mixCh[i] = pink[i] + low[i] + own[i] + voice[i];
+    }
+
+    dehonk::Params base = alwaysOn();
+    base.depth = 1.0f;
+    base.impactGuard = 0.0f;       // the voice coming in is not what is being measured
+    auto spec = [&] (const dehonk::Params& p, int nch) {
+        RenderSpec s = specForChannels (p, nch);
+        s.useTuning = true;
+        s.tuning = noParentTuning();
+        s.collectFrames = true;
+        s.blockSize = 64;
+        return s;
+    };
+    auto meanCut = [] (const RenderResult& r, double hz, double a, double b) {
+        const auto band = (std::size_t) nearestBand (r.bandHz, hz);
+        double s = 0.0;
+        std::size_t c = 0;
+        for (const auto& f : r.frames)
+            if (f.timeSec >= a && f.timeSec < b)
+            {
+                s += f.cutDb[band];
+                ++c;
+            }
+        return c > 0 ? s / (double) c : 0.0;
+    };
+
+    int wrong = 0;
+    double worstLeft = 0.0;
+    for (int nch : { 1, 2, 6, 12 })
+    {
+        const Audio in = copies (mixCh, kSr, nch);
+        const Audio key = fromChannels (kSr, { keyCh });
+        const auto plain = render (in, spec (base, nch));
+
+        dehonk::Params on = base;
+        on.dialogueOn = true;
+        RenderSpec ks = spec (on, nch);
+        ks.key = &key;
+        const auto keyed = render (in, ks);
+
+        const double voiceBefore = meanCut (plain, 246.94, from + 0.5, to), voiceKeyed = meanCut (keyed, 246.94, from + 0.5, to);
+        const double lowBefore = meanCut (plain, 155.56, from + 0.5, to), lowKeyed = meanCut (keyed, 155.56, from + 0.5, to);
+        const double earlyBefore = meanCut (plain, 246.94, 1.5, from), earlyKeyed = meanCut (keyed, 246.94, 1.5, from);
+        const double lateBefore = meanCut (plain, 246.94, to + 1.5, len), lateKeyed = meanCut (keyed, 246.94, to + 1.5, len);
+        worstLeft = std::max (worstLeft, voiceKeyed);
+        bool ok = voiceBefore > 3.0 && voiceKeyed < 0.1;
+        wrong += ok ? 0 : 1;
+        t.check (ok, fmt ("%s: while the dialogue is in the 247 Hz band, the cut there is %.2f dB without the key (need over 3) and %.3f dB with it (limit 0.1)", channelsName (nch), voiceBefore, voiceKeyed));
+        ok = lowBefore > 3.0 && lowKeyed > 0.9 * lowBefore;
+        wrong += ok ? 0 : 1;
+        t.check (ok, fmt ("%s: the 155.6 Hz tone, 15 dB over the dialogue in its band, is cut %.2f dB without the key and %.2f dB with it (need 90%% of it)", channelsName (nch), lowBefore, lowKeyed));
+        ok = earlyBefore > 1.0 && std::abs (earlyKeyed - earlyBefore) < 0.02 && lateBefore > 1.0 && lateKeyed > 0.9 * lateBefore;
+        wrong += ok ? 0 : 1;
+        t.check (ok, fmt ("%s: the mix's own 244 Hz tone is cut %.2f dB before the dialogue comes in (%.2f without the key) and %.2f dB from 1.5 s after it has left (%.2f without the key, need 90%% of it)",
+                          channelsName (nch), earlyKeyed, earlyBefore, lateKeyed, lateBefore));
+        // In the audio as well: the level at 250 Hz while the dialogue speaks.
+        {
+            const double a = bandLevelDb (powerSpectrum (channelOf (in, 0), S (from + 0.5), S (to)), 250.0);
+            const double p = bandLevelDb (powerSpectrum (channelOf (plain.out, 0), S (from + 0.5), S (to)), 250.0);
+            const double k = bandLevelDb (powerSpectrum (channelOf (keyed.out, 0), S (from + 0.5), S (to)), 250.0);
+            ok = p - a < -3.0 && std::abs (k - a) < 0.1;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, in the output: the dialogue's 250 Hz is %+.2f dB without the key and %+.3f dB with it (limit 0.1)", channelsName (nch), p - a, k - a));
+        }
+        // How fast: the cut is under half a dB within 100 ms of the dialogue arriving.
+        {
+            const auto band = (std::size_t) nearestBand (keyed.bandHz, 246.94);
+            double goneAt = -1.0, shownMax = 0.0;
+            bool keyedFlag = true;
+            for (const auto& f : keyed.frames)
+            {
+                if (goneAt < 0.0 && f.timeSec > from && f.cutDb[band] < 0.5f)
+                    goneAt = f.timeSec - from;
+                if (f.timeSec > from + 0.5 && f.timeSec < to)
+                    shownMax = std::max (shownMax, (double) f.dialogue[band]);
+                keyedFlag = keyedFlag && f.keyed;
+            }
+            bool plainFlag = false;
+            for (const auto& f : plain.frames)
+                plainFlag = plainFlag || f.keyed;
+            ok = goneAt >= 0.0 && goneAt < 0.1 && shownMax > 0.95 && keyedFlag && ! plainFlag;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s: the cut is under 0.5 dB %.0f ms after the dialogue arrives (limit 100); the frame shows the band as the dialogue's (%.2f, need over 0.95) and keyed in every frame (%s), never without a key (%s)",
+                              channelsName (nch), 1000.0 * goneAt, shownMax, keyedFlag ? "yes" : "no", plainFlag ? "no" : "yes"));
+        }
+        // Amount 50%: half of the cut is left.
+        {
+            dehonk::Params half = on;
+            half.dialogueAmount = 0.5f;
+            RenderSpec hs = spec (half, nch);
+            hs.key = &key;
+            const auto r = render (in, hs);
+            const double c = meanCut (r, 246.94, from + 1.0, to);
+            ok = c > 0.45 * voiceBefore && c < 0.55 * voiceBefore;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, Dialogue Amount 50%%: the cut on the dialogue's band is %.2f dB, of %.2f without the key (between 45%% and 55%% of it)", channelsName (nch), c, voiceBefore));
+        }
+        // Dialogue off with a key, or on with a silent key: exactly as with no key at all.
+        {
+            RenderSpec offSpec = spec (base, nch);
+            offSpec.key = &key;
+            const auto offKeyed = render (in, offSpec);
+            const Audio silent = Audio::make (kSr, 1, n);
+            RenderSpec silentSpec = spec (on, nch);
+            silentSpec.key = &silent;
+            const auto onSilent = render (in, silentSpec);
+            std::size_t d = 0;
+            for (int c = 0; c < nch; ++c)
+                d += samplesDiffering (offKeyed.out, c, plain.out, c) + samplesDiffering (onSilent.out, c, plain.out, c);
+            wrong += d == 0 ? 0 : 1;
+            t.check (d == 0, fmt ("%s: Dialogue off with the key connected, and Dialogue on with a silent key: both bit-identical to no key (%zu samples differ)", channelsName (nch), d));
+        }
+        // A key that arrives 6 dB hot (a stereo stem summed to mono) is turned down to fit.
+        {
+            Audio hot = key;
+            for (auto& v : hot.ch[0])
+                v *= 2.0f;
+            RenderSpec hs = spec (on, nch);
+            hs.key = &hot;
+            const auto r = render (in, hs);
+            double trim = 0.0;
+            for (const auto& f : r.frames)
+                if (f.timeSec > to - 1.0 && f.timeSec < to - 0.1)
+                    trim = f.dialogueTrimDb;
+            const double lowHot = meanCut (r, 155.56, from + 1.5, to), voiceHot = meanCut (r, 246.94, from + 1.5, to);
+            ok = trim < -4.5 && trim > -7.5 && lowHot > 0.9 * lowBefore && voiceHot < 0.1;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, key 6 dB hot: the gain it is taken at reads %.2f dB after 2 s (need -4.5 to -7.5); the 155.6 Hz tone is still cut %.2f dB (%.2f without the key, need 90%%) and the dialogue's band %.3f dB (limit 0.1)",
+                              channelsName (nch), trim, lowHot, lowBefore, voiceHot));
+        }
+        // A key that arrives 12 dB quiet, or 24 dB hot, is found in the mix and taken at the level
+        // the dialogue has there.
+        for (double offDb : { -12.0, 24.0 })
+        {
+            Audio off = key;
+            for (auto& v : off.ch[0])
+                v *= (float) dbToAmp (offDb);
+            RenderSpec hs = spec (on, nch);
+            hs.key = &off;
+            const auto r = render (in, hs);
+            double gain = 0.0, found = 0.0;
+            bool flagged = false;
+            for (const auto& f : r.frames)
+                if (f.timeSec > to - 1.0 && f.timeSec < to - 0.1)
+                {
+                    gain = f.dialogueTrimDb;
+                    found = f.keyMatch;
+                    flagged = flagged || f.keyOver;
+                }
+            const double lowOff = meanCut (r, 155.56, from + 2.0, to), voiceOff = meanCut (r, 246.94, from + 2.0, to);
+            ok = std::abs (gain + offDb) < 1.5 && found > 0.9 && ! flagged && lowOff > 0.9 * lowBefore && voiceOff < 0.1;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, key %+.0f dB: taken at %+.2f dB (need within 1.5 of %+.0f), found in the mix %.2f (need over 0.9), not flagged (%s); from 2 s after the dialogue arrives the 155.6 Hz tone is cut %.2f dB (%.2f without the key, need 90%%) and the dialogue's band %.3f dB (limit 0.1)",
+                              channelsName (nch), offDb, gain, -offDb, found, flagged ? "no" : "yes", lowOff, lowBefore, voiceOff));
+        }
+        // A key that has nothing to do with the mix is not found in it; the mix itself as the key is flagged.
+        {
+            auto other = pinkNoise (kSr, n, 2504);
+            normaliseRms (other, -30.0);
+            const Audio unrelated = fromChannels (kSr, { other });
+            RenderSpec us = spec (on, nch);
+            us.key = &unrelated;
+            const auto ru = render (in, us);
+            const Audio whole = fromChannels (kSr, { mixCh });
+            RenderSpec ws = spec (on, nch);
+            ws.key = &whole;
+            const auto rw = render (in, ws);
+            double foundMost = 0.0;
+            for (const auto& f : ru.frames)
+                if (f.timeSec > 2.0)
+                    foundMost = std::max (foundMost, (double) f.keyMatch);
+            std::size_t over = 0, all = 0;
+            for (const auto& f : rw.frames)
+                if (f.timeSec > 4.0)
+                {
+                    ++all;
+                    over += f.keyOver ? 1 : 0;
+                }
+            const double cutWhole = meanCut (rw, 155.56, 4.0, len);
+            ok = foundMost < 0.2 && all > 0 && 10 * over >= 8 * all && cutWhole < 0.1;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s: unrelated noise on the key is found in the mix %.2f at most (limit 0.2); with the mix itself as the key nothing is cut (%.3f dB) and the frame says the key is most of the mix in %zu of %zu frames after 4 s (need 80%%)",
+                              channelsName (nch), foundMost, cutWhole, over, all));
+        }
+        // Snap: a click that is in the key (a consonant) keeps its peak; the same click when it is
+        // not in the key is still taken down.
+        {
+            const auto sig = clickSignal (kSr, 2500.0, 3.0, nch);
+            const auto bare = burstSignal (kSr, 10.0, 1, BurstKind::tone, 2500.0, 3.0, 0.5, -200.0, 401);
+            Audio snapKey = Audio::make (kSr, 1, sig.in.length());
+            BurstSignal inKey = sig, notInKey = sig;
+            inKey.starts.clear();
+            notInKey.starts.clear();
+            for (std::size_t b = 0; b < sig.starts.size(); ++b)
+            {
+                const std::size_t st = sig.starts[b];
+                if (b % 2 == 0)
+                {
+                    inKey.starts.push_back (st);
+                    for (std::size_t i = st > S (0.002) ? st - S (0.002) : 0; i < std::min (st + S (0.05), sig.in.length()); ++i)
+                        snapKey.ch[0][i] = bare.in.ch[0][i];
+                }
+                else
+                    notInKey.starts.push_back (st);
+            }
+            dehonk::Params snap = clickOnly();
+            RenderSpec ps;
+            ps.params = snap;
+            if (nch > 2)
+                ps = surroundSpec (snap, layoutNamed (nch == 6 ? "5.1" : "7.1.4"));
+            const auto plainSnap = render (sig.in, ps);
+            RenderSpec kp = ps;
+            kp.params.dialogueOn = true;
+            kp.key = &snapKey;
+            const auto keyedSnap = render (sig.in, kp);
+            const auto keptPlain = burstChange (inKey, plainSnap.out), kept = burstChange (inKey, keyedSnap.out);
+            const auto cutPlain = burstChange (notInKey, plainSnap.out), cut = burstChange (notInKey, keyedSnap.out);
+            ok = -keptPlain.bandMean > 3.0 && std::abs (kept.bandMean) < 0.5 && std::abs (kept.bandMin) < 1.0 && -cut.bandMean > 0.9 * -cutPlain.bandMean;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, Snap: 2.5 kHz bursts that are in the key change by %+.2f dB of band peak (%+.2f at most; limits 0.5 and 1; %.2f dB taken off without the key); those that are not lose %.2f dB (%.2f without the key, need 90%%)",
+                              channelsName (nch), kept.bandMean, kept.bandMin, -keptPlain.bandMean, -cut.bandMean, -cutPlain.bandMean));
+        }
+        // A stereo key with the dialogue on one side only counts just the same.
+        if (nch >= 2)
+        {
+            const Audio oneSide = fromChannels (kSr, { std::vector<float> (n, 0.0f), keyCh });
+            RenderSpec ss = spec (on, nch);
+            ss.key = &oneSide;
+            const auto r = render (in, ss);
+            const double c = meanCut (r, 246.94, from + 0.5, to);
+            ok = c < 0.1;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, stereo key with the dialogue in its second channel only: the cut on the dialogue's band is %.3f dB (limit 0.1)", channelsName (nch), c));
+        }
+        // Block sizes, and a hostile key.
+        {
+            Rng rng (2502);
+            RenderSpec a = spec (on, nch), b = spec (on, nch);
+            a.key = b.key = &key;
+            a.blockSize = 512;
+            b.maxBlockSize = 1024;
+            b.nextBlockSize = [&rng] { return rng.uniformInt (1, 1024); };
+            const auto ra = render (in, a), rb = render (in, b);
+            std::size_t d = 0;
+            for (int c = 0; c < nch; ++c)
+                d += samplesDiffering (ra.out, c, rb.out, c);
+            Audio bad = key;
+            bad.ch[0][n / 3] = std::numeric_limits<float>::quiet_NaN();
+            bad.ch[0][n / 2] = std::numeric_limits<float>::infinity();
+            bad.ch[0][n / 2 + 7] = -1.0e30f;
+            RenderSpec hs = spec (on, nch);
+            hs.key = &bad;
+            const auto rh = render (in, hs);
+            bool finite = true;
+            for (const auto& ch : rh.out.ch)
+                for (float v : ch)
+                    finite = finite && std::isfinite (v);
+            const double after = meanCut (rh, 155.56, to + 1.0, len);
+            ok = d == 0 && finite && after > 3.0;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s: blocks of 512 and random blocks of 1 to 1024 give the same output (%zu samples differ); with NaN, infinity and 1e30 in the key the output is finite (%s) and the cut carries on afterwards (%.2f dB)",
+                              channelsName (nch), d, finite ? "yes" : "no", after));
+        }
+        // Switching Dialogue and sweeping its Amount while the dialogue speaks makes no click.
+        {
+            std::vector<float> longMix (S (8.0)), longKey (S (8.0));
+            auto pk = pinkNoise (kSr, longMix.size(), 2503);
+            normaliseRms (pk, -30.0);
+            const auto tone = sine (kSr, longMix.size(), 250.0, dbToAmp (-10.0));
+            for (std::size_t i = 0; i < longMix.size(); ++i)
+            {
+                longKey[i] = tone[i];
+                longMix[i] = tone[i] + pk[i];
+            }
+            const Audio lin = copies (longMix, kSr, nch), lkey = fromChannels (kSr, { longKey });
+            for (int mode = 0; mode < 2; ++mode)
+            {
+                RenderSpec cs = spec (on, nch);
+                cs.key = &lkey;
+                cs.blockSize = 32;
+                cs.collectFrames = true;
+                if (mode == 0)
+                    cs.automate = [] (std::int64_t pos, dehonk::Params& q) { q.dialogueOn = std::fmod ((double) pos / kSr, 1.4) >= 0.7; };
+                else
+                    cs.automate = [] (std::int64_t pos, dehonk::Params& q) { q.dialogueAmount = (float) (0.5 + 0.5 * std::sin (6.283 * 0.9 * (double) pos / kSr)); };
+                const auto r = render (lin, cs);
+                const std::vector<int> skip = nch > 2 ? std::vector<int> { 3 } : std::vector<int> {};
+                const double hf = worstUnexplained (lin, r.out, skip);
+                const double moved = cutStats (r, 0.5).maxTotal;
+                ok = hf < -40.0 && moved > 3.0;
+                wrong += ok ? 0 : 1;
+                t.check (ok, fmt ("%s: %s: unexplained energy above 6 kHz, worst 10 ms window on any channel %s dB (limit -40); the cut it moves reaches %.1f dB (need over 3)",
+                                  channelsName (nch), mode == 0 ? "Dialogue switched every 0.7 s" : "Dialogue Amount swept 0 to 100%", dbStr (hf).c_str(), moved));
+            }
+        }
+    }
+
+    // Unlinked and Grouped in 5.1 with the dialogue only in the centre, and the key the dialogue:
+    // the centre's band is left alone, and a channel that has the mix's own tone there and no
+    // dialogue keeps its cut while the dialogue speaks (the key is not found in that channel).
+    for (auto mode : { dehonk::LinkMode::unlinked, dehonk::LinkMode::grouped })
+    {
+        const auto& l = layoutNamed ("5.1");
+        Audio in = Audio::make (kSr, l.size(), n);
+        for (int c = 0; c < l.size(); ++c)
+            for (std::size_t i = 0; i < n; ++i)
+                in.ch[(std::size_t) c][i] = c == l.lfe() ? 0.0f : pink[i] + low[i] + (c == 2 ? voice[i] : own[i] * 4.0f);
+        const Audio key = fromChannels (kSr, { keyCh });
+        dehonk::Params on = base;
+        on.dialogueOn = true;
+        on.linkMode = mode;
+        RenderSpec ks = surroundSpec (on, l);
+        ks.useTuning = true;
+        ks.tuning = noParentTuning();
+        ks.key = &key;
+        const auto keyed = render (in, ks);
+        RenderSpec ps = ks;
+        ps.key = nullptr;
+        ps.params.dialogueOn = false;
+        const auto plain = render (in, ps);
+        auto level = [&] (const Audio& a, int c, double hz, double a0, double a1) { return bandLevelDb (powerSpectrum (channelOf (a, c), S (a0), S (a1)), hz); };
+        const double cPlain = level (plain.out, 2, 250.0, from + 0.5, to) - level (in, 2, 250.0, from + 0.5, to);
+        const double cKeyed = level (keyed.out, 2, 250.0, from + 0.5, to) - level (in, 2, 250.0, from + 0.5, to);
+        const double lLate = level (keyed.out, 0, 244.0, to + 1.5, len) - level (in, 0, 244.0, to + 1.5, len);
+        const double lLatePlain = level (plain.out, 0, 244.0, to + 1.5, len) - level (in, 0, 244.0, to + 1.5, len);
+        // While the dialogue speaks, from 1.5 s in (the key has been found by then): the left and
+        // the left surround keep the cut on their own tone.
+        const double lDuring = level (keyed.out, 0, 244.0, from + 1.5, to) - level (in, 0, 244.0, from + 1.5, to);
+        const double lDuringPlain = level (plain.out, 0, 244.0, from + 1.5, to) - level (in, 0, 244.0, from + 1.5, to);
+        const double sDuring = level (keyed.out, 4, 244.0, from + 1.5, to) - level (in, 4, 244.0, from + 1.5, to);
+        const double sDuringPlain = level (plain.out, 4, 244.0, from + 1.5, to) - level (in, 4, 244.0, from + 1.5, to);
+        const bool ok = cPlain < -3.0 && std::abs (cKeyed) < 0.1 && lLatePlain < -3.0 && lLate < 0.9 * lLatePlain
+                        && lDuringPlain < -3.0 && lDuring < 0.9 * lDuringPlain && sDuringPlain < -3.0 && sDuring < 0.9 * sDuringPlain;
+        wrong += ok ? 0 : 1;
+        t.check (ok, fmt ("5.1 %s, dialogue in the centre: its 250 Hz is %+.2f dB without the key and %+.3f dB with it (limit 0.1); while it speaks the left channel's own 244 Hz tone is %+.2f dB (%+.2f without the key, need 90%%) and the left surround's %+.2f dB (%+.2f); once the dialogue has left the left's is %+.2f dB (%+.2f)",
+                          mode == dehonk::LinkMode::unlinked ? "Unlinked" : "Grouped", cPlain, cKeyed, lDuring, lDuringPlain, sDuring, sDuringPlain, lLate, lLatePlain));
+    }
+    t.headline = fmt ("%d checks wrong; a band that is the dialogue's keeps at most %.3f dB of cut (limit 0.1), a tone 15 dB over the dialogue keeps its cut, mono to 7.1.4", wrong, worstLeft);
 }
 
 //==============================================================================
@@ -6073,6 +6940,146 @@ void testTuningFields (Ctx& t)
     t.headline = ok ? "every Tuning field reachable with --set, Snap's eight included" : "TuningFields.h is missing a field";
 }
 
+//==============================================================================
+// steady_detection (SPEC 13.19)
+
+void testSteadyDetection (Ctx& t)
+{
+    // Threshold at Always throughout, so the programme level (a fold-down with more than two
+    // channels) does not come into it.
+    int wrong = 0;
+    std::string head;
+    const double seconds = 10.0, settle = 4.0;
+    auto steadyParams = [] () {
+        dehonk::Params p = alwaysOn();
+        p.detection = dehonk::Detection::steady;
+        return p;
+    };
+    for (int nch : { 1, 2, 6, 12 })
+    {
+        const Audio in = surroundSignal (kSr, seconds, nch, 3100 + (std::uint64_t) nch, -14.0);
+        const int lfe = nch > 2 ? layoutNamed (nch == 6 ? "5.1" : "7.1.4").lfe() : -1;
+
+        // 1. The peaks at 151 and 247 Hz are cut by Steady as by Fast, once it has settled.
+        RenderSpec s = specForChannels (steadyParams(), nch);
+        s.collectFrames = true;
+        const auto r = render (in, s);
+        RenderSpec fs = s;
+        fs.params.detection = dehonk::Detection::fast;
+        const auto rf = render (in, fs);
+        bool finite = true;
+        for (const auto& c : r.out.ch)
+            for (float v : c)
+                finite = finite && std::isfinite (v);
+        double cutS[2], cutF[2];
+        int i = 0;
+        for (double hz : { 151.0, 247.0 })
+        {
+            const auto [k0, k1] = bandsAround (r.bandHz, hz);
+            cutS[i] = std::max (meanBandCut (r, k0, settle), meanBandCut (r, k1, settle));
+            cutF[i] = std::max (meanBandCut (rf, k0, settle), meanBandCut (rf, k1, settle));
+            ++i;
+        }
+        // Steady cuts less often than Fast, so less on average; it must still find both.
+        const bool cuts = cutS[0] >= 1.0 && cutS[1] >= 1.0 && cutS[0] >= 0.4 * cutF[0] && cutS[1] >= 0.4 * cutF[1];
+        wrong += cuts && finite ? 0 : 1;
+        t.check (finite, fmt ("%s, Steady: every sample finite", channelsName (nch)));
+        t.check (cuts, fmt ("%s, Steady, linked: peaks 8 dB proud at 151 and 247 Hz cut %.2f and %.2f dB on average from %.0f s; Fast cuts them %.2f and %.2f dB (need 1 dB each and 40%% of Fast's)",
+                            channelsName (nch), cutS[0], cutS[1], settle, cutF[0], cutF[1]));
+
+        // 2. Unlinked, every channel is exactly that channel on its own (mono, Steady).
+        {
+            dehonk::Params p = steadyParams();
+            p.linkMode = dehonk::LinkMode::unlinked;
+            RenderSpec us = specForChannels (p, nch);
+            const auto ru = render (in, us);
+            std::size_t d = 0;
+            for (int c = 0; c < nch; ++c)
+            {
+                if (c == lfe)
+                    continue;
+                RenderSpec ms;
+                ms.params = p;
+                d += samplesDiffering (ru.out, c, render (channelOf (in, c), ms).out, 0);
+            }
+            wrong += d == 0 ? 0 : 1;
+            t.check (d == 0, fmt ("%s, Steady, Unlinked: each channel bit-identical to it alone in mono: %zu samples differ", channelsName (nch), d));
+        }
+
+        // 3. The output does not depend on the block size.
+        {
+            std::size_t d = 0;
+            for (int bs : { 1, 7, 4096 })
+            {
+                RenderSpec bsSpec = specForChannels (steadyParams(), nch);
+                bsSpec.blockSize = bs;
+                bsSpec.maxBlockSize = 4096;
+                const auto rb = render (in, bsSpec);
+                for (int c = 0; c < nch; ++c)
+                    d += samplesDiffering (rb.out, c, r.out, c);
+            }
+            wrong += d == 0 ? 0 : 1;
+            t.check (d == 0, fmt ("%s, Steady: blocks of 1, 7 and 4096 bit-identical to blocks of 512: %zu samples differ", channelsName (nch), d));
+        }
+
+        // 4. Switching between Fast and Steady every 0.7 s, and every 60 ms, in blocks of 32: no
+        //    click. Measured as automation_clicks does: above 6 kHz each channel must be the input
+        //    times a slowly changing gain; whatever a fit of that cannot explain, against the
+        //    output's own energy there, worst 10 ms window, limit -40 dB. (Each notch moves at its
+        //    own attack and release whichever mode asks for it.)
+        for (double period : { 0.7, 0.06 })
+        {
+            RenderSpec ws = s;
+            ws.blockSize = 32;
+            ws.automate = [period] (std::int64_t pos, dehonk::Params& p) {
+                p.detection = std::fmod ((double) pos / kSr, 2.0 * period) >= period ? dehonk::Detection::steady : dehonk::Detection::fast;
+            };
+            const auto rw = render (in, ws);
+            double worst = -400.0;
+            for (int c = 0; c < nch; ++c)
+            {
+                if (c == lfe)
+                    continue;
+                const auto [m, at] = hfUnexplained (highpass4 (in.ch[(std::size_t) c], kSr, 6000.0), highpass4 (rw.out.ch[(std::size_t) c], kSr, 6000.0), S (0.5), S (0.010));
+                (void) at;
+                worst = std::max (worst, m);
+            }
+            const bool ok = worst < -40.0;
+            wrong += ok ? 0 : 1;
+            t.check (ok, fmt ("%s, Detection switched every %.2f s: unexplained energy above 6 kHz, worst 10 ms window %s dB (limit -40)",
+                              channelsName (nch), period, dbStr (worst).c_str()));
+        }
+        head += fmt ("%s%s %.1f/%.1f dB", head.empty() ? "" : "; ", channelsName (nch), cutS[0], cutS[1]);
+    }
+
+    // 5. Grouped: in 5.1 and 7.1.4 the front pair comes out exactly as a stereo instance of it.
+    for (const char* name : { "5.1", "7.1.4" })
+    {
+        const auto& l = layoutNamed (name);
+        const Audio in = surroundSignal (kSr, 6.0, l.size(), 3200, -14.0);
+        dehonk::Params p = steadyParams();
+        p.linkMode = dehonk::LinkMode::grouped;
+        const auto r = render (in, surroundSpec (p, l));
+        const auto front = groupMembers (l, dehonk::Group::front);
+        std::vector<std::vector<float>> chans;
+        for (int c : front)
+            chans.push_back (in.ch[(std::size_t) c]);
+        RenderSpec gs;
+        gs.params = p;
+        gs.params.linkMode = dehonk::LinkMode::linked;
+        const auto alone = render (fromChannels (kSr, chans), gs);
+        std::size_t d = 0;
+        for (std::size_t i = 0; i < front.size(); ++i)
+            d += samplesDiffering (r.out, front[i], alone.out, (int) i);
+        wrong += d == 0 ? 0 : 1;
+        t.check (d == 0, fmt ("%s, Steady, Grouped: the front pair bit-identical to a stereo instance of it: %zu samples differ", name, d));
+    }
+
+    // 6. Fast is the core as it was: covered bit for bit by golden_defaults and golden_mono_stereo,
+    //    and against the core from before Detection by dehonk_golden_ref4 (Tests/README.md).
+    t.headline = fmt ("%d checks wrong; Steady cuts the 151 / 247 Hz peaks %s; Unlinked exact against mono, Grouped against stereo, block-size invariant, switching makes no click", wrong, head.c_str());
+}
+
 const std::vector<TestDef>& allTests()
 {
     static const std::vector<TestDef> tests = {
@@ -6088,6 +7095,7 @@ const std::vector<TestDef>& allTests()
         { "threshold", "No cut 3 dB below the threshold, the full cut from 6 dB above it, rising steadily between", testThreshold },
         { "notch_dwell", "Informational: how long a notch stays on one band, and how quickly it follows a peak that moves", testNotchDwell },
         { "noise_is_left_alone", "SPEC 13.3: dense noise 80-600 Hz, 8 dB above the threshold, is barely cut; a resonance 6 dB proud of it is cut at least 3 dB; and the noise is cut no more than before Release was a control", testNoiseIsLeftAlone },
+        { "steady_noise_is_left_alone", "SPEC 13.3 and 13.19: the same at Detection Steady, from 4 s in: dense noise barely cut, a resonance 6 dB proud of it cut at least 3 dB, and no more cut than the ceiling Fast is held to", testSteadyNoiseIsLeftAlone },
         { "impacts_keep_body_tail_front", "SPEC 13.2: ten impacts over a bed keep their 110-400 Hz Body (1 dB), Tail (10%) and Front (1 dB, every Speed); always acting, the impact itself keeps its Body and Front (1 dB) and its Tail within 25%, and loses them with Impact Guard off", testImpactsKeepBodyTailFront },
         { "headroom", "Informational, SPEC 13.6: a reference limiter after De-Honk and after the untreated signal; gain reduction, peak and short-term level", testHeadroom },
         { "key_profile", "SPEC 13.4 step 1: the note profile finds C minor; every notch logged against it (the log is informational)", testKeyProfile },
@@ -6095,7 +7103,7 @@ const std::vector<TestDef>& allTests()
         { "latency", "An impulse comes out at latencySamples() for each lookahead and sample rate", testLatency },
         { "block_size_invariance", "Output does not depend on block size (1, 7, 32, 512, 4096 and random)", testBlockSizeInvariance },
         { "stability", "Hostile inputs, random automation (modules and edges included, out of range and crossing), all rates, mono and stereo, prepare/reset mid-stream", testStability },
-        { "automation_clicks", "Smooth automation of depth, edges, threshold, mix, trim and link, module switches, and switching Diff and Bypass, makes no clicks", testAutomationClicks },
+        { "automation_clicks", "Smooth automation of depth, edges, threshold, mix, trim and link, module switches, the link mode, Detection and each range's timing, and switching Diff (slowly, inside its own cross-fade, with Mix moving) and Bypass, makes no clicks", testAutomationClicks },
         { "sample_rate_consistency", "The cut for one signal agrees across 44.1, 48, 96 and 192 kHz", testSampleRateConsistency },
         { "snap_reduces_clicks", "Snap: short 2.5, 2.8 and 3.5 kHz bursts over noise lose at least 4, 2.5 and 2.5 dB of band peak at default Depth, more at 100%, none at 0; the bed between them untouched", testClickReducesClicks },
         { "snap_leaves_hits_alone", "Snap: broadband, snare-like and kick-like hits keep their band peak (within 1 dB) and whole-signal peak (within 0.3 dB)", testClickLeavesHitsAlone },
@@ -6105,7 +7113,7 @@ const std::vector<TestDef>& allTests()
         { "snap_no_latency_and_identities", "Snap: no added latency; off is bit-identical to never on; Solo Honk, Diff and Bypass identities hold with it on", testClickNoLatencyAndIdentities },
         { "cpu_benchmark", "CPU percentage against SPEC section 6 with Tub+Fog and with all four modules, and silence/denormal cost; worst block time checked only with --strict-cpu", testCpuBenchmark },
         { "no_allocation_in_process", "No operator new or delete inside process(), setParams(), setTuning() or reset(), at any block size or setting", testNoAllocation },
-        { "golden_mono_stereo", "At Max Cut 8 dB, the old release, Impact Guard 0 and the old notch movement (Tuning::handOver off, which no control reaches) the core is bit-identical to the cores before (Tests/golden/): mono and stereo, through the plain prepare() and the plug-in's layouts, 12 settings at 44.1/48/96 kHz; 5.1 and 7.1.4; output and display frames", testGoldenMonoStereo },
+        { "golden_mono_stereo", "At Max Cut 8 dB, the old release, Impact Guard 0 and the old notch movement (Tuning::handOver off, which no control reaches) the core is bit-identical to the cores before (Tests/golden/): mono and stereo, through the plain prepare() and the plug-in's layouts, 11 settings at 44.1/48/96 kHz; 5.1 and 7.1.4; output and display frames (nothing with Diff engaged, and not the offset Diff reports: those changed on purpose, SPEC 13.17)", testGoldenMonoStereo },
         { "golden_defaults", "At the plug-in's defaults the core is bit-identical to the hashes recorded from it (Tests/golden/): mono, stereo, 5.1 and 7.1.4, output and display frames with the guard's reading; every plain case cuts, and three more reach Max Cut and bring the guard up", testGoldenDefaults },
         { "surround_linked_matches_stereo", "7.1.4, the same signal everywhere, Link 100%: every channel but the LFE comes out as stereo does, display frames included", testSurroundLinkedMatchesStereo },
         { "surround_lfe", "The LFE is the input delayed by the latency (times Trim; silent in Solo Honk; as it is in Diff and Bypass) at every lookahead, and the others do not depend on it", testSurroundLfe },
@@ -6120,6 +7128,10 @@ const std::vector<TestDef>& allTests()
         { "release_time", "Release: the rate a notch lets go at on a gated tone matches the setting within 2% from 50 to 1500 ms, and the whole time from the tone stopping fits it, mono, stereo, 5.1 and 7.1.4; the attack does not depend on it and still follows Speed; under the Threshold every notch is shut within 500 ms whatever the Release", testReleaseTime },
         { "impact_guard", "Impact Guard: up within 15 ms of a broadband burst, the open notch eased off (in the audio too) and back afterwards, half at 50%, bit-identical to no guard at 0%; no new notch while it is up; not for a tone or a narrow burst, briefly for an entry; in a busy passage never over its limit and the tone still cut; not blinded by one absurd sample; no clicks when easing or switched; mono, stereo, 5.1 and 7.1.4", testImpactGuard },
         { "surround_cpu", "CPU percentage for stereo, 5.1, 7.1 and 7.1.4 at 48 and 96 kHz: defaults, and all four modules + Snap always acting at Link 100%, 50% and 0% (informational)", testSurroundCpu },
+        { "link_modes", "Link: Unlinked is bit-identical to what Link 0% was and Grouped to Linked in mono and stereo; with more channels each group (front pair, centre, surrounds, heights) comes out as its channels on their own, linked; the LFE untouched; switching modes makes no click; 1, 2, 6 and 12 channels", testLinkModes },
+        { "range_timing", "Each range's own timing: locked it changes nothing (bit-identical); unlocked, that range's notch lets go at its own release within 2% and comes in at its own attack while the other ranges still follow Speed and Release; Snap is not affected; switching and sweeping makes no click; 1, 2, 6 and 12 channels", testRangeTiming },
+        { "dialogue_sidechain", "Dialogue sidechain: a band the key accounts for loses its cut (0.1 dB left, within 100 ms) and a tone 15 dB over the key keeps it; the mix's own tone is cut again once the dialogue has left; off or with a silent key it is bit-identical to no key; a key 6 dB hot, 24 dB hot or 12 dB quiet is taken at the level the dialogue has in the mix; an unrelated key is not found and the mix itself as the key is flagged; Snap leaves a click that is in the key alone and still cuts one that is not; in 5.1 Unlinked and Grouped a channel without the dialogue keeps its cut; Amount, a stereo key, block sizes, a hostile key, no clicks when switched; 1, 2, 6 and 12 channels", testDialogueSidechain },
+        { "steady_detection", "Detection Steady (SPEC 13.19): peaks still cut at 1, 2, 6 and 12 channels; Unlinked exact against mono and Grouped against stereo; block-size invariant; switching Fast and Steady makes no click", testSteadyDetection },
         { "wav_io", "Harness self-check: WAV writer and reader round trip (16/24-bit, float, extensible)", testWavIo },
         { "tuning_fields", "Harness self-check: every dehonk::Tuning field can be set by name with --set", testTuningFields },
     };

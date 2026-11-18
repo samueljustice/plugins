@@ -9,7 +9,7 @@ if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 # The version lives here and nowhere else; the release workflow checks the tag against it.
-project(DeHonk VERSION 0.0.1)
+project(DeHonk VERSION 0.0.2)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -37,9 +37,13 @@ juce_add_plugin(DeHonk
     PLUGIN_MANUFACTURER_CODE SJus
     PLUGIN_CODE DHnk
     FORMATS ${DEHONK_FORMATS}
-    PRODUCT_NAME "De-Honk"
+    # The name hosts list it under and the bundles' file name, like the other Sammy J plug-ins. The
+    # first test build was "De-Honk": the codes and the bundle ID below are the same, so its sessions
+    # still open, and the installers remove the bundles with the old name.
+    PRODUCT_NAME "SammyJs De-Honk"
     COMPANY_NAME "Sammy J"
     COMPANY_COPYRIGHT "Copyright ${COPYRIGHT_YEAR} Samuel Justice"
+    COMPANY_WEBSITE "https://sweetjusticesound.com"
     BUNDLE_ID com.samueljustice.dehonk
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
@@ -71,6 +75,10 @@ target_sources(DeHonk
         Source/PluginEditor.cpp
         Source/PresetManager.cpp
         Source/DeHonkLookAndFeel.cpp
+        Source/Widgets.cpp
+        Source/Overlays.cpp
+        # The update check shared by every Sammy J plug-in (common/).
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
         Source/DisplayComponent.cpp
         Source/scene/BandView.cpp
         # The pond picture, drawn in software (Source/scene/PondScene.h is its contract).
@@ -79,7 +87,7 @@ target_sources(DeHonk
         dsp/DeHonkCore.cpp
 )
 
-target_include_directories(DeHonk PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
+target_include_directories(DeHonk PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/dsp ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 juce_add_binary_data(DeHonkBinaryData
     SOURCES
@@ -105,7 +113,6 @@ target_link_libraries(DeHonk
     PRIVATE
         DeHonkBinaryData
         juce::juce_audio_utils
-        juce::juce_opengl
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

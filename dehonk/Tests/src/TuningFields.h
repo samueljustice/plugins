@@ -38,7 +38,27 @@
     X (clickBodyMs)                    \
     X (clickReleaseMs)                 \
     X (diffMatchSeconds)               \
+    X (diffFadeMs)                     \
+    X (diffGainMs)                     \
+    X (dialogueStartDb)                \
+    X (dialogueFullDb)                 \
+    X (dialogueSpread)                 \
+    X (dialogueAttackMs)               \
+    X (dialogueReleaseMs)              \
+    X (dialogueGainMs)                 \
+    X (dialogueTrimMaxDb)              \
+    X (dialogueTrimMinDb)              \
+    X (dialogueMatchRatio)             \
+    X (dialogueOverShare)              \
+    X (dialogueOverSeconds)            \
+    X (snapDialogueAttackMs)           \
+    X (snapDialogueReleaseMs)          \
     X (keySeconds)                     \
+    X (steadySmoothMs)                 \
+    X (steadyRiseMs)                   \
+    X (steadyFallMs)                   \
+    X (steadyLumpBands)                \
+    X (steadyLumpMarginDb)             \
     X (peakTimeMs)                     \
     X (peakMinDb)                      \
     X (guardRiseDb)                    \

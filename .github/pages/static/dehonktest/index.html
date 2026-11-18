@@ -103,7 +103,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <header>
     <h1 class="name">de-honk</h1>
     <div class="rainbow" aria-hidden="true"></div>
-    <p class="meta">test build 0.0.1 · notes for testers · by samuel justice</p>
+    <p class="meta">test build 0.0.2 · notes for testers · by samuel justice</p>
   </header>
 
   <p class="lede">Thanks for trying De-Honk. It goes on the master bus of a trailer mix, before the limiter. When lots of the sounds and music in a session have each been through a bass enhancer or a saturator, their added harmonics pile up in the low mids as a boxy, nasal build-up. De-Honk listens for that as the mix plays and takes it down with narrow cuts that come and go with it.</p>
@@ -113,32 +113,65 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <section class="get">
     <h2 style="--dot: var(--mint)">download</h2>
     <div class="tools">
-      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.1/DeHonk-0.0.1-macOS-Installer.pkg">
+      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.2/DeHonk-0.0.2-macOS-Installer.pkg">
         <span class="label"><span class="disc" style="background: var(--sky)"></span>macos installer</span>
         <span>AAX, VST3, AU and the standalone app. Universal (Apple silicon and Intel), macOS 11 or later. Signed and notarised.</span>
-        <span class="file">DeHonk-0.0.1-macOS-Installer.pkg</span>
+        <span class="file">DeHonk-0.0.2-macOS-Installer.pkg</span>
       </a>
-      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.1/DeHonk-0.0.1-Windows-Installer.exe">
+      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.2/DeHonk-0.0.2-Windows-Installer.exe">
         <span class="label"><span class="disc" style="background: var(--pink)"></span>windows installer</span>
         <span>AAX, VST3 and the standalone app. 64-bit Windows 10 or later. Windows may warn before running it, because the installer isn't code-signed: choose More info, then Run anyway.</span>
-        <span class="file">DeHonk-0.0.1-Windows-Installer.exe</span>
+        <span class="file">DeHonk-0.0.2-Windows-Installer.exe</span>
       </a>
     </div>
-    <p class="small">The plug-ins on their own are on the <a href="https://github.com/samueljustice/plugins/releases/tag/dehonk-v0.0.1">release page</a>.</p>
+    <p class="small">If a link above isn't there yet, the build is still being made: try again shortly, or see <a href="https://github.com/samueljustice/plugins/releases">all releases</a>. The plug-ins on their own are on the <a href="https://github.com/samueljustice/plugins/releases/tag/dehonk-v0.0.2">release page</a>. Hosts now list it as SammyJs De-Honk. The installers remove the first test build's files. To the host it is still the same plug-in, so a session saved with 0.0.1 should open with it in place: if one doesn't, please tell us which host.</p>
+  </section>
+
+  <section class="setup">
+    <h2 style="--dot: var(--pink)">new in 0.0.2</h2>
+    <ul>
+      <li><strong>Dialogue sidechain.</strong> Route the dialogue stem to the plug-in's sidechain (the key input in Pro Tools) and switch <strong>Dialogue</strong> on with its square lamp. A band the dialogue accounts for is then left alone, and build-up well above it is still cut; with Snap on, so is a click that is the dialogue's. The bar sets how far. The stem can arrive at any level: De-Honk finds it in the mix and works out how loud the dialogue is there. Keep it in time with the mix, within a few milliseconds. The round lamp at the end of the bar is lit while the stem is arriving, and turns red if the stem can't be found in the mix or is most of it.</li>
+      <li><strong>Detection: fast or steady.</strong> The pill under the knobs. Fast cuts a build-up as soon as it shows. Steady waits until a build-up has held for a while and leaves a broad lift alone: steadier, and kinder to dense, noisy textures, but slower to catch a new build-up, and in a dense mix it may leave a mild one alone. The <strong>Master bus, steady</strong> preset is the defaults at Steady.</li>
+      <li><strong>Drag it in the band view.</strong> The Threshold (the grip on the level bar at the left, or its line across the bands) and Max Cut (the dashed line across the top) can be dragged, like the edges between the ranges. The pointer changes over anything that can be dragged. A double-click puts it back.</li>
+      <li><strong>Ranges are tabs.</strong> Woof, Tub, Fog, Bark and Snap sit on a shelf under the band view, each in its own colour. A tab's lamp switches the range on and off, and its dot turns red while the range is cutting. A click on the name selects the range: only its creatures move in the pond, and the band view fades the others. Click the name again to go back to all of them.</li>
+      <li><strong>A range's own attack and release.</strong> With Woof, Tub, Fog or Bark selected, its lock, attack and release are under the shelf. Locked, the range follows Speed and Release, and the two bars show what those come to. Unlocked, they are its own.</li>
+      <li><strong>Link.</strong> Linked, Grouped or Unlinked. Grouped is for surround: the front pair, the centre, the surrounds and the heights each share their cuts.</li>
+      <li><strong>Impact Guard.</strong> The square lamp before its name is now its switch. It turns the guard off and on again at the amount it had, and fills with yellow while the guard is up.</li>
+      <li><strong>Diff</strong> fades over and back, so it no longer clicks, and its level follows the treated output all the time, so where nothing is cut the two match.</li>
+      <li><strong>The pond</strong> runs at 60 pictures a second and is calmer: geese arrive one at a time and stay a while, and the recordist works on one of them, turning before he walks to it. The trees stand at the range edges, above the handles in the band view. The animals can be clicked: a turtle topples into the water, the frog jumps, a goose tumbles away.</li>
+      <li><strong>New name.</strong> It shows in hosts as <strong>SammyJs De-Honk</strong>. Sessions from 0.0.1 should still load it; please report it if one doesn't.</li>
+      <li><strong>The window.</strong> Tooltips wait a second and open beside the control. Menus and dialogs are in the window's own style. Click the name for the About page, which has a button that checks for a newer build.</li>
+    </ul>
   </section>
 
   <section class="shots">
     <figure class="hero">
-      <img src="window-busy.png" width="960" height="800" alt="The De-Honk window in a busy passage: geese on the pond where it is cutting, the sound recordist with his boom pole, turtles on a log, a frog on a lily pad and a beaver by its dam; below, the band view with cuts marked in red, then the knobs.">
+      <img src="window-0.0.2-busy.png" width="960" height="800" alt="The De-Honk window in a busy passage: geese on the bank where it is cutting, the sound recordist working one of them with his boom, a tree at each range edge, turtles on a log, a frog on a lily pad and a beaver by its dam; below, the band view with a cut of 4.7 dB in Tub, the shelf of range tabs, the knobs, and the bottom row.">
       <figcaption>A busy passage: each goose is a cut, and the band view below shows where and how deep.</figcaption>
     </figure>
     <div class="pair">
       <figure>
-        <img src="window-rain.png" width="960" height="800" alt="The De-Honk window with rain over the pond while the low mids stay clogged, and the beaver's dam built up.">
-        <figcaption>The weather turns when the low mids stay clogged, and the beaver builds its dam.</figcaption>
+        <img src="window-0.0.2-range.png" width="960" height="800" alt="The De-Honk window with the Tub tab selected: its lock open and its own attack (30 ms) and release (900 ms) under the shelf, the other ranges faded in the band view.">
+        <figcaption>Tub selected and unlocked: its own attack and release, and only its creatures moving.</figcaption>
       </figure>
       <figure>
-        <img src="window-bypass.png" width="960" height="800" alt="The De-Honk window in Bypass: the recordist sits on the bank with a flask, and the band view reads bypassed.">
+        <img src="window-0.0.2-threshold.png" width="960" height="800" alt="The Threshold's grip being dragged on the level bar at the left of the band view, with a label reading threshold -21.8 dBFS and the level bar, grip and line red because the mix is over it.">
+        <figcaption>Dragging the Threshold by its grip. Red means the mix is over it and De-Honk is acting.</figcaption>
+      </figure>
+      <figure>
+        <img src="window-0.0.2-dialogue.png" width="960" height="800" alt="De-Honk with Dialogue on and the mix's dialogue stem on the sidechain during a spoken line: the Dialogue lamp lit, small dots under the bars left to the dialogue, no cut, one goose, dragonflies over the pond.">
+        <figcaption>Dialogue on, during a line over music: dots mark the bands left to the voice, and the dragonflies are out.</figcaption>
+      </figure>
+      <figure>
+        <img src="window-0.0.2-tooltip.png" width="960" height="800" alt="A tooltip open beside the Detection switch, explaining Fast and Steady.">
+        <figcaption>Rest the pointer on a control and a note opens beside it.</figcaption>
+      </figure>
+      <figure>
+        <img src="window-0.0.2-click.png" width="960" height="800" alt="A turtle clicked off the log: a splash in the water by the log where it was.">
+        <figcaption>Click a turtle and it topples into the water, then climbs back.</figcaption>
+      </figure>
+      <figure>
+        <img src="window-0.0.2-bypass.png" width="960" height="800" alt="The De-Honk window in Bypass: the recordist sits on his case with a flask, and the band view reads bypassed.">
         <figcaption>Bypass: the recordist sits down with a flask.</figcaption>
       </figure>
     </div>
@@ -151,7 +184,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
       <li><strong>What causes honk.</strong> We measured what bass enhancers actually add (mostly second and third harmonics, roughly 100 to 300 Hz above the bass) and how that piles up when many sounds in a session each have one.</li>
       <li><strong>How it decides.</strong> It splits the low mids into narrow bands, one per semitone, and looks for bands that stand out from their neighbours while the mix is loud. It leaves a band alone when there's a real note underneath it, so a note's own pitch is kept and only the harmonics piled on top are reduced.</li>
       <li><strong>Tuning.</strong> The settings were set by listening to our own trailer mixes that had a bit of honk, comparing them with De-Honk on and off and soloing what it took out, until it removed the build-up without taking the weight. Mixes signed off by clients don't have much honk, so it's gentle by design.</li>
-      <li><strong>Checking it doesn't do harm.</strong> It was run over a library of finished trailer mixes, with their dialogue stems and real hits from their effects stems, to check that it keeps the weight of impacts, leaves dialogue alone and doesn't pump or click. There are also 46 automated tests for things like latency, clicks and surround.</li>
+      <li><strong>Checking it doesn't do harm.</strong> It was run over a library of finished trailer mixes, with their dialogue stems and real hits from their effects stems, to check that it keeps the weight of impacts, leaves dialogue alone and doesn't pump or click. There are also 51 automated tests for things like latency, clicks, surround and the dialogue sidechain.</li>
       <li><strong>What it can't know.</strong> It can't tell low-mid weight you wanted from build-up you didn't. That's a matter of taste, and it's the main thing your listening will tell us. The rules will be adjusted from what you report.</li>
     </ul>
   </section>
@@ -168,6 +201,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
       <li><strong>Our honky mixes, by ear.</strong> We found a handful of our own mixes with a bit of honk in them. They were signed off, so it is mild. The first versions cut wide slabs out of the low mids and took out what sounded more like noise and detail than honk. Listening to those turned it into narrow cuts, made it act mainly in the busy, loud moments, and gave it a threshold, with the default taken from how loud those mixes run.</li>
       <li><strong>How other tools do it.</strong> We measured two de-resonating plug-ins as black boxes, signals in and out, nothing copied. Plug-in B uses fixed, very narrow notches driven by level. It showed that narrow cuts sound like honk coming out, where wide cuts sound like the mix losing body, which is why De-Honk's cuts are about a semitone wide. Plug-in C turned out to be built for music and single sources: it works higher up on fixed bands, and does more on quiet passages and dialogue than on busy ones. That told us what not to copy. It also pointed at three things we did add as controls: Max Cut, a slower Release, and Impact Guard.</li>
       <li><strong>Finished trailer mixes.</strong> Around fifty finished trailer mixes, with their dialogue, music and effects stems, were used to check for harm rather than to define honk. Dialogue on its own passes through, real hits from the effects stems keep their weight, and it does not pump or click. We also measured how much it still cuts on mixes that did not need it: less than it used to, but not nothing.</li>
+      <li><strong>Ideas from other fields.</strong> We tried four detection techniques from outside audio mixing on the same real mixes: echo cancelling (predicting the low mids from the bass), fitting a baseline under the spectrum as is done in chemistry, morphological filtering from image processing, and tracking resonant poles as in speech analysis. None of them tells a honky mix from a clean one any better than De-Honk already did; in trailers, sharp, lasting peaks are mostly the music's notes. Two of them did agree on one useful thing: a narrow peak should be watched for about a second before it is believed, and a broad lift is not a peak. That became the Steady setting of Detection.</li>
       <li><strong>What did not work.</strong> We tried making clean and honky copies by running an enhancer across whole stems, to score it automatically. That is not how a trailer is built, since enhancers go on individual sounds, so we dropped it. It did show something worth saying: no measurement we have reliably tells a honky mix from a clean one. That judgement is still a matter of taste, and that is where your ears come in.</li>
     </ol>
   </section>
@@ -177,8 +211,9 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
     <ul>
       <li>Put it on the master, before your limiter, and start with the <strong>Master bus</strong> preset.</li>
       <li>Lookahead Off (the default) adds no latency, so it's fine on a live mix.</li>
-      <li>Set <strong>Threshold</strong> so the level bar on the left of the band view goes past the marker in the dense sections and stays under it in the quiet ones. It only works above the threshold.</li>
-      <li>Leave everything else at default for a first pass.</li>
+      <li>Set <strong>Threshold</strong> so the level bar on the left of the band view goes past its grip in the dense sections and stays under it in the quiet ones. Drag the grip, or use the knob. It only works above the threshold.</li>
+      <li>If you have the dialogue stem to hand, send it to the sidechain and switch <strong>Dialogue</strong> on. The input is called Dialogue: in Pro Tools it's the key input at the top of the plug-in window (choose it with the transport stopped), in Logic the Side Chain menu, in VST3 hosts the plug-in's sidechain. Keep the stem in time with the mix. The round lamp at the end of the Dialogue bar lights when the stem arrives; red means it can't be found in the mix, or the key is the mix itself.</li>
+      <li>Leave everything else at default for a first pass. If it cuts more than you like in dense passages, or you can hear it moving, try <strong>Detection</strong> at Steady (or the <strong>Master bus, steady</strong> preset) and tell us which you preferred. Steady is slower to catch a new build-up, so give it a few seconds.</li>
     </ul>
   </section>
 
@@ -196,8 +231,9 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
     <ol>
       <li><strong>Lost weight.</strong> Does the bass or the body of the mix get thinner with it on? Use Diff to compare: hold it to hear the untreated mix, or click it to latch.</li>
       <li><strong>Hits.</strong> Do explosions, slams and big drum hits keep their punch and their tail? Impact Guard is meant to keep the cuts out of them. If a hit sounds smaller, note the time.</li>
-      <li><strong>Rumble and dense textures.</strong> It can sometimes cut into noisy low-mid material (rumbles, wind, dense ambiences) as if it were honk. If something thick suddenly sounds hollow, that's what to report.</li>
-      <li><strong>Audible working.</strong> Can you hear it moving: pumping, a wobble or a ringing in the low mids? Release sets how slowly a cut lets go; longer is steadier.</li>
+      <li><strong>Rumble and dense textures.</strong> It can sometimes cut into noisy low-mid material (rumbles, wind, dense ambiences) as if it were honk. If something thick suddenly sounds hollow, that's what to report, and whether Steady does better there.</li>
+      <li><strong>Dialogue.</strong> Does the voice get thinner with it on? Try it with the dialogue stem on the sidechain and without, and say which you used. With the stem on, the small dots under the band view's bars show which bands are being left to the voice.</li>
+      <li><strong>Audible working.</strong> Can you hear it moving: pumping, a wobble or a ringing in the low mids? Release sets how slowly a cut lets go; longer is steadier. If only one range does it, select that range, open its lock and give it its own release.</li>
       <li><strong>Does it actually help?</strong> On a mix you know has honk, does it get it? If it isn't doing enough, raise Depth or set Max Cut to 8 or 9 dB. If it's too much, bring Depth down.</li>
     </ol>
   </section>
@@ -211,7 +247,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
       </div>
       <div class="tool">
         <span class="label"><span class="disc" style="background: var(--mint)"></span>diff</span>
-        <p>Plays the untreated mix, level-matched, for a quick before and after.</p>
+        <p>Plays the untreated mix, level-matched, for a quick before and after. Hold it, or click it to keep it on.</p>
       </div>
     </div>
   </section>
@@ -220,13 +256,17 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
     <h2>the picture</h2>
     <p>The pond at the top shows what it's doing, so you can glance at it rather than watch it.</p>
     <ul class="pond-list">
-      <li><span class="who">geese</span><span class="what">The cuts, chased off by the sound recordist.</span></li>
-      <li><span class="who">turtles</span><span class="what">Hide in their shells when Impact Guard holds back for a hit.</span></li>
-      <li><span class="who">frog</span><span class="what">Tenses as a cut nears Max Cut, and leaps off its lily pad when one reaches it.</span></li>
-      <li><span class="who">beaver</span><span class="what">Its dam grows while the low mids stay clogged.</span></li>
+      <li><span class="who">geese</span><span class="what">The cuts. They arrive one at a time and stay a few seconds. The sound recordist works on one at a time. Click one and it tumbles away and waddles back.</span></li>
+      <li><span class="who">trees</span><span class="what">Stand at the edges of the ranges, above the handles in the band view, each in the colour of the range to its right.</span></li>
+      <li><span class="who">turtles</span><span class="what">Hide in their shells when Impact Guard holds back for a hit, and sleep when it's off. Click one and it topples into the water.</span></li>
+      <li><span class="who">frog</span><span class="what">Tenses as a cut nears Max Cut, and leaps off its lily pad when one reaches it. Click it and it jumps.</span></li>
+      <li><span class="who">beaver</span><span class="what">Its dam grows while the low mids stay clogged. Click it and it waves or slaps its tail.</span></li>
       <li><span class="who">fish</span><span class="what">Jumps when Snap takes out a click.</span></li>
-      <li><span class="who">recordist</span><span class="what">Sits down with a flask in Bypass.</span></li>
+      <li><span class="who">dragonflies</span><span class="what">Come out while the dialogue sidechain is being listened to. Click them and they scatter.</span></li>
+      <li><span class="who">weather</span><span class="what">Clouds and then rain when it's kept hard at work for a while.</span></li>
+      <li><span class="who">recordist</span><span class="what">Sits down with a flask in Bypass, listens closely in Solo Honk. Click him and he tips his hat or waves.</span></li>
     </ul>
+    <p>With a range's tab selected, only that range's creatures come, go and move; the rest stay where they are, faded back. The pointer becomes a hand over anything that can be clicked. None of it changes the sound.</p>
   </section>
 
   <section class="send panel">
@@ -242,13 +282,17 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <section class="known">
     <h2>known in this build</h2>
     <ul>
-      <li>There's no sidechain input yet.</li>
-      <li>Switching Diff on and off very fast can click.</li>
+      <li>The dialogue sidechain hasn't been tried in Pro Tools or Logic yet. If the key input doesn't appear, or the Dialogue lamp doesn't light with a stem routed to it, tell us which host.</li>
+      <li>The message about a newer version only appears for full releases. For a newer test build, click the name and press Check for updates.</li>
+      <li>In Pro Tools, choose the key input with the transport stopped: the output may drop out for a moment as it connects.</li>
+      <li>Automation of Link written with the first test build no longer does anything: Link is now a choice of three, and a session comes back as Linked or Unlinked from what Link was set to when it was saved.</li>
+      <li>Typing a preset's name in the plug-in's window hasn't been tried in a host. If the keys don't arrive, or Space starts the transport, tell us which host.</li>
+      <li>Diff's level match follows the treated level over a second and a half, so on a real mix the two can differ by a few tenths of a dB from moment to moment.</li>
       <li>Settings and presets may change before the full release, so sessions saved with this build may not sound the same in a later one.</li>
     </ul>
   </section>
 
-  <p class="foot">de-honk 0.0.1 · a plug-in by samuel justice · sammy j</p>
+  <p class="foot">de-honk 0.0.2 · a plug-in by samuel justice · sammy j</p>
 </main>
 
 </body>

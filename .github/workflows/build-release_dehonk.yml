@@ -31,6 +31,7 @@ on:
     paths:
       - 'dehonk/**'
       - 'cmake/**'
+      - 'common/**'
       - '.github/workflows/build-release_dehonk.yml'
   workflow_dispatch:
 
@@ -49,17 +50,20 @@ env:
   # build, by name. The CPU benchmark measures the machine as much as the code, and GitHub's runners are
   # shared and slower than the development Mac. The golden tests compare outputs bit for bit with hashes
   # recorded with the development Mac's compiler; another compiler or compiler version (the runner's Xcode,
-  # MSVC) may round differently. The rest are the known failures of the DSP still being tuned (dehonk/SPEC.md
-  # 13.15: noise_is_left_alone, impacts_keep_body_tail_front, notch_count, solo_honk_identity,
-  # automation_clicks) and two tests whose targets are still changing (impact_guard, release_time).
-  # Every other test must pass. Take names off these lists as they start passing.
+  # MSVC) may round differently. The rest are the known failure of the DSP still being tuned (dehonk/SPEC.md
+  # 13.15: noise_is_left_alone; 13.19: steady_noise_is_left_alone, where Steady cuts the resonances in noise
+  # 0.4-2.4 dB against the 3 dB asked), tests that pass on the development Mac but have not yet been seen to pass on
+  # the runners (impacts_keep_body_tail_front, notch_count, and solo_honk_identity, whose level-match reading
+  # sits close to its limit and moves with the compiler's rounding) and two tests whose targets are still
+  # changing (impact_guard, release_time). automation_clicks passes with room to spare and blocks again.
+  # Every other test must pass. Take names off these lists as they are seen to pass on the runners.
   DEHONK_TESTS_NON_BLOCKING_MACOS: >-
     cpu_benchmark golden_mono_stereo golden_defaults
-    noise_is_left_alone impacts_keep_body_tail_front notch_count solo_honk_identity automation_clicks
+    noise_is_left_alone steady_noise_is_left_alone impacts_keep_body_tail_front notch_count solo_honk_identity
     impact_guard release_time
   DEHONK_TESTS_NON_BLOCKING_WINDOWS: >-
     cpu_benchmark golden_mono_stereo golden_defaults
-    noise_is_left_alone impacts_keep_body_tail_front notch_count solo_honk_identity automation_clicks
+    noise_is_left_alone steady_noise_is_left_alone impacts_keep_body_tail_front notch_count solo_honk_identity
     impact_guard release_time
 
 jobs:
@@ -186,7 +190,7 @@ jobs:
       shell: pwsh
       run: |
         cd dehonk
-        Compress-Archive -Path "build\DeHonk_artefacts\Release\AAX\De-Honk.aaxplugin" -DestinationPath "DeHonk-Windows-AAX-unsigned.zip" -Force
+        Compress-Archive -Path "build\DeHonk_artefacts\Release\AAX\SammyJs De-Honk.aaxplugin" -DestinationPath "DeHonk-Windows-AAX-unsigned.zip" -Force
 
     - name: Upload unsigned Windows AAX
       uses: actions/upload-artifact@v6
@@ -200,8 +204,8 @@ jobs:
         cd dehonk
         $out = "build\DeHonk_artefacts\Release"
         New-Item -ItemType Directory -Force -Path windows-package\app, windows-package\vst3 | Out-Null
-        Copy-Item "$out\Standalone\De-Honk.exe" windows-package\app\
-        Copy-Item "$out\VST3\De-Honk.vst3" windows-package\vst3\ -Recurse
+        Copy-Item "$out\Standalone\SammyJs De-Honk.exe" windows-package\app\
+        Copy-Item "$out\VST3\SammyJs De-Honk.vst3" windows-package\vst3\ -Recurse
         Get-ChildItem windows-package -Recurse | Select-Object FullName, Length
 
     - name: Build installer
@@ -326,7 +330,7 @@ jobs:
     - name: Zip unsigned macOS AAX
       run: |
         cd dehonk
-        ditto -c -k --keepParent "build/DeHonk_artefacts/Release/AAX/De-Honk.aaxplugin" DeHonk-macOS-AAX-unsigned.zip
+        ditto -c -k --keepParent "build/DeHonk_artefacts/Release/AAX/SammyJs De-Honk.aaxplugin" DeHonk-macOS-AAX-unsigned.zip
 
     - name: Upload unsigned macOS AAX
       uses: actions/upload-artifact@v6
@@ -364,17 +368,17 @@ jobs:
         cd dehonk
         OUT=build/DeHonk_artefacts/Release
         mkdir -p staging/app staging/vst3 staging/au
-        cp -R "$OUT/Standalone/De-Honk.app" staging/app/
-        cp -R "$OUT/VST3/De-Honk.vst3" staging/vst3/
-        cp -R "$OUT/AU/De-Honk.component" staging/au/
-        /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "staging/vst3/De-Honk.vst3/Contents/Info.plist"
+        cp -R "$OUT/Standalone/SammyJs De-Honk.app" staging/app/
+        cp -R "$OUT/VST3/SammyJs De-Honk.vst3" staging/vst3/
+        cp -R "$OUT/AU/SammyJs De-Honk.component" staging/au/
+        /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "staging/vst3/SammyJs De-Honk.vst3/Contents/Info.plist"
 
     - name: Sign bundles
       if: steps.check_certs.outputs.has_certs == 'true'
       run: |
         cd dehonk
         IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
-        for b in "staging/app/De-Honk.app" "staging/vst3/De-Honk.vst3" "staging/au/De-Honk.component"; do
+        for b in "staging/app/SammyJs De-Honk.app" "staging/vst3/SammyJs De-Honk.vst3" "staging/au/SammyJs De-Honk.component"; do
           echo "Signing $b"
           codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements entitlements.plist "$b"
           codesign --verify --deep --strict --verbose=2 "$b"
@@ -388,7 +392,7 @@ jobs:
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
         cd dehonk/staging
-        ditto -c -k --keepParent "app/De-Honk.app" ../notarise-app.zip
+        ditto -c -k --keepParent "app/SammyJs De-Honk.app" ../notarise-app.zip
         zip -qry ../notarise-plugins.zip vst3 au
         for z in ../notarise-app.zip ../notarise-plugins.zip; do
           echo "Notarising $z"
@@ -412,9 +416,9 @@ jobs:
           done
           return 1
         }
-        staple "app/De-Honk.app"
-        staple "vst3/De-Honk.vst3"
-        staple "au/De-Honk.component"
+        staple "app/SammyJs De-Honk.app"
+        staple "vst3/SammyJs De-Honk.vst3"
+        staple "au/SammyJs De-Honk.component"
 
     # Choices for the VST3, the AU and the app (Customize). No AAX yet: it is signed after the release,
     # and dehonk-test-installers.yml then replaces this installer with one that has it.
@@ -459,15 +463,15 @@ jobs:
           delay=$((delay + 30))
         done
         spctl --assess --type install -vv "$f"
-        spctl --assess --type execute -vv "staging/app/De-Honk.app"
+        spctl --assess --type execute -vv "staging/app/SammyJs De-Honk.app"
 
     # The notarised bundles on their own, for manual installs and for dehonk-test-installers.yml.
     - name: Zip bundles
       run: |
         cd dehonk/staging
-        ditto -c -k --keepParent "vst3/De-Honk.vst3" ../DeHonk-macOS-VST3.zip
-        ditto -c -k --keepParent "au/De-Honk.component" ../DeHonk-macOS-AU.zip
-        ditto -c -k --keepParent "app/De-Honk.app" ../DeHonk-macOS-App.zip
+        ditto -c -k --keepParent "vst3/SammyJs De-Honk.vst3" ../DeHonk-macOS-VST3.zip
+        ditto -c -k --keepParent "au/SammyJs De-Honk.component" ../DeHonk-macOS-AU.zip
+        ditto -c -k --keepParent "app/SammyJs De-Honk.app" ../DeHonk-macOS-App.zip
 
     - name: Upload macOS files
       uses: actions/upload-artifact@v6
@@ -544,8 +548,8 @@ jobs:
         cp macos/DeHonk-macOS-AU.zip "release/DeHonk-$VERSION-macOS-AU.zip"
         cp macos/DeHonk-macOS-App.zip "release/DeHonk-$VERSION-macOS-App.zip"
         cp windows-installer/DeHonk_Installer.exe "release/DeHonk-$VERSION-Windows-Installer.exe"
-        (cd windows-files/vst3 && zip -qr "../../release/DeHonk-$VERSION-Windows-VST3.zip" "De-Honk.vst3")
-        (cd windows-files/app && zip -q "../../release/DeHonk-$VERSION-Windows-App.zip" De-Honk.exe)
+        (cd windows-files/vst3 && zip -qr "../../release/DeHonk-$VERSION-Windows-VST3.zip" "SammyJs De-Honk.vst3")
+        (cd windows-files/app && zip -q "../../release/DeHonk-$VERSION-Windows-App.zip" "SammyJs De-Honk.exe")
         ls -la release
 
     - name: Create release

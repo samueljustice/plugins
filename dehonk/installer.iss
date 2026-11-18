@@ -3,16 +3,19 @@
 ; Built by .github/workflows/build-release_dehonk.yml (no AAX: it isn't signed yet when the release is made)
 ; and by .github/workflows/dehonk-test-installers.yml (with the signed AAX), which pass the version:
 ;   iscc /DMyAppVersion=1.2.3 [/DDeHonkAAX] installer.iss
-; It expects windows-package\app\De-Honk.exe, windows-package\vst3\De-Honk.vst3 and, with DeHonkAAX,
-; windows-package\aax\De-Honk.aaxplugin.
+; It expects windows-package\app\SammyJs De-Honk.exe, windows-package\vst3\SammyJs De-Honk.vst3 and, with
+; DeHonkAAX, windows-package\aax\SammyJs De-Honk.aaxplugin. The first test build's files were called
+; "De-Honk.<type>": those are removed when this one is installed.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.0.1"
+  #define MyAppVersion "0.0.2"
 #endif
 #define MyAppName "De-Honk"
 #define MyAppPublisher "Sammy J"
 #define MyAppURL "https://github.com/samueljustice/plugins"
-#define MyAppExe "De-Honk.exe"
-#define MyBundle "De-Honk"
+#define MyAppExe "SammyJs De-Honk.exe"
+#define MyBundle "SammyJs De-Honk"
+#define OldAppExe "De-Honk.exe"
+#define OldBundle "De-Honk"
 #define VST3Dir "{commoncf64}\VST3"
 #define AAXDir "{commoncf64}\Avid\Audio\Plug-Ins"
 
@@ -63,6 +66,13 @@ Type: filesandordirs; Name: "{#VST3Dir}\{#MyBundle}.vst3"; Components: vst3
 #ifdef DeHonkAAX
 Type: filesandordirs; Name: "{#AAXDir}\{#MyBundle}.aaxplugin"; Components: aax
 #endif
+; What the first test build installed under its old name goes with each part that replaces it, so no
+; host finds two copies.
+Type: filesandordirs; Name: "{#VST3Dir}\{#OldBundle}.vst3"; Components: vst3
+#ifdef DeHonkAAX
+Type: filesandordirs; Name: "{#AAXDir}\{#OldBundle}.aaxplugin"; Components: aax
+#endif
+Type: files; Name: "{app}\{#OldAppExe}"; Components: app
 
 [Files]
 Source: "windows-package\vst3\{#MyBundle}.vst3\*"; DestDir: "{#VST3Dir}\{#MyBundle}.vst3"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs

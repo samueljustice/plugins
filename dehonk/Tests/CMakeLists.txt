@@ -51,6 +51,16 @@ add_executable (dehonk_render src/dehonk_render.cpp)
 target_link_libraries (dehonk_render PRIVATE dehonk_harness)
 target_compile_options (dehonk_render PRIVATE ${DEHONK_WARNINGS} ${DEHONK_OPT})
 
+# Measures the dialogue sidechain on a real mix and its dialogue stem (see the file's header).
+add_executable (dehonk_dialogue src/dehonk_dialogue.cpp)
+target_link_libraries (dehonk_dialogue PRIVATE dehonk_harness)
+target_compile_options (dehonk_dialogue PRIVATE ${DEHONK_WARNINGS} ${DEHONK_OPT})
+
+# Measurements on real mixes: the dialogue sidechain attacked, Snap with the key, Diff's level match.
+add_executable (dehonk_realmix src/dehonk_realmix.cpp)
+target_link_libraries (dehonk_realmix PRIVATE dehonk_harness)
+target_compile_options (dehonk_realmix PRIVATE ${DEHONK_WARNINGS} ${DEHONK_OPT})
+
 add_executable (dehonk_tests src/dehonk_tests.cpp)
 target_link_libraries (dehonk_tests PRIVATE dehonk_harness)
 target_compile_options (dehonk_tests PRIVATE ${DEHONK_WARNINGS} ${DEHONK_OPT})
@@ -80,11 +90,28 @@ target_compile_options (dehonk_golden PRIVATE ${DEHONK_WARNINGS} ${DEHONK_OPT})
 target_compile_definitions (dehonk_golden PRIVATE DEHONK_GOLDEN_SURROUND=1)
 target_compile_definitions (dehonk_tests PRIVATE DEHONK_GOLDEN_SURROUND=1)
 
-foreach (REF IN ITEMS "ref" "ref2")
+foreach (REF IN ITEMS "ref" "ref2" "ref3" "ref4")
     if (REF STREQUAL "ref")
         set (DEHONK_REF_DSP_DIR "${CMAKE_CURRENT_BINARY_DIR}/ref-dsp")
         set (DEHONK_REF_ARGS "")
         set (DEHONK_REF_SURROUND 0)
+    elseif (REF STREQUAL "ref4")
+        # The core before Detection (SPEC 13.19). As with ref3, nothing is kept from it in
+        # Tests/golden/: at Detection Fast the current core must give what it gives, checked by
+        # running dehonk_golden_ref4 and dehonk_golden with the same arguments (--defaults,
+        # --compat --surround) and comparing the two files (see Tests/README.md).
+        set (DEHONK_REF_DSP_DIR "${CMAKE_CURRENT_BINARY_DIR}/ref-dsp4")
+        set (DEHONK_REF_ARGS "--defaults")
+        set (DEHONK_REF_SURROUND 1)
+    elseif (REF STREQUAL "ref3")
+        # The core before the dialogue sidechain, the ranges' own timing and the link modes (SPEC
+        # 13.17). Nothing is kept from it in Tests/golden/: with those three at their defaults it
+        # must give what the current core gives, which is checked by running dehonk_golden_ref3
+        # and dehonk_golden with the same arguments (--surround, --compat --surround,
+        # --defaults-no-diff) and comparing the two files (see Tests/README.md).
+        set (DEHONK_REF_DSP_DIR "${CMAKE_CURRENT_BINARY_DIR}/ref-dsp3")
+        set (DEHONK_REF_ARGS "--surround")
+        set (DEHONK_REF_SURROUND 1)
     else ()
         set (DEHONK_REF_DSP_DIR "${CMAKE_CURRENT_BINARY_DIR}/ref-dsp2")
         set (DEHONK_REF_ARGS "--surround")

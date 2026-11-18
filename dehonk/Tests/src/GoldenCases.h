@@ -170,12 +170,19 @@ struct Case
     bool hostile = false;
     bool staticCuts = false;
     bool impacts = false;
+    bool automateDiff = false;   // the automation switches Diff as well
 };
 
 /** With `extended`, the cases that only make sense for the current core at its defaults are
     added: they need Max Cut and the impact guard to be there. The reference cores are run
-    without them. */
-inline std::vector<Case> cases (bool extended = false)
+    without them.
+
+    Diff is in a case only with `withDiff`, and so is DisplayFrame::diffOffsetDb in the hash (see
+    run()). How Diff is switched and how its level match is averaged changed on purpose (SPEC
+    13.17), so nothing with Diff engaged, and not the offset it reports, can be compared with a
+    core from before; everything else can, and is. The current core's own record (golden_defaults)
+    has both. */
+inline std::vector<Case> cases (bool extended = false, bool withDiff = false)
 {
     std::vector<Case> v;
     auto add = [&] (const char* name) -> Case& { v.push_back ({}); v.back().name = name; return v.back(); };
@@ -184,7 +191,11 @@ inline std::vector<Case> cases (bool extended = false)
     { auto& c = add ("link50_sharp_fast_la5"); c.params.thresholdDb = -60.0f; c.params.link = 0.5f; c.params.sharpness = 0.9f; c.params.speed = 1.0f; c.params.lookaheadMs = 5.0f; }
     { auto& c = add ("link0_snap_la20"); c.params.thresholdDb = -60.0f; c.params.link = 0.0f; c.params.snapOn = true; c.params.lookaheadMs = 20.0f; c.varyBlocks = true; }
     { auto& c = add ("solo_mix70_trim-3"); c.params.thresholdDb = -60.0f; c.params.soloHonk = true; c.params.mix = 0.7f; c.params.trimDb = -3.0f; }
-    { auto& c = add ("diff"); c.params.thresholdDb = -60.0f; c.params.diff = true; c.params.depth = 0.9f; }
+    if (withDiff)
+    {
+        { auto& c = add ("diff"); c.params.thresholdDb = -60.0f; c.params.diff = true; c.params.depth = 0.9f; }
+        { auto& c = add ("automation_diff"); c.automate = true; c.automateDiff = true; c.varyBlocks = true; c.key = true; }
+    }
     { auto& c = add ("bypass"); c.params.bypass = true; c.params.lookaheadMs = 10.0f; }
     { auto& c = add ("mix40_trim6_detrend"); c.params.thresholdDb = -60.0f; c.params.mix = 0.4f; c.params.trimDb = 6.0f; c.useTuning = true; c.tuning.detrend = true; c.tuning.referenceExponent = 0.7f; }
     { auto& c = add ("automation"); c.automate = true; c.varyBlocks = true; c.key = true; }
@@ -233,7 +244,7 @@ inline void noteGuard (Reached& r, const F& f)
 
 template <typename Prepare = PlainPrepare>
 inline std::uint64_t run (const Case& cs, double sr, int nch, double seconds, const Prepare& prepare = {}, bool compat = false, bool extended = false,
-                          Reached* reached = nullptr)
+                          Reached* reached = nullptr, bool withDiff = false)
 {
     const int maxBlock = 1024;
     dehonk::Core core;
@@ -300,7 +311,7 @@ inline std::uint64_t run (const Case& cs, double sr, int nch, double seconds, co
             p.link = (float) std::clamp (1.2 * std::cos (t * 0.9), 0.0, 1.0);
             p.lookaheadMs = ((block / 40) % 3 == 0) ? 0.0f : ((block / 40) % 3 == 1 ? 10.0f : 5.0f);
             p.soloHonk = (block / 23) % 4 == 1;
-            p.diff = (block / 31) % 5 == 2;
+            p.diff = cs.automateDiff && (block / 31) % 5 == 2;
             p.snapOn = (block / 17) % 2 == 0;
             p.keyOn = (block / 50) % 2 == 1;
             p.mix = (float) (0.75 + 0.25 * std::sin (t * 2.1));
@@ -331,7 +342,8 @@ inline std::uint64_t run (const Case& cs, double sr, int nch, double seconds, co
         h.f (f.totalCutDb);
         h.bytes (f.moduleCutDb, sizeof f.moduleCutDb);
         h.f (f.snapCutDb);
-        h.f (f.diffOffsetDb);
+        if (withDiff)
+            h.f (f.diffOffsetDb);
         h.f (f.keyDb);
         h.i (f.keyed ? 1 : 0);
         h.f (f.wash);
@@ -358,16 +370,16 @@ inline std::uint64_t run (const Case& cs, double sr, int nch, double seconds, co
     other rates (the references were recorded with 3 s there, in which "defaults" and "key"
     never get over the Threshold long enough to cut). */
 template <typename Prepare = PlainPrepare>
-inline std::vector<Result> runAll (const Prepare& prepare = {}, bool compat = false, bool extended = false)
+inline std::vector<Result> runAll (const Prepare& prepare = {}, bool compat = false, bool extended = false, bool withDiff = false)
 {
     std::vector<Result> out;
     for (double sr : { 44100.0, 48000.0, 96000.0 })
         for (int nch = 1; nch <= 2; ++nch)
-            for (const auto& cs : cases (extended))
+            for (const auto& cs : cases (extended, withDiff))
             {
                 char name[160];
                 std::snprintf (name, sizeof name, "%s_%s_%.0f", cs.name, nch == 1 ? "mono" : "stereo", sr);
-                out.push_back ({ name, run (cs, sr, nch, sr > 50000.0 && ! extended ? 3.0 : 4.0, prepare, compat, extended) });
+                out.push_back ({ name, run (cs, sr, nch, sr > 50000.0 && ! extended ? 3.0 : 4.0, prepare, compat, extended, nullptr, withDiff) });
             }
     return out;
 }
@@ -402,20 +414,20 @@ struct SurroundPrepare
     by `prepare`, which is given the channel count and sets the layout. Shorter than the mono and
     stereo runs. */
 template <typename Prepare>
-inline std::vector<Result> runAllSurround (const Prepare& prepare, const char* layoutName, bool compat = false, bool extended = false)
+inline std::vector<Result> runAllSurround (const Prepare& prepare, const char* layoutName, bool compat = false, bool extended = false, bool withDiff = false)
 {
     std::vector<Result> out;
     for (double sr : { 48000.0, 44100.0, 96000.0 })
         for (int nch : { 6, 12 })
         {
             int index = 0;
-            for (const auto& cs : cases (extended))
+            for (const auto& cs : cases (extended, withDiff))
             {
                 if (sr != 48000.0 && index++ >= 3)
                     break;
                 char name[200];
                 std::snprintf (name, sizeof name, "%s_%dch_%s_%.0f", cs.name, nch, layoutName, sr);
-                out.push_back ({ name, run (cs, sr, nch, extended ? 3.0 : 2.0, prepare, compat, extended) });
+                out.push_back ({ name, run (cs, sr, nch, extended ? 3.0 : 2.0, prepare, compat, extended, nullptr, withDiff) });
             }
         }
     return out;

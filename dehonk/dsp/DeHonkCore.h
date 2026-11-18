@@ -42,6 +42,31 @@ enum class Position : std::uint8_t
     lfe           // never analysed, never filtered, left out of the fold-down
 };
 
+/** Which channels share their detection when Params::linkMode is LinkMode::grouped. `automatic`
+    takes it from the position: the two fronts (and a channel of unknown position) are the front
+    pair, the centre is on its own, and everything else that is not an LFE is a surround. A host
+    that knows which speakers are overhead says so with `height`. */
+enum class Group : std::uint8_t { automatic = 0, front, centre, surround, height };
+
+/** How the channels share what the detector finds. */
+enum class LinkMode : std::uint8_t
+{
+    linked = 0,   // every channel but an LFE gets the same notches (one detection, on the louder channel per band)
+    grouped,      // the front pair, the centre, the surrounds and the heights each share within their group.
+                  //   With one or two channels this is the same as linked.
+    unlinked      // each channel on its own
+};
+
+/** How long a narrow peak must stand before it is believed. */
+enum class Detection : std::uint8_t
+{
+    fast = 0,     // the band levels as they are (smoothed over a few ms): a peak is cut as soon as it shows
+    steady        // each band's steady level (it rises over about a second and falls over about half of
+                  //   one) is what is compared, and a lift that is wide along the spectrum is not taken
+                  //   for a peak. Steadier and kinder to dense, noisy textures, slower to catch a new
+                  //   build-up. See Tuning::steady*.
+};
+
 /** The layout of the channels passed to Core::prepare(). Without one, every position is
     unknown: no channel is an LFE. With more than two channels an unknown position on channel 0
     is taken as left front and on channel 1 as right front. With one or two channels the positions
@@ -50,6 +75,7 @@ enum class Position : std::uint8_t
 struct ChannelLayout
 {
     Position position[kMaxChannels] {};
+    Group group[kMaxChannels] {};     // for LinkMode::grouped only
 
     /** Convenience: no positions known, and channel lfeIndex (if 0 or more) is the LFE. */
     static ChannelLayout withLfe (int lfeIndex) noexcept
@@ -79,18 +105,36 @@ struct Params
     bool snapOn = false;        // the Click module: takes the edge off sharp pops around 2.5 kHz
     bool keyOn = false;          // the threshold listens to the sidechain's level in place of the track's own.
                                  //          Has an effect only in blocks processed with a key (processWithKey).
+    bool dialogueOn = false;     // the sidechain is the dialogue stem: a band the dialogue accounts for is not
+                                 //          treated as build-up, and a cut that is open there eases off while
+                                 //          the dialogue is in it; Snap leaves a click that is the dialogue's (a
+                                 //          consonant) alone. Build-up well above the dialogue is cut as
+                                 //          ever, and nothing else about the detection changes. Has an effect
+                                 //          only in blocks processed with a key. See Tuning::dialogue*.
+    float dialogueAmount = 1.0f; // 0..1   how far a band that is all dialogue is left alone (1 = entirely)
     float thresholdDb = -16.0f;  // -60..0 dBFS. De-Honk acts only while the programme is above this
                                  //          (RMS below 2.8 kHz, louder channel; with more than two
                                  //          channels, the louder side of a stereo fold-down). -60 = always.
-    float link = 1.0f;           // 0..1   1 = shared detection (every channel but an LFE gets the
-                                 //          same notches), 0 = per channel
+    LinkMode linkMode = LinkMode::linked;   // which channels share their detection
+    Detection detection = Detection::fast;  // how long a peak must stand before it is cut
+    float link = 1.0f;           // 0..1   how far a channel follows what it shares (all the channels when
+                                 //          linked, its group when grouped): 1 = entirely, 0 = not at all,
+                                 //          which is the same as unlinked. No control reaches anything but 1;
+                                 //          it is kept for the proof that the rest has not changed.
+    // Each range's own timing. Locked (the default), a range follows Speed and Release like the
+    // rest. Unlocked, its notches go in over its own attack and let go over its own release. Snap
+    // has its own fixed timing either way.
+    bool rangeTimingLocked[kNumModules] = { true, true, true, true };
+    float rangeAttackMs[kNumModules] = { 14.0f, 14.0f, 14.0f, 14.0f };          // 2..100 ms
+    float rangeReleaseMs[kNumModules] = { 400.0f, 400.0f, 400.0f, 400.0f };     // 50..1500 ms
     float lookaheadMs = 0.0f;    // 0, 5, 10 or 20. Sets latencySamples().
     float mix = 1.0f;            // 0..1
     float trimDb = 0.0f;         // -12..+12
     bool soloHonk = false;       // output = what is being removed (an LFE is silent). Diff and Bypass win over it.
     bool diff = false;           // output = untreated signal, latency-matched, analysis keeps running,
                                  //          turned down to the loudness of the treated signal (see
-                                 //          DisplayFrame::diffOffsetDb) so that louder does not win.
+                                 //          DisplayFrame::diffOffsetDb) so that louder does not win. Switching
+                                 //          it cross-fades over Tuning::diffFadeMs.
                                  //          An LFE is not treated, so it plays as it is, not turned down.
     bool bypass = false;         // output = untreated signal, latency-matched
 };
@@ -125,8 +169,45 @@ struct Tuning
     float clickMaxCutDb = 12.0f;
     float clickBodyMs = 40.0f;         // the running level is taken over this long
     float clickReleaseMs = 6.0f;
-    float diffMatchSeconds = 3.0f;     // loudness of treated and untreated is compared over this long
+    float diffMatchSeconds = 1.5f;     // loudness of treated and untreated is compared over about this long: the
+                                       //     power of each is averaged with this time constant, all the time, and
+                                       //     Diff is turned down by the ratio of the two
+    float diffFadeMs = 80.0f;          // switching Diff cross-fades over this long, along a curve with no corner in it
+    float diffGainMs = 50.0f;          // the level match moves the gain it applies over this long
+    // Dialogue sidechain (Params::dialogueOn). Per band, the dialogue's power is compared with the
+    // power the detector is working from.
+    float dialogueStartDb = -9.0f;     // dialogue this far under the band: the band is treated as ever
+    float dialogueFullDb = -3.0f;      // ... this far under it (half the power) or more: the band is the dialogue's
+    float dialogueSpread = 0.5f;       // a notch is about two bands wide: a band next to one that is the
+                                       //     dialogue's is left alone by this share as well
+    float dialogueAttackMs = 15.0f;    // how fast a band is handed to the dialogue ...
+    float dialogueReleaseMs = 250.0f;  // ... and how slowly it is taken back, so the gaps between words do not pump
+    // The level the dialogue has in each channel of the mix is measured, not assumed: the key is
+    // looked for in the channel band by band (how far the two move together, whatever else is in
+    // the band), and the gain that fits is what the key is taken at, up or down.
+    float dialogueGainMs = 500.0f;     // ... averaged over this long
+    float dialogueTrimMaxDb = 18.0f;   // a key that arrives quieter than the dialogue is in the mix is turned up by at most this
+    float dialogueTrimMinDb = -40.0f;  // ... and one that arrives louder (a stereo stem summed to one channel, a hot
+                                       //     send) down by at most this
+    float dialogueMatchRatio = 4.0f;   // the key counts as found in a channel when what the two share, over what two
+                                       //     unrelated signals would share by chance, is this much more than that
+    float dialogueOverShare = 0.8f;    // the key is "most of the mix" when this share of the bands it is in are
+    float dialogueOverSeconds = 1.5f;  //     the dialogue's nearly entirely, for this long (DisplayFrame::keyOver)
+    float snapDialogueAttackMs = 1.0f; // Snap and the dialogue: the key's level in Snap's band against the mix's
+    float snapDialogueReleaseMs = 50.0f; //   there, followed this fast up and down
     float keySeconds = 8.0f;           // the note profile is averaged over this long
+    // Steady detection (Params::detection). Each band's power is smoothed over steadySmoothMs, and
+    // its level in dB follows that with steadyRiseMs going up and steadyFallMs going down: the
+    // steady level. The band's excess over its surroundings is taken on the steady levels, and
+    // it must also stand over a floor drawn under the steady spectrum (each band no higher than
+    // the mean of the two bands steadyLumpBands away, for 1 up to steadyLumpBands, in turn) by
+    // more than the dead zone less steadyLumpMarginDb: a lift as wide as the floor's reach is
+    // part of the floor, not a peak.
+    float steadySmoothMs = 50.0f;
+    float steadyRiseMs = 1000.0f;
+    float steadyFallMs = 400.0f;
+    float steadyLumpBands = 3.0f;      // a quarter of an octave; 0 = no floor test
+    float steadyLumpMarginDb = 1.0f;
     float peakTimeMs = 250.0f;         // notches are placed on peaks that last about this long
     float peakMinDb = 2.0f;            // a peak must stand this far above its neighbours to get a notch
     // Impact guard (Params::impactGuard). An impact is a rise of guardRiseDb or more over the
@@ -191,7 +272,19 @@ struct DisplayFrame
     float snapCutDb = 0.0f;       // deepest cut the Click module made since the last frame, dB
     float diffOffsetDb = 0.0f;    // the gain Diff applies to the untreated signal to match loudness, dB (0 or below)
     float keyDb = -120.0f;        // the sidechain's level, dBFS RMS (-120 when there is none)
-    bool keyed = false;           // true while the threshold is listening to the sidechain
+    bool keyed = false;           // true while the sidechain is in use: the dialogue is being listened for, or
+                                  //       the threshold is listening to it
+    float dialogue[kMaxBands] {}; // 0..1 per band: how far the band is being left to the dialogue (the share of
+                                  //       the cut taken off; cutDb already has it taken off). 0 without a sidechain.
+    float dialogueTrimDb = 0.0f;  // the gain the sidechain is being taken at to fit the mix, dB: below 0 for a key
+                                  //       that arrives louder than the dialogue is in the mix, above for a quieter one
+    float keyMatch = 0.0f;        // 0..1: how surely the key has been found in the mix. Near 0 with a key that is
+                                  //       playing: it is not in the mix, or not in time with it, and is being
+                                  //       taken at the level it arrives at. 0 without a sidechain.
+    bool keyOver = false;         // the key accounts for nearly everything in most of the bands it is in, and has
+                                  //       for a while (the mix itself on the key, or the wrong stem), or its gain is
+                                  //       at the end of its range: De-Honk is being switched off by it
+    float snapDialogue = 0.0f;    // 0..1: how far Snap is being held off by the dialogue (the most since the last frame)
     float wash = 0.0f;            // 0..1: how much of the energy in the range is noise-like and not peaks.
                                   //       High means the build-up is wash, which is fixed upstream by taking
                                   //       layers out, not here. Meaningful only while activity is above 0.
@@ -229,9 +322,11 @@ public:
     void process (float* const* channels, int numChannels, int numSamples) noexcept;
 
     /** The same, with a sidechain. `key` is read only (numKeyChannels of them, any number from 1;
-        nullptr or 0 for none). With Params::keyOn the threshold then compares the key's level, taken
-        over the whole spectrum on its loudest channel, in place of the track's own. Nothing else
-        about the processing changes. */
+        nullptr or 0 for none), and in time with the channels as they are passed in. With
+        Params::dialogueOn it is the dialogue stem (its first two channels are listened to; a band
+        counts as the dialogue's if it is in either). With Params::keyOn the threshold compares the
+        key's level, taken over the whole spectrum on its loudest channel, in place of the track's
+        own. With neither, the key does nothing. */
     void processWithKey (float* const* channels, int numChannels, const float* const* key, int numKeyChannels, int numSamples) noexcept;
 
     /** Delay through the core for the current lookahead setting, in samples.

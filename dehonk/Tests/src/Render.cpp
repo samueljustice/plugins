@@ -103,6 +103,20 @@ RenderResult render (dehonk::Core& core, const Audio& in, const RenderSpec& spec
         r.blockStarts.reserve (est);
     }
 
+    const int nkey = spec.key != nullptr ? spec.key->numChannels() : 0;
+    std::vector<std::vector<float>> keyWork ((std::size_t) nkey, std::vector<float> ((std::size_t) maxBlock, 0.0f));
+    std::vector<const float*> keyPtrs ((std::size_t) nkey);
+    auto process = [&] (float* const* channels, int offset, int count) {
+        if (nkey > 0)
+        {
+            for (int c = 0; c < nkey; ++c)
+                keyPtrs[(std::size_t) c] = keyWork[(std::size_t) c].data() + offset;
+            core.processWithKey (channels, nch, keyPtrs.data(), nkey, count);
+        }
+        else
+            core.process (channels, nch, count);
+    };
+
     std::uint32_t lastCounter = core.frameCounter();
     std::size_t pos = 0;
     while (pos < total)
@@ -127,6 +141,15 @@ RenderResult render (dehonk::Core& core, const Audio& in, const RenderSpec& spec
                 w[i] = idx < n ? src[idx] : 0.0f;
             }
         }
+        for (int c = 0; c < nkey; ++c)
+        {
+            const auto& src = spec.key->ch[(std::size_t) c];
+            for (int i = 0; i < b; ++i)
+            {
+                const std::size_t idx = pos + (std::size_t) i;
+                keyWork[(std::size_t) c][(std::size_t) i] = idx < src.size() ? src[idx] : 0.0f;
+            }
+        }
 
         auto readFrame = [&] (std::size_t endPos) {
             if (! spec.collectFrames || core.frameCounter() == lastCounter)
@@ -142,6 +165,12 @@ RenderResult render (dehonk::Core& core, const Audio& in, const RenderSpec& spec
             f.snapCutDb = df.snapCutDb;
             f.diffOffsetDb = df.diffOffsetDb;
             f.guard = df.guard;
+            f.dialogueTrimDb = df.dialogueTrimDb;
+            f.keyMatch = df.keyMatch;
+            f.keyOver = df.keyOver;
+            f.snapDialogue = df.snapDialogue;
+            f.keyDb = df.keyDb;
+            f.keyed = df.keyed;
             for (int k = 0; k < 12; ++k)
                 f.pitchClass[(std::size_t) k] = df.pitchClass[k];
             const int nb = std::clamp (df.numBands, 0, dehonk::kMaxBands);
@@ -149,6 +178,7 @@ RenderResult render (dehonk::Core& core, const Audio& in, const RenderSpec& spec
             {
                 f.cutDb[(std::size_t) k] = df.cutDb[k];
                 f.levelDb[(std::size_t) k] = df.levelDb[k];
+                f.dialogue[(std::size_t) k] = df.dialogue[k];
             }
             for (int m = 0; m < dehonk::kNumModules; ++m)
                 f.moduleCutDb[(std::size_t) m] = df.moduleCutDb[m];
@@ -158,7 +188,7 @@ RenderResult render (dehonk::Core& core, const Audio& in, const RenderSpec& spec
         if (spec.timeBlocks)
         {
             const auto t0 = Clock::now();
-            core.process (ptrs.data(), nch, b);
+            process (ptrs.data(), 0, b);
             const auto t1 = Clock::now();
             r.blockSeconds.push_back (std::chrono::duration<double> (t1 - t0).count());
             r.blockSizes.push_back (b);
@@ -171,14 +201,14 @@ RenderResult render (dehonk::Core& core, const Audio& in, const RenderSpec& spec
                 const int m = std::min (kFrameSubBlock, b - done);
                 for (int c = 0; c < nch; ++c)
                     sub[(std::size_t) c] = ptrs[(std::size_t) c] + done;
-                core.process (sub.data(), nch, m);
+                process (sub.data(), done, m);
                 done += m;
                 readFrame (pos + (std::size_t) done);
             }
         }
         else
         {
-            core.process (ptrs.data(), nch, b);
+            process (ptrs.data(), 0, b);
         }
 
         for (int c = 0; c < nch; ++c)
