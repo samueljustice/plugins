@@ -5,8 +5,8 @@
 # button in the prompt that bundle/install-aax-signer.sh sets up).
 #
 #   sign-aax                    sign every release whose "AAX signing" run is waiting at "Sign on the Mac"
-#   sign-aax reversinator ...   sign these plug-ins' newest releases, waiting or not (full releases only:
-#                               a test build's pre-release is signed while its run waits)
+#   sign-aax reversinator ...   sign these plug-ins' newest releases, waiting or not (for a test build,
+#                               a "#test" line in plugins.txt, its newest pre-release counts too)
 #   sign-aax --force ...        re-sign even if the release already has a signed AAX
 #   sign-aax --local ...        sign and verify only: no upload (leaves the zips in ./aax-signed)
 #
@@ -63,7 +63,21 @@ targets="$work/targets.txt"
 if [[ ${#wanted[@]} -gt 0 ]]; then
   GH_REPO="$repo" "$here/resolve-releases.sh" > "$work/releases.txt"
   for id in "${wanted[@]}"; do
-    grep "^$id|" "$work/releases.txt" >> "$targets" || { echo "Unknown plug-in or no release: $id"; exit 1; }
+    grep "^$id|" "$work/releases.txt" >> "$targets" && continue
+
+    # A test build ("#test" line): resolve-releases.sh leaves those out (it serves the combined
+    # installer), and its releases are pre-releases, so find its newest tag here, pre-releases included.
+    prefix=$(sed -n "s/^#test $id|\([^|]*\)|.*/\1/p" "$here/plugins.txt" | head -1)
+    if [[ -n "$prefix" ]]; then
+      tag=$(gh release list -R "$repo" --limit 200 --exclude-drafts --json tagName --jq '.[].tagName' \
+              | grep -E "^${prefix}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)
+      if [[ -n "$tag" ]]; then
+        echo "$id|$tag|${tag#"$prefix"}" >> "$targets"
+        continue
+      fi
+    fi
+    echo "Unknown plug-in or no release: $id"
+    exit 1
   done
 else
   # Releases whose "AAX signing" run is waiting at this machine's stage. Run titles are "AAX signing · <tag>".
