@@ -63,7 +63,7 @@ The picture above the chain is an ink blot that forms out of cloud and moves wit
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](roarschach/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/roarschach/)
 
 ## Swooshbuckler
 
@@ -92,7 +92,7 @@ There is more in it: a spectral morph between the two buses, a third bus called 
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](swooshbuckler/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/swooshbuckler/)
 
 ## Tonal Recall
 
@@ -119,7 +119,7 @@ It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and 
 </details>
 
 **AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](tonalrecall/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/tonalrecall/)
 
 ## Pitch Flattener
 
@@ -146,7 +146,7 @@ It can hold the sound at the top of its pitch, the bottom, the middle, where it 
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/pitchflattener/)
 
 ## Reversinator
 
@@ -157,7 +157,7 @@ It can hold the sound at the top of its pitch, the bottom, the middle, where it 
 A real-time reverser. It recreates the three effects of Backwards Machine (Reverse Playback, Forward Backwards and Reverse Repeat), rebuilt from a study of the original's signal flow and checked against the original's own renders, which it matches at better than 0.999 correlation. What's different is a resizable window, a display that shows the read heads sweeping back along a road into the past, and no clicks when you change a setting.
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](reversinator/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/reversinator/)
 
 ## Sound Advice
 
@@ -170,7 +170,7 @@ Not an effect: a page of advice. Pick what you're working on (mixing, creatures,
 Audio passes straight through it, so it can sit on a mix bus, or run as an app on another screen.
 
 **App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](soundadvice/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/soundadvice/)
 
 ## Subbertone
 
@@ -196,7 +196,7 @@ Made mostly for cars and other engines: it follows the pitch of an engine, and a
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](subbertone/README.md)
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](https://samueljustice.github.io/plugins/subbertone/)
 
 ## For developers
 
