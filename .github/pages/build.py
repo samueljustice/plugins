@@ -61,6 +61,8 @@ for i, (start, end, level, name) in enumerate(heads):
     chunks.append((level, name, doc[end:heads[i + 1][0] if i + 1 < len(heads) else len(doc)]))
 
 plugins = []
+toys = []
+toys_intro = ""
 footer_html = ""
 in_wip = False
 for level, name, body in chunks:
@@ -68,6 +70,14 @@ for level, name, body in chunks:
         in_wip = name == "Work in progress"
     if name == "Made by Samuel Justice":
         footer_html = "".join(re.findall(r"<p[^>]*>.*?</p>", body, re.S))
+        continue
+    if name == "Toys":
+        # A small list at the foot of the page, not a section each: "- **[Name](link)**: what it is."
+        toys_intro = "".join(f"<p>{fix_links(p)}</p>" for p in re.findall(r"<p[^>]*>(.*?)</p>", body, re.S))
+        for item in re.findall(r"<li>(.*?)</li>", body, re.S):
+            m = re.match(r"\s*(?:<p>)?\s*<strong>\s*<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>\s*</strong>\s*:?\s*(.*?)(?:</p>)?\s*$", item, re.S)
+            if m:
+                toys.append((html.escape(absolute(m.group(1), BLOB)), m.group(2), fix_links(m.group(3))))
         continue
     if name in SKIP:
         continue
@@ -146,6 +156,15 @@ entries = "".join(entry(i + 1, name, body, wip) for i, (name, body, wip) in enum
 index = "".join(
     f'<li><a href="#{slug(name)}"><span>{i + 1:02d}</span>{html.escape(name)}</a></li>'
     for i, (name, _body, _wip) in enumerate(plugins))
+
+toys_html = ""
+if toys:
+    rows = "".join(f'<li><a href="{href}">{name}</a><span>{what}</span></li>' for href, name, what in toys)
+    toys_html = f'''<section class="toys" id="toys">
+  <h2>Toys</h2>
+  <div>{toys_intro}<ul>{rows}</ul></div>
+</section>'''
+    index += '<li><a href="#toys"><span>+</span>Toys</a></li>'
 
 # ---- the top: downloads, what's in the installer, the donate link ------------------------------------------
 def first(pattern: str, default: str = "") -> str:
@@ -289,6 +308,15 @@ page = f"""<!doctype html>
   .entry.plain {{ display: block; }}
   .entry.plain img {{ max-width: 100%; height: auto; }}
 
+  .toys {{ display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 48px; padding: 48px 0; border-bottom: 1px solid var(--rule); scroll-margin-top: 48px; }}
+  .toys h2 {{ font-size: 26px; letter-spacing: -.02em; margin: 0; }}
+  .toys p {{ margin: 0 0 18px; color: var(--dim); font-size: 16px; max-width: 40em; }}
+  .toys ul {{ list-style: none; margin: 0; padding: 0; max-width: 46em; }}
+  .toys li {{ display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 4px 24px; padding: 12px 0; border-top: 1px solid var(--rule); font-size: 16px; }}
+  .toys li a {{ font: 400 12px/1.9 var(--mono); letter-spacing: .08em; text-transform: uppercase; text-decoration: none; color: var(--paper); }}
+  .toys li a::after {{ content: " \\2192"; color: var(--red); }}
+  .toys li a:hover {{ color: var(--red); }}
+  .toys li span::first-letter {{ text-transform: uppercase; }}
   footer {{ padding: 64px 0 96px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 48px; }}
   footer h3 {{ font: 800 26px/1 var(--display); letter-spacing: -.02em; margin: 0; }}
   footer p {{ margin: 0 0 1em; max-width: 40em; }}
@@ -317,7 +345,9 @@ page = f"""<!doctype html>
     body {{ font-size: 17px; }}
     .wrap {{ padding: 0 20px; }}
     .top {{ padding-top: 44px; }}
-    .get, .entry, footer {{ grid-template-columns: 1fr; }}
+    .get, .entry, .toys, footer {{ grid-template-columns: 1fr; }}
+    .toys h2 {{ margin-bottom: 14px; }}
+    .toys li {{ grid-template-columns: 1fr; }}
     .entry {{ padding: 48px 0; }}
     .entry header {{ position: static; margin-bottom: 22px; }}
     nav {{ position: static; }}
@@ -353,6 +383,7 @@ page = f"""<!doctype html>
 
 <div class="wrap">
 {entries}
+{toys_html}
   <footer>
     <h3>Made by<br>Samuel Justice</h3>
     <div>
