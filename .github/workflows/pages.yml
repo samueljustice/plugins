@@ -11,11 +11,13 @@ on:
     paths:
       - README.md
       - '*/README.md'
+      - 'toys/*/README.md'
       - bundle/plugins.txt
       - .github/pages/**
       - .github/workflows/pages.yml
   workflow_run:
-    workflows: [Build and Release Sammy J Installer]
+    # The installer rewrites the README; a toy's release gives the Toys section and its page new download links.
+    workflows: [Build and Release Sammy J Installer, Build and Release DOOM EQ, DOOM EQ test installers]
     types: [completed]
   workflow_dispatch:
 
