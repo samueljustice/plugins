@@ -213,7 +213,8 @@ private:
     bool faceOuch = false;
     bool sizeRestored = false;
     float facePeak = 0.0f;
-    uint32_t lastBlockCount = 0;
+    uint32_t lastBlockCount = 0, lastIdleBlockCount = 0;
+    int hostIdleTicks = 0;
 
     // Everything static (textures, panels, rivets, title) drawn once at the screen's pixel scale.
     juce::Image chrome;
