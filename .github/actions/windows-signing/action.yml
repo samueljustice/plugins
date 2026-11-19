@@ -1,0 +1,115 @@
+name: Windows code signing
+description: >
+  Gets a Windows job ready to Authenticode-sign with Azure Artifact Signing (account sammyjplugins), or says
+  it will stay unsigned. Signing is on once the repository variable AZURE_SIGNING_PROFILE names the
+  certificate profile; until then this does nothing and the build carries on unsigned.
+
+  When it's on, it signs in to Azure as the "Sammy J plugins GitHub signing" app (no password: GitHub's
+  OIDC token for the windows-signing environment, so the job needs `environment: windows-signing` and
+  `id-token: write`), and sets SAMMYJ_SIGN to a .cmd that signs the files given to it. Sign files with
+  sign.ps1 next to this file; Inno Setup signs its installer and uninstaller when iscc gets
+  /DSigned "/Ssammyj=$env:SAMMYJ_SIGN /d $qName$q $f" (see each installer.iss's "#ifdef Signed").
+
+inputs:
+  client-id:
+    description: secrets.AZURE_CLIENT_ID
+    required: true
+  tenant-id:
+    description: secrets.AZURE_TENANT_ID
+    required: true
+  subscription-id:
+    description: secrets.AZURE_SUBSCRIPTION_ID
+    required: true
+  endpoint:
+    description: vars.AZURE_SIGNING_ENDPOINT
+    required: true
+  account:
+    description: vars.AZURE_SIGNING_ACCOUNT
+    required: true
+  profile:
+    description: vars.AZURE_SIGNING_PROFILE (empty = sign nothing)
+    required: false
+    default: ""
+
+outputs:
+  enabled:
+    description: '"true" when SAMMYJ_SIGN is set and files should be signed'
+    value: ${{ steps.check.outputs.enabled }}
+
+runs:
+  using: composite
+  steps:
+    - name: Is signing on?
+      id: check
+      shell: pwsh
+      env:
+        PROFILE_NAME: ${{ inputs.profile }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        if (-not $env:PROFILE_NAME) {
+          Write-Host "::notice::Windows files are unsigned: no certificate profile yet (repository variable AZURE_SIGNING_PROFILE)."
+          "enabled=false" >> $env:GITHUB_OUTPUT
+        } elseif (-not $env:CLIENT_ID) {
+          Write-Host "::warning::Windows files are unsigned: AZURE_CLIENT_ID isn't available to this run."
+          "enabled=false" >> $env:GITHUB_OUTPUT
+        } elseif ($env:EVENT -eq 'pull_request') {
+          Write-Host "Pull request build: Windows files are left unsigned (releases and dispatched runs sign)."
+          "enabled=false" >> $env:GITHUB_OUTPUT
+        } else {
+          "enabled=true" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Sign in to Azure
+      if: steps.check.outputs.enabled == 'true'
+      uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+
+    - name: Get SignTool and the Artifact Signing client
+      if: steps.check.outputs.enabled == 'true'
+      shell: pwsh
+      env:
+        ENDPOINT: ${{ inputs.endpoint }}
+        ACCOUNT: ${{ inputs.account }}
+        PROFILE_NAME: ${{ inputs.profile }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dir = Join-Path $env:RUNNER_TEMP 'artifact-signing'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        # The SignTool plug-in (dlib) that sends each file's digest to Azure to be signed.
+        $version = '1.0.128'
+        $pkg = Join-Path $dir 'client.zip'
+        Invoke-WebRequest "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client/$version" -OutFile $pkg
+        Expand-Archive $pkg -DestinationPath (Join-Path $dir 'client') -Force
+        $dlib = Get-ChildItem (Join-Path $dir 'client') -Recurse -Filter 'Azure.CodeSigning.Dlib.dll' |
+          Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+        if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll (x64) not found in Microsoft.ArtifactSigning.Client $version" }
+        # Signs as the app azure/login signed in as (the Azure CLI's credential); the others are skipped.
+        $metadata = Join-Path $dir 'metadata.json'
+        @{
+          Endpoint = $env:ENDPOINT
+          CodeSigningAccountName = $env:ACCOUNT
+          CertificateProfileName = $env:PROFILE_NAME
+          ExcludeCredentials = @('ManagedIdentityCredential', 'WorkloadIdentityCredential', 'SharedTokenCacheCredential',
+                                 'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzurePowerShellCredential',
+                                 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
+        } | ConvertTo-Json | Set-Content -Encoding utf8 $metadata
+        # The newest x64 SignTool in the Windows SDK (the dlib needs 10.0.22621 or later).
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\signtool.exe" |
+          Sort-Object { [version]($_.Directory.Parent.Name) } -Descending | Select-Object -First 1
+        if (-not $signtool) { throw "signtool.exe not found in the Windows SDK" }
+        Write-Host "SignTool: $($signtool.FullName)"
+        Write-Host "Artifact Signing client: $($dlib.FullName)"
+        # A one-line command that signs the files given to it, for Inno Setup's sign tool: its path has no
+        # spaces, so "/Ssammyj=<it> /d $qName$q $f" passes to iscc without quotes inside quotes.
+        $cmd = Join-Path $dir 'sign.cmd'
+        if ($cmd -match ' ') { throw "RUNNER_TEMP has a space in it: $cmd" }
+        "@`"$($signtool.FullName)`" sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib `"$($dlib.FullName)`" /dmdf `"$metadata`" %*" |
+          Set-Content -Encoding ascii $cmd
+        "SAMMYJ_SIGN=$cmd" >> $env:GITHUB_ENV
+        "SAMMYJ_SIGNTOOL=$($signtool.FullName)" >> $env:GITHUB_ENV
+        "SAMMYJ_SIGN_DLIB=$($dlib.FullName)" >> $env:GITHUB_ENV
+        "SAMMYJ_SIGN_METADATA=$metadata" >> $env:GITHUB_ENV
