@@ -85,6 +85,19 @@ public:
                                     int& idealWidth, int& idealHeight) override;
     void drawPopupMenuSectionHeader (juce::Graphics&, const juce::Rectangle<int>& area, const juce::String& sectionName) override;
     void drawPopupMenuUpDownArrow (juce::Graphics&, int width, int height, bool isScrollUpArrow) override;
+
+    // Tooltips in the HUD font on a riveted plate (JUCE's own would draw a system font).
+    void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
+    juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+
+    void drawScrollbar (juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isVertical,
+                        int thumbStart, int thumbSize, bool isMouseOver, bool isMouseDown) override;
+    void drawCornerResizer (juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
+    void fillTextEditorBackground (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+    void drawTextEditorOutline (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+
+    /** Upper-case lines of pixel text no wider than maxWidth at the given scale. */
+    juce::StringArray wrapPixelText (const juce::String& text, float scale, float maxWidth) const;
     int getPopupMenuBorderSize() override { return 4; }
 
     /** Options for every menu: drawn by this LookAndFeel, at least as wide as the button it drops from. */

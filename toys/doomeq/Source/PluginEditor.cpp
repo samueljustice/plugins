@@ -263,6 +263,79 @@ void DoomEQLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w
             g.fillRect (seg.removeFromTop (1));
         }
     }
+
+    // While you point at or drag it, the bar shows its value in the HUD font (instead of
+    // JUCE's popup bubble, which can't use the pixel font).
+    if (slider.isMouseOverOrDragging())
+    {
+        const auto text = slider.getTextFromValue (slider.getValue()).toUpperCase();
+        const float tw = (float) art.font().widthOf (text) * 1.5f + 10.0f;
+        const auto box = juce::Rectangle<float> (juce::jmax ((float) inner.getX(), (float) inner.getRight() - tw), (float) r.getY() + 2.0f,
+                                                 juce::jmin (tw, (float) inner.getWidth()), (float) r.getHeight() - 4.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.85f));
+        g.fillRect (box);
+        art.font().drawFitted (g, text, box.reduced (4.0f, 1.0f), juce::Justification::centredRight, Palette::hudYellow, 1.5f);
+    }
+}
+
+juce::StringArray DoomEQLookAndFeel::wrapPixelText (const juce::String& text, float scale, float maxWidth) const
+{
+    juce::StringArray lines;
+    juce::String line;
+    for (auto word : juce::StringArray::fromTokens (text.toUpperCase(), " \n", ""))
+    {
+        if (word.isEmpty())
+            continue;
+        const auto candidate = line.isEmpty() ? word : line + " " + word;
+        if (line.isNotEmpty() && (float) art.font().widthOf (candidate) * scale > maxWidth)
+        {
+            lines.add (line);
+            line = word;
+        }
+        else
+        {
+            line = candidate;
+        }
+    }
+    if (line.isNotEmpty())
+        lines.add (line);
+    return lines;
+}
+
+namespace
+{
+    constexpr float tipScale = 1.5f, tipLineH = 15.0f, tipPad = 10.0f, tipMaxText = 340.0f;
+}
+
+juce::Rectangle<int> DoomEQLookAndFeel::getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea)
+{
+    const auto lines = wrapPixelText (tipText, tipScale, tipMaxText);
+    float textW = 0.0f;
+    for (auto& l : lines)
+        textW = juce::jmax (textW, (float) art.font().widthOf (l) * tipScale);
+
+    const int w = (int) std::ceil (textW + tipPad * 2.0f);
+    const int h = (int) std::ceil ((float) lines.size() * tipLineH + tipPad * 2.0f - 4.0f);
+
+    // Below and right of the pointer, kept on screen (above it if there's no room below).
+    auto x = screenPos.x + 12, y = screenPos.y + 18;
+    if (x + w > parentArea.getRight()) x = parentArea.getRight() - w;
+    if (y + h > parentArea.getBottom()) y = screenPos.y - h - 6;
+    return juce::Rectangle<int> (x, y, w, h).constrainedWithin (parentArea);
+}
+
+void DoomEQLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height)
+{
+    const auto r = juce::Rectangle<int> (width, height);
+    DoomStyle::fillTextured (g, r.toFloat(), tex.panel, 2.0f, 0.3f);
+    DoomStyle::bevel (g, r, 2, Palette::bevelLight.withAlpha (0.8f), Palette::bevelDark);
+
+    auto y = tipPad - 2.0f;
+    for (auto& line : wrapPixelText (text, tipScale, tipMaxText))
+    {
+        art.font().draw (g, line, tipPad, y, tipScale, Palette::text);
+        y += tipLineH;
+    }
 }
 
 void DoomEQLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b, bool highlighted, bool)
@@ -464,6 +537,56 @@ void DoomEQLookAndFeel::drawPopupMenuUpDownArrow (juce::Graphics& g, int width, 
     {
         const int y = isScrollUpArrow ? cy - 2 + i : cy + 1 - i;
         g.fillRect (cx - 3 + i, y, 7 - i * 2, 1);
+    }
+}
+
+void DoomEQLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height, bool isVertical,
+                                       int thumbStart, int thumbSize, bool isMouseOver, bool isMouseDown)
+{
+    // A dark groove with a bevelled metal thumb.
+    const auto track = juce::Rectangle<int> (x, y, width, height);
+    g.setColour (juce::Colour (0xff0b0a08));
+    g.fillRect (track);
+    DoomStyle::bevel (g, track, 1, Palette::bevelDark, Palette::bevelLight.withAlpha (0.35f));
+
+    if (thumbSize <= 0)
+        return;
+    auto thumb = isVertical ? juce::Rectangle<int> (x + 2, thumbStart + 1, width - 4, thumbSize - 2)
+                            : juce::Rectangle<int> (thumbStart + 1, y + 2, thumbSize - 2, height - 4);
+    DoomStyle::fillTextured (g, thumb.toFloat(), tex.plate, 2.0f, isMouseDown ? 0.75f : isMouseOver ? 0.62f : 0.5f, thumb.getPosition().toFloat());
+    DoomStyle::bevel (g, thumb, 1, Palette::bevelLight, Palette::bevelDark);
+}
+
+void DoomEQLookAndFeel::drawCornerResizer (juce::Graphics& g, int w, int h, bool isMouseOver, bool isMouseDragging)
+{
+    // Three steps of pixel blocks in the corner.
+    const auto colour = (isMouseOver || isMouseDragging) ? Palette::hudYellow : Palette::gold.withAlpha (0.6f);
+    const int s = juce::jmax (2, juce::jmin (w, h) / 8);
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col <= row; ++col)
+        {
+            const int px = w - (col + 1) * (s + s), py = h - (3 - row) * (s + s);
+            g.setColour (juce::Colours::black.withAlpha (0.8f));
+            g.fillRect (px + 1, py + 1, s, s);
+            g.setColour (colour);
+            g.fillRect (px, py, s, s);
+        }
+}
+
+void DoomEQLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor&)
+{
+    const auto r = juce::Rectangle<int> (width, height);
+    g.setColour (juce::Colour (0xff0a0908));
+    g.fillRect (r);
+    DoomStyle::bevel (g, r, 1, Palette::bevelDark, Palette::bevelLight.withAlpha (0.5f));
+}
+
+void DoomEQLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor)
+{
+    if (editor.hasKeyboardFocus (true))
+    {
+        g.setColour (Palette::hudYellow.withAlpha (0.8f));
+        g.drawRect (0, 0, width, height, 1);
     }
 }
 
@@ -1188,6 +1311,7 @@ void EqDisplay::mouseDown (const juce::MouseEvent& e)
         dragBand = -1;
 
         juce::PopupMenu m;
+        m.setLookAndFeel (&getLookAndFeel()); // a top-level menu only uses the LookAndFeel set on it
         const auto& v = bandViews[(size_t) band];
         m.addItem (1000, v.on ? "Turn band off" : "Turn band on");
         m.addSeparator();
@@ -1534,12 +1658,14 @@ DoomEQEditor::DoomEQEditor (DoomEQProcessor& p)
     setupBar (doomLevel, doomLevelLabel, "LEVEL", juce::Colour (0xff50e040));
     doomLevelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "doom_level", doomLevel);
     doomLevel.setDoubleClickReturnValue (true, -6.0);
-    doomLevel.setPopupDisplayEnabled (true, true, this);
+    doomLevel.textFromValueFunction = [] (double v) { return (v > 0.0 ? "+" : "") + juce::String (v, 1) + " DB"; };
 
     setupBar (overlaySlider, overlayLabel, "OVERLAY", Palette::hudYellow);
     overlaySlider.setRange (0.0, 100.0, 1.0);
     overlaySlider.setTextValueSuffix ("%");
-    overlaySlider.setPopupDisplayEnabled (true, true, this);
+    for (auto* bar : { &doomLevel, &overlaySlider })
+        bar->setRepaintsOnMouseActivity (true); // the value appears on the bar under the mouse
+
     overlaySlider.setDoubleClickReturnValue (true, 70.0);
     overlaySlider.setValue (proc.getOverlay(), juce::dontSendNotification);
     overlaySlider.onValueChange = [this]
@@ -2092,6 +2218,7 @@ void DoomEQEditor::fixValueBoxScales()
 void DoomEQEditor::timerCallback()
 {
     display.tick();
+
 
 
 
