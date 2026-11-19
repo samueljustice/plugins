@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write   # Windows signing: Azure Artifact Signing with GitHub's OIDC token
 
 concurrency:
   group: dehonk-test-installers-${{ inputs.tag || github.event.workflow_run.display_title }}
@@ -168,6 +169,7 @@ jobs:
     needs: release
     if: needs.release.outputs.windows == 'true'
     runs-on: windows-latest
+    environment: windows-signing   # Azure trusts this environment's OIDC token to sign
     timeout-minutes: 30
     env:
       TAG: ${{ needs.release.outputs.tag }}
@@ -191,11 +193,33 @@ jobs:
         }
         Get-ChildItem windows-package -Recurse -Depth 2 | Select-Object FullName
 
+    # Authenticode signing (Azure Artifact Signing), once the certificate profile exists; until then unsigned.
+    - name: Get ready to sign
+      id: sign
+      uses: ./.github/actions/windows-signing
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+        account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+        profile: ${{ vars.AZURE_SIGNING_PROFILE }}
+
+    - name: Sign the app and VST3
+      if: steps.sign.outputs.enabled == 'true'
+      run: |
+        $files = @((Get-Item "dehonk\windows-package\app\SammyJs De-Honk.exe").FullName) + @(Get-ChildItem "dehonk\windows-package\vst3\SammyJs De-Honk.vst3\Contents\x86_64-win\*.vst3" -File).FullName
+        & .github\actions\windows-signing\sign.ps1 -Description "De-Honk" @files
+
     - name: Build installer
+      env:
+        SIGNED: ${{ steps.sign.outputs.enabled }}
       run: |
         cd dehonk
         choco install innosetup -y --no-progress
-        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION /DDeHonkAAX installer.iss
+        $signArgs = @()
+        if ($env:SIGNED -eq 'true') { $signArgs = @('/DSigned', "/Ssammyj=$env:SAMMYJ_SIGN /d `$qDe-Honk`$q `$f") }
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION /DDeHonkAAX @signArgs installer.iss
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Get-Item DeHonk_Installer.exe
 

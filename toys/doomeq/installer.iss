@@ -17,6 +17,12 @@
 #define AAXDir "{commoncf64}\Avid\Audio\Plug-Ins"
 
 [Setup]
+; Signed on CI with Azure Artifact Signing (.github/actions/windows-signing): the workflow passes
+; /DSigned "/Ssammyj=<SignTool command> $f", and Inno signs the installer and its uninstaller.
+#ifdef Signed
+SignTool=sammyj
+SignedUninstaller=yes
+#endif
 ; Never change the AppId: it is how an update finds and replaces the installed copy.
 AppId={{8AC23415-9961-4146-AE36-E5104268F578}
 AppName={#MyAppName}

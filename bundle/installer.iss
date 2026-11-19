@@ -42,6 +42,12 @@
 #define AAXDir "{commoncf64}\Avid\Audio\Plug-Ins"
 
 [Setup]
+; Signed on CI with Azure Artifact Signing (.github/actions/windows-signing): the workflow passes
+; /DSigned "/Ssammyj=<SignTool command> $f", and Inno signs the installer and its uninstaller.
+#ifdef Signed
+SignTool=sammyj
+SignedUninstaller=yes
+#endif
 AppId={{E6B1C7D4-2A9F-4F3E-8B5C-7D0A1E9F4C62}
 AppName={#MyAppName}
 AppVersion={#BundleVersion}

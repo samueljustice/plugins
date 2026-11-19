@@ -48,6 +48,7 @@ concurrency:
 
 permissions:
   contents: write
+  id-token: write   # the Windows job signs in to Azure Artifact Signing with GitHub's OIDC token
 
 jobs:
   gate:
@@ -244,6 +245,7 @@ jobs:
     needs: resolve
     runs-on: windows-latest
     timeout-minutes: 45
+    environment: windows-signing   # Azure trusts this environment's OIDC token to sign
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -297,42 +299,47 @@ jobs:
         "ISCC_DEFINES=$($defines -join ' ')" | Out-File -FilePath $env:GITHUB_ENV -Append
         Get-ChildItem bundle\windows-package -Recurse -Depth 2 | Select-Object FullName
 
+    # Authenticode signing (Azure Artifact Signing), once the certificate profile exists; until then unsigned.
+    - name: Get ready to sign
+      id: sign
+      uses: ./.github/actions/windows-signing
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+        account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+        profile: ${{ vars.AZURE_SIGNING_PROFILE }}
+
+    # The apps and VST3s as they come from each release. The AAX are left as they are: PACE signs those.
+    - name: Sign the apps and VST3s
+      if: steps.sign.outputs.enabled == 'true'
+      run: |
+        foreach ($line in Get-Content bundle\plugins.txt) {
+          if ($line -match '^\s*(#|$)') { continue }
+          $id, $prefix, $name, $bundle, $app = $line.Split('|')
+          $dest = "bundle\windows-package\$id"
+          if (-not (Test-Path $dest)) { continue }
+          $files = @(Get-ChildItem "$dest\vst3\$bundle.vst3\Contents\x86_64-win\*.vst3" -File).FullName
+          if ($app) { $files += (Get-Item "$dest\app\$app.exe").FullName }
+          & .github\actions\windows-signing\sign.ps1 -Description $name @files
+        }
+
     - name: Build installer
+      env:
+        SIGNED: ${{ steps.sign.outputs.enabled }}
       run: |
         choco install innosetup -y --no-progress
         cd bundle
         $defines = $env:ISCC_DEFINES -split ' '
+        # Signed: Inno signs the installer and the uninstaller it carries.
+        if ($env:SIGNED -eq 'true') { $defines += @('/DSigned', "/Ssammyj=$env:SAMMYJ_SIGN /d `$qSammy J's Plugins`$q `$f") }
         & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" "/DBundleVersion=$env:VERSION" @defines installer.iss
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Get-Item SammyJ-Plugins-Windows-Installer.exe
-
-    - name: Check for Windows certificate
-      id: wincert
-      shell: bash
-      run: |
-        if [[ -n "${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}" ]]; then
-          echo "has_cert=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "has_cert=false" >> "$GITHUB_OUTPUT"
-          echo "No Windows certificate in secrets: the installer will be unsigned"
-        fi
-
-    - name: Sign installer
-      if: steps.wincert.outputs.has_cert == 'true'
-      env:
-        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-      run: |
-        $bytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}")
-        $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
-        [IO.File]::WriteAllBytes($pfx, $bytes)
-        try {
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
-          $f = "bundle\SammyJ-Plugins-Windows-Installer.exe"
-          & $signtool.FullName sign /f $pfx /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Sammy J's Plugins installer" $f
+        if ($env:SIGNED -eq 'true') {
+          & $env:SAMMYJ_SIGNTOOL verify /pa SammyJ-Plugins-Windows-Installer.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $signtool.FullName verify /pa $f
-        } finally {
-          Remove-Item -Force -ErrorAction SilentlyContinue $pfx
         }
 
     - name: Upload Windows installer
