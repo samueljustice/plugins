@@ -174,14 +174,22 @@ if toys:
         prefix = prefixes.get(pid, pid + "-v")
         r = releases.newest(TOY_RELEASES, prefix)
         fallback = f"https://github.com/{repo}/releases?q={pid}"
+        # The first picture in the toy's README, small, as its thumbnail (opens in the picture viewer).
+        readme = pathlib.Path(__file__).resolve().parents[2] / "toys" / pid / "README.md"
+        pic = re.search(r'<img[^>]*\bsrc="([^":]+)"|!\[[^\]]*\]\(([^):]+)\)', readme.read_text(encoding="utf-8")) if readme.exists() else None
+        thumb = ""
+        if pic:
+            src = RAW + f"toys/{pid}/" + (pic.group(1) or pic.group(2)).lstrip("./")
+            thumb = (f'<a class="thumb shot" href="{html.escape(src)}" data-caption="{html.escape(text_of(name))}">'
+                     f'<img src="{html.escape(src)}" alt="{html.escape(text_of(name))}" loading="lazy"></a>')
         ver = f'<span class="ver">{html.escape(r["version"])}</span>' if r else '<span class="ver"></span>'
         return (f'<li data-release-prefix="{html.escape(prefix)}"><a class="name" href="{pid}/">{name}</a>'
-                f'<span>{what}<span class="toylinks"><a href="{pid}/">Manual</a>'
+                f'<span>{thumb}{what}<span class="toylinks"><a href="{pid}/">Manual</a>'
                 f'<a class="get-mac" href="{html.escape(r.get("mac") or fallback)}">macOS</a>'
                 f'<a class="get-win" href="{html.escape(r.get("win") or fallback)}">Windows</a>'
                 f'<em>{"Test build" if r.get("test", True) else "Version"} {ver}</em></span></span></li>')
 
-    rows = "".join(toy_row(href, name, what) for href, name, what in toys)
+    rows = "".join(toy_row(href, name, re.sub(r"^\s*([a-z])", lambda c: c.group(1).upper(), what)) for href, name, what in toys)
     toys_html = f'''<section class="toys" id="toys">
   <h2>Toys</h2>
   <div>{toys_intro}<ul>{rows}</ul></div>
@@ -339,7 +347,10 @@ page = f"""<!doctype html>
   .toys li a.name {{ font: 400 12px/1.9 var(--mono); letter-spacing: .08em; text-transform: uppercase; text-decoration: none; color: var(--paper); }}
   .toys li a.name::after {{ content: " \\2192"; color: var(--red); }}
   .toys li a.name:hover {{ color: var(--red); }}
-  .toys li > span::first-letter {{ text-transform: uppercase; }}
+  .toys .thumb {{ float: right; width: 220px; margin: 2px 0 8px 24px; display: block; border: 1px solid var(--rule); }}
+  .toys .thumb img {{ display: block; width: 100%; height: auto; }}
+  .toys .thumb:hover {{ border-color: var(--red); }}
+  .toys li > span {{ display: flow-root; }}
   .toylinks {{ display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }}
   .toylinks a {{ color: var(--paper); text-decoration: none; border-bottom: 1px solid var(--dim); }}
   .toylinks a:hover {{ color: var(--red); border-color: var(--red); }}
@@ -375,6 +386,7 @@ page = f"""<!doctype html>
     .get, .entry, .toys, footer {{ grid-template-columns: 1fr; }}
     .toys h2 {{ margin-bottom: 14px; }}
     .toys li {{ grid-template-columns: 1fr; }}
+    .toys .thumb {{ float: none; width: 100%; max-width: 360px; margin: 4px 0 12px; }}
     .entry {{ padding: 48px 0; }}
     .entry header {{ position: static; margin-bottom: 22px; }}
     nav {{ position: static; }}
@@ -507,7 +519,7 @@ page = f"""<!doctype html>
     if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // modified clicks still open the file
     e.preventDefault();
     opener = link;
-    shots = Array.prototype.slice.call(link.closest('.entry').querySelectorAll('a.shot'));
+    shots = Array.prototype.slice.call((link.closest('.entry') || link.closest('li') || document).querySelectorAll('a.shot'));
     viewer.classList.toggle('single', shots.length < 2);
     viewer.classList.add('open');
     document.documentElement.style.overflow = 'hidden';
