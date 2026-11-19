@@ -389,9 +389,76 @@ BASE = """
     .toc a { border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 9px; }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  .doc a.shot { cursor: zoom-in; }
+  .viewer { position: fixed; inset: 0; z-index: 20; display: none; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(4px); }
+  .viewer.open { display: grid; grid-template-rows: 1fr auto; }
+  .viewer figure { margin: 0; min-height: 0; display: grid; place-items: center; padding: 56px 72px 12px; }
+  .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .viewer .vbar { display: flex; justify-content: space-between; gap: 24px; padding: 14px 28px 22px; font: 400 13px/1.5 var(--body); color: var(--dim); }
+  .viewer .vbar .caption { color: var(--ink); max-width: 60em; }
+  .viewer .vbar .count { font-family: var(--mono); white-space: nowrap; }
+  .viewer button { position: absolute; background: none; border: 0; color: var(--ink); font: 400 30px/1 var(--body); cursor: pointer; padding: 18px; opacity: .75; }
+  .viewer button:hover { opacity: 1; color: var(--a1); }
+  .viewer .close { top: 6px; right: 12px; }
+  .viewer .prev, .viewer .next { top: 50%; transform: translateY(-50%); }
+  .viewer .prev { left: 8px; }
+  .viewer .next { right: 8px; }
+  .viewer.single .prev, .viewer.single .next { display: none; }
+  @media (max-width: 900px) {
+    .viewer figure { padding: 52px 12px 8px; }
+    .viewer .prev, .viewer .next { top: auto; bottom: 58px; transform: none; }
+  }
 """
 
 SCRIPT = """
+// Clicking a picture opens it here, with every picture in the manual to step through.
+(function () {
+  var viewer = document.getElementById('viewer'), img = viewer.querySelector('img');
+  var caption = viewer.querySelector('.caption'), count = viewer.querySelector('.count');
+  var shots = [], at = 0, opener = null;
+  function show(i) {
+    at = (i + shots.length) % shots.length;
+    img.src = shots[at].href;
+    img.alt = shots[at].dataset.caption || '';
+    caption.textContent = shots[at].dataset.caption || '';
+    count.textContent = shots.length > 1 ? (at + 1) + ' / ' + shots.length : '';
+  }
+  function close() {
+    viewer.classList.remove('open');
+    document.documentElement.style.overflow = '';
+    img.removeAttribute('src');
+    if (opener) opener.focus();
+  }
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest && e.target.closest('a.shot');
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // modified clicks still open the file
+    e.preventDefault();
+    opener = link;
+    shots = Array.prototype.slice.call(document.querySelectorAll('a.shot'));
+    viewer.classList.toggle('single', shots.length < 2);
+    viewer.classList.add('open');
+    document.documentElement.style.overflow = 'hidden';
+    show(shots.indexOf(link));
+    viewer.querySelector('.close').focus();
+  });
+  viewer.querySelector('.close').addEventListener('click', close);
+  viewer.querySelector('.prev').addEventListener('click', function () { show(at - 1); });
+  viewer.querySelector('.next').addEventListener('click', function () { show(at + 1); });
+  viewer.addEventListener('click', function (e) { if (e.target === viewer || e.target.tagName === 'FIGURE') close(); });
+  document.addEventListener('keydown', function (e) {
+    if (!viewer.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(at - 1);
+    else if (e.key === 'ArrowRight') show(at + 1);
+  });
+  var x0 = null;
+  viewer.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  viewer.addEventListener('touchend', function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) show(at + (dx < 0 ? 1 : -1));
+  });
+})();
 // Marks, in the contents list, the part of the manual you are reading.
 (function () {
   var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
@@ -437,9 +504,16 @@ def build(pid: str, name: str, folder: str) -> str:
 
     doc = re.sub(r'(<a\b[^>]*?\bhref=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(link(folder, m.group(2)))}"', doc)
     doc = re.sub(r'(<(?:img|source|video)\b[^>]*?\bsrc=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(picture(folder, m.group(2)))}"', doc)
-    # A picture's own link is to the file in the repository: point it at the picture itself.
-    doc = re.sub(r'<a\b[^>]*?href="[^"]*"[^>]*>\s*(<img\b[^>]*?\bsrc="([^"]*)"[^>]*>)\s*</a>',
-                 lambda m: f'<a href="{m.group(2)}" target="_blank" rel="noopener">{m.group(1)}</a>', doc)
+    # A picture's own link is to the file in the repository: point it at the picture itself, and open it in
+    # the page's picture viewer, which steps through every picture in the manual (badges aside).
+    def shot(m: re.Match) -> str:
+        img, src = m.group(1), m.group(2)
+        if "img.shields.io" in src:
+            return f'<a href="{src}" target="_blank" rel="noopener">{img}</a>'
+        alt = re.search(r'\balt="([^"]*)"', img)
+        return f'<a class="shot" href="{src}" target="_blank" rel="noopener" data-caption="{alt.group(1) if alt else ""}">{img}</a>'
+
+    doc = re.sub(r'<a\b[^>]*?href="[^"]*"[^>]*>\s*(<img\b[^>]*?\bsrc="([^"]*)"[^>]*>)\s*</a>', shot, doc)
     doc = re.sub(r'(<img\b[^>]*?)\s*style="[^"]*"', r"\1", doc)
     seen = iter(range(10 ** 6))
     doc = re.sub(r"<img\b", lambda m: "<img" if next(seen) == 0 else '<img loading="lazy"', doc)
@@ -511,6 +585,13 @@ def build(pid: str, name: str, folder: str) -> str:
   <span>Made by Samuel Justice</span>
   <a href="../">Sammy J's Plugins</a>
   <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a>
+</div>
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Pictures">
+  <button class="close" aria-label="Close">&times;</button>
+  <button class="prev" aria-label="Previous picture">&larr;</button>
+  <button class="next" aria-label="Next picture">&rarr;</button>
+  <figure><img alt=""></figure>
+  <div class="vbar"><span class="caption"></span><span class="count"></span></div>
 </div>
 <script>{SCRIPT}{live}</script>
 </body>
