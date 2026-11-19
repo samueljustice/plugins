@@ -41,6 +41,7 @@ A six-band parametric EQ whose curve display runs DOOM.
 - **DOOM SOUND** feeds the game's sound effects and music into the plug-in *before* the EQ, so you're EQing DOOM. **LEVEL** sets how loud it comes in. It's off by default.
   - Sound effects are the original 8-bit samples. The music is Freedoom's MIDI, played on a small built-in synth with distorted guitars, synth bass and drums.
   - There's only one game, so only one EQ instance plays its sound at a time: the first one to turn DOOM SOUND on.
+  - DOOM is heard while the host runs audio through DOOM EQ. Most DAWs, Pro Tools among them, do that all the time, so the game plays even when stopped. Soundminer only runs its plug-ins while a file plays, so there DOOM is heard during playback only. When the host isn't sending audio, the button reads SOUND: HOST IDLE. The standalone app plays the game's sound all the time.
 - **Take command:** press `` ` `` (or click TAKE COMMAND), then:
   - Arrows/WASD move, F (or Ctrl) fires, Space/E use, Shift runs, Alt strafes.
   - 1-7 pick weapons, even while running. Esc opens DOOM's menu and Enter selects.

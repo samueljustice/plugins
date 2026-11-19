@@ -1,6 +1,9 @@
 A six-band EQ whose display runs DOOM. A toy, and a test build.
 
-**New in 0.0.2**
+**New in 0.0.3**
+- **DOOM SOUND** says when the host isn't sending audio. Most DAWs, Pro Tools among them, run plug-ins all the time, so the game always plays. Soundminer only runs them while a file plays, so there the button reads SOUND: HOST IDLE between files. The standalone app plays the game's sound all the time.
+
+**In 0.0.2**
 - **Presets, About and updates:** the Sammy J preset bar and menu, 12 factory presets, About (version, credits, licences, CHECK FOR UPDATES), all drawn DOOM-style.
 - **Smoother and lighter:** about a fifth of the CPU it used to take. Type changes, band on/off and bypass no longer click. High bells keep their shape near Nyquist.
 - **BYPASS** compares with and without the EQ. Host bypass now silences DOOM too.

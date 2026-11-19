@@ -9,7 +9,7 @@ endif()
 
 # The version lives here and nowhere else; the release workflow checks the tag against it.
 # 0.0.x releases are pre-releases (test builds).
-project(DoomEQ VERSION 0.0.2 LANGUAGES C CXX)
+project(DoomEQ VERSION 0.0.3 LANGUAGES C CXX)
 
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
 add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")

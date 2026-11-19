@@ -2114,13 +2114,26 @@ void DoomEQEditor::timerCallback()
 
     ++frameCount;
 
-    // Another DOOM EQ already has the game's sound: say so on the button.
+    // DOOM's sound can only come out while the host sends audio through the plug-in. Most
+    // DAWs (Pro Tools, for one) do that all the time; some hosts, Soundminer for one, only
+    // while playing a file. And only one DOOM EQ plays it at a time. Say so on the button,
+    // so silence doesn't look like a fault.
+    hostIdleTicks = proc.getBlockCount() != lastIdleBlockCount ? 0 : hostIdleTicks + 1;
+    lastIdleBlockCount = proc.getBlockCount();
     if (frameCount % 12 == 0)
     {
-        const bool elsewhere = doomSound.getToggleState() && proc.doomAudioUsedElsewhere();
-        const juce::String text = elsewhere ? "SOUND: OTHER EQ" : "DOOM SOUND";
+        const bool on = doomSound.getToggleState();
+        const bool elsewhere = on && proc.doomAudioUsedElsewhere();
+        const bool hostIdle = on && hostIdleTicks > 17; // ~0.5 s without a block
+        const juce::String text = elsewhere ? "SOUND: OTHER EQ" : hostIdle ? "SOUND: HOST IDLE" : "DOOM SOUND";
         if (doomSound.getButtonText() != text)
+        {
             doomSound.setButtonText (text);
+            doomSound.setTooltip (hostIdle
+                ? "Your host isn't sending audio through DOOM EQ right now, so DOOM can't be heard. Most DAWs keep plug-ins running all the time; Soundminer only while a file plays. The standalone app plays it all the time."
+                : elsewhere ? "Another DOOM EQ is playing the game's sound. Turn DOOM SOUND off there to hear it here."
+                            : "Feed DOOM's sound effects and music into the EQ. Only one DOOM EQ can play them at a time.");
+        }
     }
 
     // Skull cursor blinks like the menu one.
