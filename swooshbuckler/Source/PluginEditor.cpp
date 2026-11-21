@@ -1742,7 +1742,16 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_followHost.setVisible(p.canFollowHost());
 
     addKnob(ParamIDs::energy, "Energy", TC::flight, "How deep the auto ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to -36 dB at 90% and right down to silence at 100%, so each whoosh rises out of nothing and falls back. Low: gentle movement that stays fairly level. Does nothing with Auto Ride off.");
-    addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. The readout is the time of one swell (each track rides a little faster or slower than it). Low: slow, long passes (25 s swells, 6 s passes). High: short ones (under 2 s swells, 1.6 s passes).");
+    {
+        auto& rate = addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. The readout is the time of one swell (each track rides a little faster or slower than it). Low: slow, long passes (25 s swells, 6 s passes). High: short ones (under 2 s swells, 1.6 s passes). In Faders Together every fader shares one swell, and the readout is its length (6 s to 1.6 s); each pass lasts two swells.");
+        // (After the attachment, which sets the parameter's own text: in Faders Together the swell is the clock's.)
+        rate.textFromValueFunction = [this](double v)
+        {
+            const bool together = juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::rideMode)->load()) == ParamIDs::RideTogether;
+            return together ? juce::String(Params::passSeconds(static_cast<float>(v)), 1) + " s" : Params::ridePeriodText(static_cast<float>(v));
+        };
+        rate.valueTextChanged();
+    }
     addKnob(ParamIDs::fill, "Fill", TC::flight, "Long echoes (about 0.5, 1 and 2 s, a little different on every track) after each track's fader, so they hang on into the dips of the ride and the gaps of unsteady sounds and keep the result going. Gappy sounds get more of it.");
     addKnob(ParamIDs::chaos, "Chaos", TC::flight, "How unpredictable it is. 0 is a steady pattern that repeats (every track plays in order from its start). Higher: every swell has a different size and speed, every pass a different speed, length and closeness, and crackle tracks jump around.");
     addKnob(ParamIDs::pitch, "Pitch", TC::flight, "Plays every track higher or lower, in semitones (up to two octaves either way), finer near the middle. Down makes everything bigger, heavier and slower; up makes it smaller and faster (the hits too).");
@@ -2795,7 +2804,8 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
                                  TC::brass, f, Icons::Icon::Ride);
     if (! rideLayer)
     {
-        // The subtitle line doubles as the readout: the time to a throw's peak, or the keys that are held.
+        // The subtitle line doubles as the readout: the time to a throw's peak or to Faders Together's next one, or
+        // the keys that are held.
         const bool readout = m_rideStatus.isNotEmpty();
         g.setColour(readout ? TC::brass : TC::textFaint);
         Theme::fitText(g, readout ? m_rideStatus : juce::String("Rides the faders for you"), m_rideStatusArea, readout ? f.control() : f.body(),
@@ -3845,7 +3855,13 @@ juce::String SwooshbucklerAudioProcessorEditor::rideStatus() const
             else
                 ++more;
         }
-    return more > 0 ? names + " +" + juce::String(more) : names;
+    if (shown > 0)
+        return more > 0 ? names + " +" + juce::String(more) : names;
+    // Faders Together, playing, with no key held: the time until the swell's next top (where the passes and the aimed hit land).
+    if (const float peakIn = m_processor.getCyclePeakIn();
+        peakIn >= 0.0f && m_processor.isPlaying() && m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f)
+        return "Peak in " + juce::String(peakIn, 1) + " s";
+    return {};
 }
 
 void SwooshbucklerAudioProcessorEditor::showAimControls()
@@ -4341,6 +4357,8 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
         if (m_rideModeShown != shown)
         {
             m_rideModeShown = shown;
+            if (auto* rate = dynamic_cast<WheelKnob*>(m_controls[ParamIDs::rate]))
+                rate->valueTextChanged(); // its readout is the shared swell's length in Faders Together
             const bool following = mode == ParamIDs::RideFollowMaster;
             m_rideMode.setItemEnabled(1 + ParamIDs::RideFollowMaster, hasMaster || following);
             const juce::String reason = ! rideOn ? "It rests while Auto Ride is off."

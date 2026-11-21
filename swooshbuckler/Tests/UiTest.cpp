@@ -3185,6 +3185,32 @@ int main(int argc, char* argv[])
         proc.getMods().disconnect(dopplerWire);
         ed.m_wires.rebuild();
 
+        // Faders Together on the front: Rate reads the one swell's length, and Ride counts down to its top.
+        {
+            auto* mode = proc.getState().getParameter(ParamIDs::rideMode);
+            auto* rate = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::rate]);
+            const bool wasPlaying = proc.isPlaying();
+            proc.setPlaying(true);
+            rig.run(0.5);
+            const auto apartText = rate->getTextFromValue(rate->getValue());
+            const auto apartStatus = ed.rideStatus();
+            mode->setValueNotifyingHost(mode->convertTo0to1(static_cast<float>(ParamIDs::RideTogether)));
+            rig.run(0.8);
+            const auto togetherText = rate->getTextFromValue(rate->getValue());
+            const auto status = ed.rideStatus();
+            check(apartText == Params::ridePeriodText(static_cast<float>(rate->getValue()))
+                      && togetherText == juce::String(Params::passSeconds(static_cast<float>(rate->getValue())), 1) + " s" && togetherText != apartText,
+                  "together: Rate reads the length of the shared swell (" + togetherText + ", " + apartText + " apart)");
+            check(apartStatus.isEmpty() && status.startsWith("Peak in ") && status.endsWith(" s") && ed.m_rideStatus == status,
+                  "together: Ride counts down to the swell's top (\"" + status + "\"), and says nothing of it with the faders apart");
+            proc.setPlaying(false);
+            rig.run(0.3);
+            check(ed.rideStatus().isEmpty(), "together: no count-down while the rig is stopped");
+            mode->setValueNotifyingHost(mode->getDefaultValue());
+            proc.setPlaying(wasPlaying);
+            rig.run(0.3);
+        }
+
         // Swell: a press writes the host's parameter (a DAW records it); a wire lands on it; a MIDI hold lights it.
         {
             auto& sw = ed.m_swell;

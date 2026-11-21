@@ -62,9 +62,10 @@
 //   layer-bus-a-swirl-<type>.png layer-bus-a-filter.png layer-bus-b-swirl.png layer-bus-b-filter.png
 //   layer-ride-together.png layer-ride-swell.png layer-ride-together-on.png layer-ride-swell-on.png
 //                             each panel turned over to each of its layers (window-<name>.png the whole window)
-//   front-notches-filled.png layers-three.png layers-three-closed.png eq-plate.png eq-key-curve.png
-//                             filled notches, three layers up at once with wires on Swell and Varispeed (and the
-//                             front again after Back), the Output EQ plate over Bus B, the EQ key drawing a curve
+//   front-notches-filled.png layers-three.png layers-three-closed.png eq-plate-flat.png eq-plate.png eq-key-curve.png
+//                             filled notches (Faders Together, so Ride counts down to the peak), three layers up at
+//                             once with wires on Swell and Varispeed (and the front again after Back), the Output EQ
+//                             plate over Bus B, flat and with a curve, the EQ key drawing that curve
 //                             (--layers writes only these, and checks their texts)
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
@@ -294,11 +295,15 @@ namespace
             proc.getMods().disconnect(swellWire);
         }
 
-        // The Output EQ's plate over Bus B, with a curve.
+        // The Output EQ's plate over Bus B: flat as it opens, then with a curve, a Low Cut and a band picked.
         {
+            ed.setEqPlateOpen(true);
+            rig.run(0.5);
+            shots.crop(shots.shoot("eq-plate-flat"), "eq-plate-flat-row", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds));
+            set(ParamIDs::eqLowCut, 80.0f);
             set(ParamIDs::eqLowMidGain, -6.0f);
             set(ParamIDs::eqHighShelfGain, 4.0f);
-            ed.setEqPlateOpen(true);
+            ed.m_eqPlate->getGraph().selectBand(OutputEq::LowMid);
             rig.run(0.5);
             const auto window = shots.shoot("eq-plate");
             shots.crop(window, "eq-plate-row", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds));
@@ -309,7 +314,8 @@ namespace
 
         // Back as a new session has it.
         for (const auto* id : { ParamIDs::rideMode, ParamIDs::swellAuto, ParamIDs::busDetail[0][ParamIDs::FilterType],
-                                ParamIDs::busDetail[1][ParamIDs::SwirlType], ParamIDs::eqLowMidGain, ParamIDs::eqHighShelfGain })
+                                ParamIDs::busDetail[1][ParamIDs::SwirlType], ParamIDs::eqLowCut, ParamIDs::eqLowMidGain,
+                                ParamIDs::eqHighShelfGain })
             if (auto* param = proc.getState().getParameter(id))
                 param->setValueNotifyingHost(param->getDefaultValue());
         rig.run(0.3);

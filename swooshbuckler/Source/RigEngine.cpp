@@ -3820,25 +3820,35 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         bus.sweep.endChunk();
     }
 
-    // Filtered by A: a low-pass that closes (18 kHz down to about 280 Hz) as bus A swells.
-    const float keyed = p.key * key;
-    if (keyed > 1.0e-4f)
+    // Filtered by A: a low-pass that closes (18 kHz down to about 280 Hz) as bus A swells. It stays in the path
+    // while its knob is up, wide open when bus A is silent, and hears the bus while the knob is down, so it never
+    // comes in with a state that does not belong to the sound (bus A arriving after a silence used to click).
+    if (! isKeyBus)
     {
-        const float cutoff = 18000.0f * std::exp2(-6.0f * keyed);
+        const bool heard = p.key > 1.0e-4f;
+        const float cutoff = 18000.0f * std::exp2(-6.0f * p.key * key);
         bus.keyL.set(cutoff, 0.7071f, fs);
         bus.keyR.set(cutoff, 0.7071f, fs);
         for (int i = 0; i < frames; ++i)
         {
             auto& l = bus.l[static_cast<size_t>(i)];
             auto& r = bus.r[static_cast<size_t>(i)];
-            l = bus.keyL.lowpass(l);
-            r = bus.keyR.lowpass(r);
+            const float fl = bus.keyL.lowpass(l), fr = bus.keyR.lowpass(r);
+            if (heard)
+            {
+                l = fl;
+                r = fr;
+            }
         }
         if (third)
         {
             bus.keyT.set(cutoff, 0.7071f, fs);
             for (int i = 0; i < frames; ++i)
-                bus.t[static_cast<size_t>(i)] = bus.keyT.lowpass(bus.t[static_cast<size_t>(i)]);
+            {
+                const float ft = bus.keyT.lowpass(bus.t[static_cast<size_t>(i)]);
+                if (heard)
+                    bus.t[static_cast<size_t>(i)] = ft;
+            }
         }
     }
 

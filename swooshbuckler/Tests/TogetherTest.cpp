@@ -15,6 +15,8 @@
 //   level      the loudest moments are no more than 1 dB over what they are with Auto Ride off
 //   switch     a change of Ride Mode, and of Rate while together, does not click; the passes join the clock and
 //              leave it; a linked bus B stays on bus A's passes
+//   keyed      bus B's Filtered by A does not click when bus A comes in after a silence (as it does at the start
+//              of every run in Faders Together, and after every trough at high Energy)
 //   render     the clock starts where it is told: a file opens on a trough whatever Peak At is; two seeded
 //              restarts are the same
 //   auto       Auto Swell: Swell held from outside, On a Clock and On Peaks each raise the faders; Chance; Loose;
@@ -658,6 +660,47 @@ int main(int argc, char* argv[])
     }
 
     // ---- render --------------------------------------------------------------------------------------------------
+    // ---- keyed ---------------------------------------------------------------------------------------------------
+    if (wanted("keyed"))
+    {
+        std::cout << "keyed: bus B, Filtered by A, as bus A comes in" << std::endl;
+        // Two low tones (a step in a filter's state shows in the second difference), bus B filtered by bus A.
+        CargoHold pair;
+        check(pair.loadFile(0, writeWav(folder, "together_src_key_a", tone(220.0, 0.4f)), error)
+                  && pair.loadFile(1, writeWav(folder, "together_src_key_b", tone(110.0, 0.4f)), error), "loads two tones " + error);
+        pair.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+        pair.setRoleOverride(1, static_cast<int>(CargoRole::Bed));
+        pair.setSkipSilence(0, false);
+        pair.setSkipSilence(1, false);
+        for (const float energy : { 0.35f, 1.0f })
+        {
+            RigEngine::Params q;
+            q.rideMode = RigEngine::RideTogether;
+            q.fill = 0.0f;
+            q.space = 0.0f;
+            q.chaos = 0.0f;
+            q.energy = energy;
+            for (auto& b : q.buses) { b.swirl = 0.0f; b.drive = 0.0f; b.low = 0.0f; b.filter = 0.0f; b.duck = 0.0f; b.key = 0.0f; b.bend = 0.0f; }
+            q.buses[1].key = 0.6f;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, pair, q);
+            juce::AudioBuffer<float> o;
+            run(*e, c_rate, 30.0, &o, [&](int) { return ::Params::passSeconds(q.rate); });
+            // The same with the filter out: what the tones and the passes do by themselves.
+            auto plain = q;
+            plain.buses[1].key = 0.0f;
+            auto e2 = std::make_unique<RigEngine>();
+            start(*e2, pair, plain);
+            juce::AudioBuffer<float> o2;
+            run(*e2, c_rate, 30.0, &o2, [&](int) { return ::Params::passSeconds(q.rate); });
+            const float with = sharpest(o, 0, o.getNumSamples()), without = sharpest(o2, 0, o2.getNumSamples());
+            std::cout << "  Energy " << juce::roundToInt(100.0f * energy) << "%: sharpest change over 30 s " << with << " with Filtered by A at 60%, "
+                      << without << " without it" << std::endl;
+            check(with < 1.5f * without + 1.0e-4f,
+                  "Energy " + juce::String(juce::roundToInt(100.0f * energy)) + "%: bus A coming in does not click bus B's filter");
+        }
+    }
+
     if (wanted("render"))
     {
         std::cout << "render: where the clock starts" << std::endl;
