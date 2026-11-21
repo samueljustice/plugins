@@ -513,7 +513,7 @@ void RigEngine::reset()
     {
         // Follow Master starts in only when there is a Master to follow.
         const int master = m_cargo != nullptr ? m_cargo->getMaster() : -1;
-        m_followMix = m_params.followMaster && master >= 0 && m_cargo->getLive(master) != nullptr ? 1.0f : 0.0f;
+        m_followMix = m_params.rideMode == RideFollowMaster && master >= 0 && m_cargo->getLive(master) != nullptr ? 1.0f : 0.0f;
     }
     m_masterView.store(0.0f, std::memory_order_relaxed);
     letGoOfCargo();
@@ -602,6 +602,8 @@ RigEngine::Places RigEngine::getPlaces() const
     places.players = m_players;
     places.ridePhase = m_ridePhase;
     places.rideDepth = m_rideDepth;
+    places.cycle = m_cycle;
+    places.autoSwell = m_autoSwell;
     return places;
 }
 
@@ -612,6 +614,8 @@ void RigEngine::setPlaces(const Places& places)
         p.letGoOfShots();
     m_ridePhase = places.ridePhase;
     m_rideDepth = places.rideDepth;
+    m_cycle = places.cycle;
+    m_autoSwell = places.autoSwell;
     if (m_cargo != nullptr) // the data the players read again is in use again
         for (int t = 0; t < c_tracks; ++t)
             m_cargo->markInUse(t, m_players[static_cast<size_t>(t)].getData(), m_players[static_cast<size_t>(t)].getPending());
@@ -1259,7 +1263,7 @@ void RigEngine::renderTracks(int frames)
     m_masterView.store(m_masterRide, std::memory_order_relaxed);
     // Follow Master: every other track's ride is the Master's loudness (shaped by Energy like the LFO it replaces),
     // and the Master itself plays unridden: its own sound is the swell.
-    m_followMix += ((m_params.followMaster && masterPlays ? 1.0f : 0.0f) - m_followMix) * glide(frames, c_followSeconds, m_fs);
+    m_followMix += ((m_params.rideMode == RideFollowMaster && masterPlays ? 1.0f : 0.0f) - m_followMix) * glide(frames, c_followSeconds, m_fs);
     if (m_followMix < 1.0e-4f) m_followMix = 0.0f;
     const float followRide = std::pow(sj::clamp(m_masterRide, 0.0f, 1.0f), 1.0f + 1.85f * energy);
 

@@ -36,6 +36,8 @@ public:
     /** The parameters a wire can reach (every knob outside the morph pad), in a fixed order. */
     static const std::vector<juce::String>& targets();
     static int targetIndex(const juce::String& paramId);
+    /** Swell's place among the targets (a wire to it is a gate, not an offset: see swellGate()). */
+    static int swellTarget();
 
     struct Route
     {
@@ -105,6 +107,15 @@ public:
         not smoothed): at or over 0 the first of a two-way choice, under it the other. For targets that are decided
         at a moment (a pass's Direction and Side), not moved. 0 when nothing is wired to it. */
     float centred(int target) const { return m_centred[static_cast<size_t>(target)]; }
+    /** Swell's wires as one gate (audio thread, as of the last process call). Each wire holds Swell while its
+        source, read as 0..1 (an LFO or Random from -1..1 mapped to 0..1), is in the top part of its range: over
+        1 - depth (a negative depth: under |depth|, the low side). So an LFO at 50% holds the upper half of each
+        cycle and 25% gives short pushes, Steps fires with a chance equal to the depth, a Follower's depth is its
+        threshold and a Macro is a host-automatable hold. Once open a wire stays open until its source has gone
+        c_gateHysteresis back past the line, and for at least c_gateMinSeconds. The wires OR together. */
+    bool swellGate() const { return m_swellGate; }
+    static constexpr float c_gateHysteresis = 0.03f;
+    static constexpr double c_gateMinSeconds = 0.25;
 
     // Any thread (UI views) ----------------------------------------------------
     /** Current value of a source: -1..1 for LFO / Random, 0..1 for Follower / Macro. */
@@ -114,6 +125,8 @@ public:
     bool isBipolar(int source) const { return m_bipolarView[static_cast<size_t>(source)].load(std::memory_order_relaxed); }
     /** The modulated value (0..1) a target is at right now, or < 0 if nothing is wired to it. */
     float getModulatedView(int target) const { return m_targetView[static_cast<size_t>(target)].load(std::memory_order_relaxed); }
+    /** swellGate() for the UI (any thread). */
+    bool getSwellGateView() const { return m_swellGateView.load(std::memory_order_relaxed); }
     void publishTarget(int target, float normalised) { m_targetView[static_cast<size_t>(target)].store(normalised, std::memory_order_relaxed); }
 
     static float rateHz(float knob) { return 0.05f * std::pow(160.0f, juce::jlimit(0.0f, 1.0f, knob)); } // 0.05 .. 8 Hz
@@ -155,4 +168,9 @@ private:
     std::array<std::atomic<float>, c_numSources> m_sourceView {};
     std::array<std::atomic<bool>, c_numSources> m_bipolarView {};
     std::array<std::atomic<float>, 64> m_targetView {};
+    // Swell's gate: each slot's own (open, and for how long), and all of them together.
+    std::array<bool, c_maxRoutes> m_gateOpen {};
+    std::array<double, c_maxRoutes> m_gateHeld {};
+    bool m_swellGate = false;
+    std::atomic<bool> m_swellGateView { false };
 };

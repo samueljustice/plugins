@@ -92,6 +92,8 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/SpaceReverb.cpp
     Source/Room.cpp
     Source/RoomMaster.cpp
+    Source/SwirlFx.cpp
+    Source/OutputEq.cpp
 )
 
 target_sources(Swooshbuckler
@@ -116,6 +118,10 @@ target_sources(Swooshbuckler
     Source/VariationsView.cpp
     Source/UserPresets.cpp
     Source/AppOutput.cpp
+    Source/DetailLayer.cpp
+    Source/LayerPages.cpp
+    Source/EqPlate.cpp
+    Source/EqGraph.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -378,12 +384,45 @@ if(SWOOSHBUCKLER_TESTS)
         SWOOSH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Source") # the hard-edge check reads the sources
     target_link_libraries(SwooshbucklerUi PRIVATE Swooshbuckler)
 
+    # Output EQ test: each band against its analytic response, flat and Off bit-exact, no click, and the CPU. Plain
+    # C++ like the Master test: OutputEq is free of JUCE.
+    add_executable(SwooshbucklerOutputEq Tests/OutputEqTest.cpp Source/OutputEq.cpp)
+    target_include_directories(SwooshbucklerOutputEq PRIVATE Source)
+    target_compile_features(SwooshbucklerOutputEq PRIVATE cxx_std_20)
+    set_target_properties(SwooshbucklerOutputEq PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SwooshbucklerOutputEq_artefacts/$<CONFIG>")
+
+    # Swirl types test: the Tape Flanger and the Doubler on their own (SwirlFx is free of JUCE).
+    add_executable(SwooshbucklerSwirlFx Tests/SwirlFxTest.cpp Source/SwirlFx.cpp)
+    target_include_directories(SwooshbucklerSwirlFx PRIVATE Source)
+    target_compile_features(SwooshbucklerSwirlFx PRIVATE cxx_std_20)
+    set_target_properties(SwooshbucklerSwirlFx PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SwooshbucklerSwirlFx_artefacts/$<CONFIG>")
+
+    # Bus filter test: each type and slope, a sweep's spurs, full Resonance (SweepFilter is a header, free of JUCE).
+    add_executable(SwooshbucklerSweepFilter Tests/SweepFilterTest.cpp)
+    target_include_directories(SwooshbucklerSweepFilter PRIVATE Source)
+    target_compile_features(SwooshbucklerSweepFilter PRIVATE cxx_std_20)
+    set_target_properties(SwooshbucklerSweepFilter PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SwooshbucklerSweepFilter_artefacts/$<CONFIG>")
+
+    # Faders Together test: the cycle clock, passes and hits on its peaks, a change of mode, Faders Apart unchanged,
+    # and Auto Swell, on the engine itself.
+    juce_add_console_app(SwooshbucklerTogether PRODUCT_NAME "SwooshbucklerTogether")
+    juce_generate_juce_header(SwooshbucklerTogether)
+    target_sources(SwooshbucklerTogether PRIVATE Tests/TogetherTest.cpp ${SWOOSHBUCKLER_DSP_SOURCES})
+    target_include_directories(SwooshbucklerTogether PRIVATE Source)
+    target_compile_definitions(SwooshbucklerTogether PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1)
+    target_link_libraries(SwooshbucklerTogether
+        PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
     # The tests keep whole engines (RigEngine and its fixed buffers) as locals. A Windows program's main thread
     # gets 1 MB of stack against macOS's 8 MB, and MSVC gives every local its own place, so there they ask for plenty (it is only reserved, not used). (The plug-in and the
     # app keep the engine inside the processor, which is never on a stack.)
     if(MSVC)
         foreach(test Cargo Rig Classify Pitch Morph Master Session Keep Render Routing Stowaway Room Surround Hits
-                     Wide SpaceLfe Output Files Export App FirstRun Ui)
+                     Wide SpaceLfe Output Files Export App FirstRun Ui OutputEq SwirlFx SweepFilter Together)
             if(TARGET Swooshbuckler${test})
                 target_link_options(Swooshbuckler${test} PRIVATE "/STACK:67108864")
             endif()

@@ -600,8 +600,8 @@ namespace
                 auto& state = rig2.proc.getState();
                 if (auto* param = state.getParameter(ParamIDs::energy))
                     param->setValueNotifyingHost(1.0f);
-                if (auto* param = state.getParameter(ParamIDs::rideFollowMaster))
-                    param->setValueNotifyingHost(follow == 1 ? 1.0f : 0.0f);
+                if (auto* param = state.getParameter(ParamIDs::rideMode))
+                    param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(follow == 1 ? ParamIDs::RideFollowMaster : ParamIDs::RideApart)));
                 rig2.proc.setMasterTrack(0); // the growl
                 const auto followFolder = out.getChildFile(follow == 1 ? "variety-follow" : "variety-own");
                 followFolder.deleteRecursively();

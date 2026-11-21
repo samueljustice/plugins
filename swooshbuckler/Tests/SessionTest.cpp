@@ -328,16 +328,21 @@ int main(int argc, char* argv[])
                   && MorphPad::shapeNames()[1] == "Cherries" && static_cast<int>(MorphWander::Cherries) == 1
                   && MorphPad::shapeNames() == shape->choices && static_cast<int>(MorphWander::Butterfly) == 5,
               "morph: the second wander shape is Cherries, Butterfly is added last (the others keep their places)");
-        // The last four host parameters are the newest, in this order (new ones only ever go on the end).
+        // Throw Length, Play, Keys and Ride Mode come after every older parameter, then the ones added with Ride Mode
+        // (see "Parameter list" below).
         const auto& all = rig.proc.getParameters();
-        auto idAt = [&all](int fromEnd)
+        auto idAt = [&all](int index)
         {
-            auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(all[all.size() - fromEnd]);
+            auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(all[index]);
             return ranged != nullptr ? ranged->getParameterID() : juce::String();
         };
-        check(idAt(4) == ParamIDs::throwLength && idAt(3) == ParamIDs::play && idAt(2) == ParamIDs::keysMode
-                  && idAt(1) == ParamIDs::rideFollowMaster && idAt(5) == ParamIDs::passMode[1],
-              "parameters: Throw Length, Play, Keys and Follow Master are added after every older parameter, in that order");
+        int rideModeAt = -1;
+        for (int i = 0; i < all.size(); ++i)
+            if (idAt(i) == ParamIDs::rideMode)
+                rideModeAt = i;
+        check(rideModeAt > 5 && idAt(rideModeAt - 4) == ParamIDs::passMode[1] && idAt(rideModeAt - 3) == ParamIDs::throwLength
+                  && idAt(rideModeAt - 2) == ParamIDs::play && idAt(rideModeAt - 1) == ParamIDs::keysMode,
+              "parameters: Throw Length, Play, Keys and Ride Mode are added after every older parameter, in that order");
     }
 
     // Stop: the tail rings out
@@ -795,6 +800,318 @@ int main(int argc, char* argv[])
             check(juce::exactlyEqual(p.getEngine().getKeyPitch(0), 0.0f) && (p.getHeldKeys(1) >> (72 - 64) & 1u) != 0, "keys, Swell: a held note pitches nothing");
             p.setPlaying(false);
         }
+    }
+
+    // Parameter list: the 78 parameters of the detail layers, Faders Together, Auto Swell and the Output EQ.
+    std::cout << "Parameter list" << std::endl;
+    {
+        Rig rig(sources, 0);
+        auto& p = rig.proc;
+        const auto& all = p.getParameters();
+        // In the host's list, after every older one, in this order.
+        juce::StringArray expected { ParamIDs::rideMode, ParamIDs::togetherPeakAt, ParamIDs::togetherStagger, ParamIDs::togetherHitEvery,
+                                     ParamIDs::swell, ParamIDs::swellAuto, ParamIDs::swellEvery, ParamIDs::swellHold, ParamIDs::swellChance,
+                                     ParamIDs::swellLoose };
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            for (int k = 0; k < ParamIDs::numBusDetails; ++k)
+                expected.add(ParamIDs::busDetail[b][k]);
+        for (auto* id : ParamIDs::eqIds)
+            expected.add(id);
+        bool inOrder = all.size() >= expected.size(), hinted = true, named = true, tipped = true, plainWords = true;
+        juce::String firstWrong;
+        for (int i = 0; i < expected.size() && inOrder; ++i)
+        {
+            auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(all[all.size() - expected.size() + i]);
+            inOrder = ranged != nullptr && ranged->getParameterID() == expected[i];
+            if (! inOrder)
+                firstWrong = expected[i];
+            else
+            {
+                hinted = hinted && ranged->getVersionHint() == 8;
+                named = named && ranged->getName(100).isNotEmpty();
+                const auto tip = Params::tipFor(expected[i]);
+                tipped = tipped && tip.isNotEmpty();
+                for (const char* word : { " new ", " now", "classic", "today", "Sweet Justice" })
+                    plainWords = plainWords && ! (" " + tip).containsIgnoreCase(word);
+            }
+        }
+        std::cout << "         " << expected.size() << " parameters added with Ride Mode, " << all.size() << " in all" << std::endl;
+        check(expected.size() == 78 && inOrder, "list: the 78 are the last in the host's list, in order" + (firstWrong.isNotEmpty() ? " (first out of place: " + firstWrong + ")" : juce::String()));
+        check(hinted && named, "list: each has a name and version hint 8");
+        check(tipped && plainWords, "list: each has a tooltip in plain words (no version history)");
+        bool noOld = true;
+        for (auto* prm : all)
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(prm))
+                noOld = noOld && ranged->getParameterID() != "rideFollowMaster";
+        check(noOld, "list: Ride Mode replaces Follow Master's switch (there is no rideFollowMaster)");
+
+        // Defaults: what the rig did before (Faders Apart, no Auto Swell, Swirl and Filter as they were, the EQ flat).
+        bool defaults = true;
+        juce::String firstDefault;
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            for (int k = 0; k < ParamIDs::numBusDetails; ++k)
+            {
+                auto* prm = param(p, ParamIDs::busDetail[b][k]);
+                const float plain = prm->convertFrom0to1(prm->getDefaultValue());
+                if (std::abs(plain - ParamIDs::busDetailDefaults[k]) > 1.0e-3f * std::max(1.0f, std::abs(ParamIDs::busDetailDefaults[k])))
+                {
+                    defaults = false;
+                    if (firstDefault.isEmpty())
+                        firstDefault = ParamIDs::busDetail[b][k] + juce::String(" ") + juce::String(plain);
+                }
+            }
+        auto plainDefault = [&p](const char* id) { auto* prm = param(p, id); return prm->convertFrom0to1(prm->getDefaultValue()); };
+        defaults = defaults && juce::roundToInt(plainDefault(ParamIDs::rideMode)) == ParamIDs::RideApart
+                   && juce::roundToInt(plainDefault(ParamIDs::swellAuto)) == ParamIDs::AutoSwellOff
+                   && std::abs(plainDefault(ParamIDs::togetherPeakAt) - 0.5f) < 1.0e-4f && plainDefault(ParamIDs::togetherStagger) == 0.0f
+                   && std::abs(plainDefault(ParamIDs::swellEvery) - 4.0f) < 1.0e-3f && std::abs(plainDefault(ParamIDs::swellHold) - 0.6f) < 1.0e-3f
+                   && plainDefault(ParamIDs::swell) == 0.0f;
+        check(defaults, "defaults: every detail as the design lists it, Faders Apart, Auto Swell off" + (firstDefault.isNotEmpty() ? " (" + firstDefault + ")" : juce::String()));
+        const auto eq = p.getOutputEqParams();
+        check(eq.on && eq.lowCutHz == 0.0f && eq.highCutHz == 0.0f && eq.lowCutSlope == 24 && std::abs(eq.lowMidHz - 300.0f) < 0.01f
+                  && std::abs(eq.highMidHz - 3000.0f) < 0.1f && std::abs(eq.lowShelfHz - 100.0f) < 0.01f && std::abs(eq.highShelfHz - 8000.0f) < 0.1f
+                  && OutputEq::isFlat(eq) && ! p.isOutputEqActive() && p.describeDetail().isEmpty(),
+              "defaults: the Output EQ is on and flat, both cuts parked, and nothing is described");
+        // The cuts' end stops read Off, and pulling one in turns it on.
+        auto* lowCut = param(p, ParamIDs::eqLowCut);
+        auto* highCut = param(p, ParamIDs::eqHighCut);
+        check(lowCut->getText(0.0f, 0) == "Off" && lowCut->getText(0.1f, 0) != "Off" && highCut->getText(1.0f, 0) == "Off" && highCut->getText(0.9f, 0) != "Off",
+              "eq: Low Cut parks left and High Cut right, as Off (\"" + lowCut->getText(0.1f, 0) + "\", \"" + highCut->getText(0.9f, 0) + "\" when pulled in)");
+
+        // Whose each one is: the session's, or part of a look.
+        bool session = true, look = true;
+        for (const auto& id : expected)
+        {
+            const bool detail = Presets::isDetailParameter(id);
+            const bool varispeed = id.endsWith("Varispeed");
+            const bool bus = id.startsWith("a") || id.startsWith("b");
+            if (bus && ! varispeed)
+                look = look && detail && ! Presets::isSessionParameter(id);
+            else
+                session = session && Presets::isSessionParameter(id) && ! detail;
+        }
+        check(session, "session: Ride Mode, Together, Swell, Auto Swell, the Output EQ and Varispeed belong to the session");
+        check(look, "look: what is behind Swirl and Filter is part of a look (presets and A/B hold it), not the session's");
+
+        // A preset that does not name them puts them back; Randomise and the dice leave them; A/B holds them.
+        setNorm(p, ParamIDs::busDetail[0][ParamIDs::SwirlType], 1.0f);  // Doubler
+        setNorm(p, ParamIDs::busDetail[1][ParamIDs::FilterRate], 0.9f);
+        setNorm(p, ParamIDs::eqLowMidGain, 0.25f);                        // -6 dB
+        setNorm(p, ParamIDs::rideMode, 0.5f);                             // Faders Together
+        const auto look1 = p.captureLook();
+        check(look1.count(ParamIDs::busDetail[0][ParamIDs::SwirlType]) == 1 && look1.count(ParamIDs::eqLowMidGain) == 0 && look1.count(ParamIDs::rideMode) == 0
+                  && look1.count(ParamIDs::busDetail[0][ParamIDs::Varispeed]) == 0,
+              "look: a look (A/B, a user preset) holds the Swirl and Filter detail, not the EQ, Ride Mode or Varispeed");
+        bool rollsLeave = true;
+        juce::Random r(5);
+        for (int i = 0; i < 30; ++i)
+        {
+            for (const auto& [prm, value] : Presets::targets(p.getParameters(), Presets::roll(r), Presets::Unlisted::Keep))
+                rollsLeave = rollsLeave && ! Presets::isDetailParameter(prm->getParameterID()) && ! prm->getParameterID().startsWith("eq");
+            for (int section = 0; section < Presets::numSections; ++section)
+                for (const auto& [prm, value] : Presets::targets(p.getParameters(), Presets::rollSection(r, section), Presets::Unlisted::Keep, true))
+                    rollsLeave = rollsLeave && ! Presets::isDetailParameter(prm->getParameterID()) && ! prm->getParameterID().startsWith("eq");
+        }
+        check(rollsLeave, "randomise: the header's Randomise and every die leave the detail and the EQ where they are");
+        const auto& factory = Presets::factory().front();
+        p.applyLook(factory, Presets::Unlisted::Default, factory.name, factory.name);
+        check(param(p, ParamIDs::busDetail[0][ParamIDs::SwirlType])->getValue() == 0.0f
+                  && std::abs(param(p, ParamIDs::busDetail[1][ParamIDs::FilterRate])->getValue() - param(p, ParamIDs::busDetail[1][ParamIDs::FilterRate])->getDefaultValue()) < 1.0e-6f
+                  && std::abs(param(p, ParamIDs::eqLowMidGain)->getValue() - 0.25f) < 1.0e-6f && std::abs(param(p, ParamIDs::rideMode)->getValue() - 0.5f) < 1.0e-6f,
+              "presets: a preset that does not name the detail puts it back to default; the EQ and Ride Mode stay");
+        check(p.isOutputEqActive() && p.describeDetail().contains("Output EQ") && p.describeDetail().contains("-6.0 dB"),
+              "describe: the EQ is described when it does something (\"" + p.describeDetail() + "\")");
+        setNorm(p, ParamIDs::eqOn, 0.0f);
+        check(! p.isOutputEqActive() && p.describeDetail().isEmpty(), "describe: switched off, the EQ is not described");
+        setNorm(p, ParamIDs::eqOn, 1.0f);
+        setNorm(p, ParamIDs::eqLowMidGain, 0.5f);
+        setNorm(p, ParamIDs::busDetail[1][ParamIDs::SwirlType], 0.75f); // Tape Flanger
+        check(p.describeDetail() == "Bus B Swirl Type Tape Flanger.", "describe: only the detail off its default is described (\"" + p.describeDetail() + "\")");
+        setNorm(p, ParamIDs::busDetail[1][ParamIDs::SwirlType], 0.0f);
+
+        // Undo: Swell's presses and a lean on Varispeed are not steps; the detail and the EQ are.
+        auto recorded = [&p](const char* id) { return p.getHistory().isRecorded(param(p, id)->getParameterIndex()); };
+        check(! recorded(ParamIDs::swell) && ! recorded(ParamIDs::busDetail[0][ParamIDs::Varispeed]) && ! recorded(ParamIDs::busDetail[1][ParamIDs::Varispeed])
+                  && recorded(ParamIDs::busDetail[0][ParamIDs::SwirlType]) && recorded(ParamIDs::eqLowMidGain) && recorded(ParamIDs::rideMode),
+              "undo: Swell and Varispeed are not undo steps; the detail, the EQ and Ride Mode are");
+
+        // Wires: Varispeed on each bus and Swell are targets (62 of 64), the other detail wheels are not.
+        const auto& targets = ModMatrix::targets();
+        bool otherDetail = true;
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            for (int k = 0; k < ParamIDs::numBusDetails; ++k)
+                if (k != ParamIDs::Varispeed)
+                    otherDetail = otherDetail && ModMatrix::targetIndex(ParamIDs::busDetail[b][k]) < 0;
+        std::cout << "         wire targets: " << targets.size() << " of 64" << std::endl;
+        check(targets.size() == 62 && ModMatrix::targetIndex(ParamIDs::busDetail[0][ParamIDs::Varispeed]) == 59
+                  && ModMatrix::targetIndex(ParamIDs::busDetail[1][ParamIDs::Varispeed]) == 60 && ModMatrix::swellTarget() == 61 && otherDetail
+                  && ModMatrix::targetIndex(ParamIDs::eqLowMidGain) < 0,
+              "wires: Varispeed A, Varispeed B and Swell are targets 60, 61 and 62 of 64; no other detail wheel or EQ control is");
+
+        // Swell as a host parameter, a gesture per press, and in the merged view.
+        p.setSwellParameter(true);
+        const bool down = param(p, ParamIDs::swell)->getValue() > 0.5f && (p.getSwellSources() & SwooshbucklerAudioProcessor::SwellFromParameter) != 0 && p.isSwellHeld();
+        p.setSwellParameter(false);
+        check(down && param(p, ParamIDs::swell)->getValue() < 0.5f && ! p.isSwellHeld(), "swell: a press writes the Swell parameter and shows in Swell now; letting go clears both");
+
+        // CC64 holds Swell in every Keys mode; a note holds it only with Keys set to Swell.
+        {
+            p.prepareToPlay(c_fs, c_block);
+            setNorm(p, ParamIDs::keysMode, 0.5f); // Pitch
+            auto block = [&p](const juce::MidiMessage& m)
+            {
+                juce::AudioBuffer<float> b(2, c_block);
+                juce::MidiBuffer midi;
+                midi.addEvent(m, 0);
+                p.processBlock(b, midi);
+            };
+            block(juce::MidiMessage::noteOn(1, 60, 0.8f));
+            const bool noteInPitch = p.isSwellHeld();
+            block(juce::MidiMessage::noteOff(1, 60));
+            block(juce::MidiMessage::controllerEvent(1, 64, 127));
+            const bool pedal = (p.getSwellSources() & SwooshbucklerAudioProcessor::SwellFromMidi) != 0;
+            block(juce::MidiMessage::controllerEvent(1, 64, 0));
+            const bool released = ! p.isSwellHeld();
+            setNorm(p, ParamIDs::keysMode, 0.0f); // Swell
+            block(juce::MidiMessage::noteOn(1, 60, 0.8f));
+            const bool noteInSwell = p.isSwellHeld();
+            block(juce::MidiMessage::noteOff(1, 60));
+            check(pedal && released && ! noteInPitch && noteInSwell, "swell: the sustain pedal holds Swell with Keys on Pitch (a note does not), and a note does with Keys on Swell");
+        }
+    }
+
+    // Swell's wires: a gate on the source's top part, the depth setting how much of the range counts.
+    std::cout << "Swell wires" << std::endl;
+    {
+        ModMatrix mods;
+        mods.prepare(c_fs);
+        std::array<ModMatrix::SourceSettings, ModMatrix::c_numSources> set;
+        const ModMatrix::FollowerInputs in {};
+        // A Macro: held while it is over 1 - depth, with hysteresis and a shortest hold.
+        set[0] = { ModMatrix::Type::Macro, ModMatrix::Shape::Sine, 0.8f, 0 };
+        mods.connect(0, ParamIDs::swell, 0.5f);
+        mods.process(set, 512, in);
+        const bool over = mods.swellGate();
+        set[0].knob = 0.48f; // just under the line: still held (hysteresis)
+        mods.process(set, 512, in);
+        const bool hysteresis = mods.swellGate();
+        set[0].knob = 0.3f; // well under: still held, the shortest hold is 0.25 s
+        mods.process(set, 512, in);
+        const bool minimum = mods.swellGate();
+        for (int i = 0; i < 30; ++i)
+            mods.process(set, 512, in);
+        const bool letGo = ! mods.swellGate();
+        check(over && hysteresis && minimum && letGo, "macro: held over the line, kept 0.03 under it, held at least 0.25 s, then let go");
+        // Negative depth: the low side.
+        mods.clear();
+        mods.connect(0, ParamIDs::swell, -0.5f);
+        mods.process(set, 512, in);
+        check(mods.swellGate(), "negative depth: held while the source is in its low part");
+        // An LFO at 50%: the upper half of each cycle.
+        mods.clear();
+        mods.reset();
+        set[0] = { ModMatrix::Type::Lfo, ModMatrix::Shape::Sine, 0.5f, 0 };
+        mods.connect(0, ParamIDs::swell, 0.5f);
+        int held = 0, total = 0;
+        for (int i = 0; i < 4000; ++i, ++total)
+        {
+            mods.process(set, 64, in);
+            held += mods.swellGate() ? 1 : 0;
+        }
+        const double duty = static_cast<double>(held) / total;
+        // Steps at 25% (each step longer than the shortest hold): held on about a quarter of the steps.
+        mods.clear();
+        mods.reset();
+        set[0] = { ModMatrix::Type::Lfo, ModMatrix::Shape::Steps, 0.8f, 0 };
+        mods.connect(0, ParamIDs::swell, 0.25f);
+        int steps = 0, heldSteps = 0;
+        float last = mods.getSourceValue(0);
+        bool heldThisStep = false;
+        for (int i = 0; i < 400000; ++i)
+        {
+            mods.process(set, 64, in);
+            const float v = mods.getSourceValue(0);
+            if (v != last)
+            {
+                ++steps;
+                heldSteps += heldThisStep ? 1 : 0;
+                heldThisStep = false;
+                last = v;
+            }
+            else if (mods.swellGate())
+                heldThisStep = true; // (looked at after the step's first update, so a hold carried over from the last step does not count)
+        }
+        const double chance = static_cast<double>(heldSteps) / juce::jmax(1, steps);
+        std::cout << "         LFO at 50%: held " << juce::String(100.0 * duty, 1) << "% of the time; Steps at 25%: held on " << heldSteps << " of " << steps
+                  << " steps (" << juce::String(100.0 * chance, 1) << "%)" << std::endl;
+        check(duty > 0.45 && duty < 0.58, "lfo: a wire at 50% holds Swell for the upper half of each cycle");
+        check(steps > 1000 && chance > 0.2 && chance < 0.3, "steps: a wire at 25% fires on about a quarter of the steps");
+    }
+
+    // A seeded restart starts the modulators from the engine's seed too: a Steps wire repeats from bounce to bounce.
+    std::cout << "Seeded restart with a Steps wire" << std::endl;
+    {
+        struct Transport final : juce::AudioPlayHead
+        {
+            bool playing = false;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setIsPlaying(playing);
+                return info;
+            }
+        };
+        Rig rig(sources, 0);
+        auto& p = rig.proc;
+        Transport transport;
+        p.setPlayHead(&transport);
+        // Steps on Energy and Random on Chaos, fast: every draw is heard.
+        setNorm(p, ParamIDs::modType[0], 0.0f);                               // LFO
+        setNorm(p, ParamIDs::modShape[0], 1.0f);                              // Steps
+        setNorm(p, ParamIDs::modKnob[0], 0.85f);
+        setNorm(p, ParamIDs::modType[1], 1.0f / 3.0f);                        // Random
+        setNorm(p, ParamIDs::modKnob[1], 0.8f);
+        p.getMods().connect(0, ParamIDs::energy, 1.0f);
+        p.getMods().connect(1, ParamIDs::chaos, 1.0f);
+        p.prepareToPlay(c_fs, c_block);
+        std::vector<float> stepsA, stepsB;
+        auto play = [&](std::vector<float>& steps)
+        {
+            transport.playing = true;
+            const int total = static_cast<int>(4.0 * c_fs) / c_block * c_block;
+            juce::AudioBuffer<float> out(2, total);
+            juce::MidiBuffer midi;
+            for (int pos = 0; pos < total; pos += c_block)
+            {
+                juce::AudioBuffer<float> view(out.getArrayOfWritePointers(), 2, pos, c_block);
+                view.clear();
+                p.processBlock(view, midi);
+                steps.push_back(p.getMods().getSourceValue(0));
+            }
+            // Stop and let it ring out.
+            transport.playing = false;
+            juce::AudioBuffer<float> tail(2, c_block);
+            for (int i = 0; i < static_cast<int>(9.0 * c_fs) / c_block; ++i)
+            {
+                tail.clear();
+                p.processBlock(tail, midi);
+            }
+            return out;
+        };
+        const auto first = play(stepsA);
+        const auto second = play(stepsB);
+        float diff = 0.0f;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < first.getNumSamples(); ++i)
+                diff = std::max(diff, std::abs(first.getSample(ch, i) - second.getSample(ch, i)));
+        int changes = 0;
+        for (size_t i = 1; i < stepsA.size(); ++i)
+            changes += stepsA[i] != stepsA[i - 1] ? 1 : 0;
+        std::cout << "         two transport starts with a Steps and a Random wire: " << changes << " steps, outputs differ by at most "
+                  << juce::String(db(diff), 1) << " dB (level " << juce::String(db(peak(first, 0.0, 4.0)), 1) << " dB peak)" << std::endl;
+        check(changes > 4 && stepsA == stepsB, "seeded restart: the Steps modulator draws the same steps after every transport start");
+        check(peak(first, 0.5, 4.0) > 0.02f && diff < 1.0e-4f, "seeded restart: with Steps and Random wired, a bounce repeats");
+        p.setPlayHead(nullptr);
     }
 
     // Session autosave

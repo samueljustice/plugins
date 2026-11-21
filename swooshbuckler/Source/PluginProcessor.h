@@ -14,6 +14,7 @@
 #include "RigEngine.h"
 #include "Modulators.h"
 #include "MorphWander.h"
+#include "OutputEq.h"
 #include "Presets.h"
 #include "UserPresets.h"
 
@@ -198,10 +199,34 @@ public:
     /** Whether these bytes are a saved state (either form: the binary one written now, or the XML one before it). */
     static bool readState(const void* data, int sizeInBytes, juce::ValueTree& state);
 
-    /** Swell: while held, every track's fader rides up (button, space bar, MIDI notes). Any thread. */
+    /** Swell: while held, every track's fader rides up. This one is a hold the host does not record (a key held, a
+        pulse from the window). Any thread. */
     void setSwell(bool held) { m_uiSwell.store(held); }
-    /** Is Swell held right now (the sea raises its swell while it is). Any thread. */
-    bool isSwellHeld() const { return m_uiSwell.load(); }
+    /** The Swell host parameter (ParamIDs::swell), written as a gesture so a DAW records the press: begins on
+        true, ends on false. The button, its key and a click on the sea use this. Message thread. */
+    void setSwellParameter(bool held);
+    /** What holds Swell right now: a bit for each (any thread). The parameter, a press the host does not record
+        (setSwell), MIDI (a note with Keys set to Swell, or the sustain pedal, CC64, in every Keys mode), a wire
+        (ModMatrix::swellGate) and Auto Swell (the engine's). */
+    enum SwellSource { SwellFromParameter = 1, SwellFromPress = 2, SwellFromMidi = 4, SwellFromWire = 8, SwellFromAuto = 16 };
+    int getSwellSources() const;
+    /** "Swell now": anything holds it (the button's squash, its lamp and the sea read this). Any thread. */
+    bool isSwellHeld() const { return getSwellSources() != 0; }
+
+    // Faders Together, Varispeed and the Output EQ, for the window. Any thread.
+    /** Seconds to the next peak of Faders Together's swell, < 0 when the faders are not together (RigEngine). */
+    float getCyclePeakIn() const { return m_engine.getCyclePeakIn(); }
+    /** A bus's held Varispeed offset (-1 .. 1 of its travel either side; 0 unless its Swirl is a Tape Flanger). */
+    float getVarispeedOffset(int bus) const { return m_engine.getVarispeedOffset(bus); }
+    /** The offset meter was double-clicked: that bus's held offset slides home. */
+    void recentreVarispeed(int bus) { m_varispeedHome[static_cast<size_t>(juce::jlimit(0, ParamIDs::numBuses - 1, bus))].store(true); }
+    /** The Output EQ's settings as its parameters stand (the cuts' parked end stops as 0 Hz, Off). */
+    OutputEq::Params getOutputEqParams() const;
+    /** The Output EQ does something: on, and not flat. */
+    bool isOutputEqActive() const { return ! OutputEq::isFlat(getOutputEqParams()); }
+    /** For a file's description: each bus's Swirl and Filter detail that is off its default, and the Output EQ when
+        it does something (empty when neither). Any thread that may read the parameters. */
+    juce::String describeDetail() const;
 
     // MIDI control: a track's fader, or Energy, follows a MIDI controller (CC) once it has been learned. There is
     // no mapping until you make one; the mappings are kept in the settings file (the same in every session).
@@ -394,6 +419,8 @@ public:
     /** Offline copies only, after prepareOffline: every modulator, and every fader's ride, from a moment drawn
         from `seed` (see ModMatrix::scatter and RigEngine::scatterRide). */
     void scatter(std::uint32_t seed);
+    /** Offline copies only: where Faders Together's clock starts (RigEngine::setCycleStart). */
+    void setCycleStart(double phase) { jassert(m_offline); m_engine.setCycleStart(phase); }
     /** Offline copies only: throws one whoosh that flies as `flight` says (the Throw button's flies as
         RigEngine::ThrowFlight is made). The thread that calls processBlock. */
     void throwWhoosh(const RigEngine::ThrowFlight& flight)
@@ -572,6 +599,13 @@ private:
     CargoHold m_cargo;
     RigEngine m_engine;
     std::atomic<bool> m_uiSwell { false };
+    std::atomic<bool> m_midiSwell { false }; // a note with Keys set to Swell, or the sustain pedal (audio thread writes)
+    bool m_sustain = false;                  // CC64 is down (audio thread)
+    bool m_swellGesture = false;             // setSwellParameter has begun a gesture (message thread)
+    std::array<std::atomic<bool>, ParamIDs::numBuses> m_varispeedHome {};
+    OutputEq m_outputEq;                     // after the engine, before the output stage (renderAtRenderRate)
+    /** Whether MIDI holds Swell now (m_keysDown, m_sustain and Keys); keeps m_midiSwell up to date. Audio thread. */
+    bool updateMidiSwell();
     std::atomic<bool> m_playing { false }, m_restartPending { false };
     // The Play parameter (host automation): a change of it starts or stops the rig. m_playParamWas is its value
     // in the last block (audio thread).
@@ -670,7 +704,11 @@ private:
         std::array<std::atomic<float>*, ParamIDs::numCargoTracks> tracks {}, trackSemis {}, trackCents {}, trackVari {};
         std::atomic<float>* pitch = nullptr;
         std::atomic<float>* rideOn = nullptr, *energy = nullptr, *rate = nullptr, *fill = nullptr, *chaos = nullptr;
-        std::atomic<float>* rideFollowMaster = nullptr;
+        std::atomic<float>* rideMode = nullptr;
+        std::atomic<float>* togetherPeakAt = nullptr, *togetherStagger = nullptr, *togetherHitEvery = nullptr;
+        std::atomic<float>* swell = nullptr, *swellAuto = nullptr, *swellEvery = nullptr, *swellHold = nullptr, *swellChance = nullptr, *swellLoose = nullptr;
+        std::atomic<float>* busDetail[ParamIDs::numBuses][ParamIDs::numBusDetails] {};
+        std::atomic<float>* eq[ParamIDs::numEqParams] {};
         std::atomic<float>* bus[ParamIDs::numBuses][ParamIDs::numBusControls] {};
         std::atomic<float>* hitSense = nullptr, *hitBoost = nullptr, *hitRelease = nullptr, *hitDuck = nullptr, *hitSync = nullptr;
         std::atomic<float>* gateMode = nullptr, *hitHold = nullptr, *hitFloor = nullptr, *duckMode = nullptr, *duckReturn = nullptr,

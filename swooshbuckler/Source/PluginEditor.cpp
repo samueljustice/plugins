@@ -1478,14 +1478,11 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
 
-    m_followMasterButton.setClickingTogglesState(true);
-    m_followMasterButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
-    m_followMasterButton.setTooltip("Follow Master\nOn: every track's ride swells with the Master track's loudness instead of its own slow wave, so all the layers "
-                                    "move like that one sound. The Master itself plays as it is. Energy still sets how deep the faders dip. "
-                                    "It needs Auto Ride on and a Master track (the star on a lane); until then it waits.");
-    m_followMasterButton.setWantsKeyboardFocus(false);
-    m_content.addAndMakeVisible(m_followMasterButton);
-    m_followMasterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideFollowMaster, m_followMasterButton);
+    m_rideMode.addItemList(juce::StringArray(ParamIDs::rideModeNames, ParamIDs::numRideModes), 1);
+    m_rideMode.setWantsKeyboardFocus(false);
+    m_rideMode.setTooltip(juce::String("Ride Mode\n") + Params::tipFor(ParamIDs::rideMode));
+    m_content.addAndMakeVisible(m_rideMode);
+    m_rideModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::rideMode, m_rideMode);
 
     m_throwButton.setColour(juce::TextButton::buttonColourId, TC::brass.withAlpha(0.25f));
     m_throwButton.setWantsKeyboardFocus(false);
@@ -2100,7 +2097,7 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         placeKnob(ParamIDs::throwLength, { kRight - lengthW, bodyY, lengthW, secondaryH }, WheelKnob::Size::Secondary);
         const int by = bodyY + secondaryH + 3;
         m_rideButton.setBounds(kx, by, 84, 18);
-        m_followMasterButton.setBounds(kx + 88, by, 106, 18);
+        m_rideMode.setBounds(kx + 88, by, 106, 18);
         m_throwButton.setBounds(kRight - 80, by, 80, 18);
         m_rideStripArea = { kx, ride.getY() + Lay::stripY, kRight - kx, Lay::stripH };
         m_rideStrip->setBounds(m_rideStripArea);
@@ -4022,12 +4019,23 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     if ((m_morphSyncTick & 1) == 0 && ! covered)
         m_rideStrip->step();
     {
-        // Follow Master rests (hollow, still usable) until Auto Ride is on and a track is the Master.
-        const bool ready = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f && m_processor.getCargo().getMaster() >= 0;
-        if (m_followMasterShown != (ready ? 1 : 0))
+        // Ride Mode rests (hollow, still usable) while Auto Ride is off, or on Follow Master with no Master track.
+        // Follow Master can be chosen once a track is the Master; until then the tip says why.
+        const bool rideOn = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f;
+        const bool hasMaster = m_processor.getCargo().getMaster() >= 0;
+        const int mode = juce::jlimit(0, ParamIDs::numRideModes - 1, juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::rideMode)->load()));
+        const int shown = (rideOn ? 1 : 0) | (hasMaster ? 2 : 0) | (mode << 2);
+        if (m_rideModeShown != shown)
         {
-            m_followMasterShown = ready ? 1 : 0;
-            Theme::setLook(m_followMasterButton, ready ? Theme::Look::Normal : Theme::Look::Resting);
+            m_rideModeShown = shown;
+            const bool following = mode == ParamIDs::RideFollowMaster;
+            m_rideMode.setItemEnabled(1 + ParamIDs::RideFollowMaster, hasMaster || following);
+            const juce::String reason = ! rideOn ? "It rests while Auto Ride is off."
+                                      : following && ! hasMaster ? "It rests until a track is the Master (the star on a lane)."
+                                      : ! hasMaster ? "Follow Master needs a Master track: click the star on a lane first."
+                                      : juce::String();
+            Theme::setLook(m_rideMode, ! rideOn || (following && ! hasMaster) ? Theme::Look::Resting : Theme::Look::Normal);
+            m_rideMode.setTooltip(juce::String("Ride Mode\n") + Params::tipFor(ParamIDs::rideMode) + (reason.isNotEmpty() ? "\n" + reason : juce::String()));
         }
     }
 

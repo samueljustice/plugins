@@ -84,10 +84,29 @@ namespace Presets
             || id.startsWith("trem") // the peak tremolo, like the rest of the output stage // how the rig behaves: kept by presets and Randomise
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id == play || id == keysMode || id == throwLength // the transport, what MIDI keys do, how long a throw is
-            || id == rideFollowMaster // needs this session's Master track
+            || id == rideMode // Follow Master needs this session's Master track; Together goes with it
+            || id.startsWith("together") // the cycle behind Rate, like Ride Mode
+            || id.startsWith("swell") // Swell as a host control and Auto Swell: how the rig is played
+            || id.startsWith("eq") // the Output EQ, like the rest of the output stage
+            || id.endsWith("Varispeed") // a hand on the second tape machine, not a setting
             || id.startsWith("room") // the room's own settings go with the speakers, not with a look (the Flight Paths are part of a look)
             || id.endsWith("Direction") || id.endsWith("Side") // which way and which side the passes fly is set to the picture, not by a look
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
+    }
+
+    /** What is behind a bus's Swirl and Filter (ParamIDs::busDetail, but for Varispeed, which is the session's). Part
+        of a look: presets and A/B hold them, and a preset that does not name them puts them back to default
+        (Unlisted::Default). Randomise and the dice never roll them, so Unlisted::Keep leaves them. Render
+        Variations' Small Changes skips them, and a file description lists only those off their defaults. */
+    inline bool isDetailParameter(const juce::String& id)
+    {
+        if (id.length() < 2 || ! (id[0] == 'a' || id[0] == 'b'))
+            return false;
+        const int b = id[0] == 'a' ? 0 : 1;
+        for (int k = 0; k < ParamIDs::numBusDetails; ++k)
+            if (k != ParamIDs::Varispeed && id == ParamIDs::busDetail[b][k])
+                return true;
+        return false;
     }
 
     /** The sections Randomise works in: each has its own die and its own lock in the window. */

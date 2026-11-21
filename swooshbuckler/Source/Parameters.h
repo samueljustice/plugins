@@ -23,7 +23,30 @@ namespace ParamIDs
 
     // Ride (the faders move by themselves)
     inline constexpr const char* rideOn   = "rideOn";
-    inline constexpr const char* rideFollowMaster = "rideFollowMaster"; // the rides follow the Master track's loudness
+    // How the faders ride: each on its own wave (Faders Apart), all on one repeating swell with the passes and the
+    // aimed hits on its peak (Faders Together), or with the Master track's loudness (Follow Master).
+    inline constexpr const char* rideMode = "rideMode";
+    enum RideModeChoice { RideApart = 0, RideTogether, RideFollowMaster, numRideModes };
+    inline constexpr const char* rideModeNames[numRideModes] = { "Faders Apart", "Faders Together", "Follow Master" };
+    // Faders Together, behind Rate: where in the swell the top falls, how far the tracks fan in, which peaks get a hit.
+    inline constexpr const char* togetherPeakAt   = "togetherPeakAt";
+    inline constexpr const char* togetherStagger  = "togetherStagger";
+    inline constexpr const char* togetherHitEvery = "togetherHitEvery";
+    inline constexpr int numHitEvery = 4;
+    inline constexpr const char* hitEveryNames[numHitEvery] = { "1 Peak", "2 Peaks", "3 Peaks", "4 Peaks" };
+    inline constexpr float togetherPeakAtMin = 0.2f, togetherPeakAtMax = 0.8f;
+    // Swell as a host parameter (a DAW records the presses), and Auto Swell: Swell firing by itself.
+    inline constexpr const char* swell       = "swell";
+    inline constexpr const char* swellAuto   = "swellAuto";
+    inline constexpr const char* swellEvery  = "swellEvery";
+    inline constexpr const char* swellHold   = "swellHold";
+    inline constexpr const char* swellChance = "swellChance";
+    inline constexpr const char* swellLoose  = "swellLoose";
+    enum AutoSwellChoice { AutoSwellOff = 0, AutoSwellPeaks, AutoSwellClock, numAutoSwells };
+    inline constexpr const char* autoSwellNames[numAutoSwells] = { "Off", "On Peaks", "On a Clock" };
+    inline constexpr float swellEveryMin = 0.5f, swellEveryMax = 30.0f, swellHoldMin = 0.25f, swellHoldMax = 2.5f, swellLooseMax = 0.5f;
+    /** Hold is never more than this share of Every. */
+    inline constexpr float swellHoldShareMax = 0.6f;
     inline constexpr const char* energy   = "energy";
     inline constexpr const char* rate     = "rate";
     inline constexpr const char* fill     = "fill";
@@ -38,6 +61,88 @@ namespace ParamIDs
         { "bDoppler", "bWidth", "bBend", "bLow", "bSwirl", "bFilter", "bDrive", "bDuck", "bKey" },
     };
     inline constexpr const char* busNames[numBuses] = { "A", "B" };
+
+    // What is behind a bus's Swirl and Filter wheels (each bus its own). Part of a look (presets and A/B hold them;
+    // Randomise, the dice and Small Changes leave them alone), except Varispeed, which is a hand on the second tape
+    // machine: the session's, not in undo.
+    enum BusDetail
+    {
+        SwirlType = 0, SwirlFeedback, SwirlSpeed, SwirlDepth, SwirlFollow,
+        TapeMotion, TapeInvert, TapeDepth, TapeRate, TapeFeedback, TapeWobble, Varispeed,
+        DoublerWave, DoublerThicken, DoublerSpread, DoublerDelay, DoublerWander, DoublerRate, DoublerFeedback,
+        FilterType, FilterSteep, FilterShape, FilterClosedAt, FilterResonance, FilterFollow, FilterSweep, FilterRate,
+        numBusDetails
+    };
+    inline constexpr const char* busDetail[numBuses][numBusDetails] = {
+        { "aSwirlType", "aSwirlFeedback", "aSwirlSpeed", "aSwirlDepth", "aSwirlFollow",
+          "aTapeMotion", "aTapeInvert", "aTapeDepth", "aTapeRate", "aTapeFeedback", "aTapeWobble", "aVarispeed",
+          "aDoublerWave", "aDoublerThicken", "aDoublerSpread", "aDoublerDelay", "aDoublerWander", "aDoublerRate", "aDoublerFeedback",
+          "aFilterType", "aFilterSteep", "aFilterShape", "aFilterClosedAt", "aFilterResonance", "aFilterFollow", "aFilterSweep", "aFilterRate" },
+        { "bSwirlType", "bSwirlFeedback", "bSwirlSpeed", "bSwirlDepth", "bSwirlFollow",
+          "bTapeMotion", "bTapeInvert", "bTapeDepth", "bTapeRate", "bTapeFeedback", "bTapeWobble", "bVarispeed",
+          "bDoublerWave", "bDoublerThicken", "bDoublerSpread", "bDoublerDelay", "bDoublerWander", "bDoublerRate", "bDoublerFeedback",
+          "bFilterType", "bFilterSteep", "bFilterShape", "bFilterClosedAt", "bFilterResonance", "bFilterFollow", "bFilterSweep", "bFilterRate" },
+    };
+    /** The names after "Bus A " / "Bus B " (the layer pages show the part after "Swirl " / "Tape " / ... as the caption). */
+    inline constexpr const char* busDetailNames[numBusDetails] = {
+        "Swirl Type", "Swirl Feedback", "Swirl Speed", "Swirl Depth", "Swirl Follow",
+        "Tape Motion", "Tape Invert", "Tape Depth", "Tape Rate", "Tape Feedback", "Tape Wobble", "Varispeed",
+        "Doubler Wave", "Doubler Thicken", "Doubler Spread", "Doubler Delay", "Doubler Wander", "Doubler Rate", "Doubler Feedback",
+        "Filter Type", "Filter 24 dB", "Filter Shape", "Filter Closed At", "Filter Resonance", "Filter Follow", "Filter Sweep", "Filter Rate"
+    };
+    enum SwirlTypeChoice { SwirlBoth = 0, SwirlPhaser, SwirlFlanger, SwirlTape, SwirlDoubler, numSwirlTypes };
+    inline constexpr const char* swirlTypeNames[numSwirlTypes] = { "Phaser + Flanger", "Phaser", "Flanger", "Tape Flanger", "Doubler" };
+    enum TapeMotionChoice { TapeWithPass = 0, TapeOnItsOwn, TapeByHand, numTapeMotions };
+    inline constexpr const char* tapeMotionNames[numTapeMotions] = { "With the Pass", "On Its Own", "By Hand" };
+    enum DoublerWaveChoice { WaveRandom = 0, WaveSine, WaveTriangle, numDoublerWaves };
+    inline constexpr const char* doublerWaveNames[numDoublerWaves] = { "Random", "Sine", "Triangle" };
+    enum FilterTypeChoice { FilterLowPass = 0, FilterHighPass, FilterBandPass, FilterNotch, numFilterTypes };
+    inline constexpr const char* filterTypeNames[numFilterTypes] = { "Low Pass", "High Pass", "Band Pass", "Notch" };
+    enum FilterShapeChoice { ShapeSine = 0, ShapeTriangle, ShapeRampUp, ShapeRampDown, ShapeSquare, ShapeRandom, numFilterShapes };
+    inline constexpr const char* filterShapeNames[numFilterShapes] = { "Sine", "Triangle", "Ramp Up", "Ramp Down", "Square", "Random" };
+    // Ranges (plain units: ms, Hz, x, and -1..1 or 0..1 for the percentages).
+    inline constexpr float swirlSpeedMin = 0.1f, swirlSpeedMax = 8.0f;
+    inline constexpr float tapeDepthMaxMs = 6.0f, tapeRateMin = 0.01f, tapeRateMax = 4.0f;
+    inline constexpr float doublerDelayMinMs = 3.0f, doublerDelayMaxMs = 75.0f, doublerRateMin = 0.01f, doublerRateMax = 6.0f;
+    /** Doubler Feedback reads -68% .. +68%: the loop gain is 0.68 x the parameter (-1 .. 1). */
+    inline constexpr float doublerFeedbackMax = 0.68f;
+    inline constexpr float filterClosedMinHz = 20.0f, filterClosedMaxHz = 2000.0f, filterRateMin = 0.05f, filterRateMax = 20.0f;
+    /** Each detail's default, in plain units: these give exactly what the bus did before it had a layer. */
+    inline constexpr float busDetailDefaults[numBusDetails] = {
+        0.0f, 0.55f, 1.0f, 1.0f, 1.0f,                    // Swirl: Phaser + Flanger, +55%, 1x, 100%, 100%
+        0.0f, 1.0f, 4.0f, 0.3f, 0.0f, 0.25f, 0.0f,        // Tape: With the Pass, Invert on, 4 ms, 0.3 Hz, 0%, 25%, centre
+        0.0f, 1.0f, 1.0f, 20.0f, 0.12f, 0.6f, 0.0f,       // Doubler: Random, Thicken on, Spread on, 20 ms, 12%, 0.6 Hz, 0%
+        0.0f, 0.0f, 0.0f, 170.0f, 0.0f, 1.0f, 0.0f, 1.0f  // Filter: Low Pass, 12 dB, Sine, 170 Hz, 0%, 100%, 0%, 1 Hz
+    };
+
+    // Output EQ: after Space, before Inflate and the limiter. The session's (presets, Randomise, A/B and Small
+    // Changes leave it), not a wire target.
+    inline constexpr const char* eqOn            = "eqOn";
+    inline constexpr const char* eqLowCut        = "eqLowCut";       // Hz; under eqLowCutLowestHz = Off
+    inline constexpr const char* eqLowCutSlope   = "eqLowCutSlope";  // 12 / 24 dB an octave
+    inline constexpr const char* eqLowShelfFreq  = "eqLowShelfFreq";
+    inline constexpr const char* eqLowShelfGain  = "eqLowShelfGain";
+    inline constexpr const char* eqLowMidFreq    = "eqLowMidFreq";
+    inline constexpr const char* eqLowMidGain    = "eqLowMidGain";
+    inline constexpr const char* eqLowMidQ       = "eqLowMidQ";
+    inline constexpr const char* eqHighMidFreq   = "eqHighMidFreq";
+    inline constexpr const char* eqHighMidGain   = "eqHighMidGain";
+    inline constexpr const char* eqHighMidQ      = "eqHighMidQ";
+    inline constexpr const char* eqHighShelfFreq = "eqHighShelfFreq";
+    inline constexpr const char* eqHighShelfGain = "eqHighShelfGain";
+    inline constexpr const char* eqHighCut       = "eqHighCut";      // Hz; over eqHighCutHighestHz = Off
+    inline constexpr int numEqParams = 14;
+    inline constexpr const char* eqIds[numEqParams] = { eqOn, eqLowCut, eqLowCutSlope, eqLowShelfFreq, eqLowShelfGain, eqLowMidFreq, eqLowMidGain,
+                                                        eqLowMidQ, eqHighMidFreq, eqHighMidGain, eqHighMidQ, eqHighShelfFreq, eqHighShelfGain, eqHighCut };
+    inline constexpr int numEqSlopes = 2;
+    inline constexpr const char* eqSlopeNames[numEqSlopes] = { "12 dB", "24 dB" };
+    // The cuts park at their end stops when Off: Low Cut's plain value is then eqLowCutOffHz, High Cut's eqHighCutOffHz.
+    inline constexpr float eqLowCutOffHz = 10.0f, eqLowCutLowestHz = 20.0f, eqLowCutHighestHz = 1000.0f;
+    inline constexpr float eqHighCutLowestHz = 1000.0f, eqHighCutHighestHz = 20000.0f, eqHighCutOffHz = 30000.0f;
+    inline constexpr float eqLowShelfMinHz = 30.0f, eqLowShelfMaxHz = 600.0f, eqMidMinHz = 40.0f, eqMidMaxHz = 16000.0f;
+    inline constexpr float eqHighShelfMinHz = 1000.0f, eqHighShelfMaxHz = 18000.0f, eqGainMaxDb = 12.0f, eqQMin = 0.3f, eqQMax = 8.0f;
+    /** How much of each cut's travel, at its end stop, is Off. */
+    inline constexpr float eqOffZone = 0.04f;
     // Pass Mode: Bed (two overlapped passes, a steady level) / Fly-By (one pass at a time). Linked: B uses A's.
     inline constexpr const char* passMode[numBuses] = { "aPassMode", "bPassMode" };
     // Flight Path: where a bus's passes fly in a room (Quad and wider). Linked: B uses A's. Stowaway's is Fly's.
@@ -357,6 +462,202 @@ namespace Params
         return n >= 0.0f ? n : current;
     }
 
+    // The detail layers and the Output EQ: laws and readouts. ----------------------------------------------------
+
+    /** A range whose travel is even in octaves (lo .. hi, both above 0). */
+    inline juce::NormalisableRange<float> logRange(float lo, float hi)
+    {
+        return { lo, hi,
+                 [](float start, float end, float n) { return start * std::pow(end / start, std::clamp(n, 0.0f, 1.0f)); },
+                 [](float start, float end, float v) { return std::clamp(std::log(std::clamp(v, start, end) / start) / std::log(end / start), 0.0f, 1.0f); },
+                 [](float start, float end, float v) { return std::clamp(v, start, end); } };
+    }
+    /** Low Cut: Off at the bottom of its travel (eqOffZone of it), then 20 Hz .. 1 kHz even in octaves. */
+    inline juce::NormalisableRange<float> eqLowCutRange()
+    {
+        using namespace ParamIDs;
+        return { eqLowCutOffHz, eqLowCutHighestHz,
+                 [](float, float, float n)
+                 {
+                     return n < eqOffZone ? eqLowCutOffHz
+                                          : eqLowCutLowestHz * std::pow(eqLowCutHighestHz / eqLowCutLowestHz, std::clamp((n - eqOffZone) / (1.0f - eqOffZone), 0.0f, 1.0f));
+                 },
+                 [](float, float, float v)
+                 {
+                     return v < 0.5f * (eqLowCutOffHz + eqLowCutLowestHz) ? 0.0f
+                            : eqOffZone + (1.0f - eqOffZone) * std::clamp(std::log(std::max(v, eqLowCutLowestHz) / eqLowCutLowestHz)
+                                                                          / std::log(eqLowCutHighestHz / eqLowCutLowestHz), 0.0f, 1.0f);
+                 },
+                 [](float, float, float v) { return v < 0.5f * (eqLowCutOffHz + eqLowCutLowestHz) ? eqLowCutOffHz : std::clamp(v, eqLowCutLowestHz, eqLowCutHighestHz); } };
+    }
+    /** High Cut: 1 kHz .. 20 kHz even in octaves, then Off at the top of its travel (eqOffZone of it). */
+    inline juce::NormalisableRange<float> eqHighCutRange()
+    {
+        using namespace ParamIDs;
+        return { eqHighCutLowestHz, eqHighCutOffHz,
+                 [](float, float, float n)
+                 {
+                     return n > 1.0f - eqOffZone ? eqHighCutOffHz
+                                                 : eqHighCutLowestHz * std::pow(eqHighCutHighestHz / eqHighCutLowestHz, std::clamp(n / (1.0f - eqOffZone), 0.0f, 1.0f));
+                 },
+                 [](float, float, float v)
+                 {
+                     return v > 0.5f * (eqHighCutHighestHz + eqHighCutOffHz) ? 1.0f
+                            : (1.0f - eqOffZone) * std::clamp(std::log(std::max(v, eqHighCutLowestHz) / eqHighCutLowestHz)
+                                                              / std::log(eqHighCutHighestHz / eqHighCutLowestHz), 0.0f, 1.0f);
+                 },
+                 [](float, float, float v) { return v > 0.5f * (eqHighCutHighestHz + eqHighCutOffHz) ? eqHighCutOffHz : std::clamp(v, eqHighCutLowestHz, eqHighCutHighestHz); } };
+    }
+    /** The cuts: is this plain value Off? */
+    inline bool eqLowCutIsOff(float hz) { return hz < ParamIDs::eqLowCutLowestHz; }
+    inline bool eqHighCutIsOff(float hz) { return hz > ParamIDs::eqHighCutHighestHz; }
+
+    /** Seconds as the swell controls read: "0.60 s" under 1 s, "4.0 s" under 10 s, "12 s" above. */
+    inline juce::String secondsText(float s)
+    {
+        return s < 0.995f ? juce::String(s, 2) + " s" : (s < 9.95f ? juce::String(s, 1) + " s" : juce::String(juce::roundToInt(s)) + " s");
+    }
+    /** Rates in Hz: "0.30 Hz" under 1 Hz, "2.5 Hz" under 10 Hz, "12 Hz" above. */
+    inline juce::String rateText(float hz)
+    {
+        return hz < 0.995f ? juce::String(hz, 2) + " Hz" : (hz < 9.95f ? juce::String(hz, 1) + " Hz" : juce::String(juce::roundToInt(hz)) + " Hz");
+    }
+    /** -1 .. 1 as a signed percentage of `scale` ("+55%", "0%", "-30%"). */
+    inline juce::String signedPercentText(float v, float scale = 100.0f)
+    {
+        const int pct = juce::roundToInt(v * scale);
+        return (pct > 0 ? "+" : "") + juce::String(pct) + "%";
+    }
+    inline juce::String gainDbText(float db)
+    {
+        const float v = std::round(db * 10.0f) / 10.0f;
+        return (v > 0.0f ? "+" : "") + juce::String(v == 0.0f ? 0.0f : v, 1) + " dB";
+    }
+
+    /** Each new control's tooltip body, in plain words (the heading, its name, is added by whoever shows it). Bus
+        detail IDs are found by what follows the bus letter. Empty for anything else. */
+    inline juce::String tipFor(const juce::String& id)
+    {
+        using namespace ParamIDs;
+        if (id == rideMode)
+            return "How the faders ride. Faders Apart: each track's fader on a slow wave of its own, so the swells overlap and never "
+                   "repeat exactly. Faders Together: every fader on one repeating swell, each bus's pass and the aimed hit on its peak; "
+                   "Rate sets how long a swell is and Chaos varies its size, never its timing. Follow Master: every ride swells with "
+                   "the Master track's loudness; it needs a Master track (the star on a lane).";
+        if (id == togetherPeakAt)
+            return "Where in each swell its top falls. 50%: halfway, a build as long as the fall. 70%: a long build and a short tail. "
+                   "Only in Faders Together.";
+        if (id == togetherStagger)
+            return "Fans the tracks in, one after another in track order, up to a tenth of a swell apart. The order stays the same "
+                   "every swell, so it repeats. 0%: every fader peaks together. Only in Faders Together.";
+        if (id == togetherHitEvery)
+            return "Which peaks get a hit: every one, or every second, third or fourth. Only in Faders Together with Aim on.";
+        if (id == swell)
+            return "Swell as a host control: hold it to push every fader up at once. Recorded by a host when you press the Swell "
+                   "button, its key or the sea, so the presses play back.";
+        if (id == swellAuto)
+            return "Swell firing by itself while the rig plays. On Peaks: just before each peak of bus A's passes. On a Clock: every "
+                   "so often, as Every says. A press of Swell still works on top. It rests while Auto Ride is off or Energy is 0, and "
+                   "On Peaks rests in Faders Together (the faders already rise to every peak there).";
+        if (id == swellEvery)
+            return "How often Auto Swell fires on a clock.";
+        if (id == swellHold)
+            return "How long each Auto Swell is held. Never more than 60% of Every.";
+        if (id == swellChance)
+            return "The chance that each Auto Swell fires. 100%: every one; 50%: about half of them, at random.";
+        if (id == swellLoose)
+            return "How far each Auto Swell on a clock may wander from its place, as a share of Every. 0%: exactly on the clock.";
+        if (id == eqOn)
+            return "The Output EQ, after Space and before Inflate and the limiter: one curve on every speaker, the LFE too. "
+                   "Off: it passes the sound untouched.";
+        if (id == eqLowCut)
+            return "A high-pass that takes the low end away under this frequency. Off at the far left.";
+        if (id == eqLowCutSlope)
+            return "How steeply Low Cut falls away: 12 or 24 dB an octave.";
+        if (id == eqLowShelfFreq || id == eqLowShelfGain)
+            return "Lifts or lowers everything under this frequency.";
+        if (id == eqLowMidFreq || id == eqLowMidGain || id == eqHighMidFreq || id == eqHighMidGain)
+            return "Lifts or lowers a band around this frequency.";
+        if (id == eqLowMidQ || id == eqHighMidQ)
+            return "How narrow the band is: higher is narrower.";
+        if (id == eqHighShelfFreq || id == eqHighShelfGain)
+            return "Lifts or lowers everything over this frequency.";
+        if (id == eqHighCut)
+            return "A low-pass that takes the top end away over this frequency. Off at the far right.";
+
+        if (! (id.startsWith("a") || id.startsWith("b")))
+            return {};
+        const auto rest = id.substring(1);
+        if (rest == "SwirlType")
+            return "What Swirl is. Phaser + Flanger: the phaser, with the flanger coming in from about a seventh of the knob. Phaser "
+                   "or Flanger: one of them alone. Tape Flanger: a second copy of the bus on a moving delay that runs either side of "
+                   "the first, so the two pass through zero and the sound thins out. Doubler: one delayed copy that wanders a little, "
+                   "for a thicker sound. The Swirl wheel is how much, whatever it is.";
+        if (rest == "SwirlFeedback")
+            return "How much of the swirl is fed back into itself. More is a stronger, more ringing colour; below 0% the feedback is "
+                   "turned upside down, which moves the notches.";
+        if (rest == "SwirlSpeed")
+            return "How fast the swirl sweeps, against the speed the whoosh gives it.";
+        if (rest == "SwirlDepth")
+            return "How far the swirl's own sweep goes.";
+        if (rest == "SwirlFollow")
+            return "How far the sweep follows the whoosh. 100%: it opens and closes with each pass. 0%: it sweeps on its own.";
+        if (rest == "TapeMotion")
+            return "What moves the second copy. With the Pass: it runs late while the pass is far off and passes through zero just "
+                   "before the pass is closest. On Its Own: a slow sweep at Rate. By Hand: only Varispeed moves it.";
+        if (rest == "TapeInvert")
+            return "Turns the second copy upside down, so it cancels the first where the two meet: the deepest thin-out. Off: the "
+                   "two add up there instead.";
+        if (rest == "TapeDepth")
+            return "How far the second copy moves either side of the first.";
+        if (rest == "TapeRate")
+            return "How fast the second copy sweeps On Its Own.";
+        if (rest == "TapeFeedback")
+            return "How much of the second copy is fed back into itself, either way up. It never runs away.";
+        if (rest == "TapeWobble")
+            return "A slow settle after each move, like a motor catching up.";
+        if (rest == "Varispeed")
+            return "Lean the second tape machine faster (right) or slower (left). The gap between the copies drifts for as long as "
+                   "you lean, and stays where it got to when you let go: lean the other way to bring it back, or double-click the "
+                   "meter under it. It goes back to the middle when the transport starts.";
+        if (rest == "DoublerWave")
+            return "How the delay wanders: Random, a smooth drift; Sine or Triangle, a regular sway.";
+        if (rest == "DoublerThicken")
+            return "Feeds the copy back upside down, by an amount set from the delay, so a short delay sounds thicker instead of "
+                   "like a flanger. Feedback rests while it is on.";
+        if (rest == "DoublerSpread")
+            return "Moves the second side's copy the other way: between your ears in Stereo, between the passes in a room.";
+        if (rest == "DoublerDelay")
+            return "How far behind the copy plays. Fine at the short end.";
+        if (rest == "DoublerWander")
+            return "How much the delay moves.";
+        if (rest == "DoublerRate")
+            return "How fast the delay wanders.";
+        if (rest == "DoublerFeedback")
+            return "How much of the copy is fed back into itself, either way up. Rests while Thicken is on.";
+        if (rest == "FilterType")
+            return "What the filter is: Low Pass (it closes in the tail), High Pass (it closes from the bottom, opening downward), "
+                   "Band Pass or Notch.";
+        if (rest == "FilterSteep")
+            return "Doubles how steeply the filter falls away: 24 dB an octave instead of 12.";
+        if (rest == "FilterShape")
+            return "The shape of the filter's own rhythm.";
+        if (rest == "FilterClosedAt")
+            return "Where the filter sits in the tail of a pass, when it is most closed.";
+        if (rest == "FilterResonance")
+            return "A peak at the edge of the filter, added to what the Filter wheel gives.";
+        if (rest == "FilterFollow")
+            return "How far the filter follows the whoosh. 100%: it opens with each pass. 0%: it stays put and the Filter wheel is "
+                   "a plain cutoff.";
+        if (rest == "FilterSweep")
+            return "How far the filter's own rhythm moves it, up to three octaves either way.";
+        if (rest == "FilterRate")
+            return "How fast the filter's own rhythm runs. Rests while Sweep is 0%.";
+        return {};
+    }
+
+    inline void addLayerParameters(juce::AudioProcessorValueTreeState::ParameterLayout& layout); // below
+
     inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(std::shared_ptr<StowModeSource> stowModeSource = std::make_shared<StowModeSource>())
     {
         using namespace juce;
@@ -575,7 +876,219 @@ namespace Params
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::play, 4 }, "Play", false));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::keysMode, 4 }, "Keys",
                                                           StringArray { "Swell", "Pitch", "Throw" }, 0));
-        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::rideFollowMaster, 4 }, "Follow Master", false));
+        // Faders Apart / Faders Together / Follow Master (where Follow Master's switch was).
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::rideMode, 8 }, "Ride Mode",
+                                                          StringArray(ParamIDs::rideModeNames, ParamIDs::numRideModes), ParamIDs::RideApart));
+        addLayerParameters(layout);
         return layout;
+    }
+}
+
+namespace Params
+{
+    /** The parameters added with the detail layers, Faders Together, Auto Swell and the Output EQ (78 with Ride Mode),
+        in the order the host lists them, after every older one. */
+    inline void addLayerParameters(juce::AudioProcessorValueTreeState::ParameterLayout& layout)
+    {
+        using namespace juce;
+        using P = AudioParameterFloat;
+        constexpr int hint = 8;
+        auto percent = [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; };
+        auto floatParam = [&layout](const char* id, const String& name, NormalisableRange<float> range, float def,
+                                    std::function<String(float, int)> text, const String& label = {})
+        {
+            layout.add(std::make_unique<P>(ParameterID { id, hint }, name, range, def,
+                                           AudioParameterFloatAttributes().withLabel(label).withStringFromValueFunction(std::move(text))));
+        };
+        auto choiceParam = [&layout](const char* id, const String& name, const char* const* names, int count, int def)
+        {
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { id, hint }, name, StringArray(names, count), def));
+        };
+        auto boolParam = [&layout](const char* id, const String& name, bool def)
+        {
+            layout.add(std::make_unique<AudioParameterBool>(ParameterID { id, hint }, name, def));
+        };
+
+        // Faders Together (behind Rate).
+        floatParam(ParamIDs::togetherPeakAt, "Together Peak At", NormalisableRange<float>(ParamIDs::togetherPeakAtMin, ParamIDs::togetherPeakAtMax), 0.5f, percent);
+        floatParam(ParamIDs::togetherStagger, "Together Stagger", NormalisableRange<float>(0.0f, 1.0f), 0.0f, percent);
+        choiceParam(ParamIDs::togetherHitEvery, "Together Hit Every", ParamIDs::hitEveryNames, ParamIDs::numHitEvery, 0);
+
+        // Swell as a host control, and Auto Swell (behind Swell).
+        boolParam(ParamIDs::swell, "Swell", false);
+        choiceParam(ParamIDs::swellAuto, "Auto Swell", ParamIDs::autoSwellNames, ParamIDs::numAutoSwells, ParamIDs::AutoSwellOff);
+        floatParam(ParamIDs::swellEvery, "Auto Swell Every", logRange(ParamIDs::swellEveryMin, ParamIDs::swellEveryMax), 4.0f,
+                   [](float v, int) { return secondsText(v); }, "s");
+        floatParam(ParamIDs::swellHold, "Auto Swell Hold", logRange(ParamIDs::swellHoldMin, ParamIDs::swellHoldMax), 0.6f,
+                   [](float v, int) { return secondsText(v); }, "s");
+        floatParam(ParamIDs::swellChance, "Auto Swell Chance", NormalisableRange<float>(0.0f, 1.0f), 1.0f, percent);
+        floatParam(ParamIDs::swellLoose, "Auto Swell Loose", NormalisableRange<float>(0.0f, ParamIDs::swellLooseMax), 0.0f, percent);
+
+        // What is behind each bus's Swirl and Filter.
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+        {
+            const auto* ids = ParamIDs::busDetail[b];
+            const String bus = String("Bus ") + ParamIDs::busNames[b] + " ";
+            auto name = [&bus](int k) { return bus + ParamIDs::busDetailNames[k]; };
+            const auto* def = ParamIDs::busDetailDefaults;
+            using namespace ParamIDs;
+            choiceParam(ids[SwirlType], name(SwirlType), swirlTypeNames, numSwirlTypes, SwirlBoth);
+            floatParam(ids[SwirlFeedback], name(SwirlFeedback), NormalisableRange<float>(-1.0f, 1.0f), def[SwirlFeedback],
+                       [](float v, int) { return signedPercentText(v); });
+            floatParam(ids[SwirlSpeed], name(SwirlSpeed), logRange(swirlSpeedMin, swirlSpeedMax), def[SwirlSpeed],
+                       [](float v, int) { return (v < 0.995f ? String(v, 2) : String(v, 1)) + "x"; });
+            floatParam(ids[SwirlDepth], name(SwirlDepth), NormalisableRange<float>(0.0f, 1.0f), def[SwirlDepth], percent);
+            floatParam(ids[SwirlFollow], name(SwirlFollow), NormalisableRange<float>(0.0f, 1.0f), def[SwirlFollow], percent);
+
+            choiceParam(ids[TapeMotion], name(TapeMotion), tapeMotionNames, numTapeMotions, TapeWithPass);
+            boolParam(ids[TapeInvert], name(TapeInvert), def[TapeInvert] > 0.5f);
+            floatParam(ids[TapeDepth], name(TapeDepth), NormalisableRange<float>(0.0f, tapeDepthMaxMs), def[TapeDepth],
+                       [](float v, int) { return String(v, 1) + " ms"; }, "ms");
+            floatParam(ids[TapeRate], name(TapeRate), logRange(tapeRateMin, tapeRateMax), def[TapeRate],
+                       [](float v, int) { return rateText(v); }, "Hz");
+            floatParam(ids[TapeFeedback], name(TapeFeedback), NormalisableRange<float>(-1.0f, 1.0f), def[TapeFeedback],
+                       [](float v, int) { return signedPercentText(v); });
+            floatParam(ids[TapeWobble], name(TapeWobble), NormalisableRange<float>(0.0f, 1.0f), def[TapeWobble], percent);
+            floatParam(ids[Varispeed], name(Varispeed), NormalisableRange<float>(-1.0f, 1.0f), def[Varispeed],
+                       [](float v, int) { return signedPercentText(v); });
+
+            choiceParam(ids[DoublerWave], name(DoublerWave), doublerWaveNames, numDoublerWaves, WaveRandom);
+            boolParam(ids[DoublerThicken], name(DoublerThicken), def[DoublerThicken] > 0.5f);
+            boolParam(ids[DoublerSpread], name(DoublerSpread), def[DoublerSpread] > 0.5f);
+            // Delay: 3 x 25^k ms over the travel, so the short end is fine.
+            floatParam(ids[DoublerDelay], name(DoublerDelay), logRange(doublerDelayMinMs, doublerDelayMaxMs), def[DoublerDelay],
+                       [](float v, int) { return (v < 9.95f ? String(v, 1) : String(roundToInt(v))) + " ms"; }, "ms");
+            floatParam(ids[DoublerWander], name(DoublerWander), NormalisableRange<float>(0.0f, 1.0f), def[DoublerWander], percent);
+            floatParam(ids[DoublerRate], name(DoublerRate), logRange(doublerRateMin, doublerRateMax), def[DoublerRate],
+                       [](float v, int) { return rateText(v); }, "Hz");
+            floatParam(ids[DoublerFeedback], name(DoublerFeedback), NormalisableRange<float>(-1.0f, 1.0f), def[DoublerFeedback],
+                       [](float v, int) { return signedPercentText(v, 100.0f * doublerFeedbackMax); });
+
+            choiceParam(ids[FilterType], name(FilterType), filterTypeNames, numFilterTypes, FilterLowPass);
+            boolParam(ids[FilterSteep], name(FilterSteep), false);
+            choiceParam(ids[FilterShape], name(FilterShape), filterShapeNames, numFilterShapes, ShapeSine);
+            floatParam(ids[FilterClosedAt], name(FilterClosedAt), logRange(filterClosedMinHz, filterClosedMaxHz), def[FilterClosedAt],
+                       [](float v, int) { return hzText(v); }, "Hz");
+            floatParam(ids[FilterResonance], name(FilterResonance), NormalisableRange<float>(0.0f, 1.0f), def[FilterResonance], percent);
+            floatParam(ids[FilterFollow], name(FilterFollow), NormalisableRange<float>(0.0f, 1.0f), def[FilterFollow], percent);
+            floatParam(ids[FilterSweep], name(FilterSweep), NormalisableRange<float>(0.0f, 1.0f), def[FilterSweep], percent);
+            floatParam(ids[FilterRate], name(FilterRate), logRange(filterRateMin, filterRateMax), def[FilterRate],
+                       [](float v, int) { return rateText(v); }, "Hz");
+        }
+
+        // Output EQ.
+        {
+            using namespace ParamIDs;
+            boolParam(eqOn, "Output EQ", true);
+            floatParam(eqLowCut, "EQ Low Cut", eqLowCutRange(), eqLowCutOffHz,
+                       [](float v, int) { return eqLowCutIsOff(v) ? String("Off") : hzText(v); }, "Hz");
+            choiceParam(eqLowCutSlope, "EQ Low Cut Slope", eqSlopeNames, numEqSlopes, 1);
+            auto hz = [](float v, int) { return hzText(v); };
+            auto db = [](float v, int) { return gainDbText(v); };
+            auto q = [](float v, int) { return v < 0.995f ? String(v, 2) : String(v, 1); };
+            const NormalisableRange<float> gain(-eqGainMaxDb, eqGainMaxDb);
+            floatParam(eqLowShelfFreq, "EQ Low Shelf Frequency", logRange(eqLowShelfMinHz, eqLowShelfMaxHz), 100.0f, hz, "Hz");
+            floatParam(eqLowShelfGain, "EQ Low Shelf Gain", gain, 0.0f, db, "dB");
+            floatParam(eqLowMidFreq, "EQ Low Mid Frequency", logRange(eqMidMinHz, eqMidMaxHz), 300.0f, hz, "Hz");
+            floatParam(eqLowMidGain, "EQ Low Mid Gain", gain, 0.0f, db, "dB");
+            floatParam(eqLowMidQ, "EQ Low Mid Q", logRange(eqQMin, eqQMax), 1.0f, q);
+            floatParam(eqHighMidFreq, "EQ High Mid Frequency", logRange(eqMidMinHz, eqMidMaxHz), 3000.0f, hz, "Hz");
+            floatParam(eqHighMidGain, "EQ High Mid Gain", gain, 0.0f, db, "dB");
+            floatParam(eqHighMidQ, "EQ High Mid Q", logRange(eqQMin, eqQMax), 1.0f, q);
+            floatParam(eqHighShelfFreq, "EQ High Shelf Frequency", logRange(eqHighShelfMinHz, eqHighShelfMaxHz), 8000.0f, hz, "Hz");
+            floatParam(eqHighShelfGain, "EQ High Shelf Gain", gain, 0.0f, db, "dB");
+            floatParam(eqHighCut, "EQ High Cut", eqHighCutRange(), eqHighCutOffHz,
+                       [](float v, int) { return eqHighCutIsOff(v) ? String("Off") : hzText(v); }, "Hz");
+        }
+    }
+}
+
+/**
+ * The detail layers: what is behind a notched control. Each layer belongs to one control on the front (a bus's
+ * Swirl or Filter wheel, Rate, or the Swell button) and holds the parameters listed here. The layer host
+ * (DetailLayer) and the pages (LayerPages) both go by these lists.
+ */
+namespace Layers
+{
+    enum class Kind { Swirl = 0, Filter, Together, Swell };
+    struct Target
+    {
+        Kind kind = Kind::Swirl;
+        int bus = 0; // Swirl and Filter: 0 bus A, 1 bus B. Together and Swell: ignored (they are Ride's)
+        bool operator==(const Target& o) const { return kind == o.kind && (bus == o.bus || kind == Kind::Together || kind == Kind::Swell); }
+        bool operator!=(const Target& o) const { return ! (*this == o); }
+    };
+
+    /** "Bus A / Swirl", "Bus B / Filter", "Ride / Together", "Ride / Swell". */
+    inline juce::String title(Target t)
+    {
+        const juce::String bus = juce::String("Bus ") + ParamIDs::busNames[std::clamp(t.bus, 0, ParamIDs::numBuses - 1)];
+        switch (t.kind)
+        {
+            case Kind::Swirl:    return bus + " / Swirl";
+            case Kind::Filter:   return bus + " / Filter";
+            case Kind::Together: return "Ride / Together";
+            case Kind::Swell:    return "Ride / Swell";
+        }
+        return {};
+    }
+
+    /** The front control the layer belongs to: its parameter (Swirl, Filter, Rate), or nullptr for Swell (its front is
+        the Swell button, not a wheel). */
+    inline const char* frontId(Target t)
+    {
+        const int b = std::clamp(t.bus, 0, ParamIDs::numBuses - 1);
+        switch (t.kind)
+        {
+            case Kind::Swirl:    return ParamIDs::bus[b][ParamIDs::Swirl];
+            case Kind::Filter:   return ParamIDs::bus[b][ParamIDs::Filter];
+            case Kind::Together: return ParamIDs::rate;
+            case Kind::Swell:    return nullptr;
+        }
+        return nullptr;
+    }
+
+    /** Every parameter on the layer's page, in page order. */
+    inline juce::StringArray pageIds(Target t)
+    {
+        juce::StringArray ids;
+        const int b = std::clamp(t.bus, 0, ParamIDs::numBuses - 1);
+        switch (t.kind)
+        {
+            case Kind::Swirl:
+                for (int k = ParamIDs::SwirlType; k <= ParamIDs::DoublerFeedback; ++k)
+                    ids.add(ParamIDs::busDetail[b][k]);
+                break;
+            case Kind::Filter:
+                for (int k = ParamIDs::FilterType; k <= ParamIDs::FilterRate; ++k)
+                    ids.add(ParamIDs::busDetail[b][k]);
+                break;
+            case Kind::Together:
+                ids.addArray({ ParamIDs::togetherPeakAt, ParamIDs::togetherStagger, ParamIDs::togetherHitEvery });
+                break;
+            case Kind::Swell:
+                ids.addArray({ ParamIDs::swellAuto, ParamIDs::swellEvery, ParamIDs::swellHold, ParamIDs::swellChance, ParamIDs::swellLoose });
+                break;
+        }
+        return ids;
+    }
+
+    /** What the layer's Reset puts back to default and what fills its notch when off default: the page, but for
+        Varispeed (a hand on the tape machine, not a setting: it springs back to the middle by itself). */
+    inline juce::StringArray detailIds(Target t)
+    {
+        auto ids = pageIds(t);
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            ids.removeString(ParamIDs::busDetail[b][ParamIDs::Varispeed]);
+        return ids;
+    }
+
+    /** Anything behind the control is off its default (its notch is filled). Any thread that may read parameters. */
+    inline bool isOffDefault(juce::AudioProcessorValueTreeState& state, Target t)
+    {
+        for (const auto& id : detailIds(t))
+            if (auto* p = state.getParameter(id); p != nullptr && std::abs(p->getValue() - p->getDefaultValue()) > 1.0e-6f)
+                return true;
+        return false;
     }
 }

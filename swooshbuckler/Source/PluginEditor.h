@@ -501,9 +501,10 @@ private:
     int m_morphSyncTick = 0;
     SwellButton m_swell;
     juce::TextButton m_rideButton { "Auto Ride" };
-    juce::TextButton m_followMasterButton { "Follow Master" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_followMasterAttachment;
-    int m_followMasterShown = -1; // what the Follow Master button's dimming was last set for
+    // Ride Mode: Faders Apart / Faders Together / Follow Master, beside Auto Ride.
+    juce::ComboBox m_rideMode;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_rideModeAttachment;
+    int m_rideModeShown = -1; // what the Ride Mode box's look, tooltip and Follow Master item were last set for
     // Perform: Throw (one whoosh on demand), what MIDI keys do, and (in a host) Follow Host by the Play button.
     juce::TextButton m_throwButton { "Throw" }, m_followHost { "Follow Host" };
     juce::ComboBox m_keysMode;

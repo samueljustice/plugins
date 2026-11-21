@@ -1287,12 +1287,12 @@ int main(int argc, char* argv[])
                           "meters: GR, Out and Trim each have a number under them (\"" + ed.m_grReadout + "\", \"" + ed.m_outReadout + "\", \"" + ed.m_trimReadout + "\")");
                     const auto swell = ed.m_swell.getBounds(), thrown = ed.m_throwButton.getBounds();
                     const auto length = ed.m_controls[ParamIDs::throwLength]->getBounds();
-                    const auto autoRide = ed.m_rideButton.getBounds(), follow = ed.m_followMasterButton.getBounds();
+                    const auto autoRide = ed.m_rideButton.getBounds(), follow = ed.m_rideMode.getBounds();
                     check(swell.getWidth() >= 2 * WheelKnob::cellWidth(WheelKnob::Size::Secondary) && swell.getWidth() > WheelKnob::cellWidth(WheelKnob::Size::Primary)
                               && ed.m_performPanel.contains(swell) && ed.m_performPanel.contains(thrown)
                               && std::abs(thrown.getY() - length.getBottom()) <= 8 && thrown.getRight() == length.getRight()
                               && follow.getY() == autoRide.getY() && follow.getX() - autoRide.getRight() <= 8 && follow.getX() >= autoRide.getRight(),
-                          "Ride: Swell is the biggest thing in it, Throw is right under its Throw Length knob, and Follow Master is beside Auto Ride");
+                          "Ride: Swell is the biggest thing in it, Throw is right under its Throw Length knob, and Ride Mode is beside Auto Ride");
                 }
             }
 
