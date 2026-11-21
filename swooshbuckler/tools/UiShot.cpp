@@ -56,6 +56,16 @@
 //                             bus A held to Through, Front to Back, on the Right; bus B linked, showing bus A's
 //   window-714-direction-wired.png bus-a-714-direction-wired.png
 //                             a modulator wired to bus A's Direction: the key it picks now marked in its colour
+//   front-<mono|stereo|714>.png front-<width>-<ride|bus-a|bus-b|output>.png
+//                             the front at Mono, Stereo and 7.1.4: four hollow notches (Swirl and Filter on each bus,
+//                             Rate, Swell) and the EQ key in Output's title bar
+//   layer-bus-a-swirl-<type>.png layer-bus-a-filter.png layer-bus-b-swirl.png layer-bus-b-filter.png
+//   layer-ride-together.png layer-ride-swell.png layer-ride-together-on.png layer-ride-swell-on.png
+//                             each panel turned over to each of its layers (window-<name>.png the whole window)
+//   front-notches-filled.png layers-three.png layers-three-closed.png eq-plate.png eq-key-curve.png
+//                             filled notches, three layers up at once with wires on Swell and Varispeed (and the
+//                             front again after Back), the Output EQ plate over Bus B, the EQ key drawing a curve
+//                             (--layers writes only these, and checks their texts)
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //   speakers-dialog.png       the app asking before a change of Speakers empties the Last 60 s memory
@@ -103,7 +113,7 @@ namespace
         juce::File out, work, state;
         float scale = 1.0f;
         double seconds = 3.0;
-        bool list = false, images = true, constellation = false, sea = false, docs = false;
+        bool list = false, images = true, constellation = false, sea = false, docs = false, layersOnly = false;
     };
 
     /** One state of the window: its picture, and the texts in it. */
@@ -165,6 +175,145 @@ namespace
                 std::cout << "FAULT in " << name << ": " << f.what << ": " << UiProbe::describe(f.text) << " - " << f.detail << std::endl;
         }
     };
+}
+
+namespace
+{
+    /** The layers (design 2.0): the front as it is at Mono, Stereo and 7.1.4 (four hollow notches, the EQ key), each
+        panel turned over to each of its layers (every Swirl type, the Filter, Together, Swell), the notches filled,
+        three layers up at once with wires on Swell and Varispeed, and the EQ plate over Bus B. The panel crops are
+        named after the layer: layer-bus-a-swirl-tape-flanger.png, layer-ride-swell.png, and so on. */
+    void shootLayers(Shots& shots, Rig& rig, Proc& proc)
+    {
+        auto& ed = *rig.editor;
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.25);
+        };
+        auto open = [&](Layers::Target t) { ed.openLayer(t); settle(); };
+        auto closeAll = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+        };
+        auto widen = [&](room::Width width)
+        {
+            auto layout = proc.getBusesLayout();
+            layout.outputBuses.getReference(0) = room::channelSet(width);
+            proc.setBusesLayout(layout);
+            proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+            rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+        };
+        auto slug = [](juce::String text) { return text.toLowerCase().replace(" / ", "-").replace(" + ", "-").replace(" ", "-"); };
+        auto panelOf = [&](Layers::Target t) { return ed.layerPanelBounds(Editor::panelFor(t)); };
+
+        // The front at three widths: as calm as it was, with four hollow notches and the EQ key.
+        proc.setPlaying(true);
+        const std::pair<room::Width, const char*> widths[] = { { room::Width::Mono, "mono" }, { room::Width::Stereo, "stereo" },
+                                                               { room::Width::Surround714, "714" } };
+        for (const auto& [width, name] : widths)
+        {
+            widen(width);
+            rig.run(1.5);
+            const auto window = shots.shoot(juce::String("front-") + name);
+            shots.crop(window, juce::String("front-") + name + "-ride", ed.m_performPanel);
+            shots.crop(window, juce::String("front-") + name + "-bus-a", ed.m_sections[0].bounds);
+            shots.crop(window, juce::String("front-") + name + "-bus-b", ed.m_sections[1].bounds);
+            shots.crop(window, juce::String("front-") + name + "-output", ed.m_sections[3].bounds);
+        }
+        widen(room::Width::Stereo);
+        rig.run(0.5);
+
+        // Each panel turned over: every Swirl type on bus A (and the Tape Flanger on bus B), the Filter on both, and
+        // Ride's two.
+        for (int type = 0; type < ParamIDs::numSwirlTypes; ++type)
+        {
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(type));
+            open({ Layers::Kind::Swirl, 0 });
+            const auto name = "layer-bus-a-swirl-" + slug(ParamIDs::swirlTypeNames[type]);
+            shots.crop(shots.shoot("window-" + name), name, ed.m_sections[0].bounds);
+        }
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
+        set(ParamIDs::busDetail[1][ParamIDs::SwirlType], static_cast<float>(ParamIDs::numSwirlTypes - 2)); // Tape Flanger
+        const Layers::Target others[] = { { Layers::Kind::Filter, 0 }, { Layers::Kind::Swirl, 1 }, { Layers::Kind::Filter, 1 },
+                                          { Layers::Kind::Together, 0 }, { Layers::Kind::Swell, 0 } };
+        for (const auto t : others)
+        {
+            closeAll();
+            open(t);
+            const auto name = "layer-" + slug(Layers::title(t));
+            shots.crop(shots.shoot("window-" + name), name, panelOf(t));
+        }
+        // Faders Together and Auto Swell on, so neither page rests.
+        set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideTogether));
+        set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
+        set(ParamIDs::busDetail[0][ParamIDs::FilterType], 1.0f); // High Pass
+        closeAll();
+        for (const auto t : { Layers::Target { Layers::Kind::Together, 0 }, Layers::Target { Layers::Kind::Swell, 0 } })
+        {
+            open(t);
+            const auto name = "layer-" + slug(Layers::title(t)) + "-on";
+            shots.crop(shots.shoot("window-" + name), name, panelOf(t));
+        }
+        closeAll();
+
+        // The front with things behind it: bus A's Filter a High Pass, bus B's Swirl a Tape Flanger, Faders
+        // Together, Auto Swell on a clock: four filled notches, Swell's line saying so.
+        {
+            const auto window = shots.shoot("front-notches-filled");
+            shots.crop(window, "front-notches-filled-ride", ed.m_performPanel);
+            shots.crop(window, "front-notches-filled-buses", ed.m_sections[0].bounds.getUnion(ed.m_sections[1].bounds));
+        }
+
+        // Three layers up at once, with a wire on Swell and one on bus B's Varispeed.
+        {
+            const int swellWire = proc.getMods().connect(0, ParamIDs::swell, 0.5f);
+            const int leanWire = proc.getMods().connect(1, ParamIDs::busDetail[1][ParamIDs::Varispeed], 0.4f);
+            open({ Layers::Kind::Swell, 0 });
+            open({ Layers::Kind::Swirl, 0 });
+            open({ Layers::Kind::Swirl, 1 });
+            ed.m_wires.rebuild();
+            rig.run(0.5);
+            const auto window = shots.shoot("layers-three");
+            shots.crop(window, "layers-three-row", ed.m_performPanel.getUnion(ed.m_sections[1].bounds));
+            closeAll();
+            ed.m_wires.rebuild();
+            const auto front = shots.shoot("layers-three-closed");
+            shots.crop(front, "layers-three-closed-row", ed.m_performPanel.getUnion(ed.m_sections[1].bounds));
+            proc.getMods().disconnect(leanWire);
+            proc.getMods().disconnect(swellWire);
+        }
+
+        // The Output EQ's plate over Bus B, with a curve.
+        {
+            set(ParamIDs::eqLowMidGain, -6.0f);
+            set(ParamIDs::eqHighShelfGain, 4.0f);
+            ed.setEqPlateOpen(true);
+            rig.run(0.5);
+            const auto window = shots.shoot("eq-plate");
+            shots.crop(window, "eq-plate-row", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds));
+            ed.setEqPlateOpen(false);
+            rig.run(0.2);
+            shots.crop(shots.shoot("eq-key-curve"), "eq-key-curve", ed.m_sections[3].bounds);
+        }
+
+        // Back as a new session has it.
+        for (const auto* id : { ParamIDs::rideMode, ParamIDs::swellAuto, ParamIDs::busDetail[0][ParamIDs::FilterType],
+                                ParamIDs::busDetail[1][ParamIDs::SwirlType], ParamIDs::eqLowMidGain, ParamIDs::eqHighShelfGain })
+            if (auto* param = proc.getState().getParameter(id))
+                param->setValueNotifyingHost(param->getDefaultValue());
+        rig.run(0.3);
+    }
 }
 
 namespace
@@ -450,10 +599,11 @@ int main(int argc, char* argv[])
         else if (a == "--constellation") options.constellation = true;
         else if (a == "--sea") options.sea = true;
         else if (a == "--docs") options.docs = true;
+        else if (a == "--layers") options.layersOnly = true;
         else
         {
             std::cerr << "Unknown option " << a << "\nUsage: SwooshbucklerUiShot --out <dir> [--scale 1.0] [--seconds 3] [--state <session file>] "
-                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs]" << std::endl;
+                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs] [--layers]" << std::endl;
             return 2;
         }
     }
@@ -512,6 +662,17 @@ int main(int argc, char* argv[])
             ed.m_sea.showConstellation(true);
         rig.run(options.seconds);
 
+        // --layers: only the layers' pictures (shootLayers), and done.
+        if (options.layersOnly)
+        {
+            shootLayers(shots, rig, proc);
+            proc.setPlaying(false);
+            const int found = shots.faults, counted = shots.texts;
+            rig.editor.reset();
+            std::cout << counted << " texts checked, " << found << " faults" << std::endl;
+            return found == 0 ? 0 : 1;
+        }
+
         // The window and its panels.
         {
             const auto window = shots.shoot("window");
@@ -556,6 +717,9 @@ int main(int argc, char* argv[])
                     }
             }
         }
+
+        // The layers, the notches and the EQ plate (shootLayers).
+        shootLayers(shots, rig, proc);
 
         // What the rig says back: the toast's plate at the top of the open water, risen into place.
         {

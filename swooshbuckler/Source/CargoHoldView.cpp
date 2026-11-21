@@ -1497,10 +1497,7 @@ bool CargoHoldView::keyPressed(const juce::KeyPress& key)
     const auto c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
     if (cmd && (c == 'z' || key.getKeyCode() == 'Z'))
         return false; // undo and redo belong to the window: one history for the tracks and the settings
-    if (key == juce::KeyPress::spaceKey)
-    {
-        if (onSwell) onSwell();
-        return true;
-    }
+    // Every other key (Swell's among them, whatever it has been changed to) goes up to the window, which holds Swell
+    // for as long as its key is down, as it does with the focus anywhere else.
     return false;
 }

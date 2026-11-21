@@ -1086,8 +1086,30 @@ void ValueSlider::mouseDoubleClick(const juce::MouseEvent& e)
         beginTyping();
         return;
     }
-    if (! e.mods.isPopupMenu())
-        juce::Slider::mouseDoubleClick(e);
+    if (e.mods.isPopupMenu())
+        return;
+    // A wheel with a layer behind it opens it; Shift-double-click resets every wheel, notched or not.
+    if (onOpen && ! e.mods.isShiftDown())
+    {
+        onOpen();
+        return;
+    }
+    juce::Slider::mouseDoubleClick(e);
+}
+
+void ValueSlider::resetToDefault()
+{
+    if (m_typedParameter != nullptr)
+    {
+        if (onTypedValue)
+            onTypedValue(); // a glide towards a preset lets go of it
+        m_typedParameter->beginChangeGesture();
+        m_typedParameter->setValueNotifyingHost(m_typedParameter->getDefaultValue());
+        m_typedParameter->endChangeGesture();
+        return;
+    }
+    if (isDoubleClickReturnEnabled())
+        setValue(getDoubleClickReturnValue(), juce::sendNotificationSync);
 }
 
 juce::Rectangle<int> WheelKnob::typingBounds() const
@@ -1195,10 +1217,64 @@ void WheelKnob::timerCallback()
 }
 
 void WheelKnob::mouseEnter(const juce::MouseEvent& e) { m_hover = true; repaint(); Slider::mouseEnter(e); }
-void WheelKnob::mouseExit(const juce::MouseEvent& e) { m_hover = false; repaint(); Slider::mouseExit(e); }
+void WheelKnob::mouseExit(const juce::MouseEvent& e)
+{
+    m_hover = false;
+    if (std::exchange(m_overNotch, false))
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+    repaint();
+    Slider::mouseExit(e);
+}
+
+juce::Rectangle<float> WheelKnob::getNotchArea() const
+{
+    if (m_notch == Notch::None)
+        return {};
+    // In the corner of the dial's box at its lower left, past the end of the value ring and outside the rings of
+    // the wires: nothing else is drawn there.
+    const float side = m_size == Size::Primary ? 8.0f : 7.0f;
+    const auto centre = getDialCentre();
+    const float half = getRingRadius() + c_modRoom;
+    return { centre.x - half + 0.5f, centre.y + half - side - 0.5f, side, side };
+}
+
+void WheelKnob::mouseMove(const juce::MouseEvent& e)
+{
+    const bool over = isOverNotch(e.position);
+    if (over != m_overNotch)
+    {
+        m_overNotch = over;
+        setMouseCursor(over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+    ModTarget::mouseMove(e);
+}
+
+void WheelKnob::mouseDrag(const juce::MouseEvent& e)
+{
+    if (! m_notchClick)
+        ModTarget::mouseDrag(e);
+}
+
+void WheelKnob::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    // A double-click on the notch is two clicks on it, each already counted: it is not a reset or an open.
+    if (isOverNotch(e.position) && ! e.mods.isAnyModifierKeyDown())
+        return;
+    ModTarget::mouseDoubleClick(e);
+}
 
 void WheelKnob::mouseDown(const juce::MouseEvent& e)
 {
+    // The notch is a key of its own: a click on it opens (or closes) the layer behind the wheel and never turns it.
+    m_notchClick = ! e.mods.isPopupMenu() && ! e.mods.isAnyModifierKeyDown() && isOverNotch(e.position);
+    if (m_notchClick)
+    {
+        // (The second click of a double-click on it is the same press, not another one.)
+        if (onNotch && e.getNumberOfClicks() < 2)
+            onNotch();
+        return;
+    }
     // A right-click (the menu, or the box to type in) and an Alt-click never turn the wheel, so they are not a hold:
     // a value typed or picked after one swings in on the spring like any other that changes on its own.
     m_held = ! (e.mods.isPopupMenu() || e.mods.isAltDown());
@@ -1213,6 +1289,8 @@ void WheelKnob::mouseDown(const juce::MouseEvent& e)
 
 void WheelKnob::mouseUp(const juce::MouseEvent& e)
 {
+    if (std::exchange(m_notchClick, false))
+        return;
     ModTarget::mouseUp(e);
     if (! std::exchange(m_held, false))
         return;
@@ -1350,6 +1428,27 @@ void WheelKnob::paint(juce::Graphics& g)
         const float r = ring + c_modRoom - 1.0f;
         g.setColour(m_wireHover);
         g.drawEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(centre), 2.0f);
+    }
+
+    // The notch: a stamped square, hollow while everything behind the wheel is at its default, filled when not.
+    if (m_notch != Notch::None)
+    {
+        const auto box = getNotchArea();
+        const auto lit = drained ? TC::textFaint.withAlpha(0.6f) : (m_overNotch ? m_accent.brighter(0.4f) : m_accent);
+        g.setColour(TC::edgeDark);
+        g.fillRect(box.expanded(1.0f).translated(0.0f, 1.0f));
+        if (m_notch == Notch::Filled)
+        {
+            g.setColour(lit);
+            g.fillRect(box);
+        }
+        else
+        {
+            g.setColour(TC::well);
+            g.fillRect(box);
+            g.setColour(m_overNotch ? lit : (drained ? lit : TC::textDim));
+            g.drawRect(box, 1.2f);
+        }
     }
 
     // The caption, and under it the value in the control's own units: always there, and live while it is dragged.

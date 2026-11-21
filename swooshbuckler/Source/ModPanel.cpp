@@ -521,6 +521,21 @@ void ModWires::drawCables()
 void ModWires::setTargets(std::map<juce::String, ModTarget*> knobs)
 {
     m_knobs = std::move(knobs);
+    // A control that is no longer a target may be about to go (a layer's page is closing): nothing here may point at
+    // it after this.
+    auto known = [this](const ModTarget* t)
+    {
+        for (const auto& [id, target] : m_knobs)
+            if (target == t)
+                return true;
+        return false;
+    };
+    if (m_landKnob != nullptr && ! known(m_landKnob))
+        clearLandFlash();
+    if (m_dragOver != nullptr && ! known(m_dragOver))
+        m_dragOver = nullptr;
+    for (auto it = m_newestSlot.begin(); it != m_newestSlot.end();)
+        it = known(it->first) ? std::next(it) : m_newestSlot.erase(it);
     for (const auto& [id, target] : m_knobs)
         if (target != nullptr)
             target->onModDepthGesture = [this, t = target](const juce::MouseEvent& e, int phase) { modDepthGesture(t, e, phase); };

@@ -425,13 +425,15 @@ public:
     void scatterRide(std::uint32_t seed);
     /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
     bool isThrowing() const;
-    /** Where Faders Together's clock starts (0..1 of a swell; 0, a trough, unless set) after prepare(), a restart
-        and a seeded restart; it also moves the clock there now. Render Variations' Whole Ride sets it so each file
-        opens on a trough after its pre-roll. Not while process() may run. */
+    /** Where in its swell Faders Together's clock starts (0..1; 0, a trough, unless set) after prepare() and a
+        seeded restart; it also moves the clock there now. Render Variations' Whole Ride sets it so each file opens
+        on a trough after its pre-roll. The swell's top is Peak At of the way through it, so the first chunk
+        rendered places the clock by the Peak At in use then. Not while process() may run. */
     void setCycleStart(double phase)
     {
         m_cycleStart = phase - std::floor(phase);
         m_cycle.phase = m_cycleStart;
+        m_cycleStartPending = true;
     }
     /** Any thread: seconds until the next peak of Faders Together's swell (the Ride panel's "Peak in 1.2 s"), < 0
         when the faders are not together. */
@@ -625,6 +627,13 @@ private:
         sj::OnePole airL, airR;
         sj::OnePole airSL, airSR; // the same air on a stereo bed's side signal, at each ear
         float view = 0.0f, x = 0.0f, age = 0.0f;
+        // Faders Together: a pass on the clock takes its time from it (see cycleX): it is closest when the clock
+        // reads clockPeak, and clockSeconds is how long one swell was as the pass started (0: the pass keeps its
+        // own time). pace: how fast the pass runs against that (1 unless Rate has moved since), for the read's
+        // band limit.
+        double clockPeak = 0.0;
+        float clockSeconds = 0.0f, pace = 1.0f;
+        bool swelled = false;  // Auto Swell on peaks has decided about this pass's peak
 
         /** How far through the pass (0..1, 0.5 = closest). */
         float progress() const
@@ -896,7 +905,9 @@ private:
         float typeFade = 1.0f;
         SwirlFx swirlFx;
         SweepFilter sweep;
-        // Faders Together: this bus's lead (seconds its heard peak comes after the clock's), glided, and its target.
+        // Faders Together: how long this bus's sound takes to come out of the pass that is on its way in (seconds:
+        // leadTarget, taken at each trough), and the same as a share of a swell, glided (lead): its tracks' faders
+        // are that far ahead of the clock.
         float lead = 0.0f, leadTarget = 0.0f;
     };
 
@@ -1103,6 +1114,21 @@ private:
     /** A pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
     float nominalPassSeconds() const;
     void startThrows(int frames);
+    // Faders Together (design 3.1). The clock as one number that never wraps: it is a whole number at every peak
+    // (Cycle::peaks + how far past the last one, in swells).
+    double cycleX() const { return static_cast<double>(m_cycle.peaks) + (m_cycle.phase >= 0.5 ? m_cycle.phase - 0.5 : m_cycle.phase + 0.5); }
+    /** Both passes of a bus onto the clock where it stands, keeping what each pass drew (how close, how fast,
+        which way): one on its way in to the next peak, the other on its way out from the last. Only where a step
+        in the passes cannot be heard (a reset, or before the first chunk of a render). */
+    void placeOnClock(BusState& bus);
+    /** A pass's delay at its closest point (seconds): how long before the clock's peak a fader has to be at its
+        top for that to be heard as the pass goes by. */
+    static float passLead(const Head& h);
+    /** The clock for this chunk: started where setCycleStart says, stepped, the swell's size drawn at each trough
+        and each bus's lead taken from the pass on its way in. */
+    void stepCycle(int frames);
+    /** Auto Swell's gate for this chunk (design 3.7). */
+    bool stepAutoSwell(float seconds, float energyKnob);
     void reseedNow();
     void renderTracks(int frames);
     /** How strongly a bus keys the other one: its level against its own recent peak, faded out below -40 dBFS so a
@@ -1210,9 +1236,11 @@ private:
     //   - m_cyclePeakView (getCyclePeakIn), m_autoSwellView (isAutoSwelling) and m_varispeedView (getVarispeedOffset:
     //     SwirlFx::getOffsetMs() / SwirlFx::c_maxOffsetMs, 0 unless the bus's Swirl is a Tape Flanger) are written
     //     every chunk; the window reads them.
-    //   - reset(), restartNow() and reseedNow() put m_cycle.phase at m_cycleStart (setCycleStart: Render Variations'
-    //     Whole Ride starts each file on a trough) and reseed m_cycleRng, m_autoRng and each bus's SwirlFx and
-    //     SweepFilter from m_seed ^ a constant of their own, so m_rng's draws stay in the order they were.
+    //   - reset() and reseedNow() put the clock at m_cycleStart (setCycleStart: Render Variations' Whole Ride starts
+    //     each file on a trough) and reseed m_cycleRng and m_autoRng from m_seed ^ a constant of their own, so
+    //     m_rng's draws stay in the order they were. (Each bus's SwirlFx and SweepFilter: with their wiring.)
+    //     restartNow() (Play, not a transport start) leaves the clock where it is: the passes in flight are on
+    //     it, and they are not started again either.
     //   - prepare() prepares each bus's swirlFx and sweep (nothing allocates after it); scatterRide() scatters the
     //     Auto Swell clock and both of those.
     //   - Params::swell is everything outside the engine that holds Swell; Auto Swell's gate is ORed with it here.
@@ -1222,8 +1250,18 @@ private:
     // order is untouched), and how far Together is in (a change of mode crossfades the rides over 0.5 s).
     Cycle m_cycle;
     double m_cycleStart = 0.0;
+    bool m_cycleStartPending = true; // the clock has still to be placed by Peak At (see setCycleStart)
     sj::Random m_cycleRng;
     float m_togetherMix = 0.0f;
+    // This chunk's clock: cycleX() at its first sample, how far it moves per sample, how long one swell is
+    // (seconds, from Rate), Peak At in use, and where the unstaggered swell was at the end of the last chunk
+    // (0 its trough .. 1), for telling a new swell from the old one.
+    double m_cycleX0 = 0.5, m_cycleDX = 0.0;
+    float m_cycleSeconds = 3.5f, m_cyclePeakAt = 0.5f;
+    double m_cycleSwell = 0.0;
+    float m_cycleSizeNow = 1.0f;         // the swell's size, eased to each new draw
+    std::int64_t m_cycleAimed = -1;      // the peak AIM has decided about last (cycleX() there)
+    float m_makeupTogether = 0.0f;       // the m_togetherMix m_makeupTarget was worked out for
     // Auto Swell, and its own draws.
     AutoSwellState m_autoSwell;
     sj::Random m_autoRng;

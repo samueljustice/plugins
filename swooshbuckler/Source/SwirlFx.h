@@ -7,28 +7,55 @@
 #include <vector>
 
 /**
- * SWIRL'S TAPE FLANGER AND DOUBLER (a stub: it passes the sound untouched; the DSP is filled in by its own work
- * package). Two of Swirl's five types, one bus at a time, one SwirlFx per bus (RigEngine::BusState::swirlFx).
- * JUCE-free, built on DspUtils.
+ * SWIRL'S TAPE FLANGER AND DOUBLER. Two of Swirl's five types, one bus at a time, one SwirlFx per bus
+ * (RigEngine::BusState::swirlFx). JUCE-free, built on DspUtils.
  *
- * What the filler must provide (design 3.4 and 3.5):
- *   Tape Flanger, per lane: a clean ring of c_dryMs (whole samples) for the dry; the wet read from the line at
- *     D0 + d (cubic), low-passed at 15 kHz (two one-poles at 19 kHz), soft-clipped, inverted when Invert is on;
- *     feedback read at max(|d|, 0.25 ms) through the same low-pass, gain 0.9 x Feedback, never running away;
- *     out = cos(m pi/2) dry + sin(m pi/2) wet with m = mixFor(knob). d = settle(motion + hand), eased into end stops
- *     at +-c_maxOffsetMs. With the Pass: motion = Depth (1 - 1.3 passNear); On Its Own: a warped sine at Rate with
- *     its depth held under 8 ms Hz / rate; By Hand: 0. Varispeed adds `hand` in every Motion: speed =
- *     0.03 sgn(v) ((|v| - 0.05) / 0.95)^1.5 past a 5% dead zone, a 0.1 s one-pole, hand -= speed dt per sample,
- *     eased to a stop over the last 10% of the range; the hand is held when v returns to 0 (getOffsetMs).
- *     Wobble: two 15 ms one-poles plus Wobble x 0.35 x a 0.6 Hz resonance (damping 0.1). Second lane
- *     d2 = d (1 - 0.15 d / 6 ms), third lane the same with +0.15.
- *   Doubler, per lane: no dry delay; d = (1 - Wander) Delay + Wander (3 ms + P u(t)), P = min(70 ms, 50 ms Hz / rate),
- *     u in 0..1 from the Wave (Random: noise through two one-poles at 0.4 x rate, from its own sj::Random);
- *     Thicken on: feedback -0.65 (1 - d / 45 ms)^1.2 (0 above 45 ms); off: 0.68 x Feedback. Spread: lane 2 at
- *     1.3 x Delay with u inverted (independent for Random), lane 3 at 1.15 x with its own. Mix as above.
- *   One 110 ms line per lane shared by both types, and the 8 ms ring, all made in prepare(): nothing allocates
- *   after it, on a change of type or anywhere on the audio thread. Delays, gains and mixes ramp per sample across
- *   each call from where the last one ended. No latency is reported to anyone.
+ * Tape Flanger, per lane (design 3.4). A second copy of the lane on a moving delay that can run ahead of the first:
+ *
+ *     x -+-> clean ring, D0 = c_dryMs in whole samples -------------------------------> dry
+ *        +->(+)-> line -+-> cubic read at D0 + d -> low-pass -> soft clip -> +-1 ------> wet
+ *            ^          +-> cubic read at max(|d|, 0.25 ms) -> low-pass -> soft clip -> x g -+
+ *            +-----------------------------------------------------------------------------+
+ *     out = cos(m pi/2) dry + sin(m pi/2) wet,   m = mixFor(knob)
+ *
+ *   The low-pass is two one-poles at 19 kHz (the copy is 2.8 dB down at 15 kHz at 48 kHz, 4 dB at 192 kHz); the wet read is moved earlier by their delay
+ *   at low frequencies, so at d = 0 the copy lies on the dry and, inverted, cancels it. The soft clip is
+ *   2 tanh(x / 2). g = 0.9 x Feedback: under 1, and the clip is inside the loop, so it never runs away. With no
+ *   feedback the second read is not made.
+ *   d = stops(settle(motion + hand)), in ms, positive = the copy later than the dry.
+ *     With the Pass: motion = Depth (1 - c_passLead passNear): late when the pass is far, through zero just before
+ *       its closest point, (c_passLead - 1) Depth early at it and back through zero just after.
+ *     On Its Own: motion = min(Depth, 8 ms Hz / Rate) sin(2 pi w(phase)), w(p) = p - c_ownWarp sin^2(pi p): the late
+ *       half takes 60% of the cycle and the turn on the early side is the quick one. The cap holds the pitch swing
+ *       near +-6% (measured in SwirlFxTest).
+ *     By Hand: motion = 0.
+ *     hand (Varispeed, in every Motion): speed = 0.03 sgn(v) ((|v| - 0.05) / 0.95)^1.5 past a 5% dead zone,
+ *       followed over 0.1 s; hand -= speed dt, so the copy is pitched by exactly `speed` (51 cents at the ends)
+ *       while it moves; the speed eases to nothing over the last 10% of the range; with v back at 0 the hand stays
+ *       where it is (getOffsetMs), and recentre() slides it home (at the full lean's speed at most).
+ *     settle (Wobble): two 15 ms one-poles, plus Wobble x 0.35 x the ring of a 0.6 Hz resonance (damping 0.1)
+ *       that follows them. The ring is held under c_ringMaxMs (softly), so a sweep or a row of passes near 0.6 Hz
+ *       cannot build it up to several times the Depth: a single move still rings by up to a third of its size.
+ *     stops: unchanged up to 5.6 ms, eased into +-c_maxOffsetMs beyond.
+ *     Second lane: d2 = d (1 - 0.15 d / 6 ms), third lane d3 = d (1 + 0.15 d / 6 ms): the same zero, a different
+ *       sweep either side (so they reach 6.9 ms on one side).
+ *
+ * Doubler, per lane (design 3.5). One delayed, wandering copy; the dry is not delayed:
+ *
+ *     x -> dry;   x ->(+)-> line -> cubic read at d -> low-pass -> wet;   the wet x g back into the line
+ *
+ *   d = smooth((1 - Wander) Delay k + Wander (3 ms + P u)), P = min(70 ms, 50 ms Hz / Rate), u in 0..1 from the
+ *   Wave: Sine and Triangle start at 0 and top out half way through the cycle; Random is noise through two
+ *   one-poles at 0.4 x Rate, from its own sj::Random, folded into 0..1 by a tanh (its spread is a quarter of the
+ *   range). smooth is two 5 ms one-poles (a turned wheel glides, a Triangle's corner does not click).
+ *   Spread: k = 1.3 and u upside down in the second lane, k = 1.15 and u a quarter cycle on in the third (in
+ *   Random each lane has its own noise); off, every lane is the first.
+ *   Thicken on: g = -0.65 (1 - d / 45 ms)^1.2, 0 above 45 ms, following the moving delay. Off: g = 0.68 x Feedback.
+ *
+ * One 110 ms line per lane shared by both types, the 8 ms ring per lane and two more for the stereo bed's sides,
+ * all made in prepare(): nothing allocates or locks after it. The motions are worked out once per call and every
+ * delay, gain and mix ramps sample by sample across the call from where the last one ended. No latency is
+ * reported to anyone.
  *
  * What the callers rely on (RigEngine::renderBus, owned by the engine's work package):
  *   - prepare(sampleRate) from RigEngine::prepare; reset() from RigEngine::reset and on every seeded restart (the
@@ -36,10 +63,14 @@
  *     scatter() from RigEngine::scatterRide (each rendered file starts its sweeps somewhere else).
  *   - processTape() / processDoubler() once per chunk (32 samples at most, c_maxFrames) on the bus's lanes, in
  *     place, while that type is the one in use; the engine fades the bus out and in over 30 ms around a change of
- *     type, and calls reset() while the type is neither. `knob` is the front Swirl wheel with its modulation
+ *     type, and calls reset() while the type is neither. reset() costs nothing when nothing has been processed
+ *     since the last one, so it may be called every chunk. Going straight from one type to the other clears the
+ *     lines and snaps (the held Varispeed offset is kept). `knob` is the front Swirl wheel with its modulation
  *     (0..1) at the end of the chunk; the mix ramps to it from where the last call left it (the first call after
- *     reset() snaps). A lane pointer that is null is skipped.
- *   - Lanes::passNearFrom / passNearTo: the engine's, for With the Pass (see Lanes).
+ *     reset() snaps). A lane pointer that is null is skipped: its motion still runs and
+ *     silence goes into its line, so a lane that comes back (a throw) starts clean.
+ *   - Lanes::passNearFrom / passNearTo: the engine's, for With the Pass (see Lanes). Only passNearTo is read: the
+ *     motion goes from where the last call ended to it.
  *   - delaySides(): the stereo bed's side signal, delayed by the same dry ring while Tape Flanger is on (it rejoins
  *     after the colours). Called every chunk the type is Tape Flanger, after processTape().
  *   - dryDelaySamples(): how long the dry ring is (c_dryMs in whole samples at this rate; the same from prepare()
@@ -49,6 +80,7 @@
  *     publishes it / c_maxOffsetMs as RigEngine::getVarispeedOffset).
  *   - recentre(): the meter was double-clicked: the offset slides home (audio thread: the engine calls it while
  *     Params::varispeedHome is set, which may be for several chunks running; calling it again changes nothing).
+ *     Varispeed is not read while it slides.
  */
 class SwirlFx
 {
@@ -57,6 +89,25 @@ public:
     static constexpr int c_maxFrames = 32;
     static constexpr double c_lineSeconds = 0.110, c_dryMs = 8.0;
     static constexpr float c_maxOffsetMs = 6.0f;
+
+    // Tape Flanger, With the Pass: how far past zero the copy is at the pass's closest point (1.15 .. 1.5; see the
+    // class comment and the measurements in SwirlFxTest).
+    static constexpr double c_passLead = 1.3;
+    // On Its Own: the warp that gives the late side 60% of the cycle (0.1 / sin^2(0.6 pi)).
+    static constexpr double c_ownWarp = 0.11056;
+    static constexpr double c_ownSwingMsHz = 8.0;
+    // Varispeed: the speed at the end of the wheel, its dead zone, how long the speed takes to follow, and the
+    // share of the range it eases to a stop over.
+    static constexpr double c_handSpeed = 0.03, c_handDead = 0.05, c_handSeconds = 0.1, c_handEase = 0.1;
+    // Wobble.
+    static constexpr double c_settleSeconds = 0.015, c_ringHz = 0.6, c_ringDamping = 0.1, c_ringShare = 0.35, c_ringMaxMs = 4.0;
+    // Where the end stops start to ease (ms short of c_maxOffsetMs), and the lanes' bend.
+    static constexpr double c_stopKneeMs = 0.4, c_laneBend = 0.15;
+    static constexpr double c_tapeFeedback = 0.9, c_feedbackFloorMs = 0.25, c_lowPassHz = 19000.0;
+    // Doubler.
+    static constexpr double c_wanderFloorMs = 3.0, c_wanderMaxMs = 70.0, c_wanderMsHz = 50.0, c_randomRate = 0.4, c_randomFold = 0.68;
+    static constexpr double c_thickenGain = 0.65, c_thickenEndMs = 45.0, c_thickenPower = 1.2, c_doublerFeedback = 0.68;
+    static constexpr double c_spreadSecond = 1.3, c_spreadThird = 1.15, c_doublerSmoothSeconds = 0.005;
 
     enum Motion { WithPass = 0, OnItsOwn, ByHand };
     enum Wave { WaveRandom = 0, WaveSine, WaveTriangle };
@@ -94,13 +145,21 @@ public:
 
     /** The wet's share for the front Swirl wheel (0..1): m = 0.5 knob^0.7, equal power. */
     static float mixFor(float knob);
+    /** The laws on their own, for the tests and the pictures: the speed a Varispeed value leans to (0.03 = 3%
+        faster), On Its Own's place in its sweep (-1 .. 1) for a phase, the Doubler's widest wander (ms) at a rate,
+        Thicken's loop gain at a delay, and the end stops. */
+    static double leanSpeed(double varispeed);
+    static double ownShape(double phase);
+    static double wanderRangeMs(double rateHz);
+    static double thickenGain(double delayMs);
+    static double stops(double offsetMs);
 
     void prepare(double sampleRate);
     void reset();
     void setSeed(std::uint32_t seed) { m_rng.seed(seed); }
     /** Where its own sweeps start (0..1 of a cycle: Tape Flanger On Its Own, the Doubler's Sine and Triangle), for
         renders. After reset(). */
-    void scatter(float phase) { m_startPhase = sj::clamp(phase, 0.0f, 1.0f); }
+    void scatter(float phase);
 
     void processTape(const Tape& settings, float knob, const Lanes& lanes, int frames);
     void processDoubler(const Doubler& settings, float knob, const Lanes& lanes, int frames);
@@ -108,14 +167,47 @@ public:
     void delaySides(float* left, float* right, int frames);
 
     int dryDelaySamples() const { return m_drySamples; }
-    float getOffsetMs() const { return m_hand; }
-    void recentre() { m_recentre = true; }
+    float getOffsetMs() const { return static_cast<float>(m_hand); }
+    void recentre() { if (m_hand != 0.0) m_recentre = true; }
+    /** Where a lane's copy sits against its dry at the end of the last call, in ms (Tape Flanger: d, either sign;
+        Doubler: its delay). For the tests and the pictures. */
+    float getLaneOffsetMs(int lane) const { return static_cast<float>(m_lane[static_cast<size_t>(lane < 0 ? 0 : (lane >= c_lanes ? c_lanes - 1 : lane))].offsetMs); }
 
 private:
+    enum Kind { None = 0, TapeFlanger, DoublerKind };
+
+    struct Lane
+    {
+        sj::DelayLine line;
+        std::vector<float> dry;      // the clean ring, m_drySamples long
+        int dryAt = 0;
+        std::array<sj::OnePole, 2> wetLp, loopLp;
+        double fast1 = 0.0, fast2 = 0.0; // the two one-poles of settle (ms)
+        double ringAt = 0.0, ringSpeed = 0.0; // the resonance that follows them (ms, ms/s)
+        double noise1 = 0.0, noise2 = 0.0;    // Random's two one-poles
+        double offsetMs = 0.0;       // d at the end of the last call
+        double delay = 0.0;          // the wet read's delay at the end of the last call, samples
+        float loopGain = 0.0f;       // the feedback gain there
+    };
+
+    void begin(Kind kind);
+    void clearSound();
+    void leanHand(double varispeed, double dt);
+
     double m_sampleRate = 48000.0;
     int m_drySamples = 384;  // c_dryMs at m_sampleRate
+    double m_lowPassDelay = 0.0; // the two one-poles' delay at low frequencies, samples
     float m_startPhase = 0.0f;
     sj::Random m_rng;
-    float m_hand = 0.0f;     // the held Varispeed offset, ms
+    std::array<Lane, c_lanes> m_lane;
+    std::array<std::vector<float>, 2> m_side;
+    int m_sideAt = 0;
+    Kind m_kind = None;
+    bool m_snap = true;      // the next call starts from its own settings instead of ramping to them
+    bool m_dirty = false;    // something has been through the lines since they were last cleared
+    float m_dryGain = 1.0f, m_wetGain = 0.0f;
+    double m_ownPhase = 0.0, m_wavePhase = 0.0;
+    double m_speed = 0.0;    // Varispeed's speed now (0.03 = 3% faster)
+    double m_hand = 0.0;     // the held Varispeed offset, ms
     bool m_recentre = false;
 };

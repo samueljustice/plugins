@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Motion.h"
 #include "Parameters.h"
 #include "Theme.h"
 
@@ -12,8 +13,7 @@ class SwooshbucklerAudioProcessor;
 class ModTarget;
 
 /**
- * THE DETAIL LAYER (a stub: it is never shown and draws nothing; filled in by the layers' work package, which also
- * owns LookAndFeel, PluginEditor and ModPanel).
+ * THE DETAIL LAYER: the host that turns one panel over to show what is behind one of its notched controls.
  *
  * A layer opens in place, inside one panel: the panel's knob row and title-bar controls give way to what is behind
  * one notched control (Layers::Target, Parameters.h), while the panel's scope strip stays. One layer per panel;
@@ -26,10 +26,16 @@ class ModTarget;
  * wheel is not touched) and Back. The front wheel stays in the first cell, live. Close: Back, Esc, or
  * double-clicking the front wheel again. It folds with the Stowaway plate's 180 ms Motion::Fade.
  *
- * What the filler (the layers' package) must provide: the host below (opening, closing, Reset, Back, Esc, the fold,
- * hiding the panel's front controls so their cables hide); the notch on notched wheels and its gestures (double-
- * click or the notch opens, Shift-double-click resets, the right-click menu); registering a page's wireTargets()
- * as wire targets while the page is open.
+ * The host (one for each panel that has layers: Ride, Bus A, Bus B) covers its panel and takes clicks only on its
+ * children: the page, and Reset and Back at the right of the title bar. The window keeps the rest: it hides the
+ * panel's front controls while the layer shows (so their cables hide), moves the front wheel into the first cell,
+ * writes the title, closes the layer on Esc and on a second double-click of the front wheel, and registers the
+ * page's wireTargets() as wire targets while it is open (onPageChanged tells it when to). The notch on the front
+ * wheels and its gestures are WheelKnob's (LookAndFeel.h).
+ *
+ * The fold (Motion::Fade, 180 ms, as the Stowaway plate's): the first half the front fades out, the second half the
+ * layer fades in; showsLayer() says which side is up and sideAlpha() how far it has faded in. A page is made when
+ * the layer opens and goes once it has folded shut.
  *
  * What the pages (LayerPages, the pages' package) rely on: LayerPage below and DetailLayer's grid (its constants
  * and the static pageWidth(), choiceBox(), choiceHalf(), cell(), wheelBox() and meterBox()), unchanged. The host
@@ -121,6 +127,28 @@ public:
     DetailLayer(SwooshbucklerAudioProcessor& processor, const Theme::Fonts& fonts);
     ~DetailLayer() override;
 
+    // The window's side of the host (pages need none of this).
+    /** Where the page goes and where Reset and Back sit, in this host's own coordinates (the panel's). */
+    void setPlaces(juce::Rectangle<int> page, juce::Rectangle<int> keys);
+    /** One frame of the fold, dt seconds; refreshes the page about 30 times a second while it shows. True when the
+        side that shows or its fade changed (the window then lays the panel out again). */
+    bool step(float dt);
+    /** The fold to its end at once (the pictures and the tests). */
+    void finishFold();
+    /** The layer's side is up (the fold is past its middle): the panel shows the page, not its front. */
+    bool showsLayer() const { return m_fold.value >= 0.5f; }
+    /** How far the side that is up has faded in: 1 at rest, 0 at the middle of the fold. */
+    float sideAlpha() const { return showsLayer() ? juce::jlimit(0.0f, 1.0f, 2.0f * m_fold.value - 1.0f) : juce::jlimit(0.0f, 1.0f, 1.0f - 2.0f * m_fold.value); }
+    bool isFolding() const { return m_fold.moving(); }
+    /** The page while one is made (open, or folding shut), or nullptr. */
+    LayerPage* getPage() const { return m_page.get(); }
+    /** The page's wire targets (none without a page). */
+    std::vector<ModTarget*> wireTargets() const { return m_page != nullptr ? m_page->wireTargets() : std::vector<ModTarget*> {}; }
+    /** A page was made, swapped or is about to go (it is still alive during the call): the wire targets change. */
+    std::function<void()> onPageChanged;
+    juce::TextButton& getResetKey() { return m_reset; }
+    juce::TextButton& getBackKey() { return m_back; }
+
     /** Opens the layer for `target` in this host's panel (another one open here is swapped for it). */
     void open(Layers::Target target, juce::Colour accent);
     /** Back: the front comes back. */
@@ -135,12 +163,23 @@ public:
     std::function<void(Layers::Target)> onClosed;
 
     void paint(juce::Graphics&) override {}
-    void resized() override {}
+    void resized() override;
 
 private:
+    /** Shows the side that is up at its fade (the page, Reset and Back), and drops the page once folded shut. */
+    void applyFold();
+    void dropPage();
+    void makePage(juce::Colour accent);
+
     SwooshbucklerAudioProcessor& m_processor;
     const Theme::Fonts& m_fonts;
     bool m_open = false;
     Layers::Target m_target;
     std::unique_ptr<LayerPage> m_page;
+    Motion::Fade m_fold;
+    juce::TextButton m_reset { "Reset" }, m_back { "Back" };
+    juce::Rectangle<int> m_pagePlace, m_keysPlace;
+    int m_refreshTick = 0;
+    bool m_shownSide = false;
+    float m_shownAlpha = -1.0f;
 };

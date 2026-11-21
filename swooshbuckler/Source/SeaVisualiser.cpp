@@ -118,29 +118,53 @@ void SeaVisualiser::showConstellation(bool holdOn)
     m_constellationOpacity = juce::jmax(m_constellationOpacity, holdOn ? 1.0f : 0.02f);
 }
 
+void OutputSpectrum::read(const SwooshbucklerAudioProcessor& processor)
+{
+    processor.copyScope(m_data.data(), c_fftSize);
+    std::fill(m_data.begin() + c_fftSize, m_data.end(), 0.0f);
+    m_window.multiplyWithWindowingTable(m_data.data(), c_fftSize);
+    m_fft.performFrequencyOnlyForwardTransform(m_data.data(), true);
+    m_rate = static_cast<float>(processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0);
+}
+
+float OutputSpectrum::level(float magnitude, float hz)
+{
+    // Tilt +3 dB/oct so noise reads flat, then map -84..-6 dB to 0..1
+    const float db = juce::Decibels::gainToDecibels(magnitude * 4.0f / c_fftSize, -120.0f) + 3.0f * std::log2(hz / 1000.0f);
+    return juce::jlimit(0.0f, 1.0f, (db + 84.0f) / 78.0f);
+}
+
+float OutputSpectrum::band(float f0, float f1) const
+{
+    int k0 = static_cast<int>(f0 / m_rate * c_fftSize);
+    int k1 = juce::jmax(k0 + 1, static_cast<int>(f1 / m_rate * c_fftSize));
+    k0 = juce::jlimit(1, c_fftSize / 2 - 1, k0);
+    k1 = juce::jlimit(k0 + 1, c_fftSize / 2, k1);
+    float mag = 0.0f;
+    for (int k = k0; k < k1; ++k)
+        mag = juce::jmax(mag, m_data[static_cast<size_t>(k)]);
+    return level(mag, f0);
+}
+
+float OutputSpectrum::at(float hz) const
+{
+    const float bin = juce::jlimit(1.0f, static_cast<float>(c_fftSize / 2 - 1), hz / m_rate * c_fftSize);
+    const int k = juce::jmin(c_fftSize / 2 - 2, static_cast<int>(bin));
+    const float t = juce::jlimit(0.0f, 1.0f, bin - static_cast<float>(k));
+    const float mag = m_data[static_cast<size_t>(k)] + (m_data[static_cast<size_t>(k) + 1] - m_data[static_cast<size_t>(k)]) * t;
+    return level(mag, juce::jmax(1.0f, hz));
+}
+
 void SeaVisualiser::analyse()
 {
-    m_processor.copyScope(m_fftData.data(), c_fftSize);
-    std::fill(m_fftData.begin() + c_fftSize, m_fftData.end(), 0.0f);
-    m_window.multiplyWithWindowingTable(m_fftData.data(), c_fftSize);
-    m_fft.performFrequencyOnlyForwardTransform(m_fftData.data(), true);
-
-    const float rate = static_cast<float>(m_processor.getSampleRate() > 0.0 ? m_processor.getSampleRate() : 48000.0);
+    m_spectrum.read(m_processor);
+    const float rate = m_spectrum.rate();
     const float lo = 35.0f, hi = juce::jmin(18000.0f, rate * 0.45f);
     for (int b = 0; b < c_bands; ++b)
     {
         const float f0 = lo * std::pow(hi / lo, static_cast<float>(b) / c_bands);
         const float f1 = lo * std::pow(hi / lo, static_cast<float>(b + 1) / c_bands);
-        int k0 = static_cast<int>(f0 / rate * c_fftSize);
-        int k1 = juce::jmax(k0 + 1, static_cast<int>(f1 / rate * c_fftSize));
-        k0 = juce::jlimit(1, c_fftSize / 2 - 1, k0);
-        k1 = juce::jlimit(k0 + 1, c_fftSize / 2, k1);
-        float mag = 0.0f;
-        for (int k = k0; k < k1; ++k)
-            mag = juce::jmax(mag, m_fftData[static_cast<size_t>(k)]);
-        // Tilt +3 dB/oct so noise reads flat, then map -84..-6 dB to 0..1
-        const float db = juce::Decibels::gainToDecibels(mag * 4.0f / c_fftSize, -120.0f) + 3.0f * std::log2(f0 / 1000.0f);
-        const float v = juce::jlimit(0.0f, 1.0f, (db + 84.0f) / 78.0f);
+        const float v = m_spectrum.band(f0, f1);
         auto& s = m_smooth[static_cast<size_t>(b)];
         s += (v - s) * (v > s ? 0.55f : 0.18f);
     }

@@ -113,8 +113,9 @@ private:
 /**
  * A slider you can type a value into. A right-click (or an Alt-double-click) opens a small box over the control
  * showing its value; type a new one in the control's own units ("-12 dB", "4.2 s", "35%", or just the number),
- * Return keeps it and Esc (or clicking away) leaves the control as it was. A plain double-click still resets.
- * The typed value is one undo step, like a drag.
+ * Return keeps it and Esc (or clicking away) leaves the control as it was. A Shift-double-click resets it, and so
+ * does a plain double-click, except on a control with a layer behind it (onOpen): there a plain double-click opens
+ * the layer. The typed value is one undo step, like a drag.
  *
  * The owner says which parameter the control is attached to (setTypedParameter); what is typed is matched against
  * that parameter's own readout (see TypedValue), so every law works without a formula of its own.
@@ -135,6 +136,11 @@ public:
     std::function<void()> onTypedValue;
     /** A right-click opens this instead of the box. */
     std::function<void()> onContextMenu;
+    /** A plain double-click calls this instead of resetting (a notched wheel: it opens the layer behind it). A
+        Shift-double-click still resets. */
+    std::function<void()> onOpen;
+    /** Puts the control back to its default as one undo step (what a Shift-double-click does). */
+    void resetToDefault();
 
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
@@ -297,6 +303,20 @@ public:
     /** Where the wheel is drawn now, 0..1 of its travel (the value, but for the spring and the coast). */
     float getShownPosition() const { return m_shown; }
 
+    /** The notch: a small square at the dial's lower left on a wheel with a layer behind it (Swirl, Filter, Rate).
+        Hollow while everything behind it is at its default, filled when anything is not. */
+    enum class Notch { None = 0, Hollow, Filled };
+    void setNotch(Notch notch) { if (notch != m_notch) { m_notch = notch; repaint(); } }
+    Notch getNotch() const { return m_notch; }
+    /** Where the notch is drawn, in this knob's coordinates (empty without one). A click a little around it counts. */
+    juce::Rectangle<float> getNotchArea() const;
+    bool isOverNotch(juce::Point<float> p) const { return m_notch != Notch::None && getNotchArea().expanded(3.0f).contains(p); }
+    /** A click on the notch (it opens, or closes, the layer). */
+    std::function<void()> onNotch;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+
 protected:
     juce::Rectangle<int> typingBounds() const override; // over the caption and the value, under the dial
 
@@ -320,4 +340,6 @@ private:
     double m_valueTextFor = 0.0;
     bool m_valueTextStale = true;
     juce::Path m_scratch; // the arcs are built in this one path
+    Notch m_notch = Notch::None;
+    bool m_notchClick = false, m_overNotch = false; // this press landed on the notch; the mouse is over it
 };

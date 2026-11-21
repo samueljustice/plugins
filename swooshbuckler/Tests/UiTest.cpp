@@ -2921,6 +2921,297 @@ int main(int argc, char* argv[])
         }
     }
 
+    // The layers -----------------------------------------------------------------------------------------------
+    // A notched wheel opens its layer on a double-click (and its notch), turns back on Back, Esc or a second double-
+    // click; Shift-double-click resets every wheel; the controls the layer covers go invisible, and their cables with
+    // them; Reset is one undo step; the notch fills when anything behind it is off its default; Swell writes its host
+    // parameter, takes a wire, and shows a MIDI hold; every text fits with layers open at 0.85, 1.0 and 1.5.
+    std::cout << "The layers" << std::endl;
+    {
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        DemoSounds::loadInto(proc);
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        proc.setPlaying(true);
+        rig.run(0.5);
+        auto& state = proc.getState();
+        auto plain = [&](const char* id) { return state.getParameter(id)->convertFrom0to1(state.getParameter(id)->getValue()); };
+        auto set = [&](const char* id, float v) { auto* p = state.getParameter(id); p->setValueNotifyingHost(p->convertTo0to1(v)); };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.1);
+        };
+        auto click = [](juce::Component& c, juce::Point<float> at, juce::ModifierKeys mods, int clicks)
+        {
+            const auto now = juce::Time::getCurrentTime();
+            return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), at, mods.withFlags(juce::ModifierKeys::leftButtonModifier),
+                                    juce::MouseInputSource::defaultPressure, juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                    juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY, &c, &c, now, at, now, clicks, false);
+        };
+        auto doubleClick = [&](WheelKnob& k, juce::ModifierKeys mods)
+        {
+            const auto at = k.getDialCentre();
+            k.mouseDown(click(k, at, mods, 1));
+            k.mouseUp(click(k, at, mods, 1));
+            k.mouseDown(click(k, at, mods, 2));
+            k.mouseUp(click(k, at, mods, 2));
+            k.mouseDoubleClick(click(k, at, mods, 2));
+        };
+        auto& hostA = *ed.m_layers[Editor::BusAPanel];
+        auto* swirl = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Swirl]]);
+        auto* doppler = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Doppler]]);
+        auto* rate = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::rate]);
+        const auto swirlFront = swirl->getBounds();
+
+        // Four notches on the front, hollow; nothing else is notched.
+        {
+            int notched = 0, hollow = 0;
+            for (auto& k : ed.m_knobs)
+                if (k->getNotch() != WheelKnob::Notch::None)
+                {
+                    ++notched;
+                    hollow += k->getNotch() == WheelKnob::Notch::Hollow ? 1 : 0;
+                }
+            check(notched == 5 && hollow == 5 && ! ed.m_swell.isNotchFilled() && ! hostA.isOpen() && ! hostA.isVisible(),
+                  "layers: Swirl and Filter on both buses and Rate carry a hollow notch, Swell a hollow one, and the window opens on the front ("
+                      + juce::String(notched) + " notched wheels)");
+        }
+
+        // A wire on Doppler: its cable shows on the front.
+        const int dopplerWire = proc.getMods().connect(0, ParamIDs::bus[0][ParamIDs::Doppler], 0.5f);
+        ed.m_wires.rebuild();
+        auto plugsOn = [&](ModTarget* t) { int n = 0; for (const auto& plug : ed.m_wires.m_plugs) n += plug.knob == t ? 1 : 0; return n; };
+        const int plugsBefore = plugsOn(doppler);
+
+        // Double-click opens it; the knob row and the title bar's controls go, the front wheel moves to the first cell.
+        set(ParamIDs::bus[0][ParamIDs::Swirl], 0.3f);
+        doubleClick(*swirl, {});
+        settle();
+        const bool opened = hostA.isOpen() && hostA.getTarget() == Layers::Target { Layers::Kind::Swirl, 0 } && hostA.getPage() != nullptr
+                            && hostA.getPage()->isVisible() && std::abs(plain(ParamIDs::bus[0][ParamIDs::Swirl]) - 0.3f) < 1.0e-4f;
+        const bool covered = ! doppler->isVisible() && ! ed.m_passMode[0].isVisible() && ! ed.m_sectionDice[Presets::BusA]->isVisible()
+                             && ! ed.m_controls[ParamIDs::bus[0][ParamIDs::Filter]]->isVisible() && swirl->isVisible()
+                             && swirl->getX() == ed.m_sections[0].bounds.getX() + 12 && ed.m_flightPath[0].isVisible();
+        check(opened && covered, "layers: a double-click on Swirl opens Bus A / Swirl in place without moving the wheel; the knob row, Pass, "
+                                 "the die and the lock go, Swirl moves to the first cell, the scope strip stays");
+        check(! doppler->isReachable() && plugsOn(doppler) == 0 && plugsBefore == 1,
+              "layers: a wire on a wheel the layer covers has no plug or cable while the layer is up (" + juce::String(plugsBefore) + " before)");
+        {
+            const auto page = hostA.getPage()->getBounds() + hostA.getPosition();
+            const auto panel = ed.m_sections[0].bounds;
+            check(page.getX() == swirl->getRight() && page.getY() == panel.getY() + 42 && page.getWidth() == DetailLayer::pageWidth({ Layers::Kind::Swirl, 0 })
+                      && page.getHeight() == DetailLayer::c_rowHeight && panel.contains(page) && panel.contains(hostA.getBackKey().getBounds() + hostA.getPosition()),
+                  "layers: the page sits on the knob row right of the front wheel's cell, inside the panel, Reset and Back in its title bar ("
+                      + page.toString() + ")");
+        }
+
+        // Esc turns it back over; everything comes back where it was, the cable too.
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        settle();
+        check(! hostA.isOpen() && hostA.getPage() == nullptr && ! hostA.isVisible() && doppler->isVisible() && swirl->getBounds() == swirlFront
+                  && plugsOn(doppler) == 1 && juce::exactlyEqual(doppler->getAlpha(), 1.0f),
+              "layers: Esc turns the panel back over: the page goes, the wheels are back in their columns, the cable is back");
+
+        // The notch opens it too; a second double-click on the front wheel closes it; Back closes it.
+        swirl->mouseDown(click(*swirl, swirl->getNotchArea().getCentre(), {}, 1));
+        swirl->mouseUp(click(*swirl, swirl->getNotchArea().getCentre(), {}, 1));
+        settle();
+        const bool byNotch = hostA.isOpen();
+        doubleClick(*swirl, {});
+        settle();
+        const bool closedAgain = ! hostA.isOpen();
+        ed.openLayer({ Layers::Kind::Filter, 0 });
+        settle();
+        const bool filter = hostA.isOpen() && hostA.getTarget().kind == Layers::Kind::Filter
+                            && ed.m_controls[ParamIDs::bus[0][ParamIDs::Filter]]->getX() == ed.m_sections[0].bounds.getX() + 12 && ! swirl->isVisible();
+        hostA.getBackKey().triggerClick();
+        rig.run(0.05);
+        hostA.getBackKey().onClick(); // (triggerClick posts; the tests have no message loop)
+        settle();
+        check(byNotch && closedAgain && filter && ! hostA.isOpen(),
+              "layers: the notch opens it, a second double-click on the front wheel closes it, Filter swaps in its own wheel, Back closes it");
+
+        // Shift-double-click resets a notched wheel (without opening it); a plain one still resets a wheel with no notch.
+        doubleClick(*swirl, juce::ModifierKeys::shiftModifier);
+        settle();
+        const bool swirlReset = std::abs(plain(ParamIDs::bus[0][ParamIDs::Swirl]) - state.getParameter(ParamIDs::bus[0][ParamIDs::Swirl])->convertFrom0to1(
+                                             state.getParameter(ParamIDs::bus[0][ParamIDs::Swirl])->getDefaultValue())) < 1.0e-4f && ! hostA.isOpen();
+        set(ParamIDs::bus[0][ParamIDs::Doppler], 0.9f);
+        doubleClick(*doppler, {});
+        const bool dopplerReset = std::abs(state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getValue()
+                                           - state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getDefaultValue()) < 1.0e-4f;
+        set(ParamIDs::bus[0][ParamIDs::Doppler], 0.9f);
+        doubleClick(*doppler, juce::ModifierKeys::shiftModifier);
+        const bool dopplerShift = std::abs(state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getValue()
+                                           - state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getDefaultValue()) < 1.0e-4f;
+        check(swirlReset && dopplerReset && dopplerShift,
+              "layers: Shift-double-click resets a notched wheel and does not open it; a wheel with no notch resets on a double-click, Shift or not");
+        check(swirl->getProperties()["howTo"].toString().startsWith("Double-click to open it. Shift-double-click to reset it."),
+              "layers: a notched wheel's tooltip says a double-click opens it and Shift-double-click resets it");
+
+        // Off its default, the notch fills and the tooltip names the type; Reset puts it back as one undo step.
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 3.0f); // Tape Flanger
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlFeedback], 0.2f);
+        ed.updateNotches(true);
+        const bool filled = swirl->getNotch() == WheelKnob::Notch::Filled && swirl->getTooltip().startsWith("Bus A Swirl: Tape Flanger\n");
+        ed.openLayer({ Layers::Kind::Swirl, 0 });
+        settle();
+        const int undoBefore = proc.getHistory().canUndo() ? 1 : 0;
+        hostA.resetDetail();
+        settle();
+        const bool reset = juce::roundToInt(plain(ParamIDs::busDetail[0][ParamIDs::SwirlType])) == 0 && swirl->getNotch() == WheelKnob::Notch::Hollow
+                           && swirl->getTooltip().startsWith("Bus A: Swirl\n");
+        juce::String what;
+        proc.getHistory().undo(&what);
+        rig.run(0.1);
+        ed.updateNotches(true);
+        const bool undone = juce::roundToInt(plain(ParamIDs::busDetail[0][ParamIDs::SwirlType])) == 3
+                            && std::abs(plain(ParamIDs::busDetail[0][ParamIDs::SwirlFeedback]) - 0.2f) < 0.02f && swirl->getNotch() == WheelKnob::Notch::Filled;
+        check(filled && reset && undone && undoBefore == 1,
+              "layers: off its default the notch fills and the tooltip names the type; Reset puts the layer back in one step that one undo takes back ("
+                  + what + ")");
+
+        // Varispeed on a Tape Flanger page is a wire target while the page is open, and only then.
+        {
+            const auto varispeed = ParamIDs::busDetail[0][ParamIDs::Varispeed];
+            const bool targetOpen = ed.m_wires.m_knobs.count(varispeed) == 1;
+            hostA.close();
+            settle();
+            const bool goneClosed = ed.m_wires.m_knobs.count(varispeed) == 0;
+            check(targetOpen && goneClosed, "layers: Bus A's Varispeed takes a wire while its Tape Flanger page is open, and leaves the wire targets when it closes");
+        }
+        hostA.resetDetail(); // (closed: nothing happens)
+        for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[0][ParamIDs::SwirlFeedback] })
+            state.getParameter(id)->setValueNotifyingHost(state.getParameter(id)->getDefaultValue());
+
+        // One layer per panel, each panel its own: Ride and both buses at once; Esc closes the newest first.
+        ed.openLayer({ Layers::Kind::Swell, 0 });
+        ed.openLayer({ Layers::Kind::Swirl, 0 });
+        ed.openLayer({ Layers::Kind::Filter, 1 });
+        settle();
+        const bool three = ed.m_layers[0]->isOpen() && hostA.isOpen() && ed.m_layers[2]->isOpen() && ! rate->isVisible() && ed.m_swell.isVisible()
+                           && ! ed.m_rideButton.isVisible() && ! ed.m_keysMode.isVisible() && ! ed.m_throwButton.isVisible();
+        for (const float scale : { 0.85f, 1.0f, 1.5f })
+        {
+            ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
+            checkTexts("three layers open at " + juce::String(scale, 2), ed, 1.0f, scale);
+        }
+        ed.setSize(Editor::c_width, Editor::c_height);
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        settle();
+        const bool newestFirst = ed.m_layers[0]->isOpen() && hostA.isOpen() && ! ed.m_layers[2]->isOpen();
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        settle();
+        check(three && newestFirst && ! ed.m_layers[0]->isOpen() && ! hostA.isOpen() && rate->isVisible() && ed.m_rideButton.isVisible(),
+              "layers: Ride, Bus A and Bus B each hold a layer at once (Swell stays at Ride's left); Esc turns them back the newest first");
+
+        // The EQ key opens the plate over Bus B: Bus B's controls hide (their cables with them); Esc puts it away.
+        {
+            const int bWire = proc.getMods().connect(1, ParamIDs::bus[1][ParamIDs::Doppler], 0.5f);
+            ed.m_wires.rebuild();
+            auto* bDoppler = dynamic_cast<ModTarget*>(ed.m_controls[ParamIDs::bus[1][ParamIDs::Doppler]]);
+            const int before = plugsOn(bDoppler);
+            ed.m_eqKey.onClick();
+            rig.run(0.1);
+            const bool shown = ed.isEqPlateOpen() && ed.m_eqPlate->getBounds() == ed.m_sections[1].bounds && ! bDoppler->isVisible()
+                               && plugsOn(bDoppler) == 0 && ! ed.m_linkBuses.isVisible() && ! ed.m_flightPath[1].isVisible() && ed.m_eqKey.getToggleState();
+            for (const float scale : { 0.85f, 1.0f, 1.5f })
+            {
+                ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
+                checkTexts("the EQ plate at " + juce::String(scale, 2), ed, 1.0f, scale);
+            }
+            ed.setSize(Editor::c_width, Editor::c_height);
+            ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+            rig.run(0.1);
+            check(before == 1 && shown && ! ed.isEqPlateOpen() && bDoppler->isVisible() && plugsOn(bDoppler) == 1 && ed.m_layers[2]->getPage() == nullptr,
+                  "EQ: the key opens the plate exactly over Bus B, whose controls and cables hide under it; Esc puts it away and brings them back");
+            proc.getMods().disconnect(bWire);
+        }
+        proc.getMods().disconnect(dopplerWire);
+        ed.m_wires.rebuild();
+
+        // Swell: a press writes the host's parameter (a DAW records it); a wire lands on it; a MIDI hold lights it.
+        {
+            auto& sw = ed.m_swell;
+            const auto at = sw.getDialCentre();
+            sw.mouseDown(click(sw, at, {}, 1));
+            const bool param = plain(ParamIDs::swell) > 0.5f && (proc.getSwellSources() & Proc::SwellFromParameter) != 0;
+            sw.mouseUp(click(sw, at, {}, 1));
+            const bool released = plain(ParamIDs::swell) < 0.5f;
+            check(param && released, "swell: pressing the button holds the host's Swell parameter, letting go releases it");
+
+            // A second hold from the key while the button is down: one press for the host, released by the last hand.
+            ed.holdSwell(Editor::HoldByButton, true);
+            ed.holdSwell(Editor::HoldByKey, true);
+            ed.holdSwell(Editor::HoldByButton, false);
+            const bool stillHeld = plain(ParamIDs::swell) > 0.5f;
+            ed.holdSwell(Editor::HoldByKey, false);
+            check(stillHeld && plain(ParamIDs::swell) < 0.5f, "swell: the button and the key together are one press, held until the last lets go");
+
+            // The notch opens the Swell layer (a press there does not swell).
+            sw.mouseDown(click(sw, sw.getNotchArea().getCentre(), {}, 1));
+            sw.mouseUp(click(sw, sw.getNotchArea().getCentre(), {}, 1));
+            settle();
+            check(ed.m_layers[0]->isOpen() && ed.m_layers[0]->getTarget().kind == Layers::Kind::Swell && plain(ParamIDs::swell) < 0.5f,
+                  "swell: its notch opens Ride / Swell without swelling");
+            ed.m_layers[0]->close();
+            settle();
+
+            // Auto Swell: the line under the word says so, and the notch fills.
+            set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
+            rig.run(0.2);
+            ed.updateNotches(true);
+            const bool line = sw.getLine() == "Auto: 4.0 s" && sw.isNotchFilled();
+            set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellPeaks));
+            rig.run(0.2);
+            const bool peaks = sw.getLine() == "Auto: Peaks";
+            set(ParamIDs::swellAuto, 0.0f);
+            rig.run(0.2);
+            ed.updateNotches(true);
+            check(line && peaks && sw.getLine().startsWith("Hold") && ! sw.isNotchFilled(),
+                  "swell: its second line reads Auto: 4.0 s or Auto: Peaks while Auto Swell is on, and its notch fills");
+
+            // A wire: Swell is a target like a knob, with a plug.
+            const int wire = proc.getMods().connect(2, ParamIDs::swell, 0.5f);
+            ed.m_wires.rebuild();
+            check(wire >= 0 && ed.m_wires.m_knobs.count(ParamIDs::swell) == 1 && plugsOn(&sw) == 1 && sw.isModulated(),
+                  "swell: a Mod jack wires to it like a knob (a plug on its rim, its reach drawn on it)");
+            proc.getMods().disconnect(wire);
+            ed.m_wires.rebuild();
+
+            // MIDI: the sustain pedal holds Swell; the button's lamp lights and it squashes.
+            juce::MidiBuffer pedal;
+            pedal.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+            rig.block.clear();
+            proc.processBlock(rig.block, pedal);
+            rig.run(0.3);
+            const bool midi = (proc.getSwellSources() & Proc::SwellFromMidi) != 0 && sw.isLampLit() && sw.m_scale.target < 0.95f;
+            pedal.clear();
+            pedal.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
+            proc.processBlock(rig.block, pedal);
+            rig.run(0.3);
+            check(midi && ! sw.isLampLit() && sw.m_scale.target > 0.95f && plain(ParamIDs::swell) < 0.5f,
+                  "swell: a MIDI hold (the sustain pedal) shows on the button: its lamp lights and it squashes, without touching the parameter");
+        }
+
+        // A click on the sea swells for a moment; the window closing in that moment lets go of the host's Swell.
+        {
+            ed.m_sea.onClick();
+            const bool pulsed = plain(ParamIDs::swell) > 0.5f && (ed.m_swellHolds & Editor::HoldByPulse) != 0;
+            rig.editor.reset();
+            check(pulsed && plain(ParamIDs::swell) < 0.5f,
+                  "swell: a click on the sea holds Swell for a moment; a window closed in that moment lets go of it");
+        }
+        proc.setPlaying(false);
+    }
+
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;
     return g_failures == 0 ? 0 : 1;
 }
