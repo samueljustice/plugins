@@ -12,6 +12,7 @@ float SwirlFx::mixFor(float knob)
 void SwirlFx::prepare(double sampleRate)
 {
     m_sampleRate = sampleRate > 0.0 ? sampleRate : 48000.0;
+    m_drySamples = static_cast<int>(std::lround(c_dryMs * 0.001 * m_sampleRate));
     reset();
 }
 
@@ -19,6 +20,7 @@ void SwirlFx::reset()
 {
     m_hand = 0.0f;
     m_recentre = false;
+    m_startPhase = 0.0f;
 }
 
 void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, int frames)

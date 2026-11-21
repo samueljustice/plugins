@@ -30,6 +30,9 @@ int main()
         SwirlFx fx;
         fx.prepare(48000.0);
         check(fx.getOffsetMs() == 0.0f, "varispeed: the held offset starts in the middle");
+        check(fx.dryDelaySamples() == 384, "tape flanger: the dry ring is 8 ms in whole samples (384 at 48 kHz)");
+        fx.prepare(44100.0);
+        check(fx.dryDelaySamples() == 353, "tape flanger: 353 samples at 44.1 kHz");
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : std::to_string(g_failures) + " FAILED") << std::endl;

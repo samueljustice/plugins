@@ -1204,6 +1204,20 @@ private:
     std::array<std::uint32_t, 2> m_ropeFading { 0, 0 };
     std::array<std::atomic<int>, 2> m_ropeView { { { -1 }, { -1 } } };
     int wantedRope(int side) const;
+    // WHAT IS DECLARED HERE AND NOT YET USED (RigEngine.cpp's part, with this header from here on): the state below,
+    // BusState's swirlType .. leadTarget, and Params' rideMode (Together), together, autoSwell, swirlDetail,
+    // filterDetail and varispeedHome. What the rest of the plug-in already relies on:
+    //   - m_cyclePeakView (getCyclePeakIn), m_autoSwellView (isAutoSwelling) and m_varispeedView (getVarispeedOffset:
+    //     SwirlFx::getOffsetMs() / SwirlFx::c_maxOffsetMs, 0 unless the bus's Swirl is a Tape Flanger) are written
+    //     every chunk; the window reads them.
+    //   - reset(), restartNow() and reseedNow() put m_cycle.phase at m_cycleStart (setCycleStart: Render Variations'
+    //     Whole Ride starts each file on a trough) and reseed m_cycleRng, m_autoRng and each bus's SwirlFx and
+    //     SweepFilter from m_seed ^ a constant of their own, so m_rng's draws stay in the order they were.
+    //   - prepare() prepares each bus's swirlFx and sweep (nothing allocates after it); scatterRide() scatters the
+    //     Auto Swell clock and both of those.
+    //   - Params::swell is everything outside the engine that holds Swell; Auto Swell's gate is ORed with it here.
+    //   - Params::varispeedHome[b] may stay set for several chunks: SwirlFx::recentre() while it is.
+    //   - With every new Params field at its default the output is what it was before they existed.
     // Faders Together (see Cycle): the clock, where it starts, its own draws (seeded m_seed ^ a constant, so m_rng's
     // order is untouched), and how far Together is in (a change of mode crossfades the rides over 0.5 s).
     Cycle m_cycle;

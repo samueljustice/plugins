@@ -17,6 +17,11 @@ class SwooshbucklerAudioProcessor;
  * double-click flattens the band or parks the cut; right-click types values. Each drag is one undo step
  * (EditHistory::Group). It writes the ParamIDs::eq* parameters with begin/end gestures.
  *
+ * What it reads: the settings from SwooshbucklerAudioProcessor::getOutputEqParams() and the rate from
+ * getRenderRate() (the curve is the true discrete response there: OutputEq::responseDb, one band or all of them);
+ * the spectrum from copyScope() (what the sea reads: the output's mono sum after the EQ and the output stage, at
+ * getSampleRate(), the device's rate), through the helper its package factors out of SeaVisualiser::analyse().
+ *
  * What the callers rely on: the plate (EqPlate) owns one and reads getSelectedBand() for its readout row; the EQ
  * key in Output's title bar (PluginEditor, the layers' package) draws its miniature with paintMiniature().
  */

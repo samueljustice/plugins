@@ -2563,6 +2563,12 @@ void SwooshbucklerAudioProcessor::restoreStateTree(juce::ValueTree tree)
         if (auto play = tree.getChildWithProperty("id", ParamIDs::play); play.isValid())
             play.setProperty("value", 0.0f, nullptr);
 
+    // A lean on Varispeed is a hand on the wheel, not a setting: a state saved while one was held comes back with
+    // the wheel in the middle (left leaning, the offset would run to its end stop and stay there).
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+        if (auto lean = tree.getChildWithProperty("id", ParamIDs::busDetail[b][ParamIDs::Varispeed]); lean.isValid())
+            lean.setProperty("value", ParamIDs::busDetailDefaults[ParamIDs::Varispeed], nullptr);
+
     // Sessions saved before AIM existed keep the hit gate (and SYNC HITS) they were made with: AIM is on only for new
     // sessions. A parameter missing from a saved state would otherwise keep its default (on).
     if (! tree.getChildWithProperty("id", ParamIDs::hitAim).isValid())

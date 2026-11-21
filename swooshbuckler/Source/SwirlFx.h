@@ -32,16 +32,23 @@
  *
  * What the callers rely on (RigEngine::renderBus, owned by the engine's work package):
  *   - prepare(sampleRate) from RigEngine::prepare; reset() from RigEngine::reset and on every seeded restart (the
- *     held Varispeed offset goes back to the middle on a transport start); setSeed(m_seed ^ const) there too.
+ *     held Varispeed offset goes back to the middle on a transport start); setSeed(m_seed ^ const) there too, and
+ *     scatter() from RigEngine::scatterRide (each rendered file starts its sweeps somewhere else).
  *   - processTape() / processDoubler() once per chunk (32 samples at most, c_maxFrames) on the bus's lanes, in
  *     place, while that type is the one in use; the engine fades the bus out and in over 30 ms around a change of
- *     type, and calls reset() while the type is neither.
+ *     type, and calls reset() while the type is neither. `knob` is the front Swirl wheel with its modulation
+ *     (0..1) at the end of the chunk; the mix ramps to it from where the last call left it (the first call after
+ *     reset() snaps). A lane pointer that is null is skipped.
+ *   - Lanes::passNearFrom / passNearTo: the engine's, for With the Pass (see Lanes).
  *   - delaySides(): the stereo bed's side signal, delayed by the same dry ring while Tape Flanger is on (it rejoins
- *     after the colours).
- *   - dryDelaySamples(): what Tape Flanger delays the dry by (Aim adds it to that bus's time to its peak). 0 in
- *     every other type, and in this stub.
- *   - getOffsetMs(): the held Varispeed offset (-c_maxOffsetMs .. +c_maxOffsetMs), for the offset meter.
- *   - recentre(): the meter was double-clicked: the offset slides home.
+ *     after the colours). Called every chunk the type is Tape Flanger, after processTape().
+ *   - dryDelaySamples(): how long the dry ring is (c_dryMs in whole samples at this rate; the same from prepare()
+ *     on). It is the engine that knows the type: it counts this only while the bus's Swirl is a Tape Flanger (Aim
+ *     adds it to that bus's time to its peak, Faders Together to its lead).
+ *   - getOffsetMs(): the held Varispeed offset (-c_maxOffsetMs .. +c_maxOffsetMs), for the offset meter (the engine
+ *     publishes it / c_maxOffsetMs as RigEngine::getVarispeedOffset).
+ *   - recentre(): the meter was double-clicked: the offset slides home (audio thread: the engine calls it while
+ *     Params::varispeedHome is set, which may be for several chunks running; calling it again changes nothing).
  */
 class SwirlFx
 {
@@ -91,18 +98,23 @@ public:
     void prepare(double sampleRate);
     void reset();
     void setSeed(std::uint32_t seed) { m_rng.seed(seed); }
+    /** Where its own sweeps start (0..1 of a cycle: Tape Flanger On Its Own, the Doubler's Sine and Triangle), for
+        renders. After reset(). */
+    void scatter(float phase) { m_startPhase = sj::clamp(phase, 0.0f, 1.0f); }
 
     void processTape(const Tape& settings, float knob, const Lanes& lanes, int frames);
     void processDoubler(const Doubler& settings, float knob, const Lanes& lanes, int frames);
     /** Tape Flanger's dry delay on a stereo bed's side signal (left and right), in place. */
     void delaySides(float* left, float* right, int frames);
 
-    int dryDelaySamples() const { return 0; }
+    int dryDelaySamples() const { return m_drySamples; }
     float getOffsetMs() const { return m_hand; }
     void recentre() { m_recentre = true; }
 
 private:
     double m_sampleRate = 48000.0;
+    int m_drySamples = 384;  // c_dryMs at m_sampleRate
+    float m_startPhase = 0.0f;
     sj::Random m_rng;
     float m_hand = 0.0f;     // the held Varispeed offset, ms
     bool m_recentre = false;
