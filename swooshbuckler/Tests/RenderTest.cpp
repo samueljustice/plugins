@@ -1059,6 +1059,74 @@ int main(int argc, char* argv[])
                           << juce::String(db(audio[0].samples.getRMSLevel(0, 480, 480)), 1) << " dB RMS)" << std::endl;
         }
 
+        // What is behind Swirl and Filter, the Output EQ, Faders Together and Auto Swell reach the files: each of
+        // them, set on the rig, changes the ride that is rendered (the same seed, so nothing else differs), the
+        // same settings render the same file twice, and the file says what was off its default.
+        {
+            using Each = VariationRenderer::Each;
+            auto& state = rig.proc.getState();
+            auto setPlain = [&state](const juce::String& id, float plain)
+            {
+                auto* p = state.getParameter(id);
+                p->setValueNotifyingHost(p->convertTo0to1(plain));
+            };
+            auto ride = [&](const juce::String& name)
+            {
+                const auto into = out.getChildFile("detail-" + name);
+                auto job = makeJob(rig, into, VariationRenderer::Mode::NewPasses, 1, 1.0, 808);
+                job.each = Each::WholeRide;
+                job.rideSeconds = 2.5;
+                render(rig, job);
+                const auto made = filesIn(into);
+                return made.size() == 1 ? made[0] : juce::File();
+            };
+            const auto plainFile = ride("plain");
+            const auto plainRide = readFile(plainFile);
+            struct Setting { const char* name; juce::String id; float value; const char* said; };
+            const Setting changes[] = {
+                { "tape",      ParamIDs::busDetail[0][ParamIDs::SwirlType],     static_cast<float>(ParamIDs::SwirlTape),    "Tape Flanger" },
+                { "doubler",   ParamIDs::busDetail[1][ParamIDs::SwirlType],     static_cast<float>(ParamIDs::SwirlDoubler), "Doubler" },
+                { "flanger",   ParamIDs::busDetail[0][ParamIDs::SwirlType],     static_cast<float>(ParamIDs::SwirlFlanger), "Flanger" },
+                { "feedback",  ParamIDs::busDetail[0][ParamIDs::SwirlFeedback], -0.9f, "" },
+                { "high-pass", ParamIDs::busDetail[1][ParamIDs::FilterType],    1.0f,  "High Pass" },
+                { "sweep",     ParamIDs::busDetail[0][ParamIDs::FilterSweep],   1.0f,  "" },
+                { "eq",        ParamIDs::eqLowMidGain,                          9.0f,  "Output EQ" },
+                { "together",  ParamIDs::rideMode,                              static_cast<float>(ParamIDs::RideTogether), nullptr },
+                { "auto",      ParamIDs::swellAuto,                             static_cast<float>(ParamIDs::AutoSwellClock), nullptr },
+            };
+            bool carried = plainRide.samples.getNumSamples() > 0, repeats = carried, said = carried;
+            juce::String report, missing;
+            for (const auto& setting : changes)
+            {
+                auto* p = state.getParameter(setting.id);
+                const float was = p->getValue();
+                setPlain(setting.id, setting.value);
+                if (juce::String(setting.name) == "auto")
+                    setPlain(ParamIDs::swellEvery, 0.5f);
+                const auto file = ride(setting.name);
+                const auto with = readFile(file);
+                const double by = difference(plainRide, with);
+                const double again = difference(with, readFile(ride(juce::String(setting.name) + "-again")));
+                const auto text = TapeRecorder::readDescription(file);
+                carried = carried && by > 0.01;
+                repeats = repeats && again == 0.0;
+                if (setting.said != nullptr && ! text.contains(juce::String(setting.said).isEmpty() ? p->getName(40) : juce::String(setting.said)))
+                {
+                    said = false;
+                    missing << setting.name << " ";
+                }
+                report << setting.name << " " << juce::String(juce::roundToInt(100.0 * by)) << "%" << (again == 0.0 ? "" : " (not the same twice)") << "; ";
+                p->setValueNotifyingHost(was);
+                if (juce::String(setting.name) == "auto")
+                    setPlain(ParamIDs::swellEvery, 4.0f);
+            }
+            std::cout << "         a ride against the same ride with one setting changed (RMS of the difference): " << report << std::endl;
+            check(carried, "detail: the Swirl types, Swirl's Feedback, the Filter's Type and Sweep, the Output EQ, Faders Together and Auto Swell each change the rendered ride");
+            check(repeats, "detail: each of them renders the same file twice");
+            check(said && ! TapeRecorder::readDescription(plainFile).contains("Output EQ"), "detail: the file's description names what is behind Swirl and Filter and the Output EQ when they are off their defaults, and not otherwise " + missing);
+            check(difference(plainRide, readFile(ride("plain-after"))) == 0.0, "detail: with them back at their defaults the ride is the one it was");
+        }
+
         // The estimate shown before rendering.
         {
             auto job = makeJob(rig, out.getChildFile("estimate"), VariationRenderer::Mode::NewPasses, 100, 3.0, 1);

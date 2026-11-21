@@ -120,6 +120,12 @@ public:
         m_second = false;
     }
     void setSeed(std::uint32_t seed) { m_rng.seed(seed); m_draw = true; }
+    /** One lane's filter empty again (a lane that has been out of use and comes back, like a room's throws). */
+    void resetLane(int lane)
+    {
+        if (lane >= 0 && lane < c_lanes)
+            m_state[static_cast<size_t>(lane)] = {};
+    }
     /** The rhythm from this point of its cycle (0..1): renders start each file somewhere else. */
     void scatter(float phase)
     {

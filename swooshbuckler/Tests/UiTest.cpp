@@ -3134,6 +3134,54 @@ int main(int argc, char* argv[])
                   "EQ: the key opens the plate exactly over Bus B, whose controls and cables hide under it; Esc puts it away and brings them back");
             proc.getMods().disconnect(bWire);
         }
+
+        // Output EQ: a handle drag is one undo step; a cut parks and unparks.
+        {
+            auto& history = proc.getHistory();
+            auto plain = [&](const char* id) { auto* p = proc.getState().getParameter(id); return p->convertFrom0to1(p->getValue()); };
+            ed.setEqPlateOpen(true);
+            auto& graph = ed.m_eqPlate->getGraph();
+            auto dragTo = [&](juce::Point<float> from, juce::Point<float> to)
+            {
+                graph.mouseDown(mouseAt(graph, from, from, false));
+                for (int i = 1; i <= 8; ++i)
+                    graph.mouseDrag(mouseAt(graph, from + (to - from) * (static_cast<float>(i) / 8.0f), from, true));
+                graph.mouseUp(mouseAt(graph, to, from, true));
+            };
+            graph.flattenAll();
+            history.clear();
+            const float hz0 = plain(ParamIDs::eqLowMidFreq);
+            dragTo(graph.handleCentre(OutputEq::LowMid), { graph.xForHz(1000.0f), graph.yForDb(6.0f) });
+            const bool moved = std::abs(plain(ParamIDs::eqLowMidFreq) - 1000.0f) < 5.0f && std::abs(plain(ParamIDs::eqLowMidGain) - 6.0f) < 0.05f
+                               && graph.getSelectedBand() == OutputEq::LowMid;
+            history.undo();
+            check(moved && std::abs(plain(ParamIDs::eqLowMidFreq) - hz0) < 0.01f && std::abs(plain(ParamIDs::eqLowMidGain)) < 1.0e-4f && ! history.canUndo(),
+                  "eq: dragging a handle sets its frequency and gain, and one Undo takes the whole drag back");
+
+            const auto parked = graph.handleCentre(OutputEq::LowCut);
+            const bool wasParked = graph.isParked(OutputEq::LowCut) && parked.x < static_cast<float>(graph.plotArea().getX());
+            dragTo(parked, { graph.xForHz(80.0f), parked.y });
+            const bool on = ! graph.isParked(OutputEq::LowCut) && std::abs(plain(ParamIDs::eqLowCut) - 80.0f) < 1.0f && proc.isOutputEqActive();
+            const auto at = graph.handleCentre(OutputEq::LowCut);
+            dragTo(at, { 2.0f, at.y });
+            const bool parkedAgain = graph.isParked(OutputEq::LowCut) && ! proc.isOutputEqActive();
+            check(wasParked && on && parkedAgain, "eq: Low Cut is parked outside the axis, pulling it in turns it on (80 Hz) and pushing it back out parks it");
+
+            const auto hi = graph.handleCentre(OutputEq::HighCut);
+            dragTo(hi, { graph.xForHz(12000.0f), hi.y });
+            const bool hiOn = ! graph.isParked(OutputEq::HighCut);
+            const auto hiAt = graph.handleCentre(OutputEq::HighCut);
+            graph.mouseDown(mouseAt(graph, hiAt, hiAt, false));
+            graph.mouseDoubleClick(mouseAt(graph, hiAt, hiAt, false));
+            graph.mouseUp(mouseAt(graph, hiAt, hiAt, false));
+            check(hiOn && graph.isParked(OutputEq::HighCut), "eq: High Cut comes in from the right, and a double-click parks it");
+
+            ed.m_eqPlate->refresh();
+            check(Theme::getLook(ed.m_eqPlate->m_slope) == Theme::Look::Resting, "eq: the 24 dB key rests while Low Cut is off");
+            graph.flattenAll();
+            history.clear();
+            ed.setEqPlateOpen(false);
+        }
         proc.getMods().disconnect(dopplerWire);
         ed.m_wires.rebuild();
 

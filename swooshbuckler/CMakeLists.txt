@@ -417,12 +417,23 @@ if(SWOOSHBUCKLER_TESTS)
         PRIVATE juce::juce_audio_utils juce::juce_dsp
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
+    # Swirl and Filter detail test: what is behind the two wheels, wired into the buses (the types, the Tape Flanger
+    # with the passes, a stereo bed's sides, a change of Type, each Filter type), on the engine itself.
+    juce_add_console_app(SwooshbucklerSwirlWire PRODUCT_NAME "SwooshbucklerSwirlWire")
+    juce_generate_juce_header(SwooshbucklerSwirlWire)
+    target_sources(SwooshbucklerSwirlWire PRIVATE Tests/SwirlWireTest.cpp ${SWOOSHBUCKLER_DSP_SOURCES})
+    target_include_directories(SwooshbucklerSwirlWire PRIVATE Source)
+    target_compile_definitions(SwooshbucklerSwirlWire PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1)
+    target_link_libraries(SwooshbucklerSwirlWire
+        PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
     # The tests keep whole engines (RigEngine and its fixed buffers) as locals. A Windows program's main thread
     # gets 1 MB of stack against macOS's 8 MB, and MSVC gives every local its own place, so there they ask for plenty (it is only reserved, not used). (The plug-in and the
     # app keep the engine inside the processor, which is never on a stack.)
     if(MSVC)
         foreach(test Cargo Rig Classify Pitch Morph Master Session Keep Render Routing Stowaway Room Surround Hits
-                     Wide SpaceLfe Output Files Export App FirstRun Ui OutputEq SwirlFx SweepFilter Together)
+                     Wide SpaceLfe Output Files Export App FirstRun Ui OutputEq SwirlFx SweepFilter Together SwirlWire)
             if(TARGET Swooshbuckler${test})
                 target_link_options(Swooshbuckler${test} PRIVATE "/STACK:67108864")
             endif()
