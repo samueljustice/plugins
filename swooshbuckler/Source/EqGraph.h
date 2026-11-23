@@ -50,6 +50,8 @@ public:
     static constexpr float c_marginX = 18.0f, c_marginY = 9.0f;
     /** A handle's side, how near a click must be to take it, and where a parked cut sits from the well's edge. */
     static constexpr float c_handle = 10.0f, c_reach = 10.0f, c_parkedInset = 8.0f;
+    // Where a cut's handle rides while the cut is in: its corner, 3 dB down.
+    static constexpr float c_cutHandleDb = -3.0f;
     /** A drag this close to 0 dB is 0 dB. */
     static constexpr float c_detentDb = 0.3f;
 

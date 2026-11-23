@@ -131,7 +131,7 @@ namespace
             e.process(nullptr, nullptr, l, rr, c_chunk);
             const float in = e.getCyclePeakIn();
             if (lastIn >= 0.0f && in > lastIn + 0.5f * swell) // (a Rate that jumps moves it too, by less)
-                r.peaks.push_back(static_cast<double>(pos + c_chunk) - (static_cast<double>(swell) - static_cast<double>(in)) * fs);
+                r.peaks.push_back(static_cast<double>(pos + c_chunk) - (static_cast<double>(e.getCycleSeconds()) - static_cast<double>(in)) * fs); // (the swell as it is now: it follows Rate over a second)
             lastIn = in;
             lastSeconds = swell;
             for (int m = 0; m < e.getNumMarkers(); ++m)
@@ -656,6 +656,46 @@ int main(int argc, char* argv[])
             check(worstGapApart < 1.0e-3f, "back apart, the two passes of a bus are half a pass apart again" + which);
             if (linked)
                 check(worstGapLinked < 1.0e-4f, "a linked bus B flies bus A's passes, on the clock and off it");
+        }
+        {
+            // The swell's length follows Rate over about a second: a Rate that jumps, or a modulator wired to it,
+            // glides the passes on the clock instead of bending their pitch about.
+            auto e = std::make_unique<RigEngine>();
+            auto q = base();
+            q.rideMode = RigEngine::RideTogether;
+            q.rate = 0.0f;
+            start(*e, four, q);
+            float worstStep = 0.0f, last = 0.0f, after1 = 0.0f, after6 = 0.0f, swung = 0.0f, swungLow = 1.0e9f, swungHigh = 0.0f;
+            const float atStart = ::Params::passSeconds(0.0f), wantedLength = ::Params::passSeconds(1.0f);
+            run(*e, c_rate, 30.0, nullptr, [&](int pos)
+            {
+                const double t = pos / c_rate;
+                auto now = q;
+                // 2 s: Rate from 0% to 100% in one step. From 12 s: Rate swung over its whole range six times a second.
+                now.rate = t < 2.0 ? 0.0f : t < 12.0 ? 1.0f : 0.5f + 0.5f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 6.0 * t));
+                e->setParams(now);
+                const float length = e->getCycleSeconds();
+                if (pos == 0)
+                    last = atStart;
+                if (t > 0.01)
+                    worstStep = std::max(worstStep, std::abs(length - last) / last);
+                last = length;
+                if (pos == static_cast<int>(3.0 * c_rate) / c_chunk * c_chunk) after1 = length;
+                if (pos == static_cast<int>(8.0 * c_rate) / c_chunk * c_chunk) after6 = length;
+                if (t > 16.0)
+                {
+                    swungLow = std::min(swungLow, length);
+                    swungHigh = std::max(swungHigh, length);
+                }
+                return ::Params::passSeconds(now.rate);
+            });
+            swung = swungHigh / swungLow - 1.0f;
+            std::cout << "  Rate 0% to 100% in one step (" << atStart << " s to " << wantedLength << " s): the swell is " << after1 << " s long a second later, " << after6
+                      << " s six seconds later; it never moves by more than " << 100.0f * worstStep << "% in a chunk. Rate swung 0..100% at 6 Hz: the swell's length stays within "
+                      << 100.0f * swung << "% (" << swungLow << " .. " << swungHigh << " s)" << std::endl;
+            check(worstStep < 0.002f, "a Rate that jumps glides the swell's length (no step in the passes' speed)");
+            check(after1 > 2.2f && after1 < 3.2f && std::abs(after6 - wantedLength) < 0.01f * wantedLength, "the swell's length follows Rate over about a second and gets there");
+            check(swung < 0.05f, "a modulator swinging Rate six times a second barely moves the swell's length");
         }
     }
 

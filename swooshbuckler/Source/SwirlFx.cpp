@@ -7,7 +7,7 @@ namespace
 {
     constexpr double c_pi = 3.14159265358979323846;
 
-    /** The wet path's soft clip: 2 tanh(x / 2), unity for small sounds, never past 2. */
+    /** The loop's soft clip: 2 tanh(x / 2), unity for small sounds, never past 2. */
     inline float softClip(float x) { return 2.0f * sj::fastTanh(0.5f * x); }
 
     /** What a one-pole of `seconds` moves by in `dt`. */
@@ -77,9 +77,9 @@ void SwirlFx::prepare(double sampleRate)
     }
     for (auto& side : m_side)
         side.assign(static_cast<size_t>(m_drySamples), 0.0f);
-    // A one-pole y += a (x - y) is (1 - a) / a samples late at low frequencies.
-    const double a = static_cast<double>(m_lane[0].wetLp[0].a);
-    m_lowPassDelay = 2.0 * (1.0 - a) / a;
+    // Under 120 kHz (44.1 to 96 kHz) the four-point read's loss at the top changes as the copy moves and is heard as sidebands
+    // on the top octave: there the copy is read with the 16-point sinc.
+    m_sincRead = m_sampleRate < c_sincBelowHz;
     m_dirty = true;
     reset();
 }
@@ -212,7 +212,10 @@ void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, 
     const double ringMax = c_ringMaxMs;
     const double limit = static_cast<double>(c_maxOffsetMs);
     const double floorSamples = std::max(3.0, c_feedbackFloorMs * msToSamples);
-    const double base = static_cast<double>(m_drySamples) - m_lowPassDelay;
+    // A whole number of samples: at d = 0 the read returns the very sample the dry ring gives.
+    const double base = static_cast<double>(m_drySamples);
+    const auto& kernel = sj::SincKernel::get();
+    const bool sinc = m_sincRead;
     const float step = 1.0f / static_cast<float>(frames);
     const double stepD = 1.0 / static_cast<double>(frames);
 
@@ -225,7 +228,7 @@ void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, 
         if (settings.motion == WithPass)
             motion = depth * (1.0 - c_passLead * std::clamp(static_cast<double>(lanes.passNearTo[static_cast<size_t>(l)]), 0.0, 1.25));
         else if (settings.motion != OnItsOwn)
-            motion = 0.0;
+            motion = depth; // By Hand: the copy waits Depth late, and a lean brings it through the dry and back
         const double target = motion + m_hand;
         if (m_snap)
         {
@@ -269,7 +272,6 @@ void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, 
                 if (++lane.dryAt == m_drySamples)
                     lane.dryAt = 0;
             }
-            for (auto& pole : lane.wetLp) pole.reset();
             for (auto& pole : lane.loopLp) pole.reset();
             continue;
         }
@@ -278,8 +280,6 @@ void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, 
         float* ring8 = lane.dry.data();
         int at = lane.dryAt;
         const int ringLength = m_drySamples;
-        auto& wet0 = lane.wetLp[0];
-        auto& wet1 = lane.wetLp[1];
         const bool looping = loopFrom != 0.0f || loopTo != 0.0f;
         if (! looping)
         {
@@ -300,7 +300,10 @@ void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, 
                 feed += (loopFrom + (loopTo - loopFrom) * t) * softClip(lane.loopLp[1].lowpass(lane.loopLp[0].lowpass(back)));
             }
             line.push(feed);
-            const float wet = softClip(wet1.lowpass(wet0.lowpass(line.read(delayFrom + (delayTo - delayFrom) * td))));
+            // The copy as it is on the line (the low-pass and the clip are the loop's): with nothing fed back it is
+            // the dry again, moved, so the two cancel alike at every frequency, level and sample rate.
+            const double delayNow = delayFrom + (delayTo - delayFrom) * td;
+            const float wet = sinc ? line.readSinc(delayNow, 1.0, kernel) : line.read(delayNow);
             const float dry = ring8[at];
             ring8[at] = in;
             if (++at == ringLength)
@@ -381,6 +384,8 @@ void SwirlFx::processDoubler(const Doubler& settings, float knob, const Lanes& l
     const float step = 1.0f / static_cast<float>(frames);
     const double stepD = 1.0 / static_cast<double>(frames);
     const double most = static_cast<double>(m_lane[0].line.maxDelay()) - 1.0;
+    const auto& kernel = sj::SincKernel::get();
+    const bool sinc = m_sincRead;
 
     for (int l = 0; l < c_lanes; ++l) // every lane's motion runs, so one that joins later is already in place
     {
@@ -423,7 +428,8 @@ void SwirlFx::processDoubler(const Doubler& settings, float knob, const Lanes& l
         {
             const float t = static_cast<float>(i + 1) * step;
             const float in = x[i];
-            const float wet = wet1.lowpass(wet0.lowpass(line.read(delayFrom + (delayTo - delayFrom) * (static_cast<double>(i + 1) * stepD))));
+            const double delayNow = delayFrom + (delayTo - delayFrom) * (static_cast<double>(i + 1) * stepD);
+            const float wet = wet1.lowpass(wet0.lowpass(sinc ? line.readSinc(delayNow, 1.0, kernel) : line.read(delayNow)));
             line.push(in + (loopFrom + (loopTo - loopFrom) * t) * wet);
             x[i] = (dryFrom + (dryTo - dryFrom) * t) * in + (wetFrom + (wetTo - wetFrom) * t) * wet;
         }

@@ -14,6 +14,7 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
   - [Tracks](#tracks)
   - [The sea](#the-sea)
   - [Morph pad](#morph-pad)
+  - [What is behind a wheel](#what-is-behind-a-wheel)
   - [Ride](#ride)
   - [Bus A and Bus B](#bus-a-and-bus-b)
   - [Hits](#hits)
@@ -70,7 +71,7 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for Bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
 4. **Stowaway** is one extra bus beside the two. It is optional: it starts switched off, and its plate has an **On / Off** switch. Its **Mode** decides what it is. In **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. In **Wake** it is a trail: it opens as Bus A falls away, behind the pass that has just gone by. In **Fly** it is a third mover, with doppler passes of its own. In **Dry** its tracks are only ridden, and go past Space straight to the output stage. A [throw](#throw) reaches it in every mode. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
 5. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
-6. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
+6. **Output** adds echoes and reverb, has an EQ for the whole mix, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
 The small brass arrows between the sections show this flow, and a strip along the bottom of each section's panel shows the last 3 seconds of what it sends on.
 
@@ -185,7 +186,7 @@ When a track becomes the Master, Swooshbuckler works out how that sound moves ov
 
 - **Follower modulators.** A [Follower](#modulation) can follow **Master**, **Master Pitch** or **Master Brightness**: the Master's loudness, pitch or brightness at the moment it is playing. Wire it to any knob, and that knob moves with the Master sound: Bus B's Filter opening as the Master gets brighter, Space growing as it gets louder, another track's Semitones rising with its pitch.
 - **Match Pitch to Master.** Right-click a pitched track's lane and choose **Match Pitch to Master**: its Semitones and Cents are set so the pitch it sits at most of the time is the Master's, to the nearest cent. The Master's own Semitones and Cents count. If the two are more than two octaves apart, the nearest octave in reach is used. A sound with no clear pitch (wind, noise, a hit) is left alone, and the status line says so. It is one undo step.
-- **Follow Master**, in the [Ride](#ride) panel: every other track's ride swells with the Master's loudness instead of its own slow wave.
+- **Follow Master**, a choice of **Ride Mode** in the [Ride](#ride) panel: every other track's ride swells with the Master's loudness instead of its own slow wave.
 
 The Master is saved with the session. Removing its track leaves no Master; undo brings it back.
 
@@ -260,22 +261,40 @@ Each side of the morph listens to its whole bus by default. To morph one particu
 
 The wander runs inside the rig, not in the window: the dot keeps flying with the Swooshbuckler window closed, and it is part of an offline bounce. It leaves the Morph X and Morph Y controls alone (so it writes no automation); when you stop it, the dot stays where the wander left it.
 
+### What is behind a wheel
+
+<img src="docs/images/layer-swirl.png" width="476" alt="Bus A turned over to what is behind Swirl">
+
+The front of the window keeps to one knob for one idea. Five controls have more behind them, and each of those carries a **notch**, a small turned corner at its lower left: **Swirl** and **Filter** on each bus, **Rate**, and the **Swell** button. The notch is an outline while everything behind it is as it starts out, and filled once something there has been changed.
+
+- **Double-click the wheel**, or click its notch, and its panel turns over: the knob row gives way to what is behind that one control. On a bus the wheel itself stays in the first place, live. Swell opens from its notch or its right-click menu, since a press already swells. Nothing outside the panel is covered, and the panel's scope strip stays, so you see and hear what you are setting.
+- The title bar names the layer ("Bus A / Swirl"). **Reset** puts everything on the layer back to its defaults in one Undo step and leaves the front wheel where it is. **Back** turns the panel back.
+- **Back**, **Esc**, or a second double-click on the front wheel closes it. Ride, Bus A and Bus B can each have one layer open; Esc closes the newest first. The window always opens on the front.
+- A control on a layer that does nothing in the current choice is drawn hollow and dashed, and its tooltip says why from its first line.
+- A box that shows only its setting ("Sine", "1 Peak", "Off") has its name in small type over it.
+- **Shift-double-click** resets a wheel with a notch. A right-click on one opens a menu: Open, Type a Value and Reset.
+- The wheels on a layer take no wires: the front wheel is the one to wire. Varispeed (behind Swirl) and the Swell button are the two that do.
+
+The layers: [Faders Together](#faders-together) behind Rate, [Auto Swell](#auto-swell) behind Swell, and on each bus [what is behind Swirl](#what-is-behind-swirl) and [what is behind Filter](#what-is-behind-filter).
+
+What is behind Swirl and Filter is part of a look: presets and A / B hold it, and a preset that does not set it puts it back to its defaults. Randomise, the dice and Small Changes in Render Variations leave it alone.
+
 ### Ride
 
 <img src="docs/images/ride.png" width="404" alt="Ride">
 
 This is where the whooshes come from. With Auto Ride on, each track's fader rises and falls at its own speed (the ten tracks run at different speeds, so they never move together), and the layers swell, overlap and fall away.
 
-Swell is at the left. Its knobs are in a row beside it, with Throw Length at the end; under them are Auto Ride, Follow Master beside it, and Throw under its Throw Length knob. Along the bottom, the **Last 8 s** strip draws where the ride has had the faders over the last eight seconds: Bus A's tracks in coral and Bus B's in turquoise, the newest moment at the right.
+Swell is at the left. Its knobs are in a row beside it, with Throw Length at the end; under them are Auto Ride, the **Ride Mode** box beside it, and Throw under its Throw Length knob. Swell and Rate each have a notch at their lower left: there is more behind them (see [What is behind a wheel](#what-is-behind-a-wheel)). Along the bottom, the **Last 8 s** strip draws where the ride has had the faders over the last eight seconds: Bus A's tracks in coral and Bus B's in turquoise, the newest moment at the right.
 
 | Control | Range (default) | What it does |
 |---|---|---|
-| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. It is a push: held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up (see the note under the table). The space bar does the same, and so does any MIDI note while Keys is set to Swell. |
+| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. It is a push: held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up (see the note under the table). The space bar does the same, and so does any MIDI note while Keys is set to Swell, and a sustain pedal whatever Keys is set to. It is a host parameter too, so a DAW records your presses and plays them back. A small lamp on the button lights while anything holds Swell. A modulator's wire can hold it, and it can fire itself: see [Auto Swell](#auto-swell). |
 | **Throw** | button | Throws one whoosh now. See [Throw](#throw) below. The F key does the same. |
 | **Auto Ride** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. The doppler passes then do the moving: Low End, Swirl and Filter follow how close each pass is. |
-| **Follow Master** | on / off (off) | On: every track's ride swells with the [Master track](#the-master-track)'s loudness instead of its own slow wave, so all the layers move like that one sound. See the note under the table. It waits, drawn hollow, until Auto Ride is on and a track is the Master. |
+| **Ride Mode** | Faders Apart / Faders Together / Follow Master (Faders Apart) | How the faders ride. **Faders Apart**: each track's fader on a slow wave of its own, so the swells overlap and never repeat exactly. **Faders Together**: every fader on one repeating swell, with each bus's pass and the aimed hit on its top; see [Faders Together](#faders-together). **Follow Master**: every track's ride swells with the [Master track](#the-master-track)'s loudness instead of its own slow wave, so all the layers move like that one sound; see the note under the table. It can be chosen once a track is the Master. The box rests, drawn hollow, while Auto Ride is off. |
 | **Energy** | 0–100% (35%) | How deep the ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to −36 dB at 90% and silence at 100%. Dimmed with Auto Ride off, when it does nothing. |
-| **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. |
+| **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. In Faders Together it reads the length of the one swell instead: 6 s to 1.6 s (3.5 s). Double-click it, or click its notch, for [Faders Together](#faders-together)'s own controls. |
 | **Fill** | 0–100% (15%) | Long, softened echoes at about 0.5, 1 and 2 s (each track has its own times, so layered tracks don't echo in step), after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
 | **Chaos** | 0–100% (40%) | How unpredictable it all is. At 0% the rides and passes repeat in a steady pattern and every track plays its sounds in order from its start. Higher: each swell gets its own size and speed, every pass its own length, speed, closeness and direction, and tracks more often jump to a random sound, sometimes starting partway in. |
 | **Pitch** | ±24 semitones (0) | Finer near the middle. Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
@@ -286,11 +305,55 @@ Pitch moves every track at once. To pitch one track on its own, with or without 
 
 Swell only lifts the faders up to the ride's ceiling, so with Auto Ride off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
 
-**Follow Master** swaps each track's own rise and fall for the Master's: when the Master sound is loud the other faders are up, and when it falls away they dip. The Master itself plays as it is, unridden, since its own sound is the swell. Energy still sets how deep the dips go: at 100% the other layers follow the Master all the way down to silence, at low settings they only lean with it. The faders rise quickly with the Master (about 15 ms) and fall a little slower (about 90 ms). Rate still sets the length of the doppler passes. Follow Master is a host parameter and is saved with the session; presets and Randomise leave it alone.
+**Follow Master** swaps each track's own rise and fall for the Master's: when the Master sound is loud the other faders are up, and when it falls away they dip. The Master itself plays as it is, unridden, since its own sound is the swell. Energy still sets how deep the dips go: at 100% the other layers follow the Master all the way down to silence, at low settings they only lean with it. The faders rise quickly with the Master (about 15 ms) and fall a little slower (about 90 ms). Rate still sets the length of the doppler passes. Ride Mode is a host parameter and is saved with the session; presets and Randomise leave it alone.
 
 **The level stays put when the ride changes.** With every fader up all the time (Auto Ride off, Energy below its default, or Swell held) the tracks add up to more than they do while the ride dips them. Swooshbuckler eases the mix down to match, by up to about 5 dB with the faders fully still, so the rig reaches Inflate and the limiter about as loud as with the default ride, and switching Auto Ride on and off compares the movement, not the loudness. It follows Energy and Auto Ride as they glide, and a held Swell over about 2.5 seconds, so a short Swell is still a push. From the default Energy (35%) up, nothing is changed.
 
 How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit.md).
+
+#### Faders Together
+
+<img src="docs/images/layer-together.png" width="404" alt="Ride turned over to Faders Together">
+
+Set **Ride Mode** to **Faders Together** and the movement gets a structure: every track's fader rides the same repeating swell. Each bus flies one doppler pass to every swell, closest at the swell's top, and with **Aim** on a hit lands there too. The faders, the passes and the hit arrive together, swell after swell.
+
+- **Rate** is the length of one swell, from 6 s down to 1.6 s (3.5 s where it starts), and the wheel reads it. Each pass lasts two swells: one on its way in and one on its way out. A change of Rate is taken up over about a second, so the passes glide to their new length.
+- **Chaos** leaves the timing alone. It varies how big each swell is, how close and how fast each pass flies, which way it goes, and where the tracks jump to. At 0% every swell is like the last.
+- **Energy** is what it is in the other modes: how deep the faders dip between the tops.
+- While the rig plays, the top of the Ride panel counts down to the next top ("Peak in 1.2 s"), and the Last 8 s strip shows the regular swells.
+- The hit tracks are not ridden in this mode: a hit plays at its fader's level.
+- With the same sounds, Faders Together is a little quieter than Faders Apart (2 to 3 dB on the demo sounds): the faders are down together between the tops instead of overlapping.
+
+Double-click **Rate**, or click its notch, and the Ride panel turns over to **Ride / Together**:
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Rate** | as on the front | The same Rate, on its own layer so the swell's length can be set beside the rest. |
+| **Hit Every** | 1, 2, 3 or 4 Peaks (1 Peak) | Which tops get a hit: every one, or every second, third or fourth. It needs Aim on. |
+| **Peak At** | 20–80% (50%) | Where in each swell its top falls. 50%: a build as long as the fall. 70%: a long build and a short tail. It shapes the faders' swell; a pass still takes one swell in and one swell out. |
+| **Stagger** | 0–100% (0%) | Fans the tracks in one after another, in track order, up to a tenth of a swell either side of the top. The order is fixed, so it repeats every swell. At 0% every fader peaks together. |
+
+Hit Every, Peak At and Stagger rest, drawn hollow, in the other Ride Modes. Auto Ride, the Ride Mode box and Throw stay under the page, so the mode can be changed from there. The three are saved with the session; presets and Randomise leave them alone. Render Variations starts each **Whole Ride** file at the bottom of a swell, so a file holds whole whooshes.
+
+#### Auto Swell
+
+<img src="docs/images/layer-swell.png" width="404" alt="Ride turned over to Auto Swell">
+
+Swell can fire itself. Click Swell's notch (the turned corner at its lower left) and the Ride panel turns over to **Ride / Swell**. A right-click on Swell opens a menu that does the same and sets Auto Swell directly.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Auto Swell** | Off / On Peaks / On a Clock (Off) | **On Peaks**: Swell is held from 0.3 s before each of Bus A's passes is closest, so every pass gets a push. **On a Clock**: every so often, as Every says. |
+| **Every** | 0.5–30 s (4 s) | How often it fires On a Clock. |
+| **Hold** | 0.25–2.5 s (0.6 s) | How long each one is held. Never more than 60% of Every; the readout shows what is held. |
+| **Chance** | 0–100% (100%) | The chance that each one fires. 50%: about half of them, at random. |
+| **Loose** | 0–50% (0%) | How far each one On a Clock may wander from its place, as a share of Every. 0%: exactly on the clock. |
+
+While Auto Swell is on, the line under the word on the Swell button says so ("Auto: Peaks", "Auto: 4.0 s") and its notch is filled. It runs only while the rig plays, and rests while Auto Ride is off or Energy is 0%, when there is no ride to swell over. On Peaks rests in Faders Together, where the faders already rise to every top. A press of Swell works on top of it.
+
+**A modulator can hold Swell.** Drag a Mod jack onto the Swell button. Swell is held while the modulator is in the top part of its range, and the wire's depth sets how much of the range counts: an LFO at 50% holds the upper half of each cycle, and at 25% gives short pushes. A negative depth uses the low side.
+
+Auto Swell's settings are saved with the session; presets and Randomise leave them alone. A Whole Ride from Render Variations carries the auto swells, each file at its own moments; One Whoosh does not.
 
 #### Throw
 
@@ -300,7 +363,7 @@ How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit
 
 - **While the rig plays**, the throw goes on top of the ride.
 - **With the rig stopped**, you hear just that one whoosh, its tail rings out, and it is silent again. So you can make single whooshes one at a time without the endless ride: arm the tape, press Throw, and each whoosh is recorded with the quiet between them skipped.
-- **The peak is heard half a Throw Length after you throw.** While a throw is on its way in, the top of the Ride panel counts down to it ("Peak in 1.2 s"), so you can place it against picture. In the sea a thrown whoosh is drawn as a comet in its own colour.
+- **The peak is heard half a Throw Length after you throw.** While a throw is on its way in, the top of the Ride panel counts down to it ("Peak in 1.2 s"), so you can place it against picture. (In [Faders Together](#faders-together) the same line counts down to each swell's top once the throw has gone by.) In the sea a thrown whoosh is drawn as a comet in its own colour.
 - Up to four throws can be in flight at once. More than that are dropped until one has finished.
 - A throw's hit is as loud with the rig playing as from rest: the hit track plays once, at its fader level.
 - A throw takes its own path into the buses: Fill's echoes and the Morph work on the ride, not on a throw.
@@ -349,8 +412,8 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. When a pass is off to one side, the ear turned away from it hears it a little duller (only the top end, so a mono fold-down is as solid as without it). In a surround room: how much of its Flight Path a pass travels. |
 | **Bend** | 70% / 60% | How much the pitch bends as a pass goes by: it rises on the way in and drops as the pass goes by, like a real fly-by (the rise is the bigger of the two), up to a race-car scream and drop. It changes the pitch only: how the pass swells and brightens is set by Doppler. |
 | **Low End** | 35% / 30% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. The sub octave follows the lowest part of the sound (about 40 to 120 Hz) and holds still on noise, so it stays a note and not a rumble. |
-| **Swirl** | 30% / 30% | Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps as the passes come and go. Its level is matched, so it changes the colour, not the loudness. |
-| **Filter** | 30% / 40% | A low-pass filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More blends more of it in and closes it further at the peak; the top 40% adds resonance. |
+| **Swirl** | 30% / 30% | Movement inside the sound: a phaser, then (from about a seventh of the way) a flanger that sweeps as the passes come and go. Its level is matched, so it changes the colour, not the loudness. That is the Type it starts out as: a phaser alone, a flanger alone, a through-zero Tape Flanger with Varispeed, and a Doubler are behind its notch. See [What is behind Swirl](#what-is-behind-swirl). |
+| **Filter** | 30% / 40% | A low-pass filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More blends more of it in and closes it further at the peak; the top 40% adds resonance. Its type, slope, range and a rhythm of its own are behind its notch. See [What is behind Filter](#what-is-behind-filter). |
 | **Drive** | 12% / 0% | Saturation, from gentle thickening to a hard, flattened growl. The drive rises evenly in dB and the level stays roughly steady, so it adds character rather than just loudness. |
 | **Ducked** (B only) | 35% | How far Bus A pushes Bus B down at A's peaks, up to −20 dB, judged against A's own recent peak so it works the same on quiet and loud material. |
 | **Filtered** (B only) | 30% | How far Bus A closes a low-pass filter on Bus B at A's peaks, down to about 280 Hz at 100%, so B goes dark under A rather than just quieter. |
@@ -366,6 +429,70 @@ Ducked and Filtered are what Bus A does to Bus B, so they sit in a tinted group 
 All the knobs run from 0 to 100%. How Bus B gets out of the way (turned down, darkened or just its mids) follows the **Duck** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
 
 The strip along the bottom of each bus's panel shows the last 3 seconds of what that bus sends on. Bus B's is drawn after A has ducked and filtered it, so a thin line under a busy Bus A means the ducking is working.
+
+#### What is behind Swirl
+
+Double-click a bus's **Swirl** (or click its notch). The first box is its **Type**; the Swirl wheel is how much, whatever the Type. Each bus has its own.
+
+| Type | What it is |
+|---|---|
+| **Phaser + Flanger** | Swirl as it starts out: the phaser, with the flanger coming in from about a seventh of the wheel. |
+| **Phaser** | The phaser alone, its notches sweeping through the middle of the sound. |
+| **Flanger** | The short flanger alone, from the bottom of the wheel. Its comb sweeps up as each pass comes close and back down as it leaves. |
+| **Tape Flanger** | A second copy of the bus on a moving delay that can run ahead of the first as well as behind it, so the two pass through zero, as two tape machines drifting past each other do. |
+| **Doubler** | One delayed copy of the bus that wanders a little, for a thicker sound. |
+
+Phaser + Flanger, Phaser and Flanger share four wheels:
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Feedback** | −100 to +100% (+55%) | How much of the swirl is fed back into itself. More is a stronger, more ringing colour; below 0% the feedback is turned upside down, which moves the notches. |
+| **Speed** | 0.1× to 8× (1×) | How fast it sweeps, against the speed the whoosh gives it. |
+| **Depth** | 0–100% (100%) | How far its own sweep goes. |
+| **Follow** | 0–100% (100%) | How far the sweep follows the whoosh. 100%: it opens and closes with each pass. 0%: it sweeps by itself. |
+
+**Tape Flanger**
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Motion** | With the Pass / On Its Own / By Hand (With the Pass) | What moves the second copy. **With the Pass**: it runs late while the pass is far off, goes through zero just before the pass is closest, runs a little ahead at the closest point and comes back through zero just after, so the flange lands on every whoosh with no hands. **On Its Own**: a slow sweep at Rate. **By Hand**: it waits Depth behind the first copy and only Varispeed moves it. |
+| **Invert** | on / off (off) | Turns the second copy upside down, so the two cancel where they meet: the sound thins right out there, the low end first and for longest. Off, they add up there, and the low end keeps its weight. |
+| **Depth** | 0–6 ms (4 ms) | How far the second copy moves either side of the first. By Hand: how far behind it waits. |
+| **Rate** | 0.01–4 Hz (0.3 Hz) | How fast it sweeps On Its Own. It rests in the other two. |
+| **Feedback** | −100 to +100% (0%) | How much of the second copy is fed back into itself, either way up. It never runs away. |
+| **Wobble** | 0–100% (25%) | A slow settle after each move, like a motor catching up. |
+| **Varispeed** | springs back to the middle | Lean the second machine faster (right) or slower (left). The gap between the copies drifts for as long as you lean, with the copy up to half a semitone sharp or flat while it does, and stays where it got to when you let go. Lean faster from rest By Hand and the copy comes through zero. The **meter** under the wheel shows the gap; double-click the meter to slide it home. Varispeed adds to every Motion and takes a modulator's wire (a slow LFO is a hands-free lean). The gap is not saved, and it goes back to the middle when the transport starts. |
+
+The Tape Flanger's clean path is 8 ms long, so that the copy can run ahead of it. The bus is that much later only while this Type is chosen; Aim and Faders Together allow for it, and the plug-in's delay to the host does not change. A change of Type fades the bus out and back in over a few hundredths of a second, so nothing clicks.
+
+**Doubler**
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Wave** | Random / Sine / Triangle (Random) | How the delay wanders: Random, a smooth drift; Sine or Triangle, a regular sway. |
+| **Thicken** | on / off (on) | Feeds the copy back upside down, by an amount set from the delay, so a short delay sounds thicker instead of like a flanger. Feedback rests while it is on. |
+| **Spread** | on / off (on) | Moves the second side's copy the other way: between your ears in Stereo, between the passes in a room. |
+| **Delay** | 3–75 ms (20 ms) | How far behind the copy plays. Fine at the short end. |
+| **Wander** | 0–100% (12%) | How much the delay moves. |
+| **Rate** | 0.01–6 Hz (0.6 Hz) | How fast the delay wanders. |
+| **Feedback** | −68 to +68% (0%) | With Thicken off: how much of the copy is fed back into itself, either way up. |
+
+#### What is behind Filter
+
+<img src="docs/images/layer-filter.png" width="476" alt="Bus A turned over to what is behind Filter">
+
+Double-click a bus's **Filter** (or click its notch). The Filter wheel stays how much.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Type** | Low Pass / High Pass / Band Pass / Notch (Low Pass) | **Low Pass** is the Filter as it starts out: it closes in the tail. **High Pass** works from the bottom: it thins the tail and lets the low end back as the pass swells. **Band Pass** and **Notch** move a band, or a notch, up as the pass swells and down in its tail. |
+| **24 dB** | on / off (off) | Twice as steep: 24 dB an octave instead of 12. |
+| **Shape** | Sine / Triangle / Ramp Up / Ramp Down / Square / Random (Sine) | The shape of the filter's own rhythm. It rests while Sweep is 0%. |
+| **Closed At** | 20 Hz–2 kHz (170 Hz) | Where the filter sits in the tail of a pass, when it is most closed. |
+| **Resonance** | 0–100% (0%) | A peak at the edge of the filter, added to what the Filter wheel gives. |
+| **Follow** | 0–100% (100%) | How far the filter follows the whoosh. 100%: it opens with each pass. 0%: it stays put and the Filter wheel is a plain cutoff. |
+| **Sweep** | 0–100% (0%) | How far the filter's own rhythm moves it, up to three octaves either way. |
+| **Rate** | 0.05–20 Hz (1 Hz) | How fast that rhythm runs. It rests while Sweep is 0%. |
 
 ### Stowaway
 
@@ -550,6 +677,27 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 
 **How the limiter lets go.** A short over, such as a hit, is let go within a few hundredths of a second, so it doesn't leave a dip in the sound behind it. Reduction that lasts, such as a long loud swell or a heavy low end, is held steadily and let go over about a second, so the swell keeps its shape and the bass stays clean.
 
+#### Output EQ
+
+<img src="docs/images/output-eq.png" width="604" alt="The Output EQ's graph over Bus B, with Output under it">
+
+The **EQ** key in Output's title bar, left of the die, draws the EQ's curve on itself: a flat line, unlit, while the EQ does nothing. Click it and a graph opens over Bus B, with Output's meters still in view under it. The EQ sits after Space and before Inflate and the limiter, so the Ceiling holds whatever you boost. It is one curve on every speaker of a room, the LFE too.
+
+- The graph runs from 20 Hz to 20 kHz and from −12 to +12 dB, with the output's spectrum drawn faintly behind the curve. The curve is the EQ's true response at the sample rate in use.
+- There are six square handles. **Drag** one for frequency and gain. The two cuts slide sideways only: each waits parked at its end of the graph, drawn dashed, and pulling it in switches it on. While a cut is in, its handle rides 3 dB under the line, on its own corner. The **mouse wheel** (or a Cmd-drag, Ctrl on Windows) sets a bell's Q. **Double-click** a handle to flatten that band or park that cut. **Right-click** one to type its values.
+- Under the graph a line reads the band you last touched ("Low Mid  300 Hz  −6.0 dB  Q 1.0"), then four keys: **On**; **24 dB**, Low Cut's slope, which rests while Low Cut is off; **Flat**, every band to 0 dB and both cuts off in one step; and **Close**. Esc closes the graph too, and so does the EQ key.
+
+| Handle | Range | Default |
+|---|---|---|
+| **Low Cut** | Off, or 20 Hz–1 kHz; 12 or 24 dB an octave | Off, 24 dB |
+| **Low Shelf** | 30–600 Hz, ±12 dB | 100 Hz, 0 dB |
+| **Low Mid** | 40 Hz–16 kHz, ±12 dB, Q 0.3–8 | 300 Hz, 0 dB, Q 1 |
+| **High Mid** | 40 Hz–16 kHz, ±12 dB, Q 0.3–8 | 3 kHz, 0 dB, Q 1 |
+| **High Shelf** | 1–18 kHz, ±12 dB | 8 kHz, 0 dB |
+| **High Cut** | 1–20 kHz, or Off; 12 dB an octave | Off |
+
+The EQ belongs to the session: presets, Randomise, the Output die, A / B and Small Changes leave it as it is, and it takes no wires. A drag is one Undo step. It is applied to every file Render Variations writes. While it is flat, or switched off, the sound passes through it untouched.
+
 ### Modulation
 
 <img src="docs/images/modulation.png" width="1312" alt="Modulation">
@@ -570,7 +718,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
 <img src="docs/images/cables.png" width="1520" alt="Cables">
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
-- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), **Hit Spread** (see [where a hit lands](#where-a-hit-lands)), each bus's and Stowaway's **Direction** and **Side** (a wire there decides pass by pass, see [Flight Paths](#flight-paths)), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, Height Varies, LFE Level, or the modulators' own knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), **Spread** and **Height** on the [room strip](#the-room-strip), **Hit Spread** (see [where a hit lands](#where-a-hit-lands)), each bus's and Stowaway's **Direction** and **Side** (a wire there decides pass by pass, see [Flight Paths](#flight-paths)), each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves), the **Swell** button (the wire holds Swell: see [Auto Swell](#auto-swell)), and a Tape Flanger's **Varispeed** while its layer is open (see [What is behind Swirl](#what-is-behind-swirl)). You can't wire the morph pad, the track faders, Height Varies, LFE Level, the Output EQ, the other controls on a layer, or the modulators' own knobs.
 - Each wire leaves a **plug**, a small coloured dot on the right of the knob's rim, and draws a thin ring outside the knob's value ring, in the modulator's colour, showing how far it moves the knob. Several wires on one knob stack their rings outwards, and a dot on the rings shows where the modulation has the value at this moment:
   - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
   - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
@@ -950,7 +1098,9 @@ Presets and Randomise set the sound, not your session. They leave these alone:
 - Inflate, Push, Ceiling, Trim and the Peak Tremolo
 - the room strip: Spread, Height, Height Varies, Centre Speaker, LFE Mode and LFE Level
 - each bus's and Stowaway's Direction and Side
-- Auto Ride, Follow Master, Aim, Sync Hits, Hit Position, the Gate and Duck modes, Take Turns and Link
+- Auto Ride, Ride Mode, Aim, Sync Hits, Hit Position, the Gate and Duck modes, Take Turns and Link
+- Faders Together's Peak At, Stagger and Hit Every, and Auto Swell
+- the Output EQ
 - the Master track, each track's bus and the morph's ropes
 - the morph's On switch, wander, shape and speed
 - Play, the Keys menu and Throw Length
@@ -994,7 +1144,7 @@ The two curved arrows in the header, and Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shif
 - New: one step brings back the tracks, every setting, the wires, the mutes and solos and the session's file
 - loading, replacing, removing and editing a track
 
-The keys work wherever you last clicked in the window (while you type in a text box, they undo the typing). The message at the bottom right says what was undone. Play and Stop are not steps, and neither is automation from a DAW. Dragging a wire is not a step either: pull the plug out to remove it. Opening a session starts the history afresh.
+The keys work wherever you last clicked in the window (while you type in a text box, they undo the typing). The message at the bottom right says what was undone. Play and Stop are not steps, and neither is automation from a DAW, a press of Swell or a lean on Varispeed. Dragging a wire is not a step either: pull the plug out to remove it. Opening a session starts the history afresh.
 
 ## Keyboard, mouse and MIDI
 
@@ -1026,7 +1176,7 @@ Every action, with the key it starts out with. Ctrl stands in for Cmd on Windows
 | **Morph Pad** | M | Shows and hides the [morph pad](#morph-pad). |
 | **Cables** | C | Shows and hides the modulation cables. |
 
-Esc closes Settings, Takes, Render Variations or About; a batch that is rendering carries on.
+Esc closes Settings, Takes, Render Variations or About; a batch that is rendering carries on. With none of those open it closes the Output EQ's graph, and then the layers, the newest first.
 
 **Mouse and MIDI**
 
@@ -1034,8 +1184,11 @@ Esc closes Settings, Takes, Render Variations or About; a batch that is renderin
 |---|---|
 | MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell, and a ripple where you clicked. |
-| Double-click a knob | Resets it. |
-| Right-click a knob, or Alt-double-click it | Opens a box to type a value. See [Typing a value](#typing-a-value). |
+| Double-click a knob | Resets it. A knob with a notch (Swirl, Filter, Rate) opens what is behind it instead, and a second double-click closes it. See [What is behind a wheel](#what-is-behind-a-wheel). |
+| Shift-double-click a knob | Resets it, with a notch or without. |
+| Click a notch | Opens and closes what is behind that control (Swirl, Filter, Rate, Swell). |
+| Right-click a knob, or Alt-double-click it | Opens a box to type a value. See [Typing a value](#typing-a-value). On a knob with a notch the right-click is a menu (Open, Type a Value, Reset); Alt-double-click still opens the box. |
+| Right-click Swell | A menu: open its layer, and the choices of Auto Swell. |
 | Right-click a track's fader, or the Energy knob | A menu: **Type a Value** and **Learn MIDI CC**. See [MIDI controllers](#midi-controllers). |
 | Cmd-drag a knob (Ctrl on Windows) | Sets the depth of its newest wire. See [Modulation](#modulation). |
 | Double-click a track name | Renames it. |
@@ -1064,13 +1217,14 @@ same keys.
 
 ### Typing a value
 
-Right-click a knob (or hold Alt and double-click it) and a small box opens on it with the current value. Type a new one in the knob's own units and press Return to keep it; Esc, or a click anywhere else, leaves the knob as it was. A plain double-click still resets the knob.
+Right-click a knob (or hold Alt and double-click it) and a small box opens on it with the current value. Type a new one in the knob's own units and press Return to keep it; Esc, or a click anywhere else, leaves the knob as it was. A plain double-click still resets the knob, unless it has a notch: there a double-click opens what is behind it, the right-click is a menu with Type a Value in it, and Shift-double-click resets.
 
 - Units are optional and are the ones the knob shows: `-12 dB`, `4.2 s`, `35%`, or just `-12`, `4.2`, `35`.
 - Milliseconds and seconds are converted, so `0.3 s` on a knob that shows `300 ms` is understood, and a bare number is read in the unit showing at that moment.
 - Words the knob shows work too: `Rate` on Throw Length, `Off` on Duck, `-inf` on a fader.
 - Stowaway's Filter outside Sub reads which side it is on, and takes the same: `Under 1 kHz`, `Over 300 Hz` or `Open`. A number alone (`1 kHz`) is found on the side the knob is on, or on the other when only that side reaches it.
 - A value out of the knob's range goes to the nearest end. Text that isn't a value changes nothing.
+- Rate takes the time the wheel is showing: in Faders Together that is the length of the one swell.
 - A typed value is one Undo step.
 
 It works on every knob, each track's fader (through its right-click menu), a track's Semitones and Cents boxes, and Master Trim.
@@ -1095,7 +1249,7 @@ From then on that controller moves the control, whether the rig is playing or st
 - **For one clean pass instead of two layers flying about**, turn on Link so Bus B follows Bus A's passes. Turn it off when B carries a bed that should keep moving on its own.
 - **For a single object going by** (a jet, a car, a creature's call), set that bus's Pass to Fly-By: each sound is heard once, at one pitch. Keep Bed for wind, air and long energy beds.
 - **If the buses fight**, turn on Take Turns, or raise Ducked and Filtered on Bus B.
-- **To make every layer move like one sound**, make that sound the Master (the star on its lane) and turn on Follow Master. Raise Energy for layers that vanish between its swells.
+- **To make every layer move like one sound**, make that sound the Master (the star on its lane) and set Ride Mode to Follow Master. Raise Energy for layers that vanish between its swells.
 - **To tune the layers to one sound**, make it the Master, then right-click each pitched track and choose Match Pitch to Master.
 - **To morph a growl into a wind**, rope side A to the growl and side B to the wind, switch the morph on and let the dot wander. Everything else keeps playing around them.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.

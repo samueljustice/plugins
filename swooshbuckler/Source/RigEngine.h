@@ -441,6 +441,9 @@ public:
     /** Any thread: seconds until the next peak of Faders Together's swell (the Ride panel's "Peak in 1.2 s"), < 0
         when the faders are not together. */
     float getCyclePeakIn() const { return m_cyclePeakView.load(std::memory_order_relaxed); }
+    /** How long one swell of Faders Together's clock is right now, in seconds: Params::passSeconds(Rate), followed
+        over about a second, so a Rate that moves glides the passes instead of bending their pitch about. */
+    float getCycleSeconds() const { return m_cycleSecondsView.load(std::memory_order_relaxed); }
     /** Any thread: Auto Swell holds Swell right now. */
     bool isAutoSwelling() const { return m_autoSwellView.load(std::memory_order_relaxed); }
     /** Any thread: a bus's held Varispeed offset in its Tape Flanger (-1 .. 1 of the travel either side), 0 in the
@@ -840,6 +843,7 @@ private:
         // What Swirl reached at the end of the last chunk (everything is ramped from there across the next one),
         // and its own slower copy of the level-against-peak.
         bool swirlOn = false;
+        float swNear = 0.0f; // how near the nearest pass is, followed over 15 ms (the flanger alone sweeps by it)
         float swPeak = 0.0f, swAL = 0.0f, swAR = 0.0f, swMsL = 0.3f, swMsR = 0.3f, swPhMix = 0.0f, swFlMix = 0.0f, swFb = 0.0f;
         // Filtered by A (its own low-pass; the bus's Filter is `sweep`, below)
         sj::Svf keyL, keyR;
@@ -1276,6 +1280,7 @@ private:
     AutoSwellState m_autoSwell;
     sj::Random m_autoRng;
     std::atomic<float> m_cyclePeakView { -1.0f };
+    std::atomic<float> m_cycleSecondsView { 3.5f };
     std::atomic<bool> m_autoSwellView { false };
     std::array<std::atomic<float>, c_maxBuses> m_varispeedView {};
     // The Master track (see getMasterFollow), the smoothed loudness the rides follow, and how far Follow Master is in.

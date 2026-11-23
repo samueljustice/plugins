@@ -24,6 +24,9 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     , m_offline(offlineSettings != nullptr)
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout(m_stowModeSource))
 {
+    // The list of wire targets and Swell's place in it are looked up once, here: the audio thread reads them and
+    // must not be the one that builds them.
+    juce::ignoreUnused(ModMatrix::swellTarget());
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
     {
@@ -2568,6 +2571,10 @@ void SwooshbucklerAudioProcessor::restoreStateTree(juce::ValueTree tree)
     for (int b = 0; b < ParamIDs::numBuses; ++b)
         if (auto lean = tree.getChildWithProperty("id", ParamIDs::busDetail[b][ParamIDs::Varispeed]); lean.isValid())
             lean.setProperty("value", ParamIDs::busDetailDefaults[ParamIDs::Varispeed], nullptr);
+    // Nor is a press of Swell: a state saved while it was held (a host saving mid-press) comes back with Swell let
+    // go. A host that automates it writes its own value as it plays.
+    if (auto held = tree.getChildWithProperty("id", ParamIDs::swell); held.isValid())
+        held.setProperty("value", 0.0f, nullptr);
 
     // Sessions saved before AIM existed keep the hit gate (and SYNC HITS) they were made with: AIM is on only for new
     // sessions. A parameter missing from a saved state would otherwise keep its default (on).

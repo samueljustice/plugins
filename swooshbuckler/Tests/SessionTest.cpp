@@ -961,14 +961,17 @@ int main(int argc, char* argv[])
             setNorm(p, ParamIDs::busDetail[1][ParamIDs::Varispeed], 0.1f);
             setNorm(p, ParamIDs::busDetail[0][ParamIDs::SwirlType], 1.0f); // Doubler
             setNorm(p, ParamIDs::eqLowMidGain, 0.25f);
+            setNorm(p, ParamIDs::swell, 1.0f); // (a host saving in the middle of a press)
             juce::MemoryBlock saved;
             p.getStateInformation(saved);
+            setNorm(p, ParamIDs::swell, 0.0f);
             setNorm(p, ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
             setNorm(p, ParamIDs::eqLowMidGain, 0.5f);
             p.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
             check(std::abs(param(p, ParamIDs::busDetail[0][ParamIDs::Varispeed])->getValue() - 0.5f) < 1.0e-6f
                       && std::abs(param(p, ParamIDs::busDetail[1][ParamIDs::Varispeed])->getValue() - 0.5f) < 1.0e-6f,
                   "state: a lean on Varispeed is not saved (both wheels come back in the middle)");
+            check(param(p, ParamIDs::swell)->getValue() < 0.5f && ! p.isSwellHeld(), "state: a held Swell is not saved (it comes back let go)");
             check(param(p, ParamIDs::busDetail[0][ParamIDs::SwirlType])->getValue() > 0.99f && std::abs(param(p, ParamIDs::eqLowMidGain)->getValue() - 0.25f) < 1.0e-6f,
                   "state: the detail behind Swirl and the Output EQ are saved");
             setNorm(p, ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);

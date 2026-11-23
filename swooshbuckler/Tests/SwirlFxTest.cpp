@@ -99,6 +99,8 @@ namespace
 
     struct Step
     {
+        // (Invert on unless a part says otherwise: most of these are about the cancel. The default is off.)
+        Step() { tape.invert = true; }
         SwirlFx::Tape tape;
         SwirlFx::Doubler doubler;
         float knob = 1.0f;
@@ -365,7 +367,7 @@ int main()
 
         // With the wheel at 0 the Tape Flanger is its dry ring and nothing else; the Doubler is the input.
         const auto in = noise(fs, 0.5, 0.5f, 5u);
-        const Run tape = runFresh(true, in, fs, 2, [](double, Step& s, SwirlFx&) { s.knob = 0.0f; s.tape.motion = SwirlFx::ByHand; });
+        const Run tape = runFresh(true, in, fs, 2, [](double, Step& s, SwirlFx&) { s.knob = 0.0f; s.tape.motion = SwirlFx::ByHand; s.tape.depthMs = 0.0f; });
         bool exact = true;
         for (size_t i = 384; i < tape.out[0].size(); ++i)
             exact = exact && tape.out[0][i] == in[i - 384] && tape.out[1][i] == in[i - 384];
@@ -390,12 +392,13 @@ int main()
 
     std::cout << "Tape Flanger: the null at zero" << std::endl;
     {
-        // By Hand with the offset in the middle: the copy lies on the dry. Inverted, at the top of the wheel, the
-        // two cancel; not inverted they add to 3 dB more.
+        // By Hand with Depth at 0 and the offset in the middle: the copy lies on the dry, sample for sample (nothing
+        // is between the two but the move). Inverted, at the top of the wheel, the two cancel, alike at every
+        // frequency, level and sample rate; not inverted they add to 3 dB more.
         auto nullAt = [](double hz, double rate, bool invert, float level)
         {
             const auto in = sine(hz, rate, 0.5, level);
-            const Run r = runFresh(true, in, rate, 2, [invert](double, Step& s, SwirlFx&) { s.tape.motion = SwirlFx::ByHand; s.tape.invert = invert; s.knob = 1.0f; });
+            const Run r = runFresh(true, in, rate, 2, [invert](double, Step& s, SwirlFx&) { s.tape.motion = SwirlFx::ByHand; s.tape.depthMs = 0.0f; s.tape.invert = invert; s.knob = 1.0f; });
             const size_t a = in.size() / 2, b = in.size() - 64;
             return db(rms(r.out[0], a, b) / rms(in, a, b));
         };
@@ -410,17 +413,38 @@ int main()
             const double v = nullAt(1000.0, rate, true, 0.1f);
             check(v <= -25.0, "null: the same at " + num(rate, 0) + " Hz (" + num(v, 1) + " dB)");
         }
-        const double loud = nullAt(1000.0, fs, true, 1.0f);
-        std::cout << "         at full scale the soft clip leaves " << num(loud, 1) << " dB (the copy is 2 tanh(x / 2))" << std::endl;
-        check(loud <= -12.0, "null: a full-scale sine still thins out by 12 dB or more");
+        // The top of the band, loud and quiet, at every rate: the same cancel (the measure's floor is float's).
+        double shallowest = -1000.0;
+        std::string everywhere;
+        for (double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            for (double hz : { 100.0, 5000.0, 10000.0, 15000.0, 18000.0 })
+                for (float level : { 0.05f, 1.0f, 2.0f })
+                    shallowest = std::max(shallowest, nullAt(hz, rate, true, level));
+        std::cout << "         100 Hz to 18 kHz, sine peaks 0.05 to 2.0, 44.1 to 192 kHz: the shallowest is " << num(shallowest, 1) << " dB" << std::endl;
+        check(shallowest <= -100.0, "null: as deep at the top of the band, at any level and at every sample rate (" + num(shallowest, 1) + " dB at the least)");
+        check(! SwirlFx::Tape().invert, "Invert is off unless asked for (the copy and the dry add where they meet)");
+        {
+            // By Hand, untouched: the copy waits Depth behind the dry (it is not left sitting in the cancel).
+            SwirlFx fx;
+            fx.prepare(fs);
+            SwirlFx::Tape t;
+            t.motion = SwirlFx::ByHand;
+            std::vector<float> a(32, 0.0f), b(32, 0.0f);
+            SwirlFx::Lanes lanes;
+            lanes.lane = { a.data(), b.data(), nullptr };
+            for (int i = 0; i < 400; ++i)
+                fx.processTape(t, 1.0f, lanes, 32);
+            check(std::abs(fx.getLaneOffsetMs(0) - t.depthMs) < 1.0e-3f && fx.getOffsetMs() == 0.0f,
+                  "By Hand at rest: the copy waits Depth behind (" + num(fx.getLaneOffsetMs(0), 3) + " ms), the held offset in the middle");
+        }
         const double sum = nullAt(1000.0, fs, false, 0.1f);
         check(std::abs(sum - 3.01) < 0.1, "not inverted, the copy and the dry add to +3 dB at d = 0 (" + num(sum, 2) + " dB)");
 
-        // The copy's top end (two one-poles at 19 kHz and the cubic read), against the dry.
+        // The copy's top end against the dry: the same (the low-pass and the clip are the loop's).
         auto copyLevel = [](double hz, double rate)
         {
             const auto tone = sine(hz, rate, 0.25, 0.1f);
-            const Split s = splitTape(tone, rate, 0, 1, [](double, Step& st, SwirlFx&) { st.tape.motion = SwirlFx::ByHand; });
+            const Split s = splitTape(tone, rate, 0, 1, [](double, Step& st, SwirlFx&) { st.tape.motion = SwirlFx::ByHand; st.tape.depthMs = 0.0f; });
             double w = 0.0, d = 0.0;
             for (size_t i = s.wet.size() / 2; i < s.wet.size() - 64; ++i)
             {
@@ -434,12 +458,12 @@ int main()
             for (double hz : { 1000.0, 5000.0, 10000.0, 15000.0, 18000.0 })
                 top += std::string(hz == 1000.0 ? (rate == 48000.0 ? "  at 48 kHz:" : "  at 192 kHz:") : "") + " " + num(hz / 1000.0, 0) + " kHz " + num(copyLevel(hz, rate), 2) + " dB";
         std::cout << "         the copy against the dry" << top << std::endl;
-        check(std::abs(copyLevel(1000.0, fs)) < 0.05 && copyLevel(15000.0, fs) < -1.0 && copyLevel(15000.0, 192000.0) > -6.0 && copyLevel(15000.0, 192000.0) < -1.0,
-              "the copy is at unity at 1 kHz and loses between 1 and 6 dB at 15 kHz, at 48 and at 192 kHz");
+        check(std::abs(copyLevel(1000.0, fs)) < 0.05 && std::abs(copyLevel(15000.0, fs)) < 0.05 && std::abs(copyLevel(15000.0, 192000.0)) < 0.05,
+              "the copy is at unity at 1 kHz and at 15 kHz, at 48 and at 192 kHz");
 
         // Noise, as a whoosh is: how far each band falls.
         const auto in = noise(fs, 4.0, 0.25f, 9u);
-        const Run r = runFresh(true, in, fs, 2, [](double, Step& s, SwirlFx&) { s.tape.motion = SwirlFx::ByHand; s.knob = 1.0f; });
+        const Run r = runFresh(true, in, fs, 2, [](double, Step& s, SwirlFx&) { s.tape.motion = SwirlFx::ByHand; s.tape.depthMs = 0.0f; s.knob = 1.0f; });
         std::string bands;
         for (double hz : { 30.0, 300.0, 1000.0, 3000.0, 6000.0, 10000.0 })
         {
@@ -647,7 +671,7 @@ int main()
         {
             const auto s = splitTape(in, fs, 0, 2, [=](double t, Step& st, SwirlFx&)
             {
-                st.tape.motion = SwirlFx::ByHand;
+                st.tape.motion = SwirlFx::ByHand; st.tape.depthMs = 0.0f;
                 st.tape.wobble = 0.0f;
                 st.tape.varispeed = t < 1.0 ? (v > 0.0f ? -1.0f : 1.0f) : (t < 2.0 ? 0.0f : v); // to the far stop, let go, then lean
             });
@@ -679,7 +703,7 @@ int main()
         {
             const auto s = splitTape(in, fs, 0, 2, [=](double t, Step& st, SwirlFx& fx)
             {
-                st.tape.motion = SwirlFx::ByHand;
+                st.tape.motion = SwirlFx::ByHand; st.tape.depthMs = 0.0f;
                 st.tape.wobble = 0.0f;
                 st.tape.varispeed = lean(t);
                 if (t >= homeAt && t < homeAt + 0.02) // the engine holds the request for a few chunks
@@ -789,6 +813,40 @@ int main()
         }
     }
 
+    {
+        // A steady slow lean under 120 kHz: the copy is read with the sinc, so a tone at the top of the band stays
+        // the same level as the read point moves between samples (the four-point read lets it rise and fall by a
+        // decibel or more, which is heard as sidebands). The copy's level over every ten cycles of the tone.
+        std::string rows;
+        double worst = 0.0;
+        for (double rate : { 44100.0, 48000.0, 96000.0 })
+            for (double hz : { 5000.0, 10000.0, 15000.0 })
+            {
+                const auto tone = sine(hz, rate, 1.2, 0.25f);
+                const auto s = splitTape(tone, rate, 0, 1, [](double, Step& st, SwirlFx&)
+                {
+                    st.tape.motion = SwirlFx::ByHand; st.tape.depthMs = 0.0f;
+                    st.tape.wobble = 0.0f;
+                    st.tape.varispeed = -0.3f;
+                });
+                const size_t window = static_cast<size_t>(std::lround(40.0 * rate / hz));
+                double low = 1.0e30, high = 0.0;
+                for (size_t a = static_cast<size_t>(0.6 * rate); a + window < static_cast<size_t>(1.1 * rate); a += window / 4)
+                {
+                    double sq = 0.0;
+                    for (size_t i = a; i < a + window; ++i)
+                        sq += s.wet[i] * s.wet[i];
+                    low = std::min(low, sq);
+                    high = std::max(high, sq);
+                }
+                const double ripple = 10.0 * std::log10(high / low);
+                worst = std::max(worst, ripple);
+                rows += "  " + num(rate / 1000.0, 1) + " kHz, " + num(hz / 1000.0, 0) + " kHz tone " + num(ripple, 3) + " dB";
+            }
+        std::cout << "         a slow lean: the copy's level moves by" << rows << std::endl;
+        check(worst < 0.25, "under 120 kHz the moving copy keeps its level at the top of the band (" + num(worst, 3) + " dB at the most)");
+    }
+
     std::cout << "Tape Flanger: Wobble and Feedback" << std::endl;
     {
         // Wobble: a step of the copy (the pass jumps) arrives as fast at any setting, then rings.
@@ -891,7 +949,7 @@ int main()
                 }
             std::cout << "         Feedback " << num(100.0 * feedback, 0) << "%, full-scale noise, a 4 Hz sweep and a moving lean: peak " << num(peak, 2)
                       << ", 3 s after the sound stops " << num(db(tail), 0) << " dBFS" << std::endl;
-            check(std::isfinite(peak) && peak < 2.2 && tail < 1.0e-6, "feedback " + num(100.0 * feedback, 0) + "%: it never runs away");
+            check(std::isfinite(peak) && peak < 3.0 && tail < 1.0e-6, "feedback " + num(100.0 * feedback, 0) + "%: it never runs away");
         }
     }
 

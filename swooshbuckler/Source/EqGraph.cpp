@@ -279,6 +279,10 @@ juce::Point<float> EqGraph::handleCentre(int band) const
         return {};
     if (isParked(band))
         return { band == OutputEq::LowCut ? c_parkedInset : static_cast<float>(getWidth()) - c_parkedInset, yForDb(0.0f) };
+    // A cut's handle rides its own corner, 3 dB under the line: a shelf or a bell at 0 dB at the same frequency is
+    // on the line, so neither covers the other.
+    if (isCut(band))
+        return { xForHz(frequencyOf(band)), yForDb(c_cutHandleDb) };
     return { xForHz(frequencyOf(band)), yForDb(gainOf(band)) };
 }
 
@@ -784,6 +788,10 @@ void EqGraph::paint(juce::Graphics& g)
                        juce::Justification::centredLeft);
         Theme::fitText(g, "-12 dB", juce::Rectangle<float>(plot.getX() + 4.0f, std::round(yForDb(-12.0f)) - labelHeight - 1.0f, 40.0f, labelHeight), font,
                        juce::Justification::centredLeft);
+        // What this graph is, in the corner opposite the scale.
+        g.setColour(TC::textDim);
+        Theme::fitText(g, "Output EQ", juce::Rectangle<float>(plot.getRight() - 4.0f - 64.0f, std::round(yForDb(12.0f)) + 2.0f, 64.0f, labelHeight), font,
+                       juce::Justification::centredRight);
     }
 
     {

@@ -129,6 +129,10 @@ namespace
     constexpr float c_togetherSeconds = 0.5f;
     constexpr float c_staggerShare = 0.10f;
     constexpr float c_leadSeconds = 0.03f;
+    // Faders Together: how long the swell's length takes to follow Rate (a one-pole on its logarithm). The passes on
+    // the clock run faster or slower with it, and their doppler bend with them: over this long it is a glide, and a
+    // modulator wired to Rate cannot wobble the pitch.
+    constexpr float c_cycleSlewSeconds = 1.0f;
     constexpr std::uint32_t c_cycleSeed = 0xC1C7Eu; // the swell sizes: their draws start here, from the engine's seed
     // Auto Swell (design 3.7). On Peaks: the gate opens this long before a pass is at its closest, and stays open
     // at least until it is. (The Swell spring's step: 0.81 after 0.2 s, 0.9 after 0.233 s, all the way in by 0.3 s.)
@@ -680,6 +684,7 @@ void RigEngine::setPlaces(const Places& places)
     m_cycleStartPending = false;
     m_cycleAimed = -1;
     m_cycleX0 = cycleX();
+    m_cycleSeconds = nominalPassSeconds();
     for (auto& bus : m_buses)
         if (bus.heads[0].clockSeconds > 0.0f)
             placeOnClock(bus);
@@ -966,7 +971,7 @@ float RigEngine::passLead(const Head& h)
 void RigEngine::placeOnClock(BusState& bus)
 {
     const double x = cycleX();
-    const float seconds = nominalPassSeconds();
+    const float seconds = m_cycleSeconds;
     for (size_t k = 0; k < bus.heads.size(); ++k)
     {
         auto& h = bus.heads[k];
@@ -985,9 +990,16 @@ void RigEngine::placeOnClock(BusState& bus)
 
 void RigEngine::stepCycle(int frames)
 {
-    const float seconds = nominalPassSeconds();
+    // The swell's length follows Rate over about a second (at once on a start): see c_cycleSlewSeconds.
+    const float wanted = nominalPassSeconds();
+    if (m_cycleStartPending || ! (m_cycleSeconds > 0.0f))
+        m_cycleSeconds = wanted;
+    else if (std::abs(m_cycleSeconds - wanted) < 1.0e-5f * wanted)
+        m_cycleSeconds = wanted;
+    else
+        m_cycleSeconds *= std::exp(std::log(wanted / m_cycleSeconds) * glide(frames, c_cycleSlewSeconds, m_fs));
+    const float seconds = m_cycleSeconds;
     const float peakAt = sj::clamp(m_params.together.peakAt, 0.2f, 0.8f);
-    m_cycleSeconds = seconds;
     m_cyclePeakAt = peakAt;
     if (m_cycleStartPending)
     {
@@ -1045,6 +1057,7 @@ void RigEngine::stepCycle(int frames)
     }
     const bool together = m_params.rideMode == RideTogether;
     m_cyclePeakView.store(together ? static_cast<float>((std::floor(x) + 1.0 - x) * static_cast<double>(seconds)) : -1.0f, std::memory_order_relaxed);
+    m_cycleSecondsView.store(seconds, std::memory_order_relaxed);
 }
 
 bool RigEngine::stepAutoSwell(float seconds, float energyKnob)
@@ -3623,17 +3636,29 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         if (bus.lfo >= 1.0f) bus.lfo -= std::floor(bus.lfo);
         const float lfo = span * std::sin(sj::c_twoPi * bus.lfo);
         const float lfoR = span * std::cos(sj::c_twoPi * bus.lfo);
-        auto coefFor = [fs](float fc)
+        // (Phaser + Flanger tunes its all-passes from the top of the band down, which puts the phaser's notches in
+        // the top octave, under the flanger's comb. The phaser alone is tuned from the bottom up: its three notches
+        // sit near 0.27, 1 and 3.7 times the frequency below, through the middle of the sound.)
+        const float phaseSide = bus.swirlType == SwirlPhaser ? -1.0f : 1.0f;
+        auto coefFor = [fs, phaseSide](float fc)
         {
             const float t = std::tan(sj::c_pi * sj::clamp(fc, 20.0f, fs * 0.45f) / fs);
-            return (t - 1.0f) / (t + 1.0f);
+            return phaseSide * (t - 1.0f) / (t + 1.0f);
         };
         const float followLevel = follow * level;
         const float aL1 = coefFor(260.0f * std::exp2(3.6f * (0.5f + 0.5f * lfo) + 1.2f * followLevel));
         const float aR1 = coefFor(260.0f * std::exp2(3.6f * (0.5f + 0.5f * lfoR) + 1.2f * followLevel));
         const float fb1 = sj::clamp(detail.feedback, -1.0f, 1.0f) * swirl;
         // The flanger's delay: by the whoosh (long when it is far), or half way and swept by its own sweep alone.
-        const float far = follow * ((1.0f - level) * (1.0f - level));
+        // (The flanger alone goes by how near the pass is, the same on its way in as on its way out, so its comb
+        // sweeps up as the pass comes and back down as it leaves. The level against its recent peak, which Phaser +
+        // Flanger goes by, rises fast and falls slowly: that comb is up before the pass arrives.)
+        const float nearestPass = sj::clamp(std::max({ passNear[0], passNear[1], throwNear }), 0.0f, 1.0f);
+        if (! bus.swirlOn)
+            bus.swNear = nearestPass;
+        bus.swNear += (nearestPass - bus.swNear) * glide(frames, 0.015f, fs);
+        const float sweepBy = bus.swirlType == SwirlFlanger ? bus.swNear : level;
+        const float far = follow * ((1.0f - sweepBy) * (1.0f - sweepBy));
         const float free = 6.5f * (1.0f - follow);
         const float msL1 = 0.3f + 6.5f * far * (0.85f + 0.15f * lfo) + free * (0.5f + 0.5f * lfo);
         const float msR1 = 0.3f + 6.5f * far * (0.85f - 0.15f * lfo) + free * (0.5f - 0.5f * lfo);

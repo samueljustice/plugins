@@ -978,7 +978,7 @@ void ValueSlider::beginTyping()
     const auto bounds = m_typing->getBounds();
     juce::ignoreUnused(bounds);
     m_typing->applyFontToAllText(m_typedFonts->caption());
-    m_typing->setText(m_typedParameter->getText(m_typedParameter->getValue(), 0), false);
+    m_typing->setText(typedText ? typedText(m_typedParameter->getValue()) : m_typedParameter->getText(m_typedParameter->getValue(), 0), false);
     m_typing->setVisible(true);
     m_typing->toFront(false);
     m_typing->grabKeyboardFocus();
@@ -994,7 +994,7 @@ void ValueSlider::endTyping(bool keep, bool takeKeysBack)
     if (keep && m_typedParameter != nullptr)
     {
         auto* param = m_typedParameter;
-        const float value = TypedValue::toNormalised([param](float n) { return param->getText(n, 0); }, text, param->getValue());
+        const float value = TypedValue::toNormalised([this, param](float n) { return typedText ? typedText(n) : param->getText(n, 0); }, text, param->getValue());
         if (value >= 0.0f)
         {
             if (onTypedValue)
@@ -1226,6 +1226,28 @@ void WheelKnob::mouseExit(const juce::MouseEvent& e)
     Slider::mouseExit(e);
 }
 
+void SwooshLookAndFeel::drawNotch(juce::Graphics& g, juce::Rectangle<float> box, bool filled, juce::Colour lit, juce::Colour outline)
+{
+    auto corner = [](juce::Rectangle<float> r)
+    {
+        juce::Path p;
+        p.addTriangle(r.getX(), r.getY(), r.getX(), r.getBottom(), r.getRight(), r.getBottom());
+        return p;
+    };
+    g.setColour(TC::edgeDark);
+    g.fillPath(corner(box.expanded(1.5f).translated(0.5f, 0.5f)));
+    if (filled)
+    {
+        g.setColour(lit);
+        g.fillPath(corner(box));
+        return;
+    }
+    g.setColour(TC::well);
+    g.fillPath(corner(box));
+    g.setColour(outline);
+    g.strokePath(corner(box.reduced(0.6f).translated(-0.3f, 0.3f)), juce::PathStrokeType(1.2f, juce::PathStrokeType::mitered));
+}
+
 juce::Rectangle<float> WheelKnob::getNotchArea() const
 {
     if (m_notch == Notch::None)
@@ -1430,25 +1452,11 @@ void WheelKnob::paint(juce::Graphics& g)
         g.drawEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(centre), 2.0f);
     }
 
-    // The notch: a stamped square, hollow while everything behind the wheel is at its default, filled when not.
+    // The notch: a corner turned down, an outline while everything behind the wheel is at its default, filled when not.
     if (m_notch != Notch::None)
     {
-        const auto box = getNotchArea();
         const auto lit = drained ? TC::textFaint.withAlpha(0.6f) : (m_overNotch ? m_accent.brighter(0.4f) : m_accent);
-        g.setColour(TC::edgeDark);
-        g.fillRect(box.expanded(1.0f).translated(0.0f, 1.0f));
-        if (m_notch == Notch::Filled)
-        {
-            g.setColour(lit);
-            g.fillRect(box);
-        }
-        else
-        {
-            g.setColour(TC::well);
-            g.fillRect(box);
-            g.setColour(m_overNotch ? lit : (drained ? lit : TC::textDim));
-            g.drawRect(box, 1.2f);
-        }
+        SwooshLookAndFeel::drawNotch(g, getNotchArea(), m_notch == Notch::Filled, lit, m_overNotch || drained ? lit : TC::textDim);
     }
 
     // The caption, and under it the value in the control's own units: always there, and live while it is dragged.

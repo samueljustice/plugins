@@ -441,10 +441,11 @@ int main(int argc, char* argv[])
     {
         std::cout << "types: Phaser alone has no comb, Flanger alone has no all-pass notch" << std::endl;
         // White noise through bus A with the sweeps held still (Follow 0%, Depth 0%): the flanger sits at 3.55 ms (a
-        // comb every 282 Hz) and the phaser's six all-pass stages at one place. As the stages are written
-        // (sj::Allpass1 with RigEngine's coefficient) they turn at the top of the band, not at the 905 Hz the
-        // coefficient is worked out for: at 48 kHz, held still, the phaser's first notch is at 20.6 kHz, and it is
-        // there that this part looks for it. Each type's long-term spectrum against the same render with Swirl at 0%.
+        // comb every 282 Hz) and the phaser's six all-pass stages at one place. In Phaser + Flanger the stages turn
+        // at the top of the band (sj::Allpass1 with RigEngine's coefficient as it is written): at 48 kHz, held
+        // still, the phaser's first notch is at 20.6 kHz. The phaser alone is tuned from the bottom up: held still
+        // its notches are near 243 Hz, 905 Hz and 3.4 kHz. Each type's long-term spectrum against the same render
+        // with Swirl at 0%.
         auto render = [&](int type, float swirl)
         {
             auto q = plain();
@@ -458,7 +459,7 @@ int main(int argc, char* argv[])
             return spectrum(run(*e, 2, c_rate, 20.0).heard, 0, static_cast<int>(2.0 * c_rate));
         };
         const auto off = render(RigEngine::SwirlBoth, 0.0f);
-        struct Shape { double comb = 0.0, delayMs = 0.0, notch = 0.0; };
+        struct Shape { double comb = 0.0, delayMs = 0.0, notch = 0.0, mid = 0.0; };
         auto measure = [&](const std::vector<double>& with)
         {
             auto ratio = [&](double hz) { return 10.0 * std::log10(std::max(bandPower(with, hz, 12.0), 1.0e-30) / std::max(bandPower(off, hz, 12.0), 1.0e-30)); };
@@ -497,19 +498,26 @@ int main(int argc, char* argv[])
                 return sum / std::max(1, n);
             };
             sh.notch = mean(20600.0 - tooth, 2.0 * tooth) - mean(500.0, 4.0 * tooth);
+            // The phaser alone: its middle notch (905 Hz) against half way to the next one up (1.75 kHz), each
+            // over one tooth of the comb.
+            sh.mid = mean(905.0 - 0.5 * tooth, tooth) - mean(1750.0 - 0.5 * tooth, tooth);
             return sh;
         };
         const Shape both = measure(render(RigEngine::SwirlBoth, 1.0f)), phaser = measure(render(RigEngine::SwirlPhaser, 1.0f)),
                     flanger = measure(render(RigEngine::SwirlFlanger, 1.0f));
         auto say = [](const char* name, const Shape& sh)
         {
-            std::cout << "  " << name << ": comb " << num(sh.comb, 1) << " dB (at " << num(sh.delayMs, 3) << " ms); round 20.6 kHz against round 1 kHz " << num(sh.notch, 1) << " dB" << std::endl;
+            std::cout << "  " << name << ": comb " << num(sh.comb, 1) << " dB (at " << num(sh.delayMs, 3) << " ms); round 20.6 kHz against round 1 kHz " << num(sh.notch, 1) << " dB; round 905 Hz against round 1.75 kHz "
+                      << num(sh.mid, 1) << " dB" << std::endl;
         };
         say("Phaser + Flanger", both);
         say("Phaser", phaser);
         say("Flanger", flanger);
         check(both.comb > 6.0 && both.notch < -6.0, "Phaser + Flanger has the comb and the all-pass notch (the measure sees both)");
-        check(phaser.comb < 1.0 && phaser.notch < -6.0, "Phaser alone: the all-pass notch (" + num(phaser.notch, 1) + " dB) and no comb (" + num(phaser.comb, 2) + " dB at the most)");
+        check(phaser.comb < 1.0 && phaser.mid < -3.0 && phaser.notch > -3.0,
+              "Phaser alone: its notch in the middle of the sound (" + num(phaser.mid, 1) + " dB at 905 Hz), none at the top (" + num(phaser.notch, 1) + " dB), and no comb ("
+                  + num(phaser.comb, 2) + " dB at the most)");
+        check(both.mid > -3.0 && flanger.mid > -3.0, "Phaser + Flanger and Flanger alone have no notch there (" + num(both.mid, 1) + " and " + num(flanger.mid, 1) + " dB)");
         check(flanger.comb > 6.0 && flanger.notch > -3.0, "Flanger alone: the comb, and no all-pass notch (" + num(flanger.notch, 1) + " dB)");
         // The flanger alone comes in from the bottom of the knob (in Phaser + Flanger it waits for about 14% of it).
         const Shape low = measure(render(RigEngine::SwirlFlanger, 0.08f)), lowBoth = measure(render(RigEngine::SwirlBoth, 0.08f));

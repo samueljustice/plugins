@@ -79,7 +79,8 @@
 // (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
 // bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
 // cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png, and for surround room-strip.png,
-// output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4). Run it as
+// output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4, and layer-swirl.png, layer-filter.png, layer-together.png,
+// layer-swell.png and output-eq.png: the layers and the Output EQ). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
@@ -324,6 +325,65 @@ namespace
 
 namespace
 {
+    /** The manual's pictures of what is behind the notched controls, and of the Output EQ: one layer of each kind
+        turned over (a Tape Flanger behind bus A's Swirl, bus A's Filter, Ride in Faders Together, Auto Swell on a
+        clock) and the EQ's plate with a curve. Everything is put back as it was. */
+    void shootDocLayers(Shots& shots, Rig& rig, Proc& proc)
+    {
+        auto& ed = *rig.editor;
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.4);
+        };
+        auto shot = [&](Layers::Target t, const char* name)
+        {
+            ed.openLayer(t);
+            settle();
+            shots.crop(shots.shoot(juce::String("window-") + name), name, ed.layerPanelBounds(Editor::panelFor(t)), 2);
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+        };
+        const char* const changed[] = { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::rideMode, ParamIDs::swellAuto,
+                                        ParamIDs::eqLowCut, ParamIDs::eqLowMidGain, ParamIDs::eqHighShelfGain };
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+        shot({ Layers::Kind::Swirl, 0 }, "layer-swirl");
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
+        shot({ Layers::Kind::Filter, 0 }, "layer-filter");
+        set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideTogether));
+        rig.run(1.0);
+        shot({ Layers::Kind::Together, 0 }, "layer-together");
+        set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideApart));
+        set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
+        shot({ Layers::Kind::Swell, 0 }, "layer-swell");
+        set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellOff));
+
+        set(ParamIDs::eqLowCut, 80.0f);
+        set(ParamIDs::eqLowMidGain, -6.0f);
+        set(ParamIDs::eqHighShelfGain, 4.0f);
+        ed.setEqPlateOpen(true);
+        ed.m_eqPlate->getGraph().selectBand(OutputEq::LowMid);
+        rig.run(0.6);
+        shots.crop(shots.shoot("window-output-eq"), "output-eq", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds), 2);
+        ed.m_eqPlate->getGraph().selectBand(-1);
+        ed.setEqPlateOpen(false);
+        for (const auto* id : changed)
+            if (auto* param = proc.getState().getParameter(id))
+                param->setValueNotifyingHost(param->getDefaultValue());
+        ed.updateNotches(true);
+        proc.getHistory().clear();
+        rig.run(1.0);
+    }
+
     /** --docs: exactly the pictures the manual uses, under the names it uses. One run, in the order the manual
         reads, so each picture shows the window in the state its section describes. */
     int runDocs(const Options& options)
@@ -371,6 +431,9 @@ namespace
                         break;
                     }
             }
+
+            // What is behind the notched controls, and the Output EQ.
+            shootDocLayers(shots, rig, proc);
 
             // Stowaway, switched on with a track sent to it, and its plate open. (Not through the lane's menu: its
             // line in the Tracks title bar would still be there in the pictures that follow.)

@@ -107,10 +107,11 @@ namespace ParamIDs
     /** Doubler Feedback reads -68% .. +68%: the loop gain is 0.68 x the parameter (-1 .. 1). */
     inline constexpr float doublerFeedbackMax = 0.68f;
     inline constexpr float filterClosedMinHz = 20.0f, filterClosedMaxHz = 2000.0f, filterRateMin = 0.05f, filterRateMax = 20.0f;
-    /** Each detail's default, in plain units: these give exactly what the bus did before it had a layer. */
+    /** Each detail's default, in plain units. Swirl's and the Filter's leave the front wheels doing what they do
+        with no layer opened. */
     inline constexpr float busDetailDefaults[numBusDetails] = {
         0.0f, 0.55f, 1.0f, 1.0f, 1.0f,                    // Swirl: Phaser + Flanger, +55%, 1x, 100%, 100%
-        0.0f, 1.0f, 4.0f, 0.3f, 0.0f, 0.25f, 0.0f,        // Tape: With the Pass, Invert on, 4 ms, 0.3 Hz, 0%, 25%, centre
+        0.0f, 0.0f, 4.0f, 0.3f, 0.0f, 0.25f, 0.0f,        // Tape: With the Pass, Invert off, 4 ms, 0.3 Hz, 0%, 25%, centre
         0.0f, 1.0f, 1.0f, 20.0f, 0.12f, 0.6f, 0.0f,       // Doubler: Random, Thicken on, Spread on, 20 ms, 12%, 0.6 Hz, 0%
         0.0f, 0.0f, 0.0f, 170.0f, 0.0f, 1.0f, 0.0f, 1.0f  // Filter: Low Pass, 12 dB, Sine, 170 Hz, 0%, 100%, 0%, 1 Hz
     };
@@ -330,6 +331,11 @@ namespace Params
     }
     /** A doppler pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
     inline float passSeconds(float rate) { return 6.0f * std::pow(1.6f / 6.0f, std::clamp(rate, 0.0f, 1.0f)); }
+    /** What a Rate wheel reads: in Faders Together the length of the one swell, otherwise the ride's own time. */
+    inline juce::String rateText(float rate, bool together)
+    {
+        return together ? juce::String(passSeconds(rate), 1) + " s" : ridePeriodText(rate);
+    }
     /** Throw Length: the whole thrown pass, 0.3 .. 6 s. Settings under the minimum mean "as long as Rate's passes". */
     inline constexpr float throwMinSeconds = 0.3f, throwMaxSeconds = 6.0f;
     inline float throwSeconds(float setting, float rate)
@@ -589,9 +595,10 @@ namespace Params
             return {};
         const auto rest = id.substring(1);
         if (rest == "SwirlType")
-            return "What Swirl is. Phaser + Flanger: the phaser, with the flanger coming in from about a seventh of the knob. Phaser "
-                   "or Flanger: one of them alone. Tape Flanger: a second copy of the bus on a moving delay that runs either side of "
-                   "the first, so the two pass through zero and the sound thins out. Doubler: one delayed copy that wanders a little, "
+            return "What Swirl is. Phaser + Flanger: the phaser, with the flanger coming in from about a seventh of the knob. Phaser: "
+                   "the phaser alone, its notches through the middle of the sound. Flanger: the flanger alone, sweeping up as each "
+                   "pass comes close and back down as it leaves. Tape Flanger: a second copy of the bus on a moving delay that runs "
+                   "either side of the first, so the two pass through zero. Doubler: one delayed copy that wanders a little, "
                    "for a thicker sound. The Swirl wheel is how much, whatever it is.";
         if (rest == "SwirlFeedback")
             return "How much of the swirl is fed back into itself. More is a stronger, more ringing colour; below 0% the feedback is "
@@ -601,15 +608,16 @@ namespace Params
         if (rest == "SwirlDepth")
             return "How far the swirl's own sweep goes.";
         if (rest == "SwirlFollow")
-            return "How far the sweep follows the whoosh. 100%: it opens and closes with each pass. 0%: it sweeps on its own.";
+            return "How far the sweep follows the whoosh. 100%: it opens and closes with each pass. 0%: it sweeps by itself.";
         if (rest == "TapeMotion")
             return "What moves the second copy. With the Pass: it runs late while the pass is far off and passes through zero just "
-                   "before the pass is closest. On Its Own: a slow sweep at Rate. By Hand: only Varispeed moves it.";
+                   "before the pass is closest. On Its Own: a slow sweep at Rate. By Hand: it waits Depth behind the first, and only "
+                   "Varispeed moves it: lean faster to bring it through zero.";
         if (rest == "TapeInvert")
-            return "Turns the second copy upside down, so it cancels the first where the two meet: the deepest thin-out. Off: the "
-                   "two add up there instead.";
+            return "Turns the second copy upside down, so it cancels the first where the two meet: the sound thins right out "
+                   "there, the low end first and for longest. Off: the two add up there, and the low end keeps its weight.";
         if (rest == "TapeDepth")
-            return "How far the second copy moves either side of the first.";
+            return "How far the second copy moves either side of the first. By Hand: how far behind it waits.";
         if (rest == "TapeRate")
             return "How fast the second copy sweeps On Its Own.";
         if (rest == "TapeFeedback")

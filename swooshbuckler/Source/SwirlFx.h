@@ -13,22 +13,26 @@
  * Tape Flanger, per lane (design 3.4). A second copy of the lane on a moving delay that can run ahead of the first:
  *
  *     x -+-> clean ring, D0 = c_dryMs in whole samples -------------------------------> dry
- *        +->(+)-> line -+-> cubic read at D0 + d -> low-pass -> soft clip -> +-1 ------> wet
+ *        +->(+)-> line -+-> read at D0 + d -> +-1 ------------------------------------> wet
  *            ^          +-> cubic read at max(|d|, 0.25 ms) -> low-pass -> soft clip -> x g -+
  *            +-----------------------------------------------------------------------------+
  *     out = cos(m pi/2) dry + sin(m pi/2) wet,   m = mixFor(knob)
  *
- *   The low-pass is two one-poles at 19 kHz (the copy is 2.8 dB down at 15 kHz at 48 kHz, 4 dB at 192 kHz); the wet read is moved earlier by their delay
- *   at low frequencies, so at d = 0 the copy lies on the dry and, inverted, cancels it. The soft clip is
- *   2 tanh(x / 2). g = 0.9 x Feedback: under 1, and the clip is inside the loop, so it never runs away. With no
- *   feedback the second read is not made.
+ *   The copy is read as it is on the line: nothing is between it and the dry but the move, so at d = 0 (a whole
+ *   number of samples) it is the dry sample for sample and, inverted, cancels it alike at every frequency, level
+ *   and sample rate (with no feedback; the loop adds to the line what the dry does not have). The low-pass (two
+ *   one-poles at 19 kHz) and the soft clip (2 tanh(x / 2)) are the loop's: g = 0.9 x Feedback is under 1 and the
+ *   clip is inside the loop, so it never runs away. With no feedback the second read is not made.
+ *   The reads of the moving copy (this one and the Doubler's) are the four-point cubic at 120 kHz and over and the
+ *   line's 16-point sinc under it (c_sincBelowHz), where the cubic's loss at the top would be heard to change as
+ *   the copy moves.
  *   d = stops(settle(motion + hand)), in ms, positive = the copy later than the dry.
  *     With the Pass: motion = Depth (1 - c_passLead passNear): late when the pass is far, through zero just before
  *       its closest point, (c_passLead - 1) Depth early at it and back through zero just after.
  *     On Its Own: motion = min(Depth, 8 ms Hz / Rate) sin(2 pi w(phase)), w(p) = p - c_ownWarp sin^2(pi p): the late
  *       half takes 60% of the cycle and the turn on the early side is the quick one. The cap holds the pitch swing
  *       near +-6% (measured in SwirlFxTest).
- *     By Hand: motion = 0.
+ *     By Hand: motion = Depth: the copy waits that far behind, and the hand brings it through the dry.
  *     hand (Varispeed, in every Motion): speed = 0.03 sgn(v) ((|v| - 0.05) / 0.95)^1.5 past a 5% dead zone,
  *       followed over 0.1 s; hand -= speed dt, so the copy is pitched by exactly `speed` (51 cents at the ends)
  *       while it moves; the speed eases to nothing over the last 10% of the range; with v back at 0 the hand stays
@@ -104,6 +108,8 @@ public:
     // Where the end stops start to ease (ms short of c_maxOffsetMs), and the lanes' bend.
     static constexpr double c_stopKneeMs = 0.4, c_laneBend = 0.15;
     static constexpr double c_tapeFeedback = 0.9, c_feedbackFloorMs = 0.25, c_lowPassHz = 19000.0;
+    // Under this sample rate the moving copy is read with the sinc.
+    static constexpr double c_sincBelowHz = 120000.0;
     // Doubler.
     static constexpr double c_wanderFloorMs = 3.0, c_wanderMaxMs = 70.0, c_wanderMsHz = 50.0, c_randomRate = 0.4, c_randomFold = 0.68;
     static constexpr double c_thickenGain = 0.65, c_thickenEndMs = 45.0, c_thickenPower = 1.2, c_doublerFeedback = 0.68;
@@ -116,7 +122,7 @@ public:
     struct Tape
     {
         int motion = WithPass;
-        bool invert = true;
+        bool invert = false;
         float depthMs = 4.0f;   // 0 .. 6
         float rateHz = 0.3f;    // 0.01 .. 4
         float feedback = 0.0f;  // -1 .. 1
@@ -196,7 +202,7 @@ private:
 
     double m_sampleRate = 48000.0;
     int m_drySamples = 384;  // c_dryMs at m_sampleRate
-    double m_lowPassDelay = 0.0; // the two one-poles' delay at low frequencies, samples
+    bool m_sincRead = true;  // the moving copy is read with the sinc (see c_sincBelowHz)
     float m_startPhase = 0.0f;
     sj::Random m_rng;
     std::array<Lane, c_lanes> m_lane;

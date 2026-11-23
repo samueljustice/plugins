@@ -27,6 +27,11 @@ public:
     /** How a text button is drawn (see above). Menu is a button that opens a menu. */
     enum class ButtonStyle { Button = 0, Primary, Chip, Menu };
     static void setStyle(juce::Button& b, ButtonStyle style) { b.getProperties().set("style", static_cast<int>(style)); }
+
+    /** The notch of a control with a layer behind it: a corner turned down (a triangle in the lower left of `box`),
+        an outline while everything behind it is at its default, filled in `lit` when not. A lamp is a square; this
+        is not one. */
+    static void drawNotch(juce::Graphics& g, juce::Rectangle<float> box, bool filled, juce::Colour lit, juce::Colour outline);
     static ButtonStyle getStyle(const juce::Button& b) { return static_cast<ButtonStyle>(static_cast<int>(b.getProperties().getWithDefault("style", 0))); }
     /** A button whose text is a name of the user's (a preset): it may be cut in the middle to fit. */
     static void setShowsName(juce::Button& b) { b.getProperties().set("name", true); }
@@ -132,6 +137,9 @@ public:
     /** Opens the box (nothing happens without a parameter). */
     void beginTyping();
     bool isTyping() const;
+    /** What the box shows and what is typed is matched against, for a normalised value: the parameter's own text
+        unless this is set (Rate reads another scale in Faders Together). */
+    std::function<juce::String(float)> typedText;
     /** Called just before a typed value is set (a glide towards a preset is stopped here). */
     std::function<void()> onTypedValue;
     /** A right-click opens this instead of the box. */
@@ -303,7 +311,7 @@ public:
     /** Where the wheel is drawn now, 0..1 of its travel (the value, but for the spring and the coast). */
     float getShownPosition() const { return m_shown; }
 
-    /** The notch: a small square at the dial's lower left on a wheel with a layer behind it (Swirl, Filter, Rate).
+    /** The notch: a small turned corner (SwooshLookAndFeel::drawNotch) at the dial's lower left on a wheel with a layer behind it (Swirl, Filter, Rate).
         Hollow while everything behind it is at its default, filled when anything is not. */
     enum class Notch { None = 0, Hollow, Filled };
     void setNotch(Notch notch) { if (notch != m_notch) { m_notch = notch; repaint(); } }

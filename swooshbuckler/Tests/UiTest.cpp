@@ -3052,14 +3052,37 @@ int main(int argc, char* argv[])
                                            - state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getDefaultValue()) < 1.0e-4f;
         check(swirlReset && dopplerReset && dopplerShift,
               "layers: Shift-double-click resets a notched wheel and does not open it; a wheel with no notch resets on a double-click, Shift or not");
-        check(swirl->getProperties()["howTo"].toString().startsWith("Double-click to open it. Shift-double-click to reset it."),
-              "layers: a notched wheel's tooltip says a double-click opens it and Shift-double-click resets it");
+        {
+            const auto closedHow = swirl->getProperties()["howTo"].toString();
+            ed.openLayer({ Layers::Kind::Swirl, 0 });
+            settle();
+            ed.updateNotches(true);
+            const auto openHow = swirl->getProperties()["howTo"].toString();
+            // The page's own wheels take no wire and say so by not offering one (Varispeed is not on this page: the type is Phaser + Flanger).
+            bool pageWheels = false, noJack = true;
+            for (auto* child : hostA.getPage()->getChildren())
+                if (auto* w = dynamic_cast<WheelKnob*>(child); w != nullptr && w->isVisible())
+                {
+                    pageWheels = true;
+                    const auto how = w->getProperties()["howTo"].toString();
+                    noJack = noJack && how.startsWith("Double-click to reset it.") && ! how.contains("Mod jack");
+                }
+            hostA.close();
+            settle();
+            ed.updateNotches(true);
+            check(closedHow.startsWith("Double-click to open what is behind it") && closedHow.contains("Shift-double-click to reset it.")
+                      && openHow.startsWith("Double-click to close its layer") && swirl->getProperties()["howTo"].toString() == closedHow
+                      && swirl->getTooltip().contains("Behind its notch: the Type"),
+                  "layers: a notched wheel's tooltip says what is behind its notch, that a double-click opens it (closes it, while it is open) and that Shift-double-click resets it");
+            check(pageWheels && noJack, "layers: a page's own wheels do not offer a Mod jack (they take no wire)");
+        }
 
         // Off its default, the notch fills and the tooltip names the type; Reset puts it back as one undo step.
         set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 3.0f); // Tape Flanger
         set(ParamIDs::busDetail[0][ParamIDs::SwirlFeedback], 0.2f);
         ed.updateNotches(true);
-        const bool filled = swirl->getNotch() == WheelKnob::Notch::Filled && swirl->getTooltip().startsWith("Bus A Swirl: Tape Flanger\n");
+        const bool filled = swirl->getNotch() == WheelKnob::Notch::Filled && swirl->getTooltip().startsWith("Bus A: Swirl (Tape Flanger)\n")
+                            && swirl->getTooltip().contains("a second copy of the bus") && ! swirl->getTooltip().contains("a phaser");
         ed.openLayer({ Layers::Kind::Swirl, 0 });
         settle();
         const int undoBefore = proc.getHistory().canUndo() ? 1 : 0;
@@ -3095,8 +3118,15 @@ int main(int argc, char* argv[])
         ed.openLayer({ Layers::Kind::Swirl, 0 });
         ed.openLayer({ Layers::Kind::Filter, 1 });
         settle();
+        // (Ride's row of keys stays under its layers: Auto Ride, the Ride Mode box and Throw are in reach of a click.)
+        auto reaches = [&](juce::Component& c)
+        {
+            auto* at = ed.m_content.getComponentAt(c.getBounds().getCentre());
+            return at == &c || (at != nullptr && c.isParentOf(at));
+        };
         const bool three = ed.m_layers[0]->isOpen() && hostA.isOpen() && ed.m_layers[2]->isOpen() && ! rate->isVisible() && ed.m_swell.isVisible()
-                           && ! ed.m_rideButton.isVisible() && ! ed.m_keysMode.isVisible() && ! ed.m_throwButton.isVisible();
+                           && ed.m_rideButton.isVisible() && ! ed.m_keysMode.isVisible() && ed.m_throwButton.isVisible() && ed.m_rideMode.isVisible()
+                           && reaches(ed.m_rideButton) && reaches(ed.m_rideMode) && reaches(ed.m_throwButton);
         for (const float scale : { 0.85f, 1.0f, 1.5f })
         {
             ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
@@ -3176,6 +3206,22 @@ int main(int argc, char* argv[])
             graph.mouseUp(mouseAt(graph, hiAt, hiAt, false));
             check(hiOn && graph.isParked(OutputEq::HighCut), "eq: High Cut comes in from the right, and a double-click parks it");
 
+            {
+                // Low Cut at the Low Shelf's own frequency: each handle is still the one a click on it picks.
+                auto* cut = proc.getState().getParameter(ParamIDs::eqLowCut);
+                const float before = cut->getValue();
+                cut->setValueNotifyingHost(cut->convertTo0to1(plain(ParamIDs::eqLowShelfFreq)));
+                rig.run(0.2);
+                graph.refresh();
+                const auto shelfAt = graph.handleCentre(OutputEq::LowShelf), cutAt = graph.handleCentre(OutputEq::LowCut);
+                graph.selectBand(-1);
+                const bool apart = graph.bandAt(shelfAt) == OutputEq::LowShelf && graph.bandAt(cutAt) == OutputEq::LowCut
+                                   && std::abs(shelfAt.x - cutAt.x) < 1.0f && std::abs(shelfAt.y - cutAt.y) > EqGraph::c_handle;
+                cut->setValueNotifyingHost(before);
+                rig.run(0.2);
+                graph.refresh();
+                check(apart, "eq: a Low Cut at the Low Shelf's frequency does not cover the shelf's handle (the cut's rides 3 dB under the line)");
+            }
             ed.m_eqPlate->refresh();
             check(Theme::getLook(ed.m_eqPlate->m_slope) == Theme::Look::Resting, "eq: the 24 dB key rests while Low Cut is off");
             graph.flattenAll();
@@ -3201,7 +3247,39 @@ int main(int argc, char* argv[])
             check(apartText == Params::ridePeriodText(static_cast<float>(rate->getValue()))
                       && togetherText == juce::String(Params::passSeconds(static_cast<float>(rate->getValue())), 1) + " s" && togetherText != apartText,
                   "together: Rate reads the length of the shared swell (" + togetherText + ", " + apartText + " apart)");
-            check(apartStatus.isEmpty() && status.startsWith("Peak in ") && status.endsWith(" s") && ed.m_rideStatus == status,
+            const bool counted = apartStatus.isEmpty() && status.startsWith("Peak in ") && status.endsWith(" s") && ed.m_rideStatus == status;
+            {
+                // What is typed into Rate is read on the scale the wheel shows.
+                rate->beginTyping();
+                const auto offered = rate->isTyping() ? rate->m_typing->getText() : juce::String();
+                if (rate->isTyping())
+                {
+                    rate->m_typing->setText("2.0 s", false);
+                    rate->endTyping(true, false);
+                }
+                rig.run(0.2);
+                const auto typed = rate->getTextFromValue(rate->getValue());
+                check(offered == togetherText && typed == "2.0 s", "together: the box to type Rate into opens with the swell's length (" + offered
+                                                                    + ") and 2.0 s typed is a 2.0 s swell (" + typed + ")");
+                auto* rateParam = proc.getState().getParameter(ParamIDs::rate);
+                rateParam->setValueNotifyingHost(rateParam->getDefaultValue());
+                // Rate's own layer: Rate is on it, live, with the Ride Mode box under the page.
+                ed.openLayer({ Layers::Kind::Together, 0 });
+                rig.run(0.5);
+                WheelKnob* pageRate = nullptr;
+                if (auto* page = ed.m_layers[0]->getPage())
+                    for (auto* child : page->getChildren())
+                        if (auto* w = dynamic_cast<WheelKnob*>(child); w != nullptr && w->caption == "Rate")
+                            pageRate = w;
+                const bool onPage = pageRate != nullptr && pageRate->isVisible() && Theme::getLook(*pageRate) != Theme::Look::Resting
+                                    && pageRate->getTextFromValue(pageRate->getValue()) == juce::String(Params::passSeconds(static_cast<float>(pageRate->getValue())), 1) + " s";
+                auto* under = ed.m_content.getComponentAt(ed.m_rideMode.getBounds().getCentre());
+                const bool modeInReach = ed.m_rideMode.isVisible() && (under == &ed.m_rideMode || ed.m_rideMode.isParentOf(under));
+                ed.m_layers[0]->close();
+                rig.run(0.5);
+                check(onPage && modeInReach, "together: Rate is on its own layer, reading the swell's length, and the Ride Mode box stays in reach under the page");
+            }
+            check(counted,
                   "together: Ride counts down to the swell's top (\"" + status + "\"), and says nothing of it with the faders apart");
             proc.setPlaying(false);
             rig.run(0.3);
