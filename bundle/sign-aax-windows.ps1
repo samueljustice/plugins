@@ -8,6 +8,9 @@
 #                               a "#test" line in plugins.txt, its newest pre-release counts too)
 #   sign-aax -Force ...         re-sign even if the release already has a signed Windows AAX
 #   sign-aax -Local ...         sign and verify only: no upload (leaves the zips in .\aax-signed)
+#   sign-aax body-language      a plug-in built in another (private) repository: its plugins.txt line names
+#                               that repository in a sixth field; the signed zip goes to its release there,
+#                               and that repository's aax-installer.yml is started to rebuild the installer
 #
 # For each release it takes the unsigned AAX its build uploaded as an artifact ("<Name>-Windows-AAX-unsigned"),
 # signs it, checks the signature and uploads "<Name>-<version>-Windows-AAX.zip" to the release. There's no
@@ -91,6 +94,12 @@ function Invoke-Gh {
 
 function Get-Lines([string]$Text) { @($Text -split "`r?`n" | Where-Object { $_ -ne '' }) }
 
+# The repository a plug-in is built in: the sixth field of its plugins.txt line, or empty for this one.
+function Get-OwnRepo([string]$Line) {
+  $f = $Line.Split('|')
+  if ($f.Count -ge 6 -and $f[5].Trim()) { $f[5].Trim() } else { '' }
+}
+
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Write-Host 'gh (GitHub CLI) not found'; exit 1 }
 if (-not (Test-Path $config)) { Write-Host "Missing $config (see the top of this script)"; exit 1 }
 $pace = Get-Content $config -Raw | ConvertFrom-Json
@@ -140,6 +149,12 @@ try {
       }
       if (-not $line) { Write-Host "Unknown plug-in or no release: $id"; exit 1 }
       $prefix = $line.Split('|')[1]
+      $own = Get-OwnRepo $line
+      if ($own) {
+        # Built in its own repository: its releases there, pre-releases included.
+        $candidates = Get-Lines (Invoke-Gh @('release', 'list', '-R', $own, '--limit', '200', '--exclude-drafts',
+                                             '--json', 'tagName', '--jq', '.[].tagName')).Out
+      }
       $tag = $candidates | Where-Object { $_ -match ('^' + [regex]::Escape($prefix) + '\d+\.\d+\.\d+$') } |
                Sort-Object { [version]$_.Substring($prefix.Length) } | Select-Object -Last 1
       if (-not $tag) { Write-Host "Unknown plug-in or no release: $id"; exit 1 }
@@ -178,23 +193,25 @@ try {
     $fields = $line.Split('|')
     $name = $fields[2]
     $bundle = $fields[3]
-    Write-Host "== $name $($t.Version) ($($t.Tag))"
+    $own = Get-OwnRepo $line
+    $tRepo = if ($own) { $own } else { $repo }
+    Write-Host "== $name $($t.Version) ($($t.Tag))$(if ($own) { " in $own" })"
 
-    $assets = Get-Lines (Invoke-Gh @('release', 'view', $t.Tag, '-R', $repo, '--json', 'assets', '--jq', '.assets[].name')).Out
+    $assets = Get-Lines (Invoke-Gh @('release', 'view', $t.Tag, '-R', $tRepo, '--json', 'assets', '--jq', '.assets[].name')).Out
     if (-not $force -and -not $localOnly -and ($assets -match '-Windows-AAX\.zip$')) {
       Write-Host '   already has a signed Windows AAX (use -Force to redo it)'
       $skipped += "${name}: already signed"
       continue
     }
 
-    $run = (Invoke-Gh @('run', 'list', '-R', $repo, '--workflow', "build-release_$($t.Id).yml", '--branch', $t.Tag,
+    $run = (Invoke-Gh @('run', 'list', '-R', $tRepo, '--workflow', "build-release_$($t.Id).yml", '--branch', $t.Tag,
                         '--status', 'success', '--limit', '1', '--json', 'databaseId', '--jq', '.[0].databaseId // empty')).Out.Trim()
     if (-not $run) {
       Write-Host "   no successful build of $($t.Tag) found"
       $skipped += "${name}: no build of $($t.Tag)"
       continue
     }
-    $artifact = Get-Lines (Invoke-Gh @('api', "repos/$repo/actions/runs/$run/artifacts", '--jq',
+    $artifact = Get-Lines (Invoke-Gh @('api', "repos/$tRepo/actions/runs/$run/artifacts", '--jq',
                                        '.artifacts[] | select(.name | endswith("-Windows-AAX-unsigned")) | select(.expired | not) | .name')).Out |
                   Select-Object -First 1
     if (-not $artifact) {
@@ -206,7 +223,7 @@ try {
 
     $dir = Join-Path $work $t.Id
     New-Item -ItemType Directory -Force (Join-Path $dir 'dl') | Out-Null
-    Invoke-Gh @('run', 'download', $run, '-R', $repo, '-n', $artifact, '-D', (Join-Path $dir 'dl')) | Out-Null
+    Invoke-Gh @('run', 'download', $run, '-R', $tRepo, '-n', $artifact, '-D', (Join-Path $dir 'dl')) | Out-Null
     $zip = Get-ChildItem (Join-Path $dir 'dl') -Filter *.zip | Select-Object -First 1
     if (-not $zip) { Write-Host "   $artifact has no zip in it"; exit 1 }
     Expand-Archive -Path $zip.FullName -DestinationPath $dir -Force
@@ -250,8 +267,13 @@ try {
       $signed += "$name $($t.Version) (local only)"
       continue
     }
-    Invoke-Gh @('release', 'upload', $t.Tag, '-R', $repo, $zipPath, '--clobber') | Out-Null
+    Invoke-Gh @('release', 'upload', $t.Tag, '-R', $tRepo, $zipPath, '--clobber') | Out-Null
     Write-Host "   uploaded $final"
+    if ($own) {
+      # Its own repository rebuilds the Windows installer with the signed AAX.
+      Invoke-Gh @('workflow', 'run', 'aax-installer.yml', '-R', $own, '-f', "tag=$($t.Tag)") | Out-Null
+      Write-Host "   started $own's aax-installer.yml for $($t.Tag)"
+    }
     $signed += "$name $($t.Version)"
   }
 
