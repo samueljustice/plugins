@@ -111,7 +111,8 @@ def link(folder: str, url: str) -> str:
         if re.match(r"^(?:https?:|mailto:)", url):
             return url
         return url if re.match(r"^(?:\./)?[\w.-]+/[\w./-]+\.(?:gif|png|jpe?g|webp|svg|mp4)$", url, re.I) else ""
-        return "../#get"                      # "It comes in Sammy J's Plugins": the download buttons
+    if re.match(rf"https://github\.com/{re.escape(repo)}/releases/latest/?$", url):
+        return "../#get"                     # "It comes in Sammy J's Plugins": the download buttons
     m = re.match(rf"https://github\.com/{re.escape(repo)}/(?:blob|tree)/main/(.*)$", url)
     if m:
         url, folder = m.group(1), ""
