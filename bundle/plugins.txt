@@ -15,5 +15,8 @@ tonalrecall|tonalrecall-v|Tonal Recall|SammyJs Tonal Recall|
 # sign-aax-windows.ps1) reads these lines, the same fields after "#test ", so their AAX can be signed;
 # everything else here takes them for comments, so they are in no installer, on no page and not checked
 # by the Release docs workflow. At a plug-in's first full release, replace its line with a normal one above.
+# A sixth field names the repository a plug-in is built in when it isn't this one (a private plug-in):
+# sign-aax on the PC then signs its AAX there.
 #test dehonk|dehonk-v|De-Honk|SammyJs De-Honk|SammyJs De-Honk
 #test doomeq|doomeq-v|DOOM EQ|SammyJs DOOM EQ|SammyJs DOOM EQ
+#test body-language|body-language-v|Body Language|Body Language||samueljustice/body-language
