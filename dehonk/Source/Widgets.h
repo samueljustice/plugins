@@ -50,6 +50,8 @@ public:
     bool isSelected() const noexcept { return selected; }
     bool isOn() const noexcept { return on; }
     void setCutting (bool isCutting);
+    /** The second line under the name: the frequencies the range covers now. */
+    void setRangeText (const juce::String&);
 
     /** The tab's colour as it is drawn now (full while the range is on, pale while it is off). */
     juce::Colour fillColour() const noexcept;
@@ -74,6 +76,7 @@ private:
 
     juce::SharedResourcePointer<Theme::Fonts> fonts;
     const juce::String name;
+    juce::String rangeText;
     const juce::Colour colour;
     juce::ParameterAttachment attachment;
     bool on = false, selected = false, cutting = false, hotLamp = false, hot = false;
@@ -82,7 +85,7 @@ private:
 //==============================================================================
 /** The shelf: the five range tabs standing on a line under the band view, and under the line a
     drawer with the selected range's own controls: a lock, and its attack and release. Locked, the
-    range follows Speed and Release, and the two bars are greyed and show what those come to;
+    range follows Attack and Release, and the two bars are greyed and show what those come to;
     unlocked, they are the range's own. With nothing selected the drawer says what a click does.
 
     Selecting is the shelf's own state, not a parameter. onSelectionChanged says which range is
@@ -102,11 +105,11 @@ public:
         its own lamp changes. */
     void setCutting (const std::array<bool, dehonk::kNumModules + 1>&);
 
-    /** Call a few times a second: brings the greyed bars of a locked range up to date with Speed
-        and Release. */
+    /** Call a few times a second: brings the greyed bars of a locked range up to date with Attack
+        and Release, and each tab's frequencies up to date with the edges. */
     void refresh();
 
-    static constexpr int tabHeight = 30, drawerHeight = 36;
+    static constexpr int tabHeight = 40, drawerHeight = 36;
     static constexpr int height = tabHeight + drawerHeight;
 
     void paint (juce::Graphics&) override;
@@ -121,6 +124,7 @@ private:
     juce::Rectangle<int> drawerBounds() const noexcept;
     double globalAttackMs() const;
     double globalReleaseMs() const;
+    void updateRangeTexts();
 
     juce::AudioProcessorValueTreeState& apvts;
     const Theme::Fonts& fonts;
@@ -133,6 +137,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> lockAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attackAttachment, releaseAttachment;
     juce::String shownAttack, shownRelease;
+    std::array<float, dehonk::kNumEdges> shownEdges {};
     bool shownLocked = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RangeShelf)

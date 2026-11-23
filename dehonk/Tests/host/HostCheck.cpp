@@ -428,13 +428,14 @@ int main()
         // of its factory presets, one on its "User preset" entry, one with settings moved.
         {
             struct Expect { const char* program; float threshold, depth, sharpness, release, maxCut, mix; int linkMode, lookahead; bool woof; };
-            // In the order of FirstBuildStates.h. "After RBass" has a new name since.
+            // In the order of FirstBuildStates.h. Three of its presets have new names since: each
+            // must come back under its new one.
             const Expect expected[] = {
                 { "Master bus",              -16.0f, 50.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 0, false },
                 { "After a bass enhancer",   -24.0f, 50.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 0, false },
                 { "Printed stem",            -30.0f, 60.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 2, false },
-                { "Narrow resonances only",  -16.0f, 50.0f, 100.0f, 700.0f, 6.0f, 100.0f, 0, 0, false },
-                { "Heavy",                   -16.0f, 80.0f,  20.0f, 400.0f, 9.0f, 100.0f, 0, 0, true },
+                { "Narrow focus only",       -16.0f, 50.0f, 100.0f, 700.0f, 6.0f, 100.0f, 0, 0, false },
+                { "Master bus, heavy",       -16.0f, 80.0f,  20.0f, 400.0f, 9.0f, 100.0f, 0, 0, true },
                 { "Master bus",              -16.0f, 50.0f,  20.0f, 400.0f, 6.0f, 100.0f, 0, 0, false },
                 { "Master bus",              -22.0f, 50.0f,  20.0f, 400.0f, 6.0f,  80.0f, 2, 0, false },
             };
@@ -531,6 +532,21 @@ int main()
             check (firstSeen == first.size() && wrongHints == 0 && ! linkAutomatable,
                    "all 22 parameters of the first test build are still there with version hint 1 (the old Link not automatable), and the "
                        + juce::String (p->getParameters().size() - first.size()) + " added since have a higher one");
+        }
+        // Attack (the "speed" parameter) is shown as the attack time its value gives, and typed
+        // times come back to the same value: 0 is 40 ms, 50 about 14 ms, 100 is 5 ms.
+        {
+            std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());
+            juce::RangedAudioParameter* speed = nullptr;
+            for (auto* q : p->getParameters())
+                if (auto* w = dynamic_cast<juce::RangedAudioParameter*> (q); w != nullptr && w->getParameterID() == "speed")
+                    speed = w;
+            const bool ok = speed != nullptr && speed->getName (64) == "Attack"
+                         && speed->getText (0.0f, 64) == "40 ms" && speed->getText (0.5f, 64) == "14 ms" && speed->getText (1.0f, 64) == "5.0 ms"
+                         && std::abs (speed->getValueForText ("40 ms") - 0.0f) < 0.002f && std::abs (speed->getValueForText ("5 ms") - 1.0f) < 0.002f
+                         && std::abs (speed->getValueForText ("14.1 ms") - 0.5f) < 0.01f && std::abs (speed->getValueForText ("0.02 s") - speed->getValueForText ("20")) < 0.001f;
+            check (ok, "Attack shows the attack time (40 ms at 0, 14 ms at 50, 5.0 ms at 100) and reads typed times back (\""
+                           + (speed != nullptr ? speed->getText (0.5f, 64) : juce::String()) + "\" at the default)");
         }
         // Rubbish does not crash it.
         std::unique_ptr<juce::AudioProcessor> p (createPluginFilter());

@@ -6,18 +6,20 @@ In a trailer mix, many of the sounds and much of the music have each been throug
 
 It goes on the master bus, before the limiter. It works in mono, stereo and surround up to 7.1.4, and with Lookahead off it adds no latency. It comes as VST3, AU and AAX plug-ins and as a standalone app, for macOS and Windows. Hosts list it as **SammyJs De-Honk**.
 
-**This is an early test build (0.0.2).** It is for a few people to try on real mixes and report back. Controls, presets and the sound may change before the first full release, and sessions saved with it may not open the same way in a later version.
+**This is an early test build (0.0.3).** It is for a few people to try on real mixes and report back. Controls, presets and the sound may change before the first full release, and sessions saved with it may not open the same way in a later version.
 
-<img src="docs/screenshots/busy.png" width="960" alt="The De-Honk window in a busy passage of a trailer mix: geese on the bank where it is cutting, the sound recordist working one of them, a tree at each range edge; below, the band view with a cut of 4.7 dB in Tub, the shelf of range tabs, the knobs, and the bottom row.">
+<img src="docs/screenshots/busy.png" width="960" alt="The De-Honk window in a busy passage of a trailer mix: two geese on the bank where it is cutting, the sound recordist working them, a tree at each range edge; below, the band view with a cut of 1.6 dB, the shelf of range tabs with each range's frequencies, the knobs, the Delta and Compare buttons under their listen caption, and the bottom row.">
 
 ## Getting the test build
 
 The test build is on its own release page, not in the Sammy J's Plugins installer. Samuel sends the link to the people testing it. There is one installer for each system:
 
-- **macOS** (`DeHonk-0.0.2-macOS-Installer.pkg`): the VST3, AU and AAX plug-ins and the app. Choose Customize to pick. Signed and notarised; universal (Apple silicon and Intel), macOS 11 or later.
-- **Windows** (`DeHonk-0.0.2-Windows-Installer.exe`): the VST3 and AAX plug-ins and the app. 64-bit Windows 10 or later. The installer is not code-signed, so Windows may warn before running it: choose More info, then Run anyway.
+- **macOS** (`DeHonk-0.0.3-macOS-Installer.pkg`): the VST3, AU and AAX plug-ins and the app. Choose Customize to pick. Signed and notarised; universal (Apple silicon and Intel), macOS 11 or later.
+- **Windows** (`DeHonk-0.0.3-Windows-Installer.exe`): the VST3 and AAX plug-ins and the app. 64-bit Windows 10 or later. The installer is not code-signed, so Windows may warn before running it: choose More info, then Run anyway.
 
 The AAX for Pro Tools is signed by hand after the release is made. Until it is, the installers on the release page have no AAX in them; download them again once it is there.
+
+**If you tried 0.0.2.** Some controls and two factory presets were renamed in 0.0.3; the [change log](https://github.com/samueljustice/plugins/blob/main/dehonk/CHANGELOG.md) lists them. Sessions, presets and automation saved with 0.0.2 come back as they were.
 
 **If you tried 0.0.1.** The plug-in's files are now called `SammyJs De-Honk`, like Samuel's other plug-ins, and the installers remove the old `De-Honk` files so a host never sees two copies. To the host it is still the same plug-in, so a session saved with 0.0.1 should open with this one and find it in its slot. If a host does not, tell Samuel which host. Link comes back as Linked if it was at 50% or more, Unlinked if less.
 
@@ -41,7 +43,7 @@ The picture under the pond is the exact reading: the sound coming in as blue bar
 Three things in it are set by dragging them. The pointer changes over anything that can be dragged, the handle lights up, and a label shows its value. A handle moves from where it is by as far as you drag it; hold Shift (or Cmd) to move it a tenth as far. A double-click puts it back to its default.
 
 - **The edges between ranges:** the vertical lines with a round handle at the top. Drag left or right.
-- **Threshold:** the grip on the level bar at the left, and its line across the bands. Drag up or down. The level bar shows the level of the whole mix, which is what the Threshold is compared with. The bar, the grip and the line turn red while the mix is over it and De-Honk is acting.
+- **Threshold:** the grip on the level bar at the left, and its line across the bands. Drag up or down. The level bar (captioned "level") shows the level of the whole mix, which is what the Threshold is compared with. The bar, the grip and the line turn red while the mix is over it and De-Honk is acting.
 - **Max Cut:** the dashed line across the top, with a grip at its right-hand end. Drag up or down.
 
 With the dialogue sidechain on, a small dot under a bar marks a band that is being left to the dialogue.
@@ -54,9 +56,9 @@ With the dialogue sidechain on, a small dot under a bar marks a band that is bei
 
 **Max Cut** (3 to 12 dB, default 6 dB). The deepest any one cut may go, whatever Depth is set to. Two cuts side by side never add up to more. Set it with the knob or by dragging the dashed line in the band view.
 
-**Sharpness** (Broad to Narrow, default 20). How wide a build-up has to be to count. Broad responds to a whole bump; Narrow responds only to single ringing resonances. The cuts themselves are narrow either way.
+**Focus** (Broad to Narrow, default 20). How narrow a build-up has to be to count. Broad responds to a whole bump; Narrow responds only to single ringing resonances. The cuts themselves are narrow either way.
 
-**Speed** (Slow to Fast, default 50). How quickly a cut goes in once a build-up has been found. Release sets how it lets go.
+**Attack** (5 to 40 ms, default 14 ms). How quickly a cut goes in once a build-up has been found. In the window, turn it down for a faster attack, up for a slower one. In a host's automation lane and on a control surface Attack runs the other way round: higher is a shorter attack. The time shown is right either way. Release sets how a cut lets go.
 
 **Release** (50 ms to 1.5 s, default 400 ms). How slowly a cut lets go once its build-up has gone. Longer holds each cut steadier; shorter follows the mix more closely. It is for cuts that have settled on a clear build-up: a light cut that comes and goes, or one whose build-up has moved to the next note, lets go quickly whatever is set here. Under the Threshold every cut closes straight away.
 
@@ -64,9 +66,9 @@ With the dialogue sidechain on, a small dot under a bar marks a band that is bei
 
 ### The ranges
 
-The five tabs on the shelf under the band view are the ranges, each in its own colour: the colour of its stretch of the band view and of its tree in the pond.
+The five tabs on the shelf under the band view are the ranges, each in its own colour: the colour of its stretch of the band view and of its tree in the pond. Under its name each tab shows the frequencies it covers, and follows the edges as they are moved; Snap's reads "clicks, 2.5 kHz".
 
-- **Woof:** the low end barking on every hit, about 60 to 110 Hz. Off at first.
+- **Woof:** the low end booming on every hit, about 60 to 110 Hz. Off at first.
 - **Tub:** tubby weight just above the bass, about 110 to 200 Hz. This is where added bass harmonics pile up first. On at first.
 - **Fog:** low mids clouding over when music and effects stack up, about 200 to 400 Hz. On at first.
 - **Bark:** hard, shouty midrange, about 400 Hz to 1.5 kHz. Off at first.
@@ -76,7 +78,7 @@ The edges between them can be moved in the band view, each within its own stretc
 
 A tab does two things. **Its lamp** (the square at its left) switches the range on or off; the dot in the lamp turns red while the range is cutting. **A click on its name** selects the range, to work on it alone: in the pond only that range's creatures move and the rest hold still, the band view fades the other ranges, and the range's own controls appear in the drawer under the shelf. Click the name again, or the empty shelf, to go back to all of them. Selecting a range changes nothing in the sound.
 
-**A range's own attack and release.** Each of Woof, Tub, Fog and Bark has a lock in its drawer. Locked (the default), the range goes in and lets go as Speed and Release say; its two bars are greyed and show what those come to. Unlocked, the bars are the range's own: attack from 2 to 100 ms (default 14 ms) and release from 50 ms to 1.5 s (default 400 ms). This is for a range that pumps or wobbles when the others do not. Snap works on single clicks and has no attack or release to set.
+**A range's own attack and release.** Each of Woof, Tub, Fog and Bark has a lock in its drawer. Locked (the default), the range goes in and lets go as Attack and Release say; its two bars are greyed and show what those come to. Unlocked, the bars are the range's own: attack from 2 to 100 ms (default 14 ms) and release from 50 ms to 1.5 s (default 400 ms). This is for a range that pumps or wobbles when the others do not. Snap works on single clicks and has no attack or release to set.
 
 <img src="docs/screenshots/range.png" width="960" alt="De-Honk with the Tub tab selected: its drawer open under the shelf with the lock open, attack at 30 ms and release at 900 ms; the other ranges are faded in the band view and only Tub's geese move in the pond.">
 
@@ -88,11 +90,11 @@ A tab does two things. **Its lamp** (the square at its left) switches the range 
 
 **Lookahead** (Off, 5, 10 or 20 ms; default Off). Delays the audio so each cut is in place when a transient arrives. It adds the chosen latency, which is reported to the host. Off adds none.
 
-**Dialogue** (off at first; the bar from 0 to 100%, default 100%). Tells De-Honk what the dialogue is, so it leaves it alone. See below.
+**Dialogue Key** (off at first; the bar from 0 to 100%, default 100%). The dialogue stem on the sidechain (key input) tells De-Honk what the dialogue is, so it leaves it alone. See below.
 
 ### Beside the knobs
 
-**Solo Honk** and **Diff**: see [Listening](#listening).
+**Delta** and **Compare**, under the caption "listen": see [Listen](#listen).
 
 **Mix** (0 to 100%, default 100%). The balance between the untreated signal (0%) and the treated signal (100%).
 
@@ -100,7 +102,7 @@ A tab does two things. **Its lamp** (the square at its left) switches the range 
 
 ### The top row
 
-**Presets.** The arrows step through the presets, and the name opens the list. A * after the name means the settings have changed since the preset was loaded or saved. Save stores the current settings as a user preset under the name you type (it says so if the name cannot be used or the preset could not be written); user presets can be deleted, factory presets cannot. The factory presets are Master bus (the defaults), Master bus, dialogue keyed (the same with Dialogue on), After a bass enhancer, Printed stem, Narrow resonances only, Heavy, and Master bus, steady (the defaults with Detection at Steady).
+**Presets.** The arrows step through the presets, and the name opens the list. A * after the name means the settings have changed since the preset was loaded or saved. Save stores the current settings as a user preset under the name you type (it says so if the name cannot be used or the preset could not be written); user presets can be deleted, factory presets cannot. The factory presets are Master bus (the defaults), Master bus, dialogue keyed (the same with Dialogue Key on), After a bass enhancer, Printed stem, Narrow focus only, Master bus, heavy, and Master bus, steady (the defaults with Detection at Steady).
 
 **Bypass.** Passes the signal through untreated, with the same latency and without a click.
 
@@ -110,9 +112,9 @@ A tab does two things. **Its lamp** (the square at its left) switches the range 
 
 ## The dialogue sidechain
 
-De-Honk cannot tell a voice's own low mids from build-up around it. Given the dialogue stem, it can: a band the dialogue accounts for is not cut, so the voice is not thinned, while build-up well above the dialogue in the same band is still cut. With Snap on, a click that is the dialogue's (a hard consonant) is left alone as well. The Dialogue bar sets how far: at 100% a band that is all dialogue is left entirely alone.
+De-Honk cannot tell a voice's own low mids from build-up around it. Given the dialogue stem, it can: a band the dialogue accounts for is not cut, so the voice is not thinned, while build-up well above the dialogue in the same band is still cut. With Snap on, a click that is the dialogue's (a hard consonant) is left alone as well. The Dialogue Key bar sets how far: at 100% a band that is all dialogue is left entirely alone.
 
-**Routing.** The plug-in has a second input, a sidechain called **Dialogue**. Send the dialogue stem to it, then switch Dialogue on with its square lamp.
+**Routing.** The plug-in has a second input, a sidechain called **Dialogue**. Send the dialogue stem to it, then switch Dialogue Key on with its square lamp.
 
 - **Pro Tools:** this is the key input. Send the dialogue stem (a send from the dialogue bus or track is fine) to a spare bus, and choose that bus in the key input menu at the top of De-Honk's window. Pro Tools gives a plug-in a mono key, so a stereo stem arrives summed or as one side; either works. Choose the key input while the transport is stopped: the output can drop out for a moment as the key connects or disconnects.
 - **Logic:** choose the dialogue stem's bus or track in the Side Chain menu at the top of the plug-in window.
@@ -123,17 +125,17 @@ The stem can arrive at any level. De-Honk looks for it in the mix and works out 
 
 The stem should be in time with the mix. A few milliseconds either way make no difference, and up to about 20 ms costs a little of the protection; beyond that the stem is no longer found in the mix. A send taken after plug-ins with latency on the dialogue, or a stem printed with an offset, can put it out of time.
 
-**The lamp.** The round lamp at the end of the Dialogue bar is lit while the stem is arriving, whether Dialogue is on or not, so the routing can be checked first. It turns red when the stem is not doing its job: it cannot be found in the mix (the wrong stem, or far out of time), or it accounts for nearly everything in the mix (the mix itself is on the key), in which case De-Honk is being held off everywhere.
+**The lamp.** The round lamp at the end of the Dialogue Key bar is lit while the stem is arriving, whether Dialogue Key is on or not, so the routing can be checked first. It turns red when the stem is not doing its job: it cannot be found in the mix (the wrong stem, or far out of time), or it accounts for nearly everything in the mix (the mix itself is on the key), in which case De-Honk is being held off everywhere.
 
-<img src="docs/screenshots/dialogue.png" width="960" alt="De-Honk with Dialogue on and the mix's own dialogue stem on the sidechain, during a line spoken over music: the Dialogue lamp lit, small dots under the bars the dialogue accounts for, no cut, one goose on the bank, and dragonflies over the pond.">
+<img src="docs/screenshots/dialogue.png" width="960" alt="De-Honk with Dialogue Key on and the mix's own dialogue stem on the sidechain, during a line spoken over music: the Dialogue Key lamp lit, small dots under the bars the dialogue accounts for, a cut of 2.3 dB in Tub, two geese on the bank, and dragonflies over the pond.">
 
-## Listening
+## Listen
 
-Two buttons beside the knobs let you hear what De-Honk is doing. One works at a time, and the band view says which one you are hearing. Neither is saved with the session.
+Two buttons beside the knobs, under the caption "listen", let you hear what De-Honk is doing. One works at a time, and the band view says which one you are hearing. Neither is saved with the session.
 
-**Solo Honk** plays only what is being removed. If it sounds only ugly, the settings are right. If you hear wanted bass or body in it, lower Depth or switch off the lowest range.
+**Delta** plays only what is being removed: the difference between what goes in and what comes out, a solo of the cuts. The band view reads "hearing: delta (removed only)". If it sounds only ugly, the settings are right. If you hear wanted bass or body in it, lower Depth or switch off the lowest range.
 
-**Diff** plays the untreated signal, latency-matched and level-matched, so you can compare. Hold it to listen, or click it to keep it on and click again to return. It fades over to the untreated signal and back, so it does not click. The host's bypass is not touched. The level match follows the treated and untreated levels over about the last second and a half, all the time, so where nothing is cut the two match. From one moment to the next they can differ by a few tenths of a dB.
+**Compare** plays the untreated mix, latency-matched and level-matched, for an A/B of before and after. The band view reads "hearing: untreated". Hold it to listen, or click it to keep it on and click again to return. It fades over to the untreated signal and back, so it does not click. The host's bypass is not touched. The level match follows the treated and untreated levels over about the last second and a half, all the time, so where nothing is cut the two match. From one moment to the next they can differ by a few tenths of a dB.
 
 ## The pond
 
@@ -148,7 +150,7 @@ The picture at the top shows what De-Honk is doing, slowly enough to glance at w
 - **The frog** tenses as a cut nears Max Cut and leaps off its lily pad when one reaches it.
 - **Dragonflies** come out while the dialogue sidechain is being listened to.
 - **The reeds** are scenery: they stand in clumps, sway while the pond is busy and come to rest when it is still.
-- **The recordist** sits down with a flask in Bypass, listens closely in Solo Honk, and looks from side to side in Diff.
+- **The recordist** sits down with a flask in Bypass, listens closely in Delta, and looks from side to side in Compare.
 
 With a range selected, only that range's geese come, go and move, and the recordist minds only them. Everyone else stays where they are, faded back, until the range is let go. For Snap he points the microphone at the shallows and only the fish reacts.
 

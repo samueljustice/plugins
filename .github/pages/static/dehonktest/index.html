@@ -103,7 +103,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <header>
     <h1 class="name">de-honk</h1>
     <div class="rainbow" aria-hidden="true"></div>
-    <p class="meta">test build 0.0.2 · notes for testers · by samuel justice</p>
+    <p class="meta">test build 0.0.3 · notes for testers · by samuel justice</p>
   </header>
 
   <p class="lede">Thanks for trying De-Honk. It goes on the master bus of a trailer mix, before the limiter. When lots of the sounds and music in a session have each been through a bass enhancer or a saturator, their added harmonics pile up in the low mids as a boxy, nasal build-up. De-Honk listens for that as the mix plays and takes it down with narrow cuts that come and go with it.</p>
@@ -113,31 +113,45 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <section class="get">
     <h2 style="--dot: var(--mint)">download</h2>
     <div class="tools">
-      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.2/DeHonk-0.0.2-macOS-Installer.pkg">
+      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.3/DeHonk-0.0.3-macOS-Installer.pkg">
         <span class="label"><span class="disc" style="background: var(--sky)"></span>macos installer</span>
         <span>AAX, VST3, AU and the standalone app. Universal (Apple silicon and Intel), macOS 11 or later. Signed and notarised.</span>
-        <span class="file">DeHonk-0.0.2-macOS-Installer.pkg</span>
+        <span class="file">DeHonk-0.0.3-macOS-Installer.pkg</span>
       </a>
-      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.2/DeHonk-0.0.2-Windows-Installer.exe">
+      <a class="tool dl" href="https://github.com/samueljustice/plugins/releases/download/dehonk-v0.0.3/DeHonk-0.0.3-Windows-Installer.exe">
         <span class="label"><span class="disc" style="background: var(--pink)"></span>windows installer</span>
         <span>AAX, VST3 and the standalone app. 64-bit Windows 10 or later. Windows may warn before running it, because the installer isn't code-signed: choose More info, then Run anyway.</span>
-        <span class="file">DeHonk-0.0.2-Windows-Installer.exe</span>
+        <span class="file">DeHonk-0.0.3-Windows-Installer.exe</span>
       </a>
     </div>
-    <p class="small">If a link above isn't there yet, the build is still being made: try again shortly, or see <a href="https://github.com/samueljustice/plugins/releases">all releases</a>. The plug-ins on their own are on the <a href="https://github.com/samueljustice/plugins/releases/tag/dehonk-v0.0.2">release page</a>. Hosts now list it as SammyJs De-Honk. The installers remove the first test build's files. To the host it is still the same plug-in, so a session saved with 0.0.1 should open with it in place: if one doesn't, please tell us which host.</p>
+    <p class="small">If a link above isn't there yet, the build is still being made: try again shortly, or see <a href="https://github.com/samueljustice/plugins/releases">all releases</a>. The plug-ins on their own are on the <a href="https://github.com/samueljustice/plugins/releases/tag/dehonk-v0.0.3">release page</a>. Hosts list it as SammyJs De-Honk. The installers remove the first test build's files. To the host it is still the same plug-in, so a session saved with 0.0.1 or 0.0.2 should open with it in place: if one doesn't, please tell us which host.</p>
+  </section>
+
+  <section class="setup">
+    <h2 style="--dot: var(--lavender)">new in 0.0.3</h2>
+    <p>Mostly new names, so the controls are easier to find. What they do hasn't changed, and sessions from 0.0.2 come back as they were.</p>
+    <ul>
+      <li><strong>Solo Honk is now Delta; Diff is now Compare.</strong> They sit under a small "listen" caption. See <a href="#listen">listen</a> below.</li>
+      <li><strong>Speed is now Attack</strong>, shown as a time, 5 to 40 ms. Turned up in the window, the attack is slower. In a host's automation lane and on a control surface it runs the other way round: higher is a shorter attack. The time shown is right either way.</li>
+      <li><strong>Sharpness is now Focus</strong>, and <strong>Dialogue is now Dialogue Key</strong>.</li>
+      <li><strong>Each range tab shows its frequencies</strong> under its name, and follows the edges when you drag them. Snap's reads "clicks, 2.5 kHz".</li>
+      <li><strong>Two presets are renamed:</strong> Heavy is now Master bus, heavy, and Narrow resonances only is now Narrow focus only.</li>
+      <li><strong>In a host's automation list</strong> the range switches read Woof On, Tub On and so on, the edges start with Edge, and Link is Channel Link.</li>
+      <li><strong>The recordist and the animals are livelier.</strong></li>
+    </ul>
   </section>
 
   <section class="setup">
     <h2 style="--dot: var(--pink)">new in 0.0.2</h2>
     <ul>
-      <li><strong>Dialogue sidechain.</strong> Route the dialogue stem to the plug-in's sidechain (the key input in Pro Tools) and switch <strong>Dialogue</strong> on with its square lamp. A band the dialogue accounts for is then left alone, and build-up well above it is still cut; with Snap on, so is a click that is the dialogue's. The bar sets how far. The stem can arrive at any level: De-Honk finds it in the mix and works out how loud the dialogue is there. Keep it in time with the mix, within a few milliseconds. The round lamp at the end of the bar is lit while the stem is arriving, and turns red if the stem can't be found in the mix or is most of it.</li>
+      <li><strong>Dialogue sidechain.</strong> Route the dialogue stem to the plug-in's sidechain (the key input in Pro Tools) and switch <strong>Dialogue Key</strong> on with its square lamp. A band the dialogue accounts for is then left alone, and build-up well above it is still cut; with Snap on, so is a click that is the dialogue's. The bar sets how far. The stem can arrive at any level: De-Honk finds it in the mix and works out how loud the dialogue is there. Keep it in time with the mix, within a few milliseconds. The round lamp at the end of the bar is lit while the stem is arriving, and turns red if the stem can't be found in the mix or is most of it.</li>
       <li><strong>Detection: fast or steady.</strong> The pill under the knobs. Fast cuts a build-up as soon as it shows. Steady waits until a build-up has held for a while and leaves a broad lift alone: steadier, and kinder to dense, noisy textures, but slower to catch a new build-up, and in a dense mix it may leave a mild one alone. The <strong>Master bus, steady</strong> preset is the defaults at Steady.</li>
       <li><strong>Drag it in the band view.</strong> The Threshold (the grip on the level bar at the left, or its line across the bands) and Max Cut (the dashed line across the top) can be dragged, like the edges between the ranges. The pointer changes over anything that can be dragged. A double-click puts it back.</li>
       <li><strong>Ranges are tabs.</strong> Woof, Tub, Fog, Bark and Snap sit on a shelf under the band view, each in its own colour. A tab's lamp switches the range on and off, and its dot turns red while the range is cutting. A click on the name selects the range: only its creatures move in the pond, and the band view fades the others. Click the name again to go back to all of them.</li>
-      <li><strong>A range's own attack and release.</strong> With Woof, Tub, Fog or Bark selected, its lock, attack and release are under the shelf. Locked, the range follows Speed and Release, and the two bars show what those come to. Unlocked, they are its own.</li>
+      <li><strong>A range's own attack and release.</strong> With Woof, Tub, Fog or Bark selected, its lock, attack and release are under the shelf. Locked, the range follows Attack and Release, and the two bars show what those come to. Unlocked, they are its own.</li>
       <li><strong>Link.</strong> Linked, Grouped or Unlinked. Grouped is for surround: the front pair, the centre, the surrounds and the heights each share their cuts.</li>
       <li><strong>Impact Guard.</strong> The square lamp before its name is now its switch. It turns the guard off and on again at the amount it had, and fills with yellow while the guard is up.</li>
-      <li><strong>Diff</strong> fades over and back, so it no longer clicks, and its level follows the treated output all the time, so where nothing is cut the two match.</li>
+      <li><strong>Compare</strong> (called Diff in 0.0.2) fades over and back, so it no longer clicks, and its level follows the treated output all the time, so where nothing is cut the two match.</li>
       <li><strong>The pond</strong> runs at 60 pictures a second and is calmer: geese arrive one at a time and stay a while, and the recordist works on one of them, turning before he walks to it. The trees stand at the range edges, above the handles in the band view. The animals can be clicked: a turtle topples into the water, the frog jumps, a goose tumbles away.</li>
       <li><strong>New name.</strong> It shows in hosts as <strong>SammyJs De-Honk</strong>. Sessions from 0.0.1 should still load it; please report it if one doesn't.</li>
       <li><strong>The window.</strong> Tooltips wait a second and open beside the control. Menus and dialogs are in the window's own style. Click the name for the About page, which has a button that checks for a newer build.</li>
@@ -146,7 +160,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
 
   <section class="shots">
     <figure class="hero">
-      <img src="window-0.0.2-busy.png" width="960" height="800" alt="The De-Honk window in a busy passage: geese on the bank where it is cutting, the sound recordist working one of them with his boom, a tree at each range edge, turtles on a log, a frog on a lily pad and a beaver by its dam; below, the band view with a cut of 4.7 dB in Tub, the shelf of range tabs, the knobs, and the bottom row.">
+      <img src="window-0.0.2-busy.png" width="960" height="800" alt="The De-Honk window in a busy passage: two geese on the bank where it is cutting, the sound recordist working them with his boom, a tree at each range edge, turtles on a log, a frog on a lily pad and a beaver by its dam; below, the band view with a cut of 1.6 dB, the shelf of range tabs with each range's frequencies, the knobs, the Delta and Compare buttons under their listen caption, and the bottom row.">
       <figcaption>A busy passage: each goose is a cut, and the band view below shows where and how deep.</figcaption>
     </figure>
     <div class="pair">
@@ -159,8 +173,8 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
         <figcaption>Dragging the Threshold by its grip. Red means the mix is over it and De-Honk is acting.</figcaption>
       </figure>
       <figure>
-        <img src="window-0.0.2-dialogue.png" width="960" height="800" alt="De-Honk with Dialogue on and the mix's dialogue stem on the sidechain during a spoken line: the Dialogue lamp lit, small dots under the bars left to the dialogue, no cut, one goose, dragonflies over the pond.">
-        <figcaption>Dialogue on, during a line over music: dots mark the bands left to the voice, and the dragonflies are out.</figcaption>
+        <img src="window-0.0.2-dialogue.png" width="960" height="800" alt="De-Honk with Dialogue Key on and the mix's dialogue stem on the sidechain during a spoken line: the Dialogue Key lamp lit, small dots under the bars left to the dialogue, a cut of 2.3 dB in Tub, two geese, dragonflies over the pond.">
+        <figcaption>Dialogue Key on, during a line over music: dots mark the bands left to the voice, and the dragonflies are out.</figcaption>
       </figure>
       <figure>
         <img src="window-0.0.2-tooltip.png" width="960" height="800" alt="A tooltip open beside the Detection switch, explaining Fast and Steady.">
@@ -212,7 +226,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
       <li>Put it on the master, before your limiter, and start with the <strong>Master bus</strong> preset.</li>
       <li>Lookahead Off (the default) adds no latency, so it's fine on a live mix.</li>
       <li>Set <strong>Threshold</strong> so the level bar on the left of the band view goes past its grip in the dense sections and stays under it in the quiet ones. Drag the grip, or use the knob. It only works above the threshold.</li>
-      <li>If you have the dialogue stem to hand, send it to the sidechain and switch <strong>Dialogue</strong> on. The input is called Dialogue: in Pro Tools it's the key input at the top of the plug-in window (choose it with the transport stopped), in Logic the Side Chain menu, in VST3 hosts the plug-in's sidechain. Keep the stem in time with the mix. The round lamp at the end of the Dialogue bar lights when the stem arrives; red means it can't be found in the mix, or the key is the mix itself.</li>
+      <li>If you have the dialogue stem to hand, send it to the sidechain and switch <strong>Dialogue Key</strong> on. The input is called Dialogue: in Pro Tools it's the key input at the top of the plug-in window (choose it with the transport stopped), in Logic the Side Chain menu, in VST3 hosts the plug-in's sidechain. Keep the stem in time with the mix. The round lamp at the end of the Dialogue Key bar lights when the stem arrives; red means it can't be found in the mix, or the key is the mix itself.</li>
       <li>Leave everything else at default for a first pass. If it cuts more than you like in dense passages, or you can hear it moving, try <strong>Detection</strong> at Steady (or the <strong>Master bus, steady</strong> preset) and tell us which you preferred. Steady is slower to catch a new build-up, so give it a few seconds.</li>
     </ul>
   </section>
@@ -229,7 +243,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <section class="listen panel">
     <h2>what to listen for, most important first</h2>
     <ol>
-      <li><strong>Lost weight.</strong> Does the bass or the body of the mix get thinner with it on? Use Diff to compare: hold it to hear the untreated mix, or click it to latch.</li>
+      <li><strong>Lost weight.</strong> Does the bass or the body of the mix get thinner with it on? Use Compare: hold it to hear the untreated mix, or click it to latch.</li>
       <li><strong>Hits.</strong> Do explosions, slams and big drum hits keep their punch and their tail? Impact Guard is meant to keep the cuts out of them. If a hit sounds smaller, note the time.</li>
       <li><strong>Rumble and dense textures.</strong> It can sometimes cut into noisy low-mid material (rumbles, wind, dense ambiences) as if it were honk. If something thick suddenly sounds hollow, that's what to report, and whether Steady does better there.</li>
       <li><strong>Dialogue.</strong> Does the voice get thinner with it on? Try it with the dialogue stem on the sidechain and without, and say which you used. With the stem on, the small dots under the band view's bars show which bands are being left to the voice.</li>
@@ -238,16 +252,17 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
     </ol>
   </section>
 
-  <section>
-    <h2 style="--dot: var(--mustard)">listening tools</h2>
+  <section id="listen">
+    <h2 style="--dot: var(--mustard)">listen</h2>
+    <p>The two round buttons beside the knobs, under "listen". One works at a time, and the band view says which you're hearing.</p>
     <div class="tools">
       <div class="tool">
-        <span class="label"><span class="disc" style="background: var(--mustard)"></span>solo honk</span>
-        <p>Plays only what's being removed. It should sound like ugly, boxy low mids. If you hear wanted bass, notes or dialogue in it, it's taking the wrong thing; tell us what and where.</p>
+        <span class="label"><span class="disc" style="background: var(--mustard)"></span>delta</span>
+        <p>Plays only what's being removed: the difference between in and out, like a solo of the cuts. It should sound like ugly, boxy low mids. If you hear wanted bass, notes or dialogue in it, it's taking the wrong thing; tell us what and where.</p>
       </div>
       <div class="tool">
-        <span class="label"><span class="disc" style="background: var(--mint)"></span>diff</span>
-        <p>Plays the untreated mix, level-matched, for a quick before and after. Hold it, or click it to keep it on.</p>
+        <span class="label"><span class="disc" style="background: var(--mint)"></span>compare</span>
+        <p>Plays the untreated mix, latency-matched and level-matched, for an A/B of before and after. Hold it, or click it to keep it on.</p>
       </div>
     </div>
   </section>
@@ -264,7 +279,7 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
       <li><span class="who">fish</span><span class="what">Jumps when Snap takes out a click.</span></li>
       <li><span class="who">dragonflies</span><span class="what">Come out while the dialogue sidechain is being listened to. Click them and they scatter.</span></li>
       <li><span class="who">weather</span><span class="what">Clouds and then rain when it's kept hard at work for a while.</span></li>
-      <li><span class="who">recordist</span><span class="what">Sits down with a flask in Bypass, listens closely in Solo Honk. Click him and he tips his hat or waves.</span></li>
+      <li><span class="who">recordist</span><span class="what">Sits down with a flask in Bypass, listens closely in Delta, looks from side to side in Compare. Click him and he tips his hat or waves.</span></li>
     </ul>
     <p>With a range's tab selected, only that range's creatures come, go and move; the rest stay where they are, faded back. The pointer becomes a hand over anything that can be clicked. None of it changes the sound.</p>
   </section>
@@ -282,17 +297,19 @@ a.tool.dl:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; 
   <section class="known">
     <h2>known in this build</h2>
     <ul>
-      <li>The dialogue sidechain hasn't been tried in Pro Tools or Logic yet. If the key input doesn't appear, or the Dialogue lamp doesn't light with a stem routed to it, tell us which host.</li>
+      <li>The dialogue sidechain hasn't been tried in Pro Tools or Logic yet. If the key input doesn't appear, or the Dialogue Key lamp doesn't light with a stem routed to it, tell us which host.</li>
       <li>The message about a newer version only appears for full releases. For a newer test build, click the name and press Check for updates.</li>
       <li>In Pro Tools, choose the key input with the transport stopped: the output may drop out for a moment as it connects.</li>
       <li>Automation of Link written with the first test build no longer does anything: Link is now a choice of three, and a session comes back as Linked or Unlinked from what Link was set to when it was saved.</li>
       <li>Typing a preset's name in the plug-in's window hasn't been tried in a host. If the keys don't arrive, or Space starts the transport, tell us which host.</li>
-      <li>Diff's level match follows the treated level over a second and a half, so on a real mix the two can differ by a few tenths of a dB from moment to moment.</li>
+      <li>How the new names look in a host's automation lanes and on a control surface hasn't been checked. Some start with the same word (Woof ..., Dialogue Key ...), so a surface that shortens names may show two the same: tell us if one does.</li>
+      <li>In a host's automation lane and on a control surface Attack runs the other way round from the knob in the window: higher is a shorter attack. The time shown is right either way. Tell us if that gets in the way.</li>
+      <li>Compare's level match follows the treated level over a second and a half, so on a real mix the two can differ by a few tenths of a dB from moment to moment.</li>
       <li>Settings and presets may change before the full release, so sessions saved with this build may not sound the same in a later one.</li>
     </ul>
   </section>
 
-  <p class="foot">de-honk 0.0.2 · a plug-in by samuel justice · sammy j</p>
+  <p class="foot">de-honk 0.0.3 · a plug-in by samuel justice · sammy j</p>
 </main>
 
 </body>

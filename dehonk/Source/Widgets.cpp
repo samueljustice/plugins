@@ -13,7 +13,25 @@ namespace
 
     juce::String milliseconds (double ms)
     {
-        return (ms < 10.0 ? juce::String (ms, 1) : juce::String (juce::roundToInt (ms))) + " ms";
+        return (ms < 9.95 ? juce::String (ms, 1) : juce::String (juce::roundToInt (ms))) + " ms";
+    }
+
+    /** A frequency the way the tabs show it: "110", "1.5 k" (the unit is added by the caller). */
+    juce::String hzNumber (float hz)
+    {
+        if (hz < 1000.0f)
+            return juce::String (juce::roundToInt (hz));
+        const float k = std::round (hz / 100.0f) / 10.0f;
+        return juce::String (k, juce::approximatelyEqual (k, std::round (k)) ? 0 : 1);
+    }
+
+    /** "110-200 Hz", "400 Hz-1.5 kHz": a range from lo to hi. */
+    juce::String hzRange (float lo, float hi, const char* joiner)
+    {
+        const auto unit = [] (float hz) { return hz < 1000.0f ? juce::String (" Hz") : juce::String (" kHz"); };
+        if ((lo < 1000.0f) == (hi < 1000.0f))
+            return hzNumber (lo) + joiner + hzNumber (hi) + unit (hi);
+        return hzNumber (lo) + unit (lo) + joiner + hzNumber (hi) + unit (hi);
     }
 }
 
@@ -105,6 +123,15 @@ void RangeTab::setCutting (bool isCutting)
     }
 }
 
+void RangeTab::setRangeText (const juce::String& text)
+{
+    if (text != rangeText)
+    {
+        rangeText = text;
+        repaint();
+    }
+}
+
 juce::Rectangle<float> RangeTab::lampBounds() const noexcept
 {
     const float top = selected ? 0.0f : (float) rise;
@@ -151,19 +178,32 @@ void RangeTab::paint (juce::Graphics& g)
 
     SwitchLamp::draw (g, lampBounds(), on, cutting ? 1.0f : 0.0f, toy::jacketRed, hotLamp);
 
+    // The name, and under it the frequencies the range covers now.
     const auto text = name.toLowerCase();
     const auto font = fonts->name (12.0f);
+    const auto small = fonts->body (10.0f);
+    const auto textArea = juce::Rectangle<float> (lampBounds().getRight() + 9.0f, top, r.getRight() - lampBounds().getRight() - 15.0f, r.getHeight());
+    const float nameHeight = 14.0f, gapBelowName = 3.0f, rangeHeight = 12.0f;
+    const float y0 = textArea.getCentreY() - (nameHeight + gapBelowName + rangeHeight) * 0.5f;
+    const auto nameArea = textArea.withY (y0).withHeight (nameHeight);
     g.setFont (font);
     g.setColour (toy::ink.withAlpha (on ? 1.0f : 0.5f));
-    const auto textArea = juce::Rectangle<float> (lampBounds().getRight() + 9.0f, top, r.getRight() - lampBounds().getRight() - 15.0f, r.getHeight());
-    g.drawText (text, textArea, juce::Justification::centredLeft, false);
+    g.drawText (text, nameArea, juce::Justification::centredLeft, false);
+
+    if (rangeText.isNotEmpty())
+    {
+        g.setFont (small);
+        g.setColour (toy::ink.withAlpha (on ? 0.72f : 0.4f));
+        g.drawFittedText (rangeText, textArea.withY (nameArea.getBottom() + gapBelowName).withHeight (rangeHeight).toNearestInt(),
+                          juce::Justification::centredLeft, 1, 0.8f);
+    }
 
     if (selected)
     {
         // A short rule under the name of the range that is being worked on.
         const float w = juce::jmin (textArea.getWidth(), textWidth (font, text));
         g.setColour (toy::ink);
-        g.fillRect (juce::Rectangle<float> (textArea.getX(), textArea.getCentreY() + 8.0f, w - 2.0f, 1.5f));
+        g.fillRect (juce::Rectangle<float> (nameArea.getX(), nameArea.getBottom() + 0.5f, w - 2.0f, 1.5f));
     }
 
     if (auto* look = dynamic_cast<DeHonkLookAndFeel*> (&getLookAndFeel()))
@@ -228,7 +268,7 @@ std::unique_ptr<juce::AccessibilityHandler> RangeTab::createAccessibilityHandler
 
 //============================================================================== RangeShelf
 /** A bar for a range's attack or release. While the range is locked it is greyed, cannot be moved,
-    and shows what Speed or Release comes to. */
+    and shows what Attack or Release comes to. */
 class RangeShelf::TimingBar : public juce::Slider
 {
 public:
@@ -277,7 +317,7 @@ private:
     bool locked = false;
 };
 
-/** The lock on a range's timing: a pill with a padlock. Shut, the range follows Speed and Release. */
+/** The lock on a range's timing: a pill with a padlock. Shut, the range follows Attack and Release. */
 class RangeShelf::LockButton : public juce::Button
 {
 public:
@@ -324,16 +364,6 @@ private:
 
 RangeShelf::RangeShelf (juce::AudioProcessorValueTreeState& state, const Theme::Fonts& f) : apvts (state), fonts (f)
 {
-    static const char* const tips[kNumModules + 1]
-    {
-        "Woof: the low end barking on every hit, about 60 to 110 Hz.",
-        "Tub: tubby weight just above the bass, about 110 to 200 Hz. This is where added bass harmonics pile up first.",
-        "Fog: low mids clouding over when music and effects stack up, about 200 to 400 Hz.",
-        "Bark: hard, shouty midrange, about 400 Hz to 1.5 kHz.",
-        "Snap: sharp clicks and pops around 2.5 kHz. Takes the edge off a pop that the rest of the sound does not share, "
-        "and leaves drum hits and steady sounds alone. Works at any level.",
-    };
-
     for (int m = 0; m <= kNumModules; ++m)
     {
         const bool snap = m == kNumModules;
@@ -341,19 +371,18 @@ RangeShelf::RangeShelf (juce::AudioProcessorValueTreeState& state, const Theme::
         jassert (param != nullptr);
         auto& tab = tabs[(size_t) m];
         tab = std::make_unique<RangeTab> (snap ? "Snap" : ParamRanges::moduleNames[m], snap ? toy::click : toy::module[m], *param);
-        tab->setTooltip (juce::String (tips[m]) + " Its lamp switches it on or off; the dot is red while it is cutting. "
-                         "Click the name to work on this range alone"
-                         + (snap ? "." : ", with its own attack and release underneath.") + " Click again for all of them.");
         tab->onSelect = [this, m] { select (selectedRange == m ? -1 : m); };
         addAndMakeVisible (*tab);
     }
+    shownEdges.fill (-1.0f);
+    updateRangeTexts();
 
     lock = std::make_unique<LockButton> (fonts);
-    lock->setTooltip ("Locked: this range goes in and lets go as Speed and Release say, like every other locked range. "
+    lock->setTooltip ("Locked: this range goes in and lets go as Attack and Release say, like every other locked range. "
                       "Unlocked: it uses its own attack and release, set with the two bars beside this.");
     attack = std::make_unique<TimingBar>();
     attack->setTooltip ("This range's own attack: how quickly a cut goes in here, from 2 to 100 ms. "
-                        "While the range is locked it shows what Speed comes to and cannot be moved.");
+                        "While the range is locked it shows what Attack is set to and cannot be moved.");
     release = std::make_unique<TimingBar>();
     release->setTooltip ("This range's own release: how slowly a cut lets go here, from 50 ms to 1.5 s. "
                          "While the range is locked it shows Release and cannot be moved.");
@@ -426,10 +455,54 @@ void RangeShelf::showControlsFor (int range)
 
 double RangeShelf::globalAttackMs() const
 {
-    // The same curve as the core's (DeHonkCore.cpp): Slow to Fast in equal ratios.
-    const dehonk::Tuning tune;
-    const float speed = apvts.getRawParameterValue (ParamIDs::speed)->load() * 0.01f;
-    return (double) tune.attackSlowMs * std::pow ((double) tune.attackFastMs / (double) tune.attackSlowMs, (double) juce::jlimit (0.0f, 1.0f, speed));
+    return ParamRanges::attackMsForSpeed (apvts.getRawParameterValue (ParamIDs::speed)->load());
+}
+
+void RangeShelf::updateRangeTexts()
+{
+    // Each tab's frequencies, and its tooltip with them, as the edges are now (as the core uses
+    // them). Only when an edge has moved.
+    std::array<float, kNumEdges> raw {};
+    for (int e = 0; e < kNumEdges; ++e)
+        raw[(size_t) e] = apvts.getRawParameterValue (ParamIDs::edges[e])->load();
+    auto used = ParamRanges::edgesAsUsed (raw);
+    for (auto& hz : used)
+        hz = (float) juce::roundToInt (hz);
+    if (used == shownEdges)
+        return;
+    shownEdges = used;
+
+    static const char* const tips[kNumModules + 1]
+    {
+        "Woof: the low end booming on every hit",
+        "Tub: tubby weight just above the bass",
+        "Fog: low mids clouding over when music and effects stack up",
+        "Bark: hard, shouty midrange",
+        "Snap: sharp clicks and pops around 2.5 kHz. Takes the edge off a pop that the rest of the sound does not share, "
+        "and leaves drum hits and steady sounds alone. Works at any level.",
+    };
+    static const char* const after[kNumModules] { ".", ". This is where added bass harmonics pile up first.", ".", "." };
+
+    for (int m = 0; m <= kNumModules; ++m)
+    {
+        const bool snap = m == kNumModules;
+        auto& tab = *tabs[(size_t) m];
+        juce::String tip (tips[m]);
+        if (snap)
+        {
+            tab.setRangeText ("clicks, 2.5 kHz");
+        }
+        else
+        {
+            const float lo = used[(size_t) m], hi = used[(size_t) m + 1];
+            tab.setRangeText (hzRange (lo, hi, "-"));
+            tip << ", " << hzRange (lo, hi, " to ") << after[m]
+                << " The handles between the ranges in the band view move its edges.";
+        }
+        tab.setTooltip (tip + " Its lamp switches it on or off; the dot is red while it is cutting. "
+                        "Click the name to work on this range alone"
+                        + (snap ? "." : ", with its own attack and release underneath.") + " Click again for all of them.");
+    }
 }
 
 double RangeShelf::globalReleaseMs() const
@@ -439,6 +512,7 @@ double RangeShelf::globalReleaseMs() const
 
 void RangeShelf::refresh()
 {
+    updateRangeTexts();
     if (selectedRange < 0 || selectedRange >= kNumModules)
         return;
 

@@ -7,8 +7,11 @@
 
     Lookahead index: 0 Off, 1 5 ms, 2 10 ms, 3 20 ms. Link index: 0 Linked, 1 Grouped, 2 Unlinked.
     Detection index: 0 Fast, 1 Steady.
-    Modules: Woof, Tub, Fog, Bark; then Click. Every factory preset leaves each range's timing
-    locked to Speed and Release (the parameters' defaults). */
+    Modules: Woof, Tub, Fog, Bark; then Snap. Every factory preset leaves each range's timing
+    locked to Attack and Release (the parameters' defaults).
+
+    A factory preset that is renamed keeps its old name in PresetManager::restoreState()'s list,
+    so that a session saved on it still comes back on it. */
 namespace FactoryPresets
 {
     struct Values
@@ -16,13 +19,13 @@ namespace FactoryPresets
         const char* name;
         float threshold;    // dBFS (-60 = always)
         float depth;        // %
-        float sharpness;    // % (0 broad, 100 narrow)
-        float speed;        // % (0 slow, 100 fast): how quickly a cut goes in
+        float sharpness;    // % (0 broad, 100 narrow): Focus
+        float speed;        // % (0 slow, 100 fast): Attack, how quickly a cut goes in
         float release;      // ms: how slowly a cut lets go
         float maxCut;       // dB: no cut goes deeper
         float impactGuard;  // %: how far the cuts are kept out of a broadband impact while it sounds
         bool modules[4];    // Woof, Tub, Fog, Bark
-        bool click;         // the Click module
+        bool click;         // Snap
         int linkMode;       // choice index
         bool dialogue;      // listen for the dialogue on the sidechain
         int lookahead;      // choice index
@@ -49,10 +52,10 @@ namespace FactoryPresets
 
         // Only single ringing resonances; the overall balance is left alone. A resonance stays
         // where it is, so its cut is held longer.
-        { "Narrow resonances only", -16.0f, 50.0f, 100.0f, 50.0f, 700.0f, 6.0f, 100.0f, { false, true, true, false }, false, 0, false, 0, 100.0f, 0.0f, 0 },
+        { "Narrow focus only",      -16.0f, 50.0f, 100.0f, 50.0f, 700.0f, 6.0f, 100.0f, { false, true, true, false }, false, 0, false, 0, 100.0f, 0.0f, 0 },
 
         // Everything from the bass to the nasal midrange, cut deeper: more Depth under a higher ceiling.
-        { "Heavy",                  -16.0f, 80.0f,  20.0f, 50.0f, 400.0f, 9.0f, 100.0f, { true, true, true, true },   false, 0, false, 0, 100.0f, 0.0f, 0 },
+        { "Master bus, heavy",      -16.0f, 80.0f,  20.0f, 50.0f, 400.0f, 9.0f, 100.0f, { true, true, true, true },   false, 0, false, 0, 100.0f, 0.0f, 0 },
 
         // The master bus with Detection at Steady (SPEC 13.19): a peak must hold for about a second
         // before it is cut, and a broad lift is left alone. About half as much cutting, fewer cuts

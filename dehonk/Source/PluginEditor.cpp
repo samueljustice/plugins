@@ -55,7 +55,7 @@ void ListenButton::paintButton (juce::Graphics& g, bool, bool isButtonDown)
 }
 
 //==============================================================================
-DiffButton::DiffButton() : ListenButton ("Diff", toy::mint, toy::mint) {}
+DiffButton::DiffButton() : ListenButton ("Compare", toy::mint, toy::mint) {}
 
 void DiffButton::setActive (bool shouldBeOn)
 {
@@ -244,6 +244,49 @@ bool DetectionSelector::keyPressed (const juce::KeyPress& key)
 }
 
 //==============================================================================
+AttackKnobAttachment::AttackKnobAttachment (juce::RangedAudioParameter& speed, juce::Slider& knob)
+    : slider (knob),
+      attachment (speed, [this] (float value)
+                  {
+                      const juce::ScopedValueSetter<bool> quiet (ignoreCallbacks, true);
+                      slider.setValue (ParamRanges::attackMsForSpeed (value), juce::sendNotificationSync);
+                  })
+{
+    // Shortest at the left, longest at the right, in equal ratios: the parameter's own spacing,
+    // turned round.
+    const double shortest = ParamRanges::attackMsForSpeed (100.0), longest = ParamRanges::attackMsForSpeed (0.0);
+    slider.setNormalisableRange ({ shortest, longest,
+                                   [] (double start, double end, double t) { return start * std::pow (end / start, t); },
+                                   [] (double start, double end, double v)
+                                   { return std::log (juce::jlimit (start, end, v) / start) / std::log (end / start); } });
+    slider.textFromValueFunction = [] (double ms) { return ParamRanges::attackText (ms); };
+    slider.valueFromTextFunction = [] (const juce::String& text)
+    {
+        const auto t = text.trim().toLowerCase();
+        const double number = t.retainCharacters ("0123456789.").getDoubleValue();
+        return t.endsWithChar ('s') && ! t.endsWith ("ms") ? number * 1000.0 : number;
+    };
+    slider.setDoubleClickReturnValue (true, ParamRanges::attackMsForSpeed (speed.convertFrom0to1 (speed.getDefaultValue())));
+    slider.addListener (this);
+    attachment.sendInitialUpdate();
+    slider.updateText();
+}
+
+AttackKnobAttachment::~AttackKnobAttachment()
+{
+    slider.removeListener (this);
+}
+
+void AttackKnobAttachment::sliderValueChanged (juce::Slider*)
+{
+    if (ignoreCallbacks)
+        return;
+    // The slider's own drag notifications bracket every kind of change (mouse, wheel, typed value,
+    // arrow keys), as with juce::SliderParameterAttachment, so this is always part of a gesture.
+    attachment.setValueAsPartOfGesture ((float) ParamRanges::speedForAttackMs (slider.getValue()));
+}
+
+//==============================================================================
 DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     : AudioProcessorEditor (&p), deHonk (p), display (p), shelf (p.getParameters(), *fonts),
       detectionSelector (*p.getParameters().getParameter (ParamIDs::detection), *fonts),
@@ -289,11 +332,12 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     setUpKnob (maxCutKnob, maxCutCaption, "Max Cut", ParamIDs::maxCut,
                "The deepest any one cut may go, whatever Depth is set to. Two cuts side by side never add up to more. "
                "It is the dashed line across the top of the band view, which can be dragged too.");
-    setUpKnob (sharpnessKnob, sharpnessCaption, "Sharpness", ParamIDs::sharpness,
-               "How wide a build-up has to be to count. Broad responds to a whole bump; Narrow responds only to "
+    setUpKnob (sharpnessKnob, sharpnessCaption, "Focus", ParamIDs::sharpness,
+               "Focus: how narrow a build-up has to be to count. Broad responds to a whole bump; Narrow responds only to "
                "single ringing resonances. The cuts themselves are narrow either way.");
-    setUpKnob (speedKnob, speedCaption, "Speed", ParamIDs::speed,
-               "How quickly a cut goes in once a build-up has been found. Release sets how it lets go. "
+    setUpKnob (speedKnob, speedCaption, "Attack", ParamIDs::speed,
+               "Attack: how quickly a cut goes in once a build-up has been found, from 5 to 40 ms. "
+               "Turn it down for a faster attack, up for a slower one. Release sets how a cut lets go. "
                "A range whose timing is unlocked uses its own attack.");
     setUpKnob (releaseKnob, releaseCaption, "Release", ParamIDs::release,
                "How slowly a cut lets go once its build-up has gone. Longer holds each cut steadier; shorter follows the mix more closely. "
@@ -316,10 +360,11 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     thresholdAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::threshold, thresholdKnob);
     depthAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::depth, depthKnob);
     sharpnessAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::sharpness, sharpnessKnob);
-    speedAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::speed, speedKnob);
+    speedAttachment = std::make_unique<AttackKnobAttachment> (*apvts.getParameter (ParamIDs::speed), speedKnob);
     maxCutAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::maxCut, maxCutKnob);
     releaseAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::release, releaseKnob);
     thresholdKnob.setComponentID ("threshold");
+    speedKnob.setComponentID ("attack");
 
     // The band view: fed from the display's clock, and where the edges, the Threshold and Max Cut
     // are dragged. Each drag is one gesture on its parameter.
@@ -374,16 +419,22 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
 
     display.onFrame = [this] (const dehonk::DisplayFrame& frame) { showFrame (frame); };
 
-    // Listening tools
+    // Listening tools: Delta and Compare, under one caption.
+    setUpCaption (listenCaption, "Listen");
+    listenCaption.setTooltip ("Two ways to listen. Delta solos what is being removed; Compare plays the untreated mix for a before and after. "
+                              "One at a time, and neither is saved with the session.");
     soloButton.setClickingTogglesState (true);
-    soloButton.setTooltip ("Plays only what is being removed. If it sounds only ugly, the settings are right. "
+    soloButton.setTooltip ("Delta: plays only what is being removed (the difference between in and out), like a solo of the cuts. "
+                           "If it sounds only ugly, the settings are right. "
                            "If you hear wanted bass or body in it, lower Depth or switch off the lowest range. Not saved with the session.");
     soloButton.onClick = [this] { setSoloHonk (soloButton.getToggleState()); };
+    soloButton.setComponentID ("delta");
     addAndMakeVisible (soloButton);
 
-    diffButton.setTooltip ("Hold to hear the untreated signal, latency-matched. Click to keep it on; click again to return. "
-                           "The host's bypass is not touched. Not saved with the session.");
+    diffButton.setTooltip ("Compare: hold to hear the untreated mix, latency-matched and level-matched, for an A/B of before and after. "
+                           "Click to keep it on; click again to return. The host's bypass is not touched. Not saved with the session.");
     diffButton.onActiveChange = [this] (bool on) { setDiff (on); };
+    diffButton.setComponentID ("compare");
     addAndMakeVisible (diffButton);
 
     setUpBar (mixBar, mixCaption, "Mix", ParamIDs::mix,
@@ -418,9 +469,9 @@ DeHonkAudioProcessorEditor::DeHonkAudioProcessorEditor (DeHonkAudioProcessor& p)
     lookaheadAttachment = std::make_unique<ComboBoxAttachment> (apvts, ParamIDs::lookahead, lookaheadBox);
     addAndMakeVisible (lookaheadBox);
 
-    const juce::String dialogueTip ("With the dialogue stem on the sidechain (key input) and this switched on, bands and clicks that are the dialogue's are left alone. "
+    const juce::String dialogueTip ("Dialogue Key: with the dialogue stem on the sidechain (key input) and this switched on, bands and clicks that are the dialogue's are left alone. "
                                     "The bar sets how far. The round lamp is lit while the stem arrives, and turns red if the stem is not found in the mix or is most of it.");
-    setUpBar (dialogueBar, dialogueCaption, "Dialogue", ParamIDs::dialogueAmount, dialogueTip);
+    setUpBar (dialogueBar, dialogueCaption, "Dialogue Key", ParamIDs::dialogueAmount, dialogueTip);
     dialogueBar.getProperties().set ("lamp", 0.0);
     dialogueBar.getProperties().set ("toyColour", (juce::int64) toy::lavender.getARGB());
     dialogueAmountAttachment = std::make_unique<SliderAttachment> (apvts, ParamIDs::dialogueAmount, dialogueBar);
@@ -456,7 +507,7 @@ DeHonkAudioProcessorEditor::~DeHonkAudioProcessorEditor()
     if (showing)
         deHonk.setEditorOpen (false);
 
-    // Solo Honk and Diff are only heard with their pressed buttons and the band view's label in view.
+    // Delta and Compare are only heard with their pressed buttons and the band view's label in view.
     deHonk.setSoloHonk (false);
     deHonk.setDiff (false);
 
@@ -979,12 +1030,13 @@ void DeHonkAudioProcessorEditor::resized()
     };
 
     // Six knobs on the left, each with its name above. On the right, what is heard and what goes
-    // out: the two listening buttons, and Mix and Trim under them.
+    // out: the two listening buttons under their caption, level with the knobs' names, and Mix
+    // and Trim under them, level with Detection.
     auto listen = knobs.removeFromRight (juce::jlimit (252, 320, knobs.getWidth() * 3 / 10));
     knobs.removeFromRight (gap);
-    listen.removeFromBottom (detectionRow);
-    auto output = listen.removeFromBottom (28);
-    listen.removeFromBottom (6);
+    listenCaption.setBounds (listen.removeFromTop (20));
+    auto output = listen.removeFromBottom (detectionRow + 2);
+    listen.removeFromBottom (4);
     const int listenWidth = (listen.getWidth() - gap) / 2;
     soloButton.setBounds (listen.withWidth (listenWidth));
     diffButton.setBounds (listen.withLeft (listen.getRight() - listenWidth));
@@ -1004,7 +1056,7 @@ void DeHonkAudioProcessorEditor::resized()
         trimCaption.setJustificationType (juce::Justification::centredRight);
     }
 
-    // Detection's row under the knobs: its pill under Sharpness, its name under Max Cut, to the left.
+    // Detection's row under the knobs: its pill under Focus, its name under Max Cut, to the left.
     auto detectionArea = knobs.removeFromBottom (detectionRow);
     const int knobWidth = knobs.getWidth() / 6;
     {
