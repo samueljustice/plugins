@@ -24,6 +24,9 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     , m_offline(offlineSettings != nullptr)
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout(m_stowModeSource))
 {
+    // The list of wire targets and Swell's place in it are looked up once, here: the audio thread reads them and
+    // must not be the one that builds them.
+    juce::ignoreUnused(ModMatrix::swellTarget());
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
     {
@@ -35,7 +38,21 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     }
     m_raw.pitch = raw(ParamIDs::pitch);
     m_raw.rideOn = raw(ParamIDs::rideOn);
-    m_raw.rideFollowMaster = raw(ParamIDs::rideFollowMaster);
+    m_raw.rideMode = raw(ParamIDs::rideMode);
+    m_raw.togetherPeakAt = raw(ParamIDs::togetherPeakAt);
+    m_raw.togetherStagger = raw(ParamIDs::togetherStagger);
+    m_raw.togetherHitEvery = raw(ParamIDs::togetherHitEvery);
+    m_raw.swell = raw(ParamIDs::swell);
+    m_raw.swellAuto = raw(ParamIDs::swellAuto);
+    m_raw.swellEvery = raw(ParamIDs::swellEvery);
+    m_raw.swellHold = raw(ParamIDs::swellHold);
+    m_raw.swellChance = raw(ParamIDs::swellChance);
+    m_raw.swellLoose = raw(ParamIDs::swellLoose);
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+        for (int k = 0; k < ParamIDs::numBusDetails; ++k)
+            m_raw.busDetail[b][k] = raw(ParamIDs::busDetail[b][k]);
+    for (int k = 0; k < ParamIDs::numEqParams; ++k)
+        m_raw.eq[k] = raw(ParamIDs::eqIds[k]);
     m_raw.energy = raw(ParamIDs::energy);
     m_raw.rate = raw(ParamIDs::rate);
     m_raw.fill = raw(ParamIDs::fill);
@@ -137,7 +154,14 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
 
     // One undo history for the parameters and the track edits. The transport is not an edit.
     m_history = std::make_unique<EditHistory>(*this);
-    m_history->isRecorded = [play = m_state.getParameter(ParamIDs::play)->getParameterIndex()](int index) { return index != play; };
+    // Nor are Swell's presses (a host records those) or a lean on Varispeed (it springs back by itself).
+    m_history->isRecorded = [play = m_state.getParameter(ParamIDs::play)->getParameterIndex(),
+                             swell = m_state.getParameter(ParamIDs::swell)->getParameterIndex(),
+                             leanA = m_state.getParameter(ParamIDs::busDetail[0][ParamIDs::Varispeed])->getParameterIndex(),
+                             leanB = m_state.getParameter(ParamIDs::busDetail[1][ParamIDs::Varispeed])->getParameterIndex()](int index)
+    {
+        return index != play && index != swell && index != leanA && index != leanB;
+    };
     m_cargo.onUndoableEdit = [this](int)
     {
         m_history->add("Track Edit", [this] { m_restoredTrack = m_cargo.undoLatest(); }, [this] { m_restoredTrack = m_cargo.redoLatest(); });
@@ -220,6 +244,8 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     // seed. No key is held across it either (its note-off may never come).
     m_hostWasPlaying = false;
     m_keysDown = {};
+    m_sustain = false;
+    m_midiSwell.store(false);
     m_audition.prepare(sampleRate, room::widthFor(getBusesLayout().getMainOutputChannelSet()).value_or(room::Width::Stereo));
     m_sumGuard.prepare(sampleRate);
     prepareInternal();
@@ -261,6 +287,7 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     m_followSamples = 0;
 
     updateEngineParams();
+    m_outputEq.prepare(m_renderRate, m_pipeChannels); // (after the settings above: its glides start where they are)
     m_engine.setWidth(RoomMaster::pipeWidth(m_width)); // Quad and wider: every pass is an object in the room
     m_engine.prepare(m_renderRate, m_blockSize);
     m_master.prepare(m_renderRate, m_width);
@@ -296,6 +323,9 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     for (int i = 0; i < m_engine.getNumMarkers() && ! m_offline; ++i)
         m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
+
+    // The Output EQ: after Space, before Inflate and the limiters, on every channel alike (the LFE too).
+    m_outputEq.process(chans, numChans, n);
 
     // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter: one linked across the
     // main channels, one of its own on the LFE.
@@ -373,7 +403,8 @@ void SwooshbucklerAudioProcessor::publishModViews()
     {
         const int t = static_cast<int>(i);
         if (m_mods.isWired(t))
-            m_mods.publishTarget(t, juce::jlimit(0.0f, 1.0f, m_modTargets[i].param->convertTo0to1(m_modTargets[i].raw->load()) + m_mods.offset(t)));
+            m_mods.publishTarget(t, t == ModMatrix::swellTarget() ? (m_mods.swellGate() ? 1.0f : 0.0f) // Swell's wires hold it or not
+                                                                  : juce::jlimit(0.0f, 1.0f, m_modTargets[i].param->convertTo0to1(m_modTargets[i].raw->load()) + m_mods.offset(t)));
     }
     publishDirectionViews();
 }
@@ -428,7 +459,18 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.pitch = m_raw.pitch->load();
     p.pitchMod = modDelta(m_raw.pitch);
     p.rideOn = m_raw.rideOn->load() > 0.5f;
-    p.followMaster = m_raw.rideFollowMaster->load() > 0.5f;
+    static_assert(static_cast<int>(RigEngine::c_rideModes) == static_cast<int>(ParamIDs::numRideModes)
+                  && static_cast<int>(RigEngine::RideFollowMaster) == static_cast<int>(ParamIDs::RideFollowMaster), "the same Ride Modes");
+    p.rideMode = juce::jlimit(0, ParamIDs::numRideModes - 1, juce::roundToInt(m_raw.rideMode->load()));
+    p.together.peakAt = m_raw.togetherPeakAt->load();
+    p.together.stagger = m_raw.togetherStagger->load();
+    p.together.hitEvery = 1 + juce::jlimit(0, ParamIDs::numHitEvery - 1, juce::roundToInt(m_raw.togetherHitEvery->load()));
+    static_assert(static_cast<int>(RigEngine::c_autoSwellModes) == static_cast<int>(ParamIDs::numAutoSwells), "the same Auto Swell modes");
+    p.autoSwell.mode = juce::jlimit(0, ParamIDs::numAutoSwells - 1, juce::roundToInt(m_raw.swellAuto->load()));
+    p.autoSwell.every = m_raw.swellEvery->load();
+    p.autoSwell.hold = juce::jmin(m_raw.swellHold->load(), ParamIDs::swellHoldShareMax * p.autoSwell.every);
+    p.autoSwell.chance = m_raw.swellChance->load();
+    p.autoSwell.loose = m_raw.swellLoose->load();
     p.energy = m_raw.energy->load();
     p.energyMod = modDelta(m_raw.energy);
     p.rate = modValue(m_raw.rate);
@@ -459,6 +501,47 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.directionMod = m_mods.centred(m_directionTarget[b]);
         d.sideWired = m_mods.isWired(m_sideTarget[b]);
         d.sideMod = m_mods.centred(m_sideTarget[b]);
+
+        // What is behind Swirl and Filter (only Varispeed is a wire target).
+        static_assert(static_cast<int>(RigEngine::c_swirlTypes) == static_cast<int>(ParamIDs::numSwirlTypes)
+                      && static_cast<int>(RigEngine::SwirlTape) == static_cast<int>(ParamIDs::SwirlTape)
+                      && static_cast<int>(SweepFilter::c_types) == static_cast<int>(ParamIDs::numFilterTypes)
+                      && static_cast<int>(SweepFilter::c_shapes) == static_cast<int>(ParamIDs::numFilterShapes)
+                      && static_cast<int>(SwirlFx::ByHand) == static_cast<int>(ParamIDs::TapeByHand)
+                      && static_cast<int>(SwirlFx::WithFilter) == static_cast<int>(ParamIDs::TapeWithFilter)
+                      && static_cast<int>(SwirlFx::WaveTriangle) == static_cast<int>(ParamIDs::WaveTriangle), "the same detail choices");
+        auto detail = [&](int k) { return m_raw.busDetail[b][k]->load(); };
+        auto choice = [&](int k, int count) { return juce::jlimit(0, count - 1, juce::roundToInt(detail(k))); };
+        auto& sw = p.swirlDetail[static_cast<size_t>(b)];
+        sw.type = choice(ParamIDs::SwirlType, ParamIDs::numSwirlTypes);
+        sw.feedback = detail(ParamIDs::SwirlFeedback);
+        sw.speed = detail(ParamIDs::SwirlSpeed);
+        sw.depth = detail(ParamIDs::SwirlDepth);
+        sw.follow = detail(ParamIDs::SwirlFollow);
+        sw.tape.motion = choice(ParamIDs::TapeMotion, ParamIDs::numTapeMotions);
+        sw.tape.invert = detail(ParamIDs::TapeInvert) > 0.5f;
+        sw.tape.depthMs = detail(ParamIDs::TapeDepth);
+        sw.tape.rateHz = detail(ParamIDs::TapeRate);
+        sw.tape.feedback = detail(ParamIDs::TapeFeedback);
+        sw.tape.wobble = detail(ParamIDs::TapeWobble);
+        sw.tape.varispeed = modValue(m_raw.busDetail[b][ParamIDs::Varispeed]);
+        sw.doubler.wave = choice(ParamIDs::DoublerWave, ParamIDs::numDoublerWaves);
+        sw.doubler.thicken = detail(ParamIDs::DoublerThicken) > 0.5f;
+        sw.doubler.spread = detail(ParamIDs::DoublerSpread) > 0.5f;
+        sw.doubler.delayMs = detail(ParamIDs::DoublerDelay);
+        sw.doubler.wander = detail(ParamIDs::DoublerWander);
+        sw.doubler.rateHz = detail(ParamIDs::DoublerRate);
+        sw.doubler.feedback = detail(ParamIDs::DoublerFeedback);
+        auto& fd = p.filterDetail[static_cast<size_t>(b)];
+        fd.type = choice(ParamIDs::FilterType, ParamIDs::numFilterTypes);
+        fd.steep = detail(ParamIDs::FilterSteep) > 0.5f;
+        fd.shape = choice(ParamIDs::FilterShape, ParamIDs::numFilterShapes);
+        fd.closedAtHz = detail(ParamIDs::FilterClosedAt);
+        fd.resonance = detail(ParamIDs::FilterResonance);
+        fd.follow = detail(ParamIDs::FilterFollow);
+        fd.sweep = detail(ParamIDs::FilterSweep);
+        fd.rateHz = detail(ParamIDs::FilterRate);
+        p.varispeedHome[static_cast<size_t>(b)] = m_varispeedHome[static_cast<size_t>(b)].exchange(false);
     }
     p.stow.direction = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.stowDirection->load()));
     p.stow.side = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.stowSide->load()));
@@ -530,9 +613,12 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
                 p.keys[static_cast<size_t>(p.numKeys++)] = static_cast<float>(note - 60); // from middle C
     for (size_t half = 0; half < 2; ++half)
         m_keysView[half].store(keys == KeysSwell ? m_keysDown[half] : pitchKeys[half], std::memory_order_relaxed);
-    p.swell = m_uiSwell.load() || (keys == KeysSwell && (m_keysDown[0] | m_keysDown[1]) != 0);
+    // Swell now: the parameter (a host's recorded presses), a press it does not record, MIDI (a note with Keys set
+    // to Swell, the sustain pedal in every mode) and the wires. Auto Swell is added by the engine.
+    p.swell = m_raw.swell->load() > 0.5f || m_uiSwell.load() || updateMidiSwell() || m_mods.swellGate();
 
     m_engine.setParams(p);
+    m_outputEq.setParams(getOutputEqParams());
 
     MasterProcessor::Parameters mp;
     // Inflate: the first 70% blends the effect in; the last 30% moves its curve from neutral to its hardest.
@@ -651,6 +737,8 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_reseedPending = false;
         m_restartPending.store(false);
         m_engine.restartSeeded();
+        // The Random and Steps modulators from the engine's seed too, so they repeat from one bounce to the next.
+        m_mods.setSeed(static_cast<juce::int64>(m_engine.getSeed()));
         m_mods.reset();
         // The stream's grid starts again here, at this block's first sample: what was left of the last quantum
         // belongs to the ride that has just been stopped, and played first it would start this one that many
@@ -841,6 +929,13 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             m_followerLevels[ModMatrix::FollowMaster] = master[0];
             m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
             m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
+            // Where each bus's whoosh and filter are (places, not loudness). The engine that renders tells its own
+            // modulators, on this thread: nothing is shared, and a render or an audition reads its own engine.
+            const auto places = m_engine.takeFollowerPlaces();
+            m_followerLevels[ModMatrix::FollowPassA] = places.pass[0];
+            m_followerLevels[ModMatrix::FollowPassB] = places.pass[1];
+            m_followerLevels[ModMatrix::FollowFilterA] = places.filter[0];
+            m_followerLevels[ModMatrix::FollowFilterB] = places.filter[1];
         }
         publishOutputPeak(preTrimPeak, len);
         publishChannelPeaks(channelPeaks.data(), len);
@@ -971,9 +1066,20 @@ void SwooshbucklerAudioProcessor::handleMidi(const juce::MidiMessage& msg, int o
         m_keysDown[static_cast<size_t>(note >> 6)] &= ~bit(note);
     }
     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+    {
         m_keysDown = {};
+        if (msg.isAllSoundOff())
+            m_sustain = false;
+    }
+    else if (msg.isResetAllControllers())
+        m_sustain = false;
     else if (msg.isController() && msg.getControllerNumber() < 120) // 120 and up are channel mode messages, not controls
     {
+        // The sustain pedal holds Swell, whatever Keys is set to (it may be learned for a control as well).
+        if (msg.isSustainPedalOn())
+            m_sustain = true;
+        else if (msg.isSustainPedalOff())
+            m_sustain = false;
         // A learned controller: its position is left for the message thread, which moves the parameter.
         const int cc = msg.getControllerNumber();
         int learn = m_ccLearn.load(std::memory_order_relaxed);
@@ -987,6 +1093,86 @@ void SwooshbucklerAudioProcessor::handleMidi(const juce::MidiMessage& msg, int o
             if (m_ccOf[t].load(std::memory_order_relaxed) == cc)
                 m_ccValue[t].store(value, std::memory_order_relaxed);
     }
+    updateMidiSwell();
+}
+
+bool SwooshbucklerAudioProcessor::updateMidiSwell()
+{
+    const bool held = m_sustain || (keysMode() == KeysSwell && (m_keysDown[0] | m_keysDown[1]) != 0);
+    m_midiSwell.store(held, std::memory_order_relaxed);
+    return held;
+}
+
+int SwooshbucklerAudioProcessor::getSwellSources() const
+{
+    int sources = 0;
+    if (m_raw.swell->load(std::memory_order_relaxed) > 0.5f) sources |= SwellFromParameter;
+    if (m_uiSwell.load(std::memory_order_relaxed)) sources |= SwellFromPress;
+    if (m_midiSwell.load(std::memory_order_relaxed)) sources |= SwellFromMidi;
+    if (m_mods.getSwellGateView()) sources |= SwellFromWire;
+    if (m_engine.isAutoSwelling()) sources |= SwellFromAuto;
+    return sources;
+}
+
+void SwooshbucklerAudioProcessor::setSwellParameter(bool held)
+{
+    auto* param = m_state.getParameter(ParamIDs::swell);
+    if (param == nullptr)
+        return;
+    if (held)
+    {
+        if (! m_swellGesture)
+            param->beginChangeGesture();
+        m_swellGesture = true;
+        param->setValueNotifyingHost(1.0f);
+    }
+    else
+    {
+        param->setValueNotifyingHost(0.0f);
+        if (m_swellGesture)
+            param->endChangeGesture();
+        m_swellGesture = false;
+    }
+}
+
+OutputEq::Params SwooshbucklerAudioProcessor::getOutputEqParams() const
+{
+    auto get = [this](int k) { return m_raw.eq[k]->load(std::memory_order_relaxed); };
+    OutputEq::Params p;
+    p.on = get(0) > 0.5f;
+    p.lowCutHz = Params::eqLowCutIsOff(get(1)) ? 0.0f : get(1);
+    p.lowCutSlope = juce::roundToInt(get(2)) == 0 ? 12 : 24;
+    p.lowShelfHz = get(3);
+    p.lowShelfDb = get(4);
+    p.lowMidHz = get(5);
+    p.lowMidDb = get(6);
+    p.lowMidQ = get(7);
+    p.highMidHz = get(8);
+    p.highMidDb = get(9);
+    p.highMidQ = get(10);
+    p.highShelfHz = get(11);
+    p.highShelfDb = get(12);
+    p.highCutHz = Params::eqHighCutIsOff(get(13)) ? 0.0f : get(13);
+    return p;
+}
+
+juce::String SwooshbucklerAudioProcessor::describeDetail() const
+{
+    juce::StringArray items;
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+        for (int k = 0; k < ParamIDs::numBusDetails; ++k)
+            if (auto* param = m_state.getParameter(ParamIDs::busDetail[b][k]);
+                param != nullptr && Presets::isDetailParameter(param->getParameterID()) && std::abs(param->getValue() - param->getDefaultValue()) > 1.0e-6f)
+                items.add(param->getName(40) + " " + param->getCurrentValueAsText());
+    if (isOutputEqActive())
+    {
+        juce::StringArray eq;
+        for (int k = 1; k < ParamIDs::numEqParams; ++k)
+            if (auto* param = m_state.getParameter(ParamIDs::eqIds[k]); param != nullptr && std::abs(param->getValue() - param->getDefaultValue()) > 1.0e-6f)
+                eq.add(param->getName(40).fromFirstOccurrenceOf("EQ ", false, false) + " " + param->getCurrentValueAsText());
+        items.add("Output EQ: " + eq.joinIntoString(", "));
+    }
+    return items.isEmpty() ? juce::String() : items.joinIntoString(", ") + ".";
 }
 
 //==============================================================================
@@ -1862,6 +2048,10 @@ std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOf
         play->setValueNotifyingHost(0.0f);
     if (auto* trim = copy->m_state.getParameter(ParamIDs::masterTrim))
         trim->setValueNotifyingHost(trim->getDefaultValue());
+    // Nothing held: Swell let go, and each Varispeed back in the middle (a hand on it is not a setting).
+    for (const char* id : { ParamIDs::swell, ParamIDs::busDetail[0][ParamIDs::Varispeed], ParamIDs::busDetail[1][ParamIDs::Varispeed] })
+        if (auto* param = copy->m_state.getParameter(id))
+            param->setValueNotifyingHost(param->getDefaultValue());
     m_cargo.beginLending();
     copy->m_cargo.shareFrom(m_cargo);
     return copy;
@@ -1875,6 +2065,8 @@ void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_
     m_restartPending.store(false);
     m_uiThrows.store(0);
     m_uiSwell.store(false);
+    m_sustain = false;
+    m_midiSwell.store(false);
     m_reseedPending = false;
     m_playParamWas = m_raw.play->load() > 0.5f; // the Play parameter as it was copied starts nothing here
     m_keysLatched = {};
@@ -2024,6 +2216,8 @@ juce::String SwooshbucklerAudioProcessor::describeSettings() const
       << ". Pass A " << text(ParamIDs::passMode[0]) << ", Pass B " << text(ParamIDs::passMode[1])
       << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim)
       << ", Hits " << text(ParamIDs::hitPosition) << ", Hit Spread " << text(ParamIDs::hitSpread) << ".";
+    if (const auto detail = describeDetail(); detail.isNotEmpty())
+        d << " " << detail;
     return d;
 }
 
@@ -2379,6 +2573,16 @@ void SwooshbucklerAudioProcessor::restoreStateTree(juce::ValueTree tree)
     if (! canFollowHost())
         if (auto play = tree.getChildWithProperty("id", ParamIDs::play); play.isValid())
             play.setProperty("value", 0.0f, nullptr);
+
+    // A lean on Varispeed is a hand on the wheel, not a setting: a state saved while one was held comes back with
+    // the wheel in the middle (left leaning, the offset would run to its end stop and stay there).
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+        if (auto lean = tree.getChildWithProperty("id", ParamIDs::busDetail[b][ParamIDs::Varispeed]); lean.isValid())
+            lean.setProperty("value", ParamIDs::busDetailDefaults[ParamIDs::Varispeed], nullptr);
+    // Nor is a press of Swell: a state saved while it was held (a host saving mid-press) comes back with Swell let
+    // go. A host that automates it writes its own value as it plays.
+    if (auto held = tree.getChildWithProperty("id", ParamIDs::swell); held.isValid())
+        held.setProperty("value", 0.0f, nullptr);
 
     // Sessions saved before AIM existed keep the hit gate (and SYNC HITS) they were made with: AIM is on only for new
     // sessions. A parameter missing from a saved state would otherwise keep its default (on).

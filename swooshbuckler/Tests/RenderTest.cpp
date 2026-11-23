@@ -600,8 +600,8 @@ namespace
                 auto& state = rig2.proc.getState();
                 if (auto* param = state.getParameter(ParamIDs::energy))
                     param->setValueNotifyingHost(1.0f);
-                if (auto* param = state.getParameter(ParamIDs::rideFollowMaster))
-                    param->setValueNotifyingHost(follow == 1 ? 1.0f : 0.0f);
+                if (auto* param = state.getParameter(ParamIDs::rideMode))
+                    param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(follow == 1 ? ParamIDs::RideFollowMaster : ParamIDs::RideApart)));
                 rig2.proc.setMasterTrack(0); // the growl
                 const auto followFolder = out.getChildFile(follow == 1 ? "variety-follow" : "variety-own");
                 followFolder.deleteRecursively();
@@ -1057,6 +1057,144 @@ int main(int argc, char* argv[])
             if (whoosh.samples.getNumSamples() > 480 && ! audio.empty())
                 std::cout << "         (a whoosh's first 10 ms: " << juce::String(db(whoosh.samples.getRMSLevel(0, 0, 480)), 1) << " dB RMS; a ride's: "
                           << juce::String(db(audio[0].samples.getRMSLevel(0, 480, 480)), 1) << " dB RMS)" << std::endl;
+        }
+
+        // What is behind Swirl and Filter, the Output EQ, Faders Together and Auto Swell reach the files: each of
+        // them, set on the rig, changes the ride that is rendered (the same seed, so nothing else differs), the
+        // same settings render the same file twice, and the file says what was off its default.
+        {
+            using Each = VariationRenderer::Each;
+            auto& state = rig.proc.getState();
+            auto setPlain = [&state](const juce::String& id, float plain)
+            {
+                auto* p = state.getParameter(id);
+                p->setValueNotifyingHost(p->convertTo0to1(plain));
+            };
+            auto ride = [&](const juce::String& name)
+            {
+                const auto into = out.getChildFile("detail-" + name);
+                auto job = makeJob(rig, into, VariationRenderer::Mode::NewPasses, 1, 1.0, 808);
+                job.each = Each::WholeRide;
+                job.rideSeconds = 2.5;
+                render(rig, job);
+                const auto made = filesIn(into);
+                return made.size() == 1 ? made[0] : juce::File();
+            };
+            const auto plainFile = ride("plain");
+            const auto plainRide = readFile(plainFile);
+            struct Setting { const char* name; juce::String id; float value; const char* said; };
+            const Setting changes[] = {
+                { "tape",      ParamIDs::busDetail[0][ParamIDs::SwirlType],     static_cast<float>(ParamIDs::SwirlTape),    "Tape Flanger" },
+                { "doubler",   ParamIDs::busDetail[1][ParamIDs::SwirlType],     static_cast<float>(ParamIDs::SwirlDoubler), "Doubler" },
+                { "flanger",   ParamIDs::busDetail[0][ParamIDs::SwirlType],     static_cast<float>(ParamIDs::SwirlFlanger), "Flanger" },
+                { "feedback",  ParamIDs::busDetail[0][ParamIDs::SwirlFeedback], -0.9f, "" },
+                { "high-pass", ParamIDs::busDetail[1][ParamIDs::FilterType],    1.0f,  "High Pass" },
+                { "sweep",     ParamIDs::busDetail[0][ParamIDs::FilterSweep],   1.0f,  "" },
+                { "eq",        ParamIDs::eqLowMidGain,                          9.0f,  "Output EQ" },
+                { "together",  ParamIDs::rideMode,                              static_cast<float>(ParamIDs::RideTogether), nullptr },
+                { "auto",      ParamIDs::swellAuto,                             static_cast<float>(ParamIDs::AutoSwellClock), nullptr },
+            };
+            bool carried = plainRide.samples.getNumSamples() > 0, repeats = carried, said = carried;
+            juce::String report, missing;
+            for (const auto& setting : changes)
+            {
+                auto* p = state.getParameter(setting.id);
+                const float was = p->getValue();
+                setPlain(setting.id, setting.value);
+                if (juce::String(setting.name) == "auto")
+                    setPlain(ParamIDs::swellEvery, 0.5f);
+                const auto file = ride(setting.name);
+                const auto with = readFile(file);
+                const double by = difference(plainRide, with);
+                const double again = difference(with, readFile(ride(juce::String(setting.name) + "-again")));
+                const auto text = TapeRecorder::readDescription(file);
+                carried = carried && by > 0.01;
+                repeats = repeats && again == 0.0;
+                if (setting.said != nullptr && ! text.contains(juce::String(setting.said).isEmpty() ? p->getName(40) : juce::String(setting.said)))
+                {
+                    said = false;
+                    missing << setting.name << " ";
+                }
+                report << setting.name << " " << juce::String(juce::roundToInt(100.0 * by)) << "%" << (again == 0.0 ? "" : " (not the same twice)") << "; ";
+                p->setValueNotifyingHost(was);
+                if (juce::String(setting.name) == "auto")
+                    setPlain(ParamIDs::swellEvery, 4.0f);
+            }
+            std::cout << "         a ride against the same ride with one setting changed (RMS of the difference): " << report << std::endl;
+            check(carried, "detail: the Swirl types, Swirl's Feedback, the Filter's Type and Sweep, the Output EQ, Faders Together and Auto Swell each change the rendered ride");
+            check(repeats, "detail: each of them renders the same file twice");
+            check(said && ! TapeRecorder::readDescription(plainFile).contains("Output EQ"), "detail: the file's description names what is behind Swirl and Filter and the Output EQ when they are off their defaults, and not otherwise " + missing);
+            check(difference(plainRide, readFile(ride("plain-after"))) == 0.0, "detail: with them back at their defaults the ride is the one it was");
+        }
+
+        // The Followers' Pass and Filter inputs and With the Filter reach the files too: a render has its own engine
+        // and its own modulators, and they read that engine. A Follower on each input, wired to bus A's Drive,
+        // changes the ride; each renders the same file twice; a Follower with no wire changes nothing.
+        {
+            using Each = VariationRenderer::Each;
+            auto& state = rig.proc.getState();
+            auto setPlain = [&state](const juce::String& id, float plain)
+            {
+                auto* p = state.getParameter(id);
+                p->setValueNotifyingHost(p->convertTo0to1(plain));
+            };
+            auto ride = [&](const juce::String& name)
+            {
+                const auto into = out.getChildFile("follow-" + name);
+                auto job = makeJob(rig, into, VariationRenderer::Mode::NewPasses, 1, 1.0, 808);
+                job.each = Each::WholeRide;
+                job.rideSeconds = 2.5;
+                render(rig, job);
+                const auto made = filesIn(into);
+                return readFile(made.size() == 1 ? made[0] : juce::File());
+            };
+            const float typeWas = state.getParameter(ParamIDs::modType[0])->getValue(), followWas = state.getParameter(ParamIDs::modFollow[0])->getValue(),
+                        knobWas = state.getParameter(ParamIDs::modKnob[0])->getValue();
+            const auto plainRide = ride("plain");
+            setPlain(ParamIDs::modType[0], 2.0f); // Follower
+            setPlain(ParamIDs::modKnob[0], 0.8f);
+            setPlain(ParamIDs::modFollow[0], static_cast<float>(ModMatrix::FollowPassA));
+            const bool idle = difference(plainRide, ride("unwired")) == 0.0;
+            const int wire = rig.proc.getMods().connect(0, ParamIDs::bus[0][ParamIDs::Drive], 1.0f);
+            bool carried = plainRide.samples.getNumSamples() > 0 && wire >= 0, repeats = carried;
+            juce::String report;
+            std::vector<Audio> rides;
+            for (const int input : { ModMatrix::FollowPassA, ModMatrix::FollowFilterA, ModMatrix::FollowPassB, ModMatrix::FollowFilterB })
+            {
+                setPlain(ParamIDs::modFollow[0], static_cast<float>(input));
+                const auto name = ModMatrix::followerNames()[input];
+                const auto with = ride(name.replace(" ", "-"));
+                const double by = difference(plainRide, with), again = difference(with, ride(name.replace(" ", "-") + "-again"));
+                carried = carried && by > 0.01;
+                repeats = repeats && again == 0.0;
+                report << name << " " << juce::String(juce::roundToInt(100.0 * by)) << "%" << (again == 0.0 ? "" : " (not the same twice)") << "; ";
+                rides.push_back(with);
+            }
+            rig.proc.getMods().disconnect(wire);
+            // (Each input is its own: no two of the four rides are the same.)
+            double least = 1.0;
+            for (size_t i = 0; i < rides.size(); ++i)
+                for (size_t k = i + 1; k < rides.size(); ++k)
+                    least = juce::jmin(least, difference(rides[i], rides[k]));
+            // With the Filter against With the Pass, the filter sweeping by itself.
+            setPlain(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            setPlain(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.5f);
+            const auto withPass = ride("tape-pass");
+            setPlain(ParamIDs::busDetail[0][ParamIDs::TapeMotion], static_cast<float>(ParamIDs::TapeWithFilter));
+            const auto withFilter = ride("tape-filter");
+            const double motionBy = difference(withPass, withFilter), motionAgain = difference(withFilter, ride("tape-filter-again"));
+            for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[0][ParamIDs::FilterSweep], ParamIDs::busDetail[0][ParamIDs::TapeMotion] })
+                state.getParameter(id)->setValueNotifyingHost(state.getParameter(id)->getDefaultValue());
+            state.getParameter(ParamIDs::modType[0])->setValueNotifyingHost(typeWas);
+            state.getParameter(ParamIDs::modFollow[0])->setValueNotifyingHost(followWas);
+            state.getParameter(ParamIDs::modKnob[0])->setValueNotifyingHost(knobWas);
+            std::cout << "         a ride against the same ride with a Follower wired to bus A's Drive (RMS of the difference): " << report << "the closest two of those " << juce::String(juce::roundToInt(100.0 * least))
+                      << "% apart; Tape Flanger With the Filter against With the Pass " << juce::String(juce::roundToInt(100.0 * motionBy)) << "%" << std::endl;
+            check(idle, "followers: a Follower on a Pass input with no wire changes nothing in the file");
+            check(carried && least > 0.005, "followers: a Follower on Bus A Pass, Bus A Filter, Bus B Pass or Bus B Filter moves what it is wired to in a rendered ride, each its own way");
+            check(repeats && motionAgain == 0.0, "followers: each renders the same file twice, and so does With the Filter");
+            check(motionBy > 0.01, "With the Filter reaches the rendered ride (it is not With the Pass)");
+            check(difference(plainRide, ride("plain-after")) == 0.0, "followers: with everything back the ride is the one it was");
         }
 
         // The estimate shown before rendering.

@@ -10,6 +10,8 @@
 #include "SpaceReverb.h"
 #include "LfeFilter.h"
 #include "Room.h"
+#include "SwirlFx.h"
+#include "SweepFilter.h"
 
 #include <array>
 #include <atomic>
@@ -26,9 +28,12 @@
  *
  *   each bus:     doppler (two passes, always half a pass apart, with randomly automated speed, distance and
  *                 direction; Pass Mode Bed overlaps them into a steady level, Fly-By plays them one after the
- *                 other) -> low end (sub octave, overtones, lift at the loudest point) -> swirl (phaser + flanger)
- *                 -> envelope filter -> drive. Low end, swirl and filter follow the bus's level and, the stiller
- *                 the faders are, how near the pass is.
+ *                 other) -> low end (sub octave, overtones, lift at the loudest point) -> swirl (by its Type:
+ *                 phaser + flanger, either alone, or SwirlFx's Tape Flanger or Doubler) -> envelope filter
+ *                 (SweepFilter) -> drive. Low end, swirl and filter follow the bus's level and, the stiller the
+ *                 faders are, how near the pass is. A Tape Flanger's clean path is 8 ms long (no latency is
+ *                 reported): while it is the Type the bus is that late, a stereo bed's sides with it, an aimed hit
+ *                 lands that much later and in Faders Together the bus's faders lead by as much more.
  *   stereo beds:  (as loud wide as narrow: the bus is levelled by its mono sum's power, see renderBus.)
  *                 A stereo sound on bus B keeps its width while B's Pass Mode is Bed: its side signal
  *                 (CargoData::hasSide) rides with the track and flies the same two passes (the same delays at
@@ -197,6 +202,42 @@ public:
         float directionMod = 0.0f, sideMod = 0.0f;
     };
 
+    /** How the faders ride (Params::rideMode): each on its own wave, all on one repeating swell (the cycle clock:
+        each bus's pass and the aimed hit on its peak), or with the Master track's loudness. */
+    enum RideMode { RideApart = 0, RideTogether, RideFollowMaster, c_rideModes };
+    /** Faders Together's settings (behind Rate). The length of one swell is ::Params::passSeconds(rate). */
+    struct TogetherParams
+    {
+        float peakAt = 0.5f;  // 0.2 .. 0.8: where in the swell its top falls
+        float stagger = 0.0f; // 0 .. 1: the tracks fanned in, up to +-10% of a swell, in track order
+        int hitEvery = 1;     // 1 .. 4: which peaks get a hit
+    };
+    /** Auto Swell: Swell firing by itself (design 3.7). */
+    enum AutoSwellMode { AutoSwellOff = 0, AutoSwellPeaks, AutoSwellClock, c_autoSwellModes };
+    struct AutoSwellParams
+    {
+        int mode = AutoSwellOff;
+        float every = 4.0f;  // seconds, On a Clock
+        float hold = 0.6f;   // seconds, never more than 60% of every
+        float chance = 1.0f; // 0 .. 1, drawn for each one
+        float loose = 0.0f;  // 0 .. 0.5 of every: how far each onset may wander (On a Clock)
+    };
+    /** What Swirl is (ParamIDs::SwirlTypeChoice, in the same order). */
+    enum SwirlType { SwirlBoth = 0, SwirlPhaser, SwirlFlanger, SwirlTape, SwirlDoubler, c_swirlTypes };
+    /** What is behind a bus's Swirl wheel. Every default gives the Swirl the bus had before it had a layer. */
+    struct SwirlDetail
+    {
+        int type = SwirlBoth;
+        float feedback = 0.55f; // -1 .. 1: replaces the fixed 0.55 (the flanger's is 0.6 / 0.55 of it)
+        float speed = 1.0f;     // 0.1 .. 8: scales the sweep rate
+        float depth = 1.0f;     // 0 .. 1: the span of its own sweep
+        float follow = 1.0f;    // 0 .. 1: how far the sweep follows the whoosh (0: a free sweep)
+        SwirlFx::Tape tape;
+        SwirlFx::Doubler doubler;
+    };
+    /** What is behind a bus's Filter wheel. */
+    using FilterDetail = SweepFilter::Settings;
+
     struct BusParams
     {
         float doppler = 0.5f;   // how dramatic each pass is (closeness, loudness swell, air)
@@ -221,7 +262,9 @@ public:
     struct Params
     {
         bool rideOn = true;
-        bool followMaster = false; // the rides swell with the Master track's loudness instead of their own LFOs
+        int rideMode = RideApart; // Follow Master: the rides swell with the Master track's loudness instead of their own LFOs
+        TogetherParams together;
+        AutoSwellParams autoSwell;
         float energy = 0.6f;   // how far the auto-ride pulls the faders
         float rate = 0.4f;     // how fast the faders move (and how long a doppler pass is)
         float fill = 0.3f;     // long delays into the gaps
@@ -237,6 +280,12 @@ public:
         float energyMod = 0.0f, pitchMod = 0.0f, fillMod = 0.0f, spaceMod = 0.0f;
         std::array<std::array<float, 9>, c_maxBuses> busMod {}; // doppler width bend low swirl filter drive duck key
         std::array<float, c_stowKnobs> stowMod {};              // follow low filter drive width
+        // Behind each bus's Swirl and Filter (Varispeed with its modulation, in swirlDetail[b].tape.varispeed).
+        std::array<SwirlDetail, c_maxBuses> swirlDetail {};
+        std::array<FilterDetail, c_maxBuses> filterDetail {};
+        // The offset meter was double-clicked: that bus's held Varispeed offset slides home (a pulse: true for one
+        // setParams, then false again).
+        std::array<bool, c_maxBuses> varispeedHome {};
         std::array<float, c_tracks> levels { 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f }; // gain (fader law applied)
         std::array<float, c_tracks> trackPitch {}; // semitones (cents included), each track on its own
         std::array<bool, c_tracks> trackVari { true, true, true, true, true, true, true, true, true, true }; // off = keep the speed
@@ -270,7 +319,8 @@ public:
         int tremTarget = 0;          // 0 everything, 1 buses A + B, 2 hits
 
         float space = 0.3f;
-        bool swell = false;    // held: every fader rides up
+        bool swell = false;    // held: every fader rides up (the processor's merged Swell: the parameter, the button and
+                               // its key, MIDI notes and the sustain pedal, the wires; Auto Swell is the engine's own)
 
         // The room (Quad and wider; nothing at Mono and Stereo).
         float roomSpread = 0.0f;  // how far every object bleeds into the other speakers (0 a point .. 1 everywhere)
@@ -346,11 +396,28 @@ public:
         at the end of one render of a batch and gives it back for the next, so a batch carries on through the sounds
         the way the rig does when you throw several in a row, instead of every render starting from the start
         markers. Not on a live rig: only on one no other thread runs, between process() calls. */
+    /** Faders Together's clock: where it is in the swell (0..1, 0 a trough, 0.5 the peak), the peaks counted since it
+        started (for Hit Every) and this cycle's size of swell (1 - 0.3 x Chaos x a draw). */
+    struct Cycle
+    {
+        double phase = 0.0;
+        std::int64_t peaks = 0;
+        float size = 1.0f;
+    };
+    /** Auto Swell's state: seconds into the clock's period, when this period's swell starts (Loose) and whether it
+        fires (Chance), whether the gate is open and for how long it has been. */
+    struct AutoSwellState
+    {
+        double clock = 0.0, onset = 0.0, open = 0.0;
+        bool fires = true, gate = false;
+    };
     struct Places
     {
         std::array<CargoPlayer, c_tracks> players;
         std::array<double, c_tracks> ridePhase {};
         std::array<float, c_tracks> rideDepth {};
+        Cycle cycle;
+        AutoSwellState autoSwell;
     };
     Places getPlaces() const;
     /** After prepare(): the tracks carry on from these places (one-shots still sounding are let go) and the rides
@@ -361,6 +428,52 @@ public:
     void scatterRide(std::uint32_t seed);
     /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
     bool isThrowing() const;
+    /** Where in its swell Faders Together's clock starts (0..1; 0, a trough, unless set) after prepare() and a
+        seeded restart; it also moves the clock there now. Render Variations' Whole Ride sets it so each file opens
+        on a trough after its pre-roll. The swell's top is Peak At of the way through it, so the first chunk
+        rendered places the clock by the Peak At in use then. Not while process() may run. */
+    void setCycleStart(double phase)
+    {
+        m_cycleStart = phase - std::floor(phase);
+        m_cycle.phase = m_cycleStart;
+        m_cycleStartPending = true;
+    }
+    /** Any thread: seconds until the next peak of Faders Together's swell (the Ride panel's "Peak in 1.2 s"), < 0
+        when the faders are not together. */
+    float getCyclePeakIn() const { return m_cyclePeakView.load(std::memory_order_relaxed); }
+    /** How long one swell of Faders Together's clock is right now, in seconds: Params::passSeconds(Rate), followed
+        over about a second, so a Rate that moves glides the passes instead of bending their pitch about. */
+    float getCycleSeconds() const { return m_cycleSecondsView.load(std::memory_order_relaxed); }
+    /** Any thread: Auto Swell holds Swell right now. */
+    bool isAutoSwelling() const { return m_autoSwellView.load(std::memory_order_relaxed); }
+    /** Any thread: a bus's held Varispeed offset in its Tape Flanger (-1 .. 1 of the travel either side), 0 in the
+        other types. */
+    float getVarispeedOffset(int bus) const { return m_varispeedView[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].load(std::memory_order_relaxed); }
+    /** Not for the window (the audio thread's own state, read by the tests between blocks): where a lane's copy sits
+        against its dry in a bus's Tape Flanger or Doubler, in ms (SwirlFx::getLaneOffsetMs), and the Swirl type in use. */
+    float getSwirlLaneOffsetMs(int bus, int lane) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].swirlFx.getLaneOffsetMs(lane); }
+    int getSwirlTypeInUse(int bus) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].swirlType; }
+    /** What the Followers' Pass and Filter inputs read, bus by bus (audio thread, after process(): plain values the
+        thread that renders hands to its own modulators, so nothing is shared or locked, and an offline render's
+        engine tells its own).
+        pass: how near the bus's whoosh is to its middle in time, 0 far .. 1 at the closest point of the pass (the
+        pass's marker), from where the passes are and never from how loud anything is: the nearest of the bus's
+        two passes and any throw in flight, each its window times its nearness against that at its closest point
+        (what Swirl's Flanger sweeps by). Faders Together puts the passes on the clock, so it tops out on the
+        swell's peak. The most it has been since the last call (a close pass is at 1 for a moment only).
+        filter: how open the bus's filter is right now on the whole of its travel, 0 closed .. 1 fully open
+        (SweepFilter::openness): the front wheel with its modulation, Follow and the filter's own rhythm are all in
+        it. As of the last chunk rendered. */
+    struct FollowerPlaces
+    {
+        std::array<float, c_maxBuses> pass {}, filter {};
+    };
+    FollowerPlaces takeFollowerPlaces();
+    /** The same as of the last chunk rendered, without taking anything (the tests read these chunk by chunk), and
+        where the bus's filter itself is (Hz, as placed for its type, its smoothing included). */
+    float getPassNear(int bus) const { return m_passNearNow[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
+    float getFilterOpen(int bus) const { return m_filterOpenNow[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
+    float getFilterHz(int bus) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].sweep.getHz(); }
     /** The width to render: Mono and Stereo are the stereo engine (a Mono output folds it itself); Quad and wider
         is the room. Before prepare(), or on the audio thread between process() calls: from one room width to
         another the speakers' gains glide across the next chunk; between stereo and a room the output fades out
@@ -545,6 +658,13 @@ private:
         sj::OnePole airL, airR;
         sj::OnePole airSL, airSR; // the same air on a stereo bed's side signal, at each ear
         float view = 0.0f, x = 0.0f, age = 0.0f;
+        // Faders Together: a pass on the clock takes its time from it (see cycleX): it is closest when the clock
+        // reads clockPeak, and clockSeconds is how long one swell was as the pass started (0: the pass keeps its
+        // own time). pace: how fast the pass runs against that (1 unless Rate has moved since), for the read's
+        // band limit.
+        double clockPeak = 0.0;
+        float clockSeconds = 0.0f, pace = 1.0f;
+        bool swelled = false;  // Auto Swell on peaks has decided about this pass's peak
 
         /** How far through the pass (0..1, 0.5 = closest). */
         float progress() const
@@ -744,9 +864,10 @@ private:
         // What Swirl reached at the end of the last chunk (everything is ramped from there across the next one),
         // and its own slower copy of the level-against-peak.
         bool swirlOn = false;
+        float swNear = 0.0f; // how near the nearest pass is, followed over 15 ms (the flanger alone sweeps by it)
         float swPeak = 0.0f, swAL = 0.0f, swAR = 0.0f, swMsL = 0.3f, swMsR = 0.3f, swPhMix = 0.0f, swFlMix = 0.0f, swFb = 0.0f;
-        // filter, and Filtered by A (its own low-pass)
-        sj::Svf fL, fR, keyL, keyR;
+        // Filtered by A (its own low-pass; the bus's Filter is `sweep`, below)
+        sj::Svf keyL, keyR;
         // level matching (slow mean squares) around Swirl and Drive, and the gains they set
         float swirlPre = 0.0f, swirlPost = 0.0f, swirlGain = 1.0f;
         float drivePre = 0.0f, drivePost = 0.0f, driveGain = 1.0f;
@@ -779,7 +900,7 @@ private:
         std::array<float, c_chunk> t {};
         // The third lane's own colour chain (the same filters l and r have), whether it holds state, and how many
         // more samples it is left to ring for after the last throw.
-        sj::Svf shelfT, fT, keyT;
+        sj::Svf shelfT, keyT;
         std::array<sj::Allpass1, 6> phT;
         float phFbT = 0.0f, flFbT = 0.0f, swAT = 0.0f, swMsT = 0.3f;
         sj::DelayLine flT;
@@ -810,6 +931,17 @@ private:
         float sidePre = 0.0f, sidePost = 0.0f, sideMatch = 1.0f;
         // A stereo bed as loud wide as narrow: the mono sum's power and the sides' (slow means), and the gain.
         float bedMid = 0.0f, bedSide = 0.0f, bedGain = 1.0f;
+        // Swirl's detail: the type in use (a change fades the bus out over 30 ms, swaps, and fades it back in), that
+        // fade, the Tape Flanger and Doubler, and the Filter with its own rhythm.
+        int swirlType = SwirlBoth;
+        float typeFade = 1.0f;
+        bool typeFadeIn = false; // the fade is on its way back in (applied where the bus enters Swirl, not where it leaves)
+        SwirlFx swirlFx;
+        SweepFilter sweep;
+        // Faders Together: how long this bus's sound takes to come out of the pass that is on its way in (seconds:
+        // leadTarget, taken at each trough), and the same as a share of a swell, glided (lead): its tracks' faders
+        // are that far ahead of the clock.
+        float lead = 0.0f, leadTarget = 0.0f;
     };
 
     /** Stowaway's Filter outside Sub, on one stream: open in the middle of the knob, a low-pass that closes towards
@@ -1015,6 +1147,23 @@ private:
     /** A pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
     float nominalPassSeconds() const;
     void startThrows(int frames);
+    // Faders Together (design 3.1). The clock as one number that never wraps: it is a whole number at every peak
+    // (Cycle::peaks + how far past the last one, in swells).
+    double cycleX() const { return static_cast<double>(m_cycle.peaks) + (m_cycle.phase >= 0.5 ? m_cycle.phase - 0.5 : m_cycle.phase + 0.5); }
+    /** Both passes of a bus onto the clock where it stands, keeping what each pass drew (how close, how fast,
+        which way): one on its way in to the next peak, the other on its way out from the last. Only where a step
+        in the passes cannot be heard (a reset, or before the first chunk of a render). */
+    void placeOnClock(BusState& bus);
+    /** A pass's delay at its closest point (seconds): how long before the clock's peak a fader has to be at its
+        top for that to be heard as the pass goes by. */
+    static float passLead(const Head& h);
+    /** How late a bus is for its Swirl type (seconds): the Tape Flanger's clean path, nothing in the others. */
+    float tapeDelaySeconds(const BusState& bus) const;
+    /** The clock for this chunk: started where setCycleStart says, stepped, the swell's size drawn at each trough
+        and each bus's lead taken from the pass on its way in. */
+    void stepCycle(int frames);
+    /** Auto Swell's gate for this chunk (design 3.7). */
+    bool stepAutoSwell(float seconds, float energyKnob);
     void reseedNow();
     void renderTracks(int frames);
     /** How strongly a bus keys the other one: its level against its own recent peak, faded out below -40 dBFS so a
@@ -1116,6 +1265,47 @@ private:
     std::array<std::uint32_t, 2> m_ropeFading { 0, 0 };
     std::array<std::atomic<int>, 2> m_ropeView { { { -1 }, { -1 } } };
     int wantedRope(int side) const;
+    // Faders Together, Auto Swell and what is behind Swirl and Filter. What the rest of the plug-in relies on:
+    //   - m_cyclePeakView (getCyclePeakIn), m_autoSwellView (isAutoSwelling) and m_varispeedView (getVarispeedOffset:
+    //     SwirlFx::getOffsetMs() / SwirlFx::c_maxOffsetMs, 0 unless the bus's Swirl is a Tape Flanger) are written
+    //     every chunk; the window reads them.
+    //   - reset() and reseedNow() put the clock at m_cycleStart (setCycleStart: Render Variations' Whole Ride starts
+    //     each file on a trough) and reseed m_cycleRng, m_autoRng and each bus's SwirlFx and SweepFilter from
+    //     m_seed ^ a constant of their own, so m_rng's draws stay in the order they were. They also put each bus on
+    //     the Swirl Type asked for (no fade) and a Tape Flanger's held offset back in the middle.
+    //     restartNow() (Play, not a transport start) leaves the clock where it is: the passes in flight are on
+    //     it, and they are not started again either.
+    //   - prepare() prepares each bus's swirlFx and sweep (nothing allocates after it); scatterRide() scatters the
+    //     Auto Swell clock and both of those.
+    //   - Params::swell is everything outside the engine that holds Swell; Auto Swell's gate is ORed with it here.
+    //   - Params::varispeedHome[b] may stay set for several chunks: SwirlFx::recentre() while it is.
+    //   - With every one of these Params fields at its default the output is what it was before they existed, but
+    //     for the Filter, which glides from one chunk's place to the next where it used to step.
+    // Faders Together (see Cycle): the clock, where it starts, its own draws (seeded m_seed ^ a constant, so m_rng's
+    // order is untouched), and how far Together is in (a change of mode crossfades the rides over 0.5 s).
+    Cycle m_cycle;
+    double m_cycleStart = 0.0;
+    bool m_cycleStartPending = true; // the clock has still to be placed by Peak At (see setCycleStart)
+    sj::Random m_cycleRng;
+    float m_togetherMix = 0.0f;
+    // This chunk's clock: cycleX() at its first sample, how far it moves per sample, how long one swell is
+    // (seconds, from Rate), Peak At in use, and where the unstaggered swell was at the end of the last chunk
+    // (0 its trough .. 1), for telling a new swell from the old one.
+    double m_cycleX0 = 0.5, m_cycleDX = 0.0;
+    float m_cycleSeconds = 3.5f, m_cyclePeakAt = 0.5f;
+    double m_cycleSwell = 0.0;
+    float m_cycleSizeNow = 1.0f;         // the swell's size, eased to each new draw
+    std::int64_t m_cycleAimed = -1;      // the peak AIM has decided about last (cycleX() there)
+    float m_makeupTogether = 0.0f;       // the m_togetherMix m_makeupTarget was worked out for
+    // Auto Swell, and its own draws.
+    AutoSwellState m_autoSwell;
+    sj::Random m_autoRng;
+    std::atomic<float> m_cyclePeakView { -1.0f };
+    std::atomic<float> m_cycleSecondsView { 3.5f };
+    std::atomic<bool> m_autoSwellView { false };
+    std::array<std::atomic<float>, c_maxBuses> m_varispeedView {};
+    // For the Followers (takeFollowerPlaces; the audio thread's own).
+    std::array<float, c_maxBuses> m_passNearNow {}, m_passNearMost {}, m_filterOpenNow {};
     // The Master track (see getMasterFollow), the smoothed loudness the rides follow, and how far Follow Master is in.
     std::array<float, 3> m_masterFollow {};
     float m_masterRide = 0.0f, m_followMix = 0.0f;

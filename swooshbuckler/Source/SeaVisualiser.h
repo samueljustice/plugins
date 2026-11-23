@@ -11,6 +11,36 @@
 #include <vector>
 
 /**
+ * The output's spectrum, as the sea rolls it away and the Output EQ's graph shows it faint behind its curve: the
+ * newest stretch of the output's mono sum (SwooshbucklerAudioProcessor::copyScope, at the device's rate) through one
+ * windowed transform, read back as levels of 0 .. 1 (tilted +3 dB an octave so noise reads level, then -84 .. -6 dB).
+ * Message thread; nothing allocates after it is made.
+ */
+class OutputSpectrum
+{
+public:
+    static constexpr int c_fftOrder = 11;
+    static constexpr int c_fftSize = 1 << c_fftOrder;
+
+    /** Takes the newest output and transforms it. */
+    void read(const SwooshbucklerAudioProcessor& processor);
+    /** The rate the output was read at (the device's). */
+    float rate() const { return m_rate; }
+    /** The loudest bin from f0 up to f1, as a level (the tilt is taken at f0). */
+    float band(float f0, float f1) const;
+    /** The level at one frequency, between the bins either side of it. */
+    float at(float hz) const;
+
+private:
+    static float level(float magnitude, float hz);
+
+    juce::dsp::FFT m_fft { c_fftOrder };
+    juce::dsp::WindowingFunction<float> m_window { c_fftSize, juce::dsp::WindowingFunction<float>::hann };
+    std::array<float, c_fftSize * 2> m_data {};
+    float m_rate = 48000.0f;
+};
+
+/**
  * The sea: the hero of the window. The output spectrum rolls away from the camera as a moonlit swell (a
  * perspective mesh drawn back to front, so near waves hide far ones), and every doppler pass is a comet arcing
  * across the sky in its bus's colour, splashing the water under it. Hits fire a flash on the horizon and a ring
@@ -117,8 +147,6 @@ public:
                                           const juce::Rectangle<float>* placed, int numPlaced);
 
 private:
-    static constexpr int c_fftOrder = 11;
-    static constexpr int c_fftSize = 1 << c_fftOrder;
     static constexpr int c_bands = 80;
     static constexpr int c_rows = 34;
     static constexpr int c_trail = 34;
@@ -143,9 +171,7 @@ private:
     SwooshbucklerAudioProcessor& m_processor;
     const Theme::Fonts& m_fonts;
 
-    juce::dsp::FFT m_fft { c_fftOrder };
-    juce::dsp::WindowingFunction<float> m_window { c_fftSize, juce::dsp::WindowingFunction<float>::hann };
-    std::array<float, c_fftSize * 2> m_fftData {};
+    OutputSpectrum m_spectrum;
     std::array<float, c_bands> m_smooth {};
     std::array<std::array<float, c_bands>, c_rows> m_rows {};
     int m_rowHead = 0;
@@ -203,7 +229,7 @@ private:
     // Hits: a flash on the horizon and a ring on the water.
     float m_hitFlash = 0.0f, m_hitRing = 0.0f, m_lastGate = 0.0f;
     float m_limiterGlow = 0.0f;   // the moon's halo, from the limiter's gain reduction
-    float m_swell = 0.0f;         // how high the ambient swell is riding (Swell held)
+    float m_swell = 0.0f;         // how high the ambient swell is riding (Swell held by anything: see isSwellHeld)
 
     struct Star { float x, y, size, phase; };
     std::vector<Star> m_stars;    // the twinkling few; the rest are in the sky image

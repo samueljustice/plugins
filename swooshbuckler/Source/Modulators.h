@@ -13,8 +13,9 @@
  *
  *   LFO      : sine, triangle, ramp, square or steps (sample and hold), bipolar
  *   Random   : a smooth random walk, bipolar
- *   Follower : follows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness,
- *              pitch or brightness, unipolar
+ *   Follower : follows the loudness of bus A, bus B, the hits or the output, the Master track's loudness,
+ *              pitch or brightness, or where a bus's whoosh or its filter is (how near the pass is to its
+ *              middle, how open the filter is), unipolar
  *   Macro    : a knob you turn (or automate), unipolar
  *
  * A wire adds depth x modulator to the knob's own (normalised) value. The parameter
@@ -36,6 +37,8 @@ public:
     /** The parameters a wire can reach (every knob outside the morph pad), in a fixed order. */
     static const std::vector<juce::String>& targets();
     static int targetIndex(const juce::String& paramId);
+    /** Swell's place among the targets (a wire to it is a gate, not an offset: see swellGate()). */
+    static int swellTarget();
 
     struct Route
     {
@@ -82,10 +85,20 @@ public:
     };
 
     /** What a Follower can listen to. The first five are the RMS of the last block of each; the Master ones are
-        the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range. */
+        the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range.
+        The last four are places, not loudness (RigEngine::takeFollowerPlaces), already 0..1: how near a bus's
+        whoosh is to its middle in time (1 as the pass is closest), and how open a bus's filter is (0 closed .. 1
+        fully open). New inputs go at the end: the choice is saved by its number. */
     enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowStow, FollowOutput,
-                         FollowMaster, FollowMasterPitch, FollowMasterBright, c_numFollowerInputs };
-    static juce::StringArray followerNames() { return { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }; }
+                         FollowMaster, FollowMasterPitch, FollowMasterBright,
+                         FollowPassA, FollowPassB, FollowFilterA, FollowFilterB, c_numFollowerInputs };
+    static juce::StringArray followerNames()
+    {
+        return { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness",
+                 "Bus A Pass", "Bus B Pass", "Bus A Filter", "Bus B Filter" };
+    }
+    /** A Pass or a Filter input: a place that already moves smoothly, followed alike both ways. */
+    static bool followsPlace(int input) { return input >= FollowPassA && input < c_numFollowerInputs; }
     using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);
@@ -105,6 +118,15 @@ public:
         not smoothed): at or over 0 the first of a two-way choice, under it the other. For targets that are decided
         at a moment (a pass's Direction and Side), not moved. 0 when nothing is wired to it. */
     float centred(int target) const { return m_centred[static_cast<size_t>(target)]; }
+    /** Swell's wires as one gate (audio thread, as of the last process call). Each wire holds Swell while its
+        source, read as 0..1 (an LFO or Random from -1..1 mapped to 0..1), is in the top part of its range: over
+        1 - depth (a negative depth: under |depth|, the low side). So an LFO at 50% holds the upper half of each
+        cycle and 25% gives short pushes, Steps fires with a chance equal to the depth, a Follower's depth is its
+        threshold and a Macro is a host-automatable hold. Once open a wire stays open until its source has gone
+        c_gateHysteresis back past the line, and for at least c_gateMinSeconds. The wires OR together. */
+    bool swellGate() const { return m_swellGate; }
+    static constexpr float c_gateHysteresis = 0.03f;
+    static constexpr double c_gateMinSeconds = 0.25;
 
     // Any thread (UI views) ----------------------------------------------------
     /** Current value of a source: -1..1 for LFO / Random, 0..1 for Follower / Macro. */
@@ -114,11 +136,17 @@ public:
     bool isBipolar(int source) const { return m_bipolarView[static_cast<size_t>(source)].load(std::memory_order_relaxed); }
     /** The modulated value (0..1) a target is at right now, or < 0 if nothing is wired to it. */
     float getModulatedView(int target) const { return m_targetView[static_cast<size_t>(target)].load(std::memory_order_relaxed); }
+    /** swellGate() for the UI (any thread). */
+    bool getSwellGateView() const { return m_swellGateView.load(std::memory_order_relaxed); }
     void publishTarget(int target, float normalised) { m_targetView[static_cast<size_t>(target)].store(normalised, std::memory_order_relaxed); }
 
     static float rateHz(float knob) { return 0.05f * std::pow(160.0f, juce::jlimit(0.0f, 1.0f, knob)); } // 0.05 .. 8 Hz
     /** Follower release time (its attack is 0.3x this): 2 s .. 26 ms (faster is finer than it updates). */
     static float followerSeconds(float knob) { return 2.0f * std::pow(0.0133f, juce::jlimit(0.0f, 1.0f, knob)); }
+    /** The same for an input: a Pass or a Filter input is followed in a tenth of that (200 ms .. 2.6 ms), up and
+        down alike, so it is as late on the way up as on the way down and the top stays where it is. */
+    static constexpr float c_placeShare = 0.1f;
+    static float followerSeconds(float knob, int input) { return (followsPlace(input) ? c_placeShare : 1.0f) * followerSeconds(knob); }
     static juce::String typeName(Type t);
     static juce::String shapeName(Shape s);
 
@@ -155,4 +183,9 @@ private:
     std::array<std::atomic<float>, c_numSources> m_sourceView {};
     std::array<std::atomic<bool>, c_numSources> m_bipolarView {};
     std::array<std::atomic<float>, 64> m_targetView {};
+    // Swell's gate: each slot's own (open, and for how long), and all of them together.
+    std::array<bool, c_maxRoutes> m_gateOpen {};
+    std::array<double, c_maxRoutes> m_gateHeld {};
+    bool m_swellGate = false;
+    std::atomic<bool> m_swellGateView { false };
 };

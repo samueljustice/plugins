@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 #include "CargoHoldView.h"
+#include "DetailLayer.h"
+#include "EqPlate.h"
 #include "IconButton.h"
 #include "LookAndFeel.h"
 #include "ModPanel.h"
@@ -96,30 +98,70 @@ private:
         void mouseDown(const juce::MouseEvent& e) override { if (onMouseDown) onMouseDown(e); }
     };
 
-    /** Swell: hold it and every track's fader rides up; let go and the ride takes over again.
-        It squashes on the Swell spring and its halo follows the energy of the ride. */
-    class SwellButton : public juce::Component, public juce::SettableTooltipClient, public Motion::ClockClient
+    /** Swell: hold it and every track's fader rides up; let go and the ride takes over again. A press is written to
+        the host's Swell parameter, so a DAW records it. It squashes on the Swell spring whenever anything holds
+        Swell (the button, its key, MIDI, a wire or Auto Swell: the processor's "Swell now"), its lamp lights then,
+        and its halo follows the energy of the ride. A Mod jack can be dropped on it (a wire holds Swell while its
+        modulator is in the top part of its range). Its notch, at its lower left, opens the Swell layer; a
+        right-click opens its menu. */
+    class SwellButton : public ModTarget, public Motion::ClockClient
     {
     public:
-        SwellButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
-        {
-            setMouseCursor(juce::MouseCursor::PointingHandCursor);
-            m_scale.snap(1.0f);
-        }
+        SwellButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f);
         void paint(juce::Graphics&) override;
-        void mouseDown(const juce::MouseEvent&) override { m_processor.setSwell(true); press(true); }
-        void mouseUp(const juce::MouseEvent&) override { m_processor.setSwell(false); press(false); }
+        void mouseDown(const juce::MouseEvent&) override;
+        void mouseDrag(const juce::MouseEvent&) override;
+        void mouseUp(const juce::MouseEvent&) override;
+        void mouseDoubleClick(const juce::MouseEvent&) override;
+        void mouseMove(const juce::MouseEvent&) override;
+        void mouseExit(const juce::MouseEvent&) override;
+        void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override {}
         void press(bool down) { m_scale.to(down ? 0.9f : 1.0f); }
         /** The key that holds Swell, as the user reads it: the hint under the word follows it when it is changed
             (empty when Swell has been left with no key, and then the hint is just "Hold"). */
-        void setKeyHint(const juce::String& key) { if (key != m_keyHint) { m_keyHint = key; repaint(); } }
+        void setKeyHint(const juce::String& key) { if (key != m_keyHint) { m_keyHint = key; updateLine(); } }
+        /** What the line under the word says: the key, or what Auto Swell does ("Auto: Peaks", "Auto: 4.0 s"). */
+        juce::String getLine() const { return m_line; }
+        /** The notch: filled while anything on the Swell layer is off its default. */
+        void setNotchFilled(bool filled) { if (filled != m_notchFilled) { m_notchFilled = filled; repaint(); } }
+        bool isNotchFilled() const { return m_notchFilled; }
+        juce::Rectangle<float> getNotchArea() const;
+        /** The lamp: lit while anything holds Swell. */
+        bool isLampLit() const { return m_lamp; }
+        /** A click on the notch, and a right-click. */
+        std::function<void()> onNotch, onMenu;
+        /** Pressed and let go (the window writes the host's Swell parameter). */
+        std::function<void(bool)> onHold;
+        /** Reads Auto Swell and the "Swell now" view again (the window's frame calls this). */
+        void updateLine();
+
+        juce::Point<float> getDialCentre() const override { return getLocalBounds().toFloat().getCentre(); }
+        float getDialRadius() const override { return static_cast<float>(juce::jmin(getWidth(), getHeight())) * 0.5f * 0.8f; }
+        juce::Point<float> getPlugPosition(int index) const override;
     private:
-        juce::String m_keyHint;
+        juce::String m_keyHint, m_line;
         void frame(float dt) override;
         SwooshbucklerAudioProcessor& m_processor;
         const Theme::Fonts& m_fonts;
         Motion::Spring m_scale;
         float m_glow = 0.0f;
+        bool m_pressed = false, m_notchFilled = false, m_lamp = false, m_overNotch = false, m_notchClick = false;
+    };
+
+    /** The EQ key in Output's title bar: "EQ" and the live curve of the Output EQ beside it, drawn flat and unlit
+        while the EQ does nothing. Click it to show the Output EQ plate (over Bus B), again to put it away. */
+    class EqKey : public juce::Button
+    {
+    public:
+        EqKey(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f);
+        void paintButton(juce::Graphics&, bool over, bool down) override;
+        /** Draws it again when the curve (or whether the EQ does anything) has changed. */
+        void refresh();
+    private:
+        SwooshbucklerAudioProcessor& m_processor;
+        const Theme::Fonts& m_fonts;
+        OutputEq::Params m_shown;
+        bool m_lit = false;
     };
 
     /** The tape machine: two reels that spin up when capture starts and coast down when it stops, and a record
@@ -501,9 +543,10 @@ private:
     int m_morphSyncTick = 0;
     SwellButton m_swell;
     juce::TextButton m_rideButton { "Auto Ride" };
-    juce::TextButton m_followMasterButton { "Follow Master" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_followMasterAttachment;
-    int m_followMasterShown = -1; // what the Follow Master button's dimming was last set for
+    // Ride Mode: Faders Apart / Faders Together / Follow Master, beside Auto Ride.
+    juce::ComboBox m_rideMode;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_rideModeAttachment;
+    int m_rideModeShown = -1; // what the Ride Mode box's look, tooltip and Follow Master item were last set for
     // Perform: Throw (one whoosh on demand), what MIDI keys do, and (in a host) Follow Host by the Play button.
     juce::TextButton m_throwButton { "Throw" }, m_followHost { "Follow Host" };
     juce::ComboBox m_keysMode;
@@ -533,6 +576,46 @@ private:
     juce::String versionLine() const;
 
     Morph m_morph;
+
+    // The layers (design 2.0): one host for each panel that has them, in this order. A layer turns its panel over in
+    // place; the front's notched controls open it (Swirl and Filter on each bus, Rate and Swell in Ride).
+    enum LayerPanel { RidePanel = 0, BusAPanel, BusBPanel, numLayerPanels };
+    std::array<std::unique_ptr<DetailLayer>, numLayerPanels> m_layers;
+    std::array<int, numLayerPanels> m_layerOpenedAt {}; // which was opened last (Esc closes that one first)
+    int m_layerCount = 0, m_notchTick = 0;
+    static int panelFor(Layers::Target t) { return t.kind == Layers::Kind::Swirl || t.kind == Layers::Kind::Filter ? 1 + juce::jlimit(0, 1, t.bus) : RidePanel; }
+    juce::Rectangle<int> layerPanelBounds(int panel) const;
+    /** Opens the layer (or, when it is already open, closes it: the front wheel's double-click and the notch). */
+    void toggleLayer(Layers::Target t);
+    void openLayer(Layers::Target t);
+    /** Closes the layer opened last; false when none is open. */
+    bool closeTopLayer();
+    /** The front of each panel as the layers have it now: the controls a layer covers hidden (their cables with
+        them) or fading, the front wheel in the layer's first cell, and Bus B hidden under the EQ plate. */
+    void applyLayers();
+    /** The controls a layer replaces in a panel: its knob row and its title bar's controls (not the front wheel). */
+    std::vector<juce::Component*> layerCovers(int panel);
+    /** Every control a wire can reach now, the open pages' wheels (Varispeed) included. */
+    void rebuildWireTargets();
+    /** The notches (filled when anything behind them is off its default), and the tooltips that name a type. */
+    void updateNotches(bool force = false);
+    std::array<int, 6> m_notchShown {};
+    /** The menu of a notched wheel (Open, Type a Value, Reset), and of Swell (Open, and Auto Swell's choices). */
+    void showWheelMenu(Layers::Target t, WheelKnob& knob);
+    void showSwellMenu();
+    /** The Output EQ: the key in Output's title bar and its plate over Bus B. */
+    EqKey m_eqKey;
+    std::unique_ptr<EqPlate> m_eqPlate;
+    void setEqPlateOpen(bool open);
+    bool isEqPlateOpen() const { return m_eqPlate != nullptr && m_eqPlate->isVisible(); }
+    /** Swell held from the window (its button, its key, a click on the sea): the host's Swell parameter, written as a
+        gesture while any of them holds it, so a DAW records the press. */
+    enum SwellHold { HoldByButton = 1, HoldByKey = 2, HoldByPulse = 4 };
+    void holdSwell(int by, bool held);
+    int m_swellHolds = 0, m_pulseGeneration = 0;
+    int m_layerSides = -1; // which sides the panels last showed (a bit each, and one for the EQ plate)
+    /** A click on the sea (or the tracks' old pulse): Swell for a moment. */
+    void pulseSwell(int milliseconds);
 
     /** The line along the foot of the window. It names the key Swell has, so it is written in refreshShortcuts
         rather than in paint. */

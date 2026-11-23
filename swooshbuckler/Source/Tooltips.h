@@ -13,7 +13,9 @@
  * to handle it and its key at the end, dimmer.
  *
  * The how-to line that is the same on every knob ("Double-click to reset it...") is not written forty times in
- * the knobs' own tips: it is added here, in the second tier only, from what the control is.
+ * the knobs' own tips: it is added here, in the second tier only, from what the control is. A control handled
+ * differently says so in its "howTo" property, which is used instead: the notched wheels ("Double-click to open what is behind it.
+ * Shift-double-click to reset it..."), Swell, the layers' own wheels.
  *
  * Message thread only, like everything to do with painting.
  */

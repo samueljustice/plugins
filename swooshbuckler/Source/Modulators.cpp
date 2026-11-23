@@ -31,10 +31,21 @@ const std::vector<juce::String>& ModMatrix::targets()
                           ParamIDs::side[0], ParamIDs::side[1], ParamIDs::stowSide })
             ids.emplace_back(id);
         ids.emplace_back(ParamIDs::hitSpread); // how far a hit bleeds (the speakers' gains glide)
+        // Each bus's Varispeed (a slow LFO is a hands-free lean), and Swell: held while its modulator is in the top
+        // part of its range (see swellGate()). The detail layers' other wheels are not wire targets.
+        ids.emplace_back(ParamIDs::busDetail[0][ParamIDs::Varispeed]);
+        ids.emplace_back(ParamIDs::busDetail[1][ParamIDs::Varispeed]);
+        ids.emplace_back(ParamIDs::swell);
         jassert(ids.size() <= 64);
         return ids;
     }();
     return list;
+}
+
+int ModMatrix::swellTarget()
+{
+    static const int index = targetIndex(ParamIDs::swell);
+    return index;
 }
 
 int ModMatrix::targetIndex(const juce::String& paramId)
@@ -240,6 +251,7 @@ void ModMatrix::changed()
 void ModMatrix::prepare(double sampleRate)
 {
     m_sampleRate = sampleRate > 0.0 ? sampleRate : 48000.0;
+    swellTarget(); // (looked up once, here: the first process() would otherwise build the list of targets, which allocates)
     reset();
 }
 
@@ -257,6 +269,10 @@ void ModMatrix::reset()
     std::fill(m_offsets.begin(), m_offsets.end(), 0.0f);
     for (auto& v : m_targetView)
         v.store(-1.0f, std::memory_order_relaxed);
+    m_gateOpen.fill(false);
+    m_gateHeld.fill(0.0);
+    m_swellGate = false;
+    m_swellGateView.store(false, std::memory_order_relaxed);
 }
 
 void ModMatrix::scatter(juce::Random& random)
@@ -327,8 +343,11 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
                 const float in = followerInputs[static_cast<size_t>(which)];
                 const float db = juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, in), -100.0f);
                 const float target = which >= FollowMaster ? juce::jlimit(0.0f, 1.0f, in) : juce::jlimit(0.0f, 1.0f, (db + 40.0f) / 34.0f);
-                const float tau = followerSeconds(set.knob);
-                const float tauNow = target > st.env ? tau * 0.3f : tau;
+                // (A Pass or a Filter input is a place that already moves smoothly: one time both ways, a tenth of
+                // the loudness inputs', so its top is not held back by a slow fall.)
+                const bool place = followsPlace(which);
+                const float tau = followerSeconds(set.knob, which);
+                const float tauNow = target > st.env && ! place ? tau * 0.3f : tau;
                 st.env += (target - st.env) * (1.0f - std::exp(static_cast<float>(-dt) / juce::jmax(0.001f, tauNow)));
                 st.value = st.env;
                 bipolar[si] = false;
@@ -363,6 +382,37 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
         m_centred[static_cast<size_t>(target)] += slot.depth.load(std::memory_order_relaxed) * (bipolar[src] ? 0.5f * values[src] : values[src] - 0.5f);
         wired[static_cast<size_t>(target)] = true;
     }
+    // Swell's wires: each one a gate on its source (see swellGate()); the wires OR together.
+    const int swell = swellTarget();
+    bool swellOpen = false;
+    for (size_t s = 0; s < m_slots.size(); ++s)
+    {
+        auto& slot = m_slots[s];
+        const int target = slot.target.load(std::memory_order_acquire);
+        if (target != swell || swell < 0)
+        {
+            m_gateOpen[s] = false;
+            m_gateHeld[s] = 0.0;
+            continue;
+        }
+        const auto src = static_cast<size_t>(juce::jlimit(0, c_numSources - 1, slot.source.load(std::memory_order_relaxed)));
+        const float level = bipolar[src] ? 0.5f * (values[src] + 1.0f) : values[src]; // 0..1
+        const float depth = slot.depth.load(std::memory_order_relaxed);
+        const float amount = std::abs(depth);
+        const bool wasOpen = m_gateOpen[s];
+        // Positive depth: the top `amount` of the range holds it. Negative: the bottom `amount`.
+        const float margin = wasOpen ? c_gateHysteresis : 0.0f;
+        const bool inside = depth >= 0.0f ? level > 1.0f - amount - margin : level < amount + margin;
+        bool open = amount > 0.0f && inside;
+        if (wasOpen && ! open && m_gateHeld[s] < c_gateMinSeconds)
+            open = true; // a hold is never shorter than the minimum
+        m_gateHeld[s] = open ? (wasOpen ? m_gateHeld[s] + dt : dt) : 0.0;
+        m_gateOpen[s] = open;
+        swellOpen = swellOpen || open;
+    }
+    m_swellGate = swellOpen;
+    m_swellGateView.store(swellOpen, std::memory_order_relaxed);
+
     const float a = 1.0f - std::exp(static_cast<float>(-dt) / 0.015f);
     for (size_t t = 0; t < m_offsets.size(); ++t)
     {

@@ -56,6 +56,22 @@
 //                             bus A held to Through, Front to Back, on the Right; bus B linked, showing bus A's
 //   window-714-direction-wired.png bus-a-714-direction-wired.png
 //                             a modulator wired to bus A's Direction: the key it picks now marked in its colour
+//   front-<mono|stereo|714>.png front-<width>-<ride|bus-a|bus-b|output>.png
+//                             the front at Mono, Stereo and 7.1.4: four hollow notches (Swirl and Filter on each bus,
+//                             Rate, Swell) and the EQ key in Output's title bar
+//   layer-bus-a-swirl-<type>.png layer-bus-a-filter.png layer-bus-b-swirl.png layer-bus-b-filter.png
+//   layer-ride-together.png layer-ride-swell.png layer-ride-together-on.png layer-ride-swell-on.png
+//                             each panel turned over to each of its layers (window-<name>.png the whole window)
+//   front-notches-filled.png layers-three.png layers-three-closed.png eq-plate-flat.png eq-plate.png eq-key-curve.png
+//                             filled notches (Faders Together, so Ride counts down to the peak), three layers up at
+//                             once with wires on Swell and Varispeed (and the front again after Back), the Output EQ
+//                             plate over Bus B, flat and with a curve, the EQ key drawing that curve
+//                             (--layers writes only these, and checks their texts)
+//   follow-pass.png follow-filter.png follow-menu.png motion-with-filter.png motion-menu.png
+//   motion-with-filter-resting.png (and window-... of each)
+//                             a Follower on Bus A Pass and on Bus A Filter (its scope drawing them), its menu open with
+//                             the four Pass and Filter inputs; bus A's Tape Flanger page With the Filter, Motion's menu
+//                             open, and the Motion box resting with Filter at 0% (--follow writes only these)
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //   speakers-dialog.png       the app asking before a change of Speakers empties the Last 60 s memory
@@ -68,7 +84,8 @@
 // (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
 // bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
 // cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png, and for surround room-strip.png,
-// output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4). Run it as
+// output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4, and layer-swirl.png, layer-filter.png, layer-together.png,
+// layer-swell.png and output-eq.png: the layers and the Output EQ). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
@@ -84,7 +101,10 @@
 #include "FakeAudioDevice.h"
 #include "DemoSounds.h"
 
+#include <functional>
 #include <iostream>
+#include <set>
+#include <vector>
 
 namespace
 {
@@ -103,7 +123,7 @@ namespace
         juce::File out, work, state;
         float scale = 1.0f;
         double seconds = 3.0;
-        bool list = false, images = true, constellation = false, sea = false, docs = false;
+        bool list = false, images = true, constellation = false, sea = false, docs = false, layersOnly = false, followOnly = false;
     };
 
     /** One state of the window: its picture, and the texts in it. */
@@ -169,6 +189,343 @@ namespace
 
 namespace
 {
+    /** The layers (design 2.0): the front as it is at Mono, Stereo and 7.1.4 (four hollow notches, the EQ key), each
+        panel turned over to each of its layers (every Swirl type, the Filter, Together, Swell), the notches filled,
+        three layers up at once with wires on Swell and Varispeed, and the EQ plate over Bus B. The panel crops are
+        named after the layer: layer-bus-a-swirl-tape-flanger.png, layer-ride-swell.png, and so on. */
+    void shootLayers(Shots& shots, Rig& rig, Proc& proc)
+    {
+        auto& ed = *rig.editor;
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.25);
+        };
+        auto open = [&](Layers::Target t) { ed.openLayer(t); settle(); };
+        auto closeAll = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+        };
+        auto widen = [&](room::Width width)
+        {
+            auto layout = proc.getBusesLayout();
+            layout.outputBuses.getReference(0) = room::channelSet(width);
+            proc.setBusesLayout(layout);
+            proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+            rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+        };
+        auto slug = [](juce::String text) { return text.toLowerCase().replace(" / ", "-").replace(" + ", "-").replace(" ", "-"); };
+        auto panelOf = [&](Layers::Target t) { return ed.layerPanelBounds(Editor::panelFor(t)); };
+
+        // The front at three widths: as calm as it was, with four hollow notches and the EQ key.
+        proc.setPlaying(true);
+        const std::pair<room::Width, const char*> widths[] = { { room::Width::Mono, "mono" }, { room::Width::Stereo, "stereo" },
+                                                               { room::Width::Surround714, "714" } };
+        for (const auto& [width, name] : widths)
+        {
+            widen(width);
+            rig.run(1.5);
+            const auto window = shots.shoot(juce::String("front-") + name);
+            shots.crop(window, juce::String("front-") + name + "-ride", ed.m_performPanel);
+            shots.crop(window, juce::String("front-") + name + "-bus-a", ed.m_sections[0].bounds);
+            shots.crop(window, juce::String("front-") + name + "-bus-b", ed.m_sections[1].bounds);
+            shots.crop(window, juce::String("front-") + name + "-output", ed.m_sections[3].bounds);
+        }
+        widen(room::Width::Stereo);
+        rig.run(0.5);
+
+        // Each panel turned over: every Swirl type on bus A (and the Tape Flanger on bus B), the Filter on both, and
+        // Ride's two.
+        for (int type = 0; type < ParamIDs::numSwirlTypes; ++type)
+        {
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(type));
+            open({ Layers::Kind::Swirl, 0 });
+            const auto name = "layer-bus-a-swirl-" + slug(ParamIDs::swirlTypeNames[type]);
+            shots.crop(shots.shoot("window-" + name), name, ed.m_sections[0].bounds);
+        }
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
+        set(ParamIDs::busDetail[1][ParamIDs::SwirlType], static_cast<float>(ParamIDs::numSwirlTypes - 2)); // Tape Flanger
+        const Layers::Target others[] = { { Layers::Kind::Filter, 0 }, { Layers::Kind::Swirl, 1 }, { Layers::Kind::Filter, 1 },
+                                          { Layers::Kind::Together, 0 }, { Layers::Kind::Swell, 0 } };
+        for (const auto t : others)
+        {
+            closeAll();
+            open(t);
+            const auto name = "layer-" + slug(Layers::title(t));
+            shots.crop(shots.shoot("window-" + name), name, panelOf(t));
+        }
+        // Faders Together and Auto Swell on, so neither page rests.
+        set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideTogether));
+        set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
+        set(ParamIDs::busDetail[0][ParamIDs::FilterType], 1.0f); // High Pass
+        closeAll();
+        for (const auto t : { Layers::Target { Layers::Kind::Together, 0 }, Layers::Target { Layers::Kind::Swell, 0 } })
+        {
+            open(t);
+            const auto name = "layer-" + slug(Layers::title(t)) + "-on";
+            shots.crop(shots.shoot("window-" + name), name, panelOf(t));
+        }
+        closeAll();
+
+        // The front with things behind it: bus A's Filter a High Pass, bus B's Swirl a Tape Flanger, Faders
+        // Together, Auto Swell on a clock: four filled notches, Swell's line saying so.
+        {
+            const auto window = shots.shoot("front-notches-filled");
+            shots.crop(window, "front-notches-filled-ride", ed.m_performPanel);
+            shots.crop(window, "front-notches-filled-buses", ed.m_sections[0].bounds.getUnion(ed.m_sections[1].bounds));
+        }
+
+        // Three layers up at once, with a wire on Swell and one on bus B's Varispeed.
+        {
+            const int swellWire = proc.getMods().connect(0, ParamIDs::swell, 0.5f);
+            const int leanWire = proc.getMods().connect(1, ParamIDs::busDetail[1][ParamIDs::Varispeed], 0.4f);
+            open({ Layers::Kind::Swell, 0 });
+            open({ Layers::Kind::Swirl, 0 });
+            open({ Layers::Kind::Swirl, 1 });
+            ed.m_wires.rebuild();
+            rig.run(0.5);
+            const auto window = shots.shoot("layers-three");
+            shots.crop(window, "layers-three-row", ed.m_performPanel.getUnion(ed.m_sections[1].bounds));
+            closeAll();
+            ed.m_wires.rebuild();
+            const auto front = shots.shoot("layers-three-closed");
+            shots.crop(front, "layers-three-closed-row", ed.m_performPanel.getUnion(ed.m_sections[1].bounds));
+            proc.getMods().disconnect(leanWire);
+            proc.getMods().disconnect(swellWire);
+        }
+
+        // The Output EQ's plate over Bus B: flat as it opens, then with a curve, a Low Cut and a band picked.
+        {
+            ed.setEqPlateOpen(true);
+            rig.run(0.5);
+            shots.crop(shots.shoot("eq-plate-flat"), "eq-plate-flat-row", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds));
+            set(ParamIDs::eqLowCut, 80.0f);
+            set(ParamIDs::eqLowMidGain, -6.0f);
+            set(ParamIDs::eqHighShelfGain, 4.0f);
+            ed.m_eqPlate->getGraph().selectBand(OutputEq::LowMid);
+            rig.run(0.5);
+            const auto window = shots.shoot("eq-plate");
+            shots.crop(window, "eq-plate-row", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds));
+            ed.setEqPlateOpen(false);
+            rig.run(0.2);
+            shots.crop(shots.shoot("eq-key-curve"), "eq-key-curve", ed.m_sections[3].bounds);
+        }
+
+        // Back as a new session has it.
+        for (const auto* id : { ParamIDs::rideMode, ParamIDs::swellAuto, ParamIDs::busDetail[0][ParamIDs::FilterType],
+                                ParamIDs::busDetail[1][ParamIDs::SwirlType], ParamIDs::eqLowCut, ParamIDs::eqLowMidGain,
+                                ParamIDs::eqHighShelfGain })
+            if (auto* param = proc.getState().getParameter(id))
+                param->setValueNotifyingHost(param->getDefaultValue());
+        rig.run(0.3);
+    }
+}
+
+namespace
+{
+    /** The Followers' Pass and Filter inputs and the Tape Flanger's With the Filter: the Follower card's menu open
+        (follow-menu.png), the card on Bus A Pass and on Bus A Filter with its scope drawing them
+        (follow-pass.png, follow-filter.png), bus A's Tape Flanger page with Motion's menu open (motion-menu.png), with
+        With the Filter in use (motion-with-filter.png) and with it resting because Filter is at 0%
+        (motion-with-filter-resting.png). Everything is put back as it was. */
+    void shootFollowers(Shots& shots, Rig& rig, Proc& proc)
+    {
+        auto& ed = *rig.editor;
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.4);
+        };
+        // A box's own menu, open inside the window under the box, with the choice in use ticked (as the box shows it).
+        auto shootMenu = [&](juce::ComboBox& box, const juce::String& name, juce::Rectangle<int> cropTo)
+        {
+            juce::PopupMenu menu = *box.getRootMenu();
+            for (juce::PopupMenu::MenuItemIterator it(menu, true); it.next();)
+                it.getItem().isTicked = it.getItem().itemID == box.getSelectedId();
+            std::set<juce::Component*> before;
+            for (auto* child : ed.getChildren())
+                before.insert(child);
+            menu.setLookAndFeel(&box.getLookAndFeel());
+            menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(box).withParentComponent(&ed).withMinimumWidth(box.getWidth()), [](int) {});
+            juce::Component* window = nullptr;
+            for (auto* child : ed.getChildren())
+                if (before.count(child) == 0 && child->isVisible())
+                    window = child;
+            juce::Rectangle<int> menuArea; // in the window's own (unscaled) coordinates
+            if (window != nullptr)
+            {
+                // Under the box, or over it where there is no room under (as a box near the bottom of a screen does).
+                const auto under = ed.getLocalArea(&box, box.getLocalBounds());
+                const int height = juce::roundToInt(static_cast<float>(window->getHeight()) * rig.scale);
+                const int top = under.getBottom() + height <= ed.getHeight() ? under.getBottom() : under.getY() - height;
+                window->setTransform({});
+                window->setTopLeftPosition(under.getX(), top);
+                window->setTransform(juce::AffineTransform::scale(rig.scale, rig.scale, static_cast<float>(under.getX()), static_cast<float>(top)));
+                menuArea = (juce::Rectangle<int>(under.getX(), top, juce::roundToInt(static_cast<float>(window->getWidth()) * rig.scale), height).toFloat() / rig.scale).getSmallestIntegerContainer();
+            }
+            const auto image = shots.shoot("window-" + name, window);
+            shots.crop(image, name, cropTo.getUnion(menuArea));
+            juce::PopupMenu::dismissAllActiveMenus();
+            rig.run(0.2);
+        };
+
+        // The Follower card (Mod 4 in a new session).
+        const int source = 3;
+        std::vector<juce::ComboBox*> followBoxes;
+        std::function<void(juce::Component&)> walk = [&](juce::Component& c)
+        {
+            for (auto* child : c.getChildren())
+            {
+                if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getNumItems() > 0 && box->getItemText(0) == "Bus A")
+                    followBoxes.push_back(box);
+                walk(*child);
+            }
+        };
+        walk(ed.m_modPanel);
+        proc.setPlaying(true);
+        if (followBoxes.size() == 4)
+        {
+            auto& follow = *followBoxes[static_cast<size_t>(source)];
+            set(ParamIDs::modType[source], 2.0f);
+            set(ParamIDs::modKnob[source], 0.9f);
+            const int wire = proc.getMods().connect(source, ParamIDs::bus[0][ParamIDs::Swirl], 0.6f);
+            set(ParamIDs::modFollow[source], static_cast<float>(ModMatrix::FollowPassA));
+            ed.m_wires.rebuild();
+            rig.run(4.0);
+            shots.crop(shots.shoot("window-follow-pass"), "follow-pass", ed.m_modSection);
+            shootMenu(follow, "follow-menu", ed.m_modSection);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.5f);
+            set(ParamIDs::modFollow[source], static_cast<float>(ModMatrix::FollowFilterA));
+            rig.run(4.0);
+            shots.crop(shots.shoot("window-follow-filter"), "follow-filter", ed.m_modSection);
+            proc.getMods().disconnect(wire);
+            ed.m_wires.rebuild();
+            for (const auto* id : { ParamIDs::modType[source], ParamIDs::modKnob[source], ParamIDs::modFollow[source] })
+                proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+        }
+        else
+        {
+            std::cout << "FAULT in follow-menu: the four Follower menus were not found" << std::endl;
+            ++shots.faults;
+        }
+
+        // Bus A's Tape Flanger page: Motion's menu, With the Filter in use, and resting with Filter at 0%.
+        {
+            const Layers::Target t { Layers::Kind::Swirl, 0 };
+            const auto* filterParam = proc.getState().getParameter(ParamIDs::bus[0][ParamIDs::Filter]);
+            const float filterWas = filterParam->convertFrom0to1(filterParam->getValue());
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            set(ParamIDs::busDetail[0][ParamIDs::TapeMotion], static_cast<float>(ParamIDs::TapeWithFilter));
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.5f);
+            ed.openLayer(t);
+            settle();
+            const auto panel = ed.layerPanelBounds(Editor::panelFor(t));
+            shots.crop(shots.shoot("window-motion-with-filter"), "motion-with-filter", panel);
+            juce::ComboBox* motion = nullptr;
+            if (auto* page = ed.m_layers[static_cast<size_t>(Editor::panelFor(t))]->getPage())
+                for (auto* child : page->getChildren())
+                    if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getTitle().endsWith(": Motion"))
+                        motion = box;
+            if (motion != nullptr)
+                shootMenu(*motion, "motion-menu", panel);
+            else
+            {
+                std::cout << "FAULT in motion-menu: the Motion box was not found" << std::endl;
+                ++shots.faults;
+            }
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.0f);
+            rig.run(0.5);
+            shots.crop(shots.shoot("window-motion-with-filter-resting"), "motion-with-filter-resting", panel);
+            set(ParamIDs::bus[0][ParamIDs::Filter], filterWas);
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+            for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[0][ParamIDs::TapeMotion], ParamIDs::busDetail[0][ParamIDs::FilterSweep] })
+                proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+            rig.run(0.3);
+        }
+    }
+}
+
+namespace
+{
+    /** The manual's pictures of what is behind the notched controls, and of the Output EQ: one layer of each kind
+        turned over (a Tape Flanger behind bus A's Swirl, bus A's Filter, Ride in Faders Together, Auto Swell on a
+        clock) and the EQ's plate with a curve. Everything is put back as it was. */
+    void shootDocLayers(Shots& shots, Rig& rig, Proc& proc)
+    {
+        auto& ed = *rig.editor;
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.4);
+        };
+        auto shot = [&](Layers::Target t, const char* name)
+        {
+            ed.openLayer(t);
+            settle();
+            shots.crop(shots.shoot(juce::String("window-") + name), name, ed.layerPanelBounds(Editor::panelFor(t)), 2);
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+        };
+        const char* const changed[] = { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::rideMode, ParamIDs::swellAuto,
+                                        ParamIDs::eqLowCut, ParamIDs::eqLowMidGain, ParamIDs::eqHighShelfGain };
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+        shot({ Layers::Kind::Swirl, 0 }, "layer-swirl");
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
+        shot({ Layers::Kind::Filter, 0 }, "layer-filter");
+        set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideTogether));
+        rig.run(1.0);
+        shot({ Layers::Kind::Together, 0 }, "layer-together");
+        set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideApart));
+        set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
+        shot({ Layers::Kind::Swell, 0 }, "layer-swell");
+        set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellOff));
+
+        set(ParamIDs::eqLowCut, 80.0f);
+        set(ParamIDs::eqLowMidGain, -6.0f);
+        set(ParamIDs::eqHighShelfGain, 4.0f);
+        ed.setEqPlateOpen(true);
+        ed.m_eqPlate->getGraph().selectBand(OutputEq::LowMid);
+        rig.run(0.6);
+        shots.crop(shots.shoot("window-output-eq"), "output-eq", ed.m_sections[1].bounds.getUnion(ed.m_sections[3].bounds), 2);
+        ed.m_eqPlate->getGraph().selectBand(-1);
+        ed.setEqPlateOpen(false);
+        for (const auto* id : changed)
+            if (auto* param = proc.getState().getParameter(id))
+                param->setValueNotifyingHost(param->getDefaultValue());
+        ed.updateNotches(true);
+        proc.getHistory().clear();
+        rig.run(1.0);
+    }
+
     /** --docs: exactly the pictures the manual uses, under the names it uses. One run, in the order the manual
         reads, so each picture shows the window in the state its section describes. */
     int runDocs(const Options& options)
@@ -216,6 +573,9 @@ namespace
                         break;
                     }
             }
+
+            // What is behind the notched controls, and the Output EQ.
+            shootDocLayers(shots, rig, proc);
 
             // Stowaway, switched on with a track sent to it, and its plate open. (Not through the lane's menu: its
             // line in the Tracks title bar would still be there in the pictures that follow.)
@@ -450,10 +810,12 @@ int main(int argc, char* argv[])
         else if (a == "--constellation") options.constellation = true;
         else if (a == "--sea") options.sea = true;
         else if (a == "--docs") options.docs = true;
+        else if (a == "--layers") options.layersOnly = true;
+        else if (a == "--follow") options.followOnly = true;
         else
         {
             std::cerr << "Unknown option " << a << "\nUsage: SwooshbucklerUiShot --out <dir> [--scale 1.0] [--seconds 3] [--state <session file>] "
-                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs]" << std::endl;
+                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs] [--layers] [--follow]" << std::endl;
             return 2;
         }
     }
@@ -512,6 +874,26 @@ int main(int argc, char* argv[])
             ed.m_sea.showConstellation(true);
         rig.run(options.seconds);
 
+        // --layers: only the layers' pictures (shootLayers), and done.
+        if (options.followOnly)
+        {
+            shootFollowers(shots, rig, proc);
+            proc.setPlaying(false);
+            const int found = shots.faults, counted = shots.texts;
+            rig.editor.reset();
+            std::cout << counted << " texts checked, " << found << " faults" << std::endl;
+            return found == 0 ? 0 : 1;
+        }
+        if (options.layersOnly)
+        {
+            shootLayers(shots, rig, proc);
+            proc.setPlaying(false);
+            const int found = shots.faults, counted = shots.texts;
+            rig.editor.reset();
+            std::cout << counted << " texts checked, " << found << " faults" << std::endl;
+            return found == 0 ? 0 : 1;
+        }
+
         // The window and its panels.
         {
             const auto window = shots.shoot("window");
@@ -556,6 +938,11 @@ int main(int argc, char* argv[])
                     }
             }
         }
+
+        // The layers, the notches and the EQ plate (shootLayers).
+        shootLayers(shots, rig, proc);
+        // The Followers' Pass and Filter inputs and With the Filter (shootFollowers).
+        shootFollowers(shots, rig, proc);
 
         // What the rig says back: the toast's plate at the top of the open water, risen into place.
         {

@@ -657,6 +657,65 @@ int main(int argc, char* argv[])
             mods.process(set, 256, ModMatrix::FollowerInputs { 0.0f, 0.5f, 0.0f, 0.0f } /* bus A, bus B, hits, output */);
         std::cout << "  follower on bus B " << mods.getSourceValue(1) << ", on the output " << mods.getSourceValue(2) << std::endl;
         check(mods.getSourceValue(1) > 0.8f && mods.getSourceValue(2) < 0.05f, "mods: a follower follows the input it's set to");
+
+        // The Pass and Filter inputs: places from 0 to 1, read as they are (not as a loudness), followed alike on the
+        // way up and on the way down, in a tenth of the time the loudness inputs take. They are the last four
+        // inputs, after the eight there were (the choice is saved by its number).
+        check(ModMatrix::FollowPassA == 8 && ModMatrix::FollowPassB == 9 && ModMatrix::FollowFilterA == 10 && ModMatrix::FollowFilterB == 11
+                  && ModMatrix::c_numFollowerInputs == 12 && ModMatrix::FollowMasterBright == 7,
+              "mods: the Pass and Filter inputs come after the eight earlier ones");
+        const auto names = ModMatrix::followerNames();
+        check(names.size() == 12 && names[8] == "Bus A Pass" && names[9] == "Bus B Pass" && names[10] == "Bus A Filter" && names[11] == "Bus B Filter",
+              "mods: they are named Bus A Pass, Bus B Pass, Bus A Filter, Bus B Filter");
+        check(std::abs(ModMatrix::followerSeconds(0.4f, ModMatrix::FollowPassA) - 0.1f * ModMatrix::followerSeconds(0.4f)) < 1.0e-6f
+                  && std::abs(ModMatrix::followerSeconds(0.4f, ModMatrix::FollowFilterB) - 0.1f * ModMatrix::followerSeconds(0.4f)) < 1.0e-6f
+                  && std::abs(ModMatrix::followerSeconds(0.4f, ModMatrix::FollowBusA) - ModMatrix::followerSeconds(0.4f)) < 1.0e-9f
+                  && std::abs(ModMatrix::followerSeconds(0.4f, ModMatrix::FollowMaster) - ModMatrix::followerSeconds(0.4f)) < 1.0e-9f,
+              "mods: a Pass or Filter input is followed in a tenth of the time");
+        {
+            ModMatrix places;
+            places.prepare(c_rate);
+            std::array<ModMatrix::SourceSettings, ModMatrix::c_numSources> ps;
+            ps[0] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.4f, ModMatrix::FollowPassA };
+            ps[1] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.4f, ModMatrix::FollowFilterB };
+            ps[2] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.4f, ModMatrix::FollowBusA };
+            ps[3] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.4f, ModMatrix::FollowPassB };
+            ModMatrix::FollowerInputs in {};
+            in[ModMatrix::FollowPassA] = 0.37f;
+            in[ModMatrix::FollowFilterB] = 0.62f;
+            in[ModMatrix::FollowBusA] = 0.37f;  // (an RMS of 0.37 is most of the way up a loudness input)
+            for (int k = 0; k < 2000; ++k)
+                places.process(ps, 256, in);
+            const float held = places.getSourceValue(0), heldFilter = places.getSourceValue(1), loud = places.getSourceValue(2);
+            std::cout << "  followers held on Bus A Pass at 0.37: " << held << ", Bus B Filter at 0.62: " << heldFilter << ", Bus A (loudness) at 0.37: " << loud << ", Bus B Pass at 0: " << places.getSourceValue(3) << std::endl;
+            check(std::abs(held - 0.37f) < 1.0e-4f && std::abs(heldFilter - 0.62f) < 1.0e-4f && loud > 0.9f && places.getSourceValue(3) == 0.0f,
+                  "mods: a Pass or Filter input is read as it is, 0 to 1, each from its own bus");
+            // A step up and a step down take the same time to get half way (and a loudness input rises faster than it falls).
+            auto halfWay = [&](int source, int input, float from, float to)
+            {
+                ModMatrix m;
+                m.prepare(c_rate);
+                std::array<ModMatrix::SourceSettings, ModMatrix::c_numSources> one;
+                one[static_cast<size_t>(source)] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.4f, input };
+                ModMatrix::FollowerInputs level {};
+                level[static_cast<size_t>(input)] = from;
+                for (int k = 0; k < 40000; ++k)
+                    m.process(one, 32, level);
+                const float start = m.getSourceValue(source);
+                level[static_cast<size_t>(input)] = to;
+                int blocks = 0;
+                while (blocks < 40000 && std::abs(m.getSourceValue(source) - start) < 0.5f * std::abs(to - from))
+                {
+                    m.process(one, 32, level);
+                    ++blocks;
+                }
+                return 1000.0 * blocks * 32 / c_rate;
+            };
+            const double up = halfWay(0, ModMatrix::FollowPassA, 0.0f, 1.0f), down = halfWay(0, ModMatrix::FollowPassA, 1.0f, 0.0f);
+            const double tenth = 1000.0 * 0.1 * ModMatrix::followerSeconds(0.4f) * std::log(2.0);
+            std::cout << "  a follower on Bus A Pass at Speed 40%: half way up in " << up << " ms, half way down in " << down << " ms (a tenth of the loudness time gives " << tenth << " ms)" << std::endl;
+            check(std::abs(up - down) < 1.5 && std::abs(up - tenth) < 2.0, "mods: a Pass input is followed alike up and down, in a tenth of the loudness time");
+        }
     }
 
     // ---- The bus engine: clicks, timing and small DSP fixes -------------------------------------------------------

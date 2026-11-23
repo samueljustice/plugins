@@ -1,5 +1,45 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+### Faders Together
+
+- **Ride Mode: Faders Apart, Faders Together or Follow Master.** The Follow Master key in Ride is a box of three. Faders Apart is the ride as it was. **Faders Together** puts every track's fader on one repeating swell, flies one pass of each bus to every swell with its closest point on the swell's top, and with Aim on lands a hit there: structure beside the chaos.
+- **Rate is the length of the swell** in this mode, 6 s to 1.6 s (3.5 s to start with), and reads it. Each pass lasts two swells. A change of Rate is taken up over about a second, so a hand or a modulator on Rate glides the passes instead of bending their pitch about. Chaos varies the size of each swell and how each pass flies, never the timing.
+- **Behind Rate: Peak At, Stagger and Hit Every.** Where in the swell its top falls (20 to 80%), a fan of the tracks in track order (up to a tenth of a swell either side), and which tops get a hit (every one, or every second, third or fourth).
+- The Ride panel counts down to each top ("Peak in 1.2 s") while the rig plays, and Render Variations starts each Whole Ride file at the bottom of a swell.
+
+### What is behind a wheel
+
+- **Swirl, Filter, Rate and Swell carry a notch**, a turned corner at their lower left. Double-click the wheel (or click the notch) and its panel turns over to show what is behind that one control, with Reset and Back in the title bar. Esc, Back or a second double-click turns it back. The front of the window is as it was but for the notches, the Ride Mode box and the EQ key.
+- **A double-click on Swirl, Filter or Rate opens it** where it used to reset it. Shift-double-click resets every wheel, and a right-click on a wheel with a notch is a menu: Open, Type a Value, Reset.
+- **Swirl has a Type**: Phaser + Flanger (Swirl as it was), Phaser alone, Flanger alone, Tape Flanger and Doubler. The first three share Feedback (either way up), Speed, Depth and Follow. The phaser alone has its notches in the middle of the sound, and the flanger alone sweeps up as each pass comes close and back down as it leaves.
+- **Tape Flanger**: a second copy of the bus on a moving delay that runs either side of the first, so the two pass through zero. Motion (With the Pass, On Its Own, By Hand), Invert, Depth, Rate, Feedback, Wobble, and **Varispeed**: lean the second machine faster or slower and the gap drifts for as long as you lean, with a meter under the wheel and a double-click on it to slide home. Varispeed takes a modulator's wire. With Invert on, the two copies cancel alike at every frequency and level where they meet.
+- **Doubler**: one delayed, wandering copy. Wave (Random, Sine, Triangle), Thicken, Spread, Delay, Wander, Rate and Feedback.
+- **Filter has a Type** (Low Pass, High Pass, Band Pass, Notch), a 24 dB slope, Closed At, Resonance, Follow, and a rhythm of its own: Sweep, Rate and Shape.
+- What is behind Swirl and Filter is part of a look: presets and A / B hold it; Randomise, the dice and Small Changes leave it alone.
+
+### Swell that fires itself
+
+- **Auto Swell**, behind Swell's notch and in its right-click menu: Off, On Peaks (just before each of Bus A's passes is closest) or On a Clock, with Every, Hold, Chance and Loose. The Swell button's second line says when it is on.
+- **Swell is a host parameter**, so a DAW records presses of the button, its key and the sea. A modulator's wire can hold it (the depth sets how much of the modulator's range counts), and a sustain pedal holds it in every Keys mode. A lamp on the button lights while anything holds Swell.
+
+### Output EQ
+
+- **An EQ on the whole mix**, after Space and before Inflate and the limiter. The EQ key in Output's title bar draws its curve; click it for a graph over Bus B with six handles: Low Cut (12 or 24 dB an octave), Low Shelf, two bells with Q, High Shelf and High Cut, each within 12 dB either way. It belongs to the session, is one curve on every speaker and the LFE, and passes the sound untouched while it is flat or off.
+
+### Followers for the middle of the whoosh and the filter
+
+- **Four more Follower inputs**: Bus A Pass, Bus B Pass, Bus A Filter and Bus B Filter. A Pass input follows where that bus's whoosh is in time: nothing while the pass is far off, all the way up at the middle of the whoosh (the pass at its closest), and down again as it leaves. It goes by where the passes are, not by loudness, so a hit or a loud moment elsewhere does not move it. A Filter input follows how open that bus's filter is, whatever is moving it. A Follower takes a tenth of its usual time over these and is as quick down as up.
+- **Tape Flanger's Motion has a fourth choice, With the Filter**: the second copy runs late while the bus's filter is closed and passes through zero where the filter is most open, so the flange keeps time with the filter's own Sweep.
+- **With the Pass passes through zero in the middle of the whoosh**: about 45 ms before the pass is closest and about 45 ms after, as it is heard, on every pass, at any Rate and however near the pass comes.
+
+### Other changes
+
+- **The bus Filter moves smoothly.** Its cutoff used to step every 32 samples; it now glides from sample to sample. Renders differ from 2.2.1 by about −52 dB where the Filter is in.
+- **Bus B's Filtered no longer clicks as Bus A comes in** from silence.
+- Swirl's tooltip and the manual said the flanger comes in from about a third of the knob; it is about a seventh.
+
 ## 2.2.1
 
 - **The app's icon on macOS is sharp at every size**, set on the system's dark rounded tile. It used to show shrunk on a pale tile in the Dock and garbled in the app switcher.

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Syntax-check one or more .cpp files with the plugin's real compile flags (no linking, no shared build dir).
 Usage: python3 tools/syntax-check.py Source/Foo.cpp [Source/Bar.cpp ...]
-Needs build/compile_commands.json (cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)."""
+Needs build/compile_commands.json (cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON); another build
+directory is named with SWOOSHBUCKLER_BUILD (a path, or a folder name beside this one's parent)."""
 import json, shlex, subprocess, sys, os
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-db = json.load(open(os.path.join(root, 'build', 'compile_commands.json')))
+db = json.load(open(os.path.join(root, os.environ.get('SWOOSHBUCKLER_BUILD', 'build'), 'compile_commands.json')))
 template = next(x for x in db if x['file'].endswith('PluginEditor.cpp'))
 args = shlex.split(template['command'])
 # drop output / source arguments

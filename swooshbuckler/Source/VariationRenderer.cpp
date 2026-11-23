@@ -534,11 +534,14 @@ int VariationRenderer::loudestMoment(int first, int samples) const
 
 juce::String VariationRenderer::describeSettings() const
 {
+    // What is behind Swirl and Filter is said only where it is off its default, with the Output EQ when it does
+    // something (describeDetail).
     juce::StringArray settings;
     for (auto* param : m_params)
-        if (! Presets::isSessionParameter(param->getParameterID()))
+        if (! Presets::isSessionParameter(param->getParameterID()) && ! Presets::isDetailParameter(param->getParameterID()))
             settings.add(param->getName(40) + " " + param->getCurrentValueAsText());
-    return settings.joinIntoString(", ") + ".";
+    const auto detail = m_copy != nullptr ? m_copy->describeDetail() : juce::String();
+    return settings.joinIntoString(", ") + "." + (detail.isNotEmpty() ? " " + detail : juce::String());
 }
 
 int VariationRenderer::renderOne(int index, int& first, int& closest, juce::String& description)
@@ -578,7 +581,9 @@ int VariationRenderer::renderOne(int index, int& first, int& closest, juce::Stri
             for (auto* param : m_params)
             {
                 const auto id = param->getParameterID();
-                if (Presets::isSessionParameter(id) || isSwitch(param))
+                // (Not the session's, not a switch, and not what is behind Swirl and Filter: a Type or a law nudged
+                // at random is a different effect, not a small change.)
+                if (Presets::isSessionParameter(id) || Presets::isDetailParameter(id) || isSwitch(param))
                     continue;
                 const float by = nudge();
                 if (id == ParamIDs::pitch) // whole semitones, four either way at the most
@@ -654,6 +659,10 @@ int VariationRenderer::renderOne(int index, int& first, int& closest, juce::Stri
         rig.setPlaying(true);
         if (m_places != nullptr)
             rig.carryOn(*m_places);
+        // Faders Together: the clock starts where the pre-roll leaves it on a trough, so each file holds whole swells.
+        const float rate = rig.getState().getRawParameterValue(ParamIDs::rate)->load();
+        const double swell = static_cast<double>(Params::passSeconds(rate));
+        rig.setCycleStart(-c_ridePreRollSeconds / swell);
     }
     else
     {

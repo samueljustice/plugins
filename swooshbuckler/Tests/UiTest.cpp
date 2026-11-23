@@ -1287,12 +1287,12 @@ int main(int argc, char* argv[])
                           "meters: GR, Out and Trim each have a number under them (\"" + ed.m_grReadout + "\", \"" + ed.m_outReadout + "\", \"" + ed.m_trimReadout + "\")");
                     const auto swell = ed.m_swell.getBounds(), thrown = ed.m_throwButton.getBounds();
                     const auto length = ed.m_controls[ParamIDs::throwLength]->getBounds();
-                    const auto autoRide = ed.m_rideButton.getBounds(), follow = ed.m_followMasterButton.getBounds();
+                    const auto autoRide = ed.m_rideButton.getBounds(), follow = ed.m_rideMode.getBounds();
                     check(swell.getWidth() >= 2 * WheelKnob::cellWidth(WheelKnob::Size::Secondary) && swell.getWidth() > WheelKnob::cellWidth(WheelKnob::Size::Primary)
                               && ed.m_performPanel.contains(swell) && ed.m_performPanel.contains(thrown)
                               && std::abs(thrown.getY() - length.getBottom()) <= 8 && thrown.getRight() == length.getRight()
                               && follow.getY() == autoRide.getY() && follow.getX() - autoRide.getRight() <= 8 && follow.getX() >= autoRide.getRight(),
-                          "Ride: Swell is the biggest thing in it, Throw is right under its Throw Length knob, and Follow Master is beside Auto Ride");
+                          "Ride: Swell is the biggest thing in it, Throw is right under its Throw Length knob, and Ride Mode is beside Auto Ride");
                 }
             }
 
@@ -2919,6 +2919,571 @@ int main(int argc, char* argv[])
                       + juce::String(busy, 2) + " s busy and " + juce::String(idle, 2) + " s quiet)");
             proc.setPlaying(false);
         }
+    }
+
+    // The layers -----------------------------------------------------------------------------------------------
+    // A notched wheel opens its layer on a double-click (and its notch), turns back on Back, Esc or a second double-
+    // click; Shift-double-click resets every wheel; the controls the layer covers go invisible, and their cables with
+    // them; Reset is one undo step; the notch fills when anything behind it is off its default; Swell writes its host
+    // parameter, takes a wire, and shows a MIDI hold; every text fits with layers open at 0.85, 1.0 and 1.5.
+    std::cout << "The layers" << std::endl;
+    {
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        DemoSounds::loadInto(proc);
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        proc.setPlaying(true);
+        rig.run(0.5);
+        auto& state = proc.getState();
+        auto plain = [&](const char* id) { return state.getParameter(id)->convertFrom0to1(state.getParameter(id)->getValue()); };
+        auto set = [&](const char* id, float v) { auto* p = state.getParameter(id); p->setValueNotifyingHost(p->convertTo0to1(v)); };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.1);
+        };
+        auto click = [](juce::Component& c, juce::Point<float> at, juce::ModifierKeys mods, int clicks)
+        {
+            const auto now = juce::Time::getCurrentTime();
+            return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), at, mods.withFlags(juce::ModifierKeys::leftButtonModifier),
+                                    juce::MouseInputSource::defaultPressure, juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                    juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY, &c, &c, now, at, now, clicks, false);
+        };
+        auto doubleClick = [&](WheelKnob& k, juce::ModifierKeys mods)
+        {
+            const auto at = k.getDialCentre();
+            k.mouseDown(click(k, at, mods, 1));
+            k.mouseUp(click(k, at, mods, 1));
+            k.mouseDown(click(k, at, mods, 2));
+            k.mouseUp(click(k, at, mods, 2));
+            k.mouseDoubleClick(click(k, at, mods, 2));
+        };
+        auto& hostA = *ed.m_layers[Editor::BusAPanel];
+        auto* swirl = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Swirl]]);
+        auto* doppler = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Doppler]]);
+        auto* rate = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::rate]);
+        const auto swirlFront = swirl->getBounds();
+
+        // Four notches on the front, hollow; nothing else is notched.
+        {
+            int notched = 0, hollow = 0;
+            for (auto& k : ed.m_knobs)
+                if (k->getNotch() != WheelKnob::Notch::None)
+                {
+                    ++notched;
+                    hollow += k->getNotch() == WheelKnob::Notch::Hollow ? 1 : 0;
+                }
+            check(notched == 5 && hollow == 5 && ! ed.m_swell.isNotchFilled() && ! hostA.isOpen() && ! hostA.isVisible(),
+                  "layers: Swirl and Filter on both buses and Rate carry a hollow notch, Swell a hollow one, and the window opens on the front ("
+                      + juce::String(notched) + " notched wheels)");
+        }
+
+        // A wire on Doppler: its cable shows on the front.
+        const int dopplerWire = proc.getMods().connect(0, ParamIDs::bus[0][ParamIDs::Doppler], 0.5f);
+        ed.m_wires.rebuild();
+        auto plugsOn = [&](ModTarget* t) { int n = 0; for (const auto& plug : ed.m_wires.m_plugs) n += plug.knob == t ? 1 : 0; return n; };
+        const int plugsBefore = plugsOn(doppler);
+
+        // Double-click opens it; the knob row and the title bar's controls go, the front wheel moves to the first cell.
+        set(ParamIDs::bus[0][ParamIDs::Swirl], 0.3f);
+        doubleClick(*swirl, {});
+        settle();
+        const bool opened = hostA.isOpen() && hostA.getTarget() == Layers::Target { Layers::Kind::Swirl, 0 } && hostA.getPage() != nullptr
+                            && hostA.getPage()->isVisible() && std::abs(plain(ParamIDs::bus[0][ParamIDs::Swirl]) - 0.3f) < 1.0e-4f;
+        const bool covered = ! doppler->isVisible() && ! ed.m_passMode[0].isVisible() && ! ed.m_sectionDice[Presets::BusA]->isVisible()
+                             && ! ed.m_controls[ParamIDs::bus[0][ParamIDs::Filter]]->isVisible() && swirl->isVisible()
+                             && swirl->getX() == ed.m_sections[0].bounds.getX() + 12 && ed.m_flightPath[0].isVisible();
+        check(opened && covered, "layers: a double-click on Swirl opens Bus A / Swirl in place without moving the wheel; the knob row, Pass, "
+                                 "the die and the lock go, Swirl moves to the first cell, the scope strip stays");
+        check(! doppler->isReachable() && plugsOn(doppler) == 0 && plugsBefore == 1,
+              "layers: a wire on a wheel the layer covers has no plug or cable while the layer is up (" + juce::String(plugsBefore) + " before)");
+        {
+            const auto page = hostA.getPage()->getBounds() + hostA.getPosition();
+            const auto panel = ed.m_sections[0].bounds;
+            check(page.getX() == swirl->getRight() && page.getY() == panel.getY() + 42 && page.getWidth() == DetailLayer::pageWidth({ Layers::Kind::Swirl, 0 })
+                      && page.getHeight() == DetailLayer::c_rowHeight && panel.contains(page) && panel.contains(hostA.getBackKey().getBounds() + hostA.getPosition()),
+                  "layers: the page sits on the knob row right of the front wheel's cell, inside the panel, Reset and Back in its title bar ("
+                      + page.toString() + ")");
+        }
+
+        // Esc turns it back over; everything comes back where it was, the cable too.
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        settle();
+        check(! hostA.isOpen() && hostA.getPage() == nullptr && ! hostA.isVisible() && doppler->isVisible() && swirl->getBounds() == swirlFront
+                  && plugsOn(doppler) == 1 && juce::exactlyEqual(doppler->getAlpha(), 1.0f),
+              "layers: Esc turns the panel back over: the page goes, the wheels are back in their columns, the cable is back");
+
+        // The notch opens it too; a second double-click on the front wheel closes it; Back closes it.
+        swirl->mouseDown(click(*swirl, swirl->getNotchArea().getCentre(), {}, 1));
+        swirl->mouseUp(click(*swirl, swirl->getNotchArea().getCentre(), {}, 1));
+        settle();
+        const bool byNotch = hostA.isOpen();
+        doubleClick(*swirl, {});
+        settle();
+        const bool closedAgain = ! hostA.isOpen();
+        ed.openLayer({ Layers::Kind::Filter, 0 });
+        settle();
+        const bool filter = hostA.isOpen() && hostA.getTarget().kind == Layers::Kind::Filter
+                            && ed.m_controls[ParamIDs::bus[0][ParamIDs::Filter]]->getX() == ed.m_sections[0].bounds.getX() + 12 && ! swirl->isVisible();
+        hostA.getBackKey().triggerClick();
+        rig.run(0.05);
+        hostA.getBackKey().onClick(); // (triggerClick posts; the tests have no message loop)
+        settle();
+        check(byNotch && closedAgain && filter && ! hostA.isOpen(),
+              "layers: the notch opens it, a second double-click on the front wheel closes it, Filter swaps in its own wheel, Back closes it");
+
+        // Shift-double-click resets a notched wheel (without opening it); a plain one still resets a wheel with no notch.
+        doubleClick(*swirl, juce::ModifierKeys::shiftModifier);
+        settle();
+        const bool swirlReset = std::abs(plain(ParamIDs::bus[0][ParamIDs::Swirl]) - state.getParameter(ParamIDs::bus[0][ParamIDs::Swirl])->convertFrom0to1(
+                                             state.getParameter(ParamIDs::bus[0][ParamIDs::Swirl])->getDefaultValue())) < 1.0e-4f && ! hostA.isOpen();
+        set(ParamIDs::bus[0][ParamIDs::Doppler], 0.9f);
+        doubleClick(*doppler, {});
+        const bool dopplerReset = std::abs(state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getValue()
+                                           - state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getDefaultValue()) < 1.0e-4f;
+        set(ParamIDs::bus[0][ParamIDs::Doppler], 0.9f);
+        doubleClick(*doppler, juce::ModifierKeys::shiftModifier);
+        const bool dopplerShift = std::abs(state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getValue()
+                                           - state.getParameter(ParamIDs::bus[0][ParamIDs::Doppler])->getDefaultValue()) < 1.0e-4f;
+        check(swirlReset && dopplerReset && dopplerShift,
+              "layers: Shift-double-click resets a notched wheel and does not open it; a wheel with no notch resets on a double-click, Shift or not");
+        {
+            const auto closedHow = swirl->getProperties()["howTo"].toString();
+            ed.openLayer({ Layers::Kind::Swirl, 0 });
+            settle();
+            ed.updateNotches(true);
+            const auto openHow = swirl->getProperties()["howTo"].toString();
+            // The page's own wheels take no wire and say so by not offering one (Varispeed is not on this page: the type is Phaser + Flanger).
+            bool pageWheels = false, noJack = true;
+            for (auto* child : hostA.getPage()->getChildren())
+                if (auto* w = dynamic_cast<WheelKnob*>(child); w != nullptr && w->isVisible())
+                {
+                    pageWheels = true;
+                    const auto how = w->getProperties()["howTo"].toString();
+                    noJack = noJack && how.startsWith("Double-click to reset it.") && ! how.contains("Mod jack");
+                }
+            hostA.close();
+            settle();
+            ed.updateNotches(true);
+            check(closedHow.startsWith("Double-click to open what is behind it") && closedHow.contains("Shift-double-click to reset it.")
+                      && openHow.startsWith("Double-click to close its layer") && swirl->getProperties()["howTo"].toString() == closedHow
+                      && swirl->getTooltip().contains("Behind its notch: the Type"),
+                  "layers: a notched wheel's tooltip says what is behind its notch, that a double-click opens it (closes it, while it is open) and that Shift-double-click resets it");
+            check(pageWheels && noJack, "layers: a page's own wheels do not offer a Mod jack (they take no wire)");
+        }
+
+        // Off its default, the notch fills and the tooltip names the type; Reset puts it back as one undo step.
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 3.0f); // Tape Flanger
+        set(ParamIDs::busDetail[0][ParamIDs::SwirlFeedback], 0.2f);
+        ed.updateNotches(true);
+        const bool filled = swirl->getNotch() == WheelKnob::Notch::Filled && swirl->getTooltip().startsWith("Bus A: Swirl (Tape Flanger)\n")
+                            && swirl->getTooltip().contains("a second copy of the bus") && ! swirl->getTooltip().contains("a phaser");
+        ed.openLayer({ Layers::Kind::Swirl, 0 });
+        settle();
+        const int undoBefore = proc.getHistory().canUndo() ? 1 : 0;
+        hostA.resetDetail();
+        settle();
+        const bool reset = juce::roundToInt(plain(ParamIDs::busDetail[0][ParamIDs::SwirlType])) == 0 && swirl->getNotch() == WheelKnob::Notch::Hollow
+                           && swirl->getTooltip().startsWith("Bus A: Swirl\n");
+        juce::String what;
+        proc.getHistory().undo(&what);
+        rig.run(0.1);
+        ed.updateNotches(true);
+        const bool undone = juce::roundToInt(plain(ParamIDs::busDetail[0][ParamIDs::SwirlType])) == 3
+                            && std::abs(plain(ParamIDs::busDetail[0][ParamIDs::SwirlFeedback]) - 0.2f) < 0.02f && swirl->getNotch() == WheelKnob::Notch::Filled;
+        check(filled && reset && undone && undoBefore == 1,
+              "layers: off its default the notch fills and the tooltip names the type; Reset puts the layer back in one step that one undo takes back ("
+                  + what + ")");
+
+        // Varispeed on a Tape Flanger page is a wire target while the page is open, and only then.
+        {
+            const auto varispeed = ParamIDs::busDetail[0][ParamIDs::Varispeed];
+            const bool targetOpen = ed.m_wires.m_knobs.count(varispeed) == 1;
+            hostA.close();
+            settle();
+            const bool goneClosed = ed.m_wires.m_knobs.count(varispeed) == 0;
+            check(targetOpen && goneClosed, "layers: Bus A's Varispeed takes a wire while its Tape Flanger page is open, and leaves the wire targets when it closes");
+        }
+        hostA.resetDetail(); // (closed: nothing happens)
+        for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[0][ParamIDs::SwirlFeedback] })
+            state.getParameter(id)->setValueNotifyingHost(state.getParameter(id)->getDefaultValue());
+
+        // Tape Flanger's Motion has a fourth choice, With the Filter. Its box rests, and says why, while it has
+        // nothing to go by: the bus's Filter at 0% with no modulator on it, or a filter nothing moves.
+        {
+            const char* motionId = ParamIDs::busDetail[0][ParamIDs::TapeMotion];
+            const char* filterId = ParamIDs::bus[0][ParamIDs::Filter];
+            const float filterWas = plain(filterId);
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            set(motionId, static_cast<float>(ParamIDs::TapeWithFilter));
+            set(filterId, 0.0f);
+            ed.openLayer({ Layers::Kind::Swirl, 0 });
+            settle();
+            juce::ComboBox* motion = nullptr;
+            WheelKnob* tapeRate = nullptr;
+            for (auto* child : hostA.getPage()->getChildren())
+            {
+                if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getTitle() == "Bus A / Swirl: Motion")
+                    motion = box;
+                if (auto* w = dynamic_cast<WheelKnob*>(child); w != nullptr && w->isVisible() && w->caption == "Rate")
+                    tapeRate = w;
+            }
+            const bool found = motion != nullptr && tapeRate != nullptr && motion->isVisible();
+            check(found && motion->getNumItems() == 4 && motion->getItemText(0) == "With the Pass" && motion->getItemText(1) == "On Its Own" && motion->getItemText(2) == "By Hand"
+                      && motion->getItemText(3) == "With the Filter" && motion->getText() == "With the Filter",
+                  "With the Filter: Motion offers With the Pass, On Its Own, By Hand, With the Filter, and shows the one in use");
+            if (found)
+            {
+                auto tip = [&] { return motion->getTooltip(); };
+                rig.run(0.2);
+                const bool atZero = Theme::getLook(*motion) == Theme::Look::Resting && tip().endsWith("It rests: With the Filter goes by this bus's filter, and Filter is at 0%.");
+                const auto says = tip();
+                const int wire = proc.getMods().connect(0, filterId, 0.5f);
+                rig.run(0.2);
+                const bool wired = Theme::getLook(*motion) == Theme::Look::Normal && ! tip().contains("It rests");
+                proc.getMods().disconnect(wire);
+                set(filterId, 0.5f);
+                set(ParamIDs::busDetail[0][ParamIDs::FilterFollow], 0.0f);
+                rig.run(0.2);
+                const bool still = Theme::getLook(*motion) == Theme::Look::Resting && tip().contains("It rests: With the Filter goes by this bus's filter, and nothing moves it");
+                set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.4f);
+                rig.run(0.2);
+                const bool moving = Theme::getLook(*motion) == Theme::Look::Normal && ! tip().contains("It rests");
+                check(atZero && wired && still && moving,
+                      "With the Filter: the Motion box rests with Filter at 0% (not with a modulator on Filter) and with a filter nothing moves, and says which (\""
+                          + says.fromLastOccurrenceOf("\n", false, false) + "\")");
+                check(tip().contains("With the Filter: it runs late while this bus's filter is closed and passes through zero where the filter is most open")
+                          && Theme::getLook(*tapeRate) == Theme::Look::Resting && tapeRate->getTooltip().contains("Motion is With the Filter"),
+                      "With the Filter: the Motion tooltip says what it does, and Rate rests in it (it is On Its Own's)");
+                // On the engine: the copy is no longer where With the Pass would have it.
+                check(proc.getEngine().getSwirlTypeInUse(0) == RigEngine::SwirlTape, "With the Filter: the Tape Flanger is in use on bus A");
+            }
+            hostA.close();
+            settle();
+            set(filterId, filterWas);
+            for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], motionId, ParamIDs::busDetail[0][ParamIDs::FilterFollow], ParamIDs::busDetail[0][ParamIDs::FilterSweep] })
+                state.getParameter(id)->setValueNotifyingHost(state.getParameter(id)->getDefaultValue());
+            rig.run(0.2);
+        }
+
+        // A Follower's inputs: four more at the end of its menu, Bus A Pass, Bus B Pass, Bus A Filter, Bus B Filter.
+        // Its Speed reads in the time that input is followed in, and its scope draws what it follows.
+        {
+            std::vector<juce::ComboBox*> followBoxes;
+            std::function<void(juce::Component&)> walk = [&](juce::Component& c)
+            {
+                for (auto* child : c.getChildren())
+                {
+                    if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getNumItems() > 0 && box->getItemText(0) == "Bus A")
+                        followBoxes.push_back(box);
+                    walk(*child);
+                }
+            };
+            walk(ed.m_modPanel);
+            const int source = 3; // Mod 4 is a Follower in a new session
+            juce::ComboBox* follow = followBoxes.size() == 4 ? followBoxes[static_cast<size_t>(source)] : nullptr;
+            const bool found = follow != nullptr && follow->isVisible();
+            check(found && follow->getNumItems() == 12 && follow->getItemText(8) == "Bus A Pass" && follow->getItemText(9) == "Bus B Pass" && follow->getItemText(10) == "Bus A Filter"
+                      && follow->getItemText(11) == "Bus B Filter" && follow->getItemText(7) == "Master Brightness",
+                  "followers: the menu ends with Bus A Pass, Bus B Pass, Bus A Filter, Bus B Filter");
+            if (found)
+            {
+                WheelKnob* speed = nullptr;
+                for (auto* child : follow->getParentComponent()->getChildren())
+                    if (auto* w = dynamic_cast<WheelKnob*>(child))
+                        speed = w;
+                const auto loudness = speed != nullptr ? speed->getTextFromValue(speed->getValue()) : juce::String();
+                follow->setSelectedItemIndex(ModMatrix::FollowPassA, juce::sendNotificationSync);
+                rig.run(0.1);
+                const auto place = speed != nullptr ? speed->getTextFromValue(speed->getValue()) : juce::String();
+                const int saved = juce::roundToInt(plain(ParamIDs::modFollow[source]));
+                check(saved == ModMatrix::FollowPassA && follow->getText() == "Bus A Pass" && loudness.getIntValue() > 0 && std::abs(place.getIntValue() * 10 - loudness.getIntValue()) <= 10
+                          && place.endsWith(" ms") && follow->getTooltip().contains("Bus A Pass and Bus B Pass follow where that bus's whoosh is in time")
+                          && follow->getTooltip().contains("Bus A Filter and Bus B Filter follow how open that bus's filter is"),
+                      "followers: picking Bus A Pass sets the parameter, Speed reads a tenth of the time (" + loudness + " then " + place + "), and the tooltip says what the four follow");
+                // Playing: the Follower goes up to the top as a pass is closest and well down between passes.
+                set(ParamIDs::modKnob[source], 1.0f);
+                float low = 1.0f, high = 0.0f;
+                for (int k = 0; k < 160; ++k)
+                {
+                    rig.run(0.05);
+                    const float v = proc.getMods().getSourceValue(source);
+                    low = std::min(low, v);
+                    high = std::max(high, v);
+                }
+                follow->setSelectedItemIndex(ModMatrix::FollowFilterA, juce::sendNotificationSync);
+                rig.run(0.5);
+                float filterLow = 1.0f, filterHigh = 0.0f;
+                for (int k = 0; k < 160; ++k)
+                {
+                    rig.run(0.05);
+                    const float v = proc.getMods().getSourceValue(source);
+                    filterLow = std::min(filterLow, v);
+                    filterHigh = std::max(filterHigh, v);
+                }
+                std::cout << "         8 s of play: the Follower on Bus A Pass ran from " << low << " to " << high << ", on Bus A Filter from " << filterLow << " to " << filterHigh << std::endl;
+                check(high > 0.95f && low < 0.6f, "followers: on Bus A Pass it reaches the top as a pass is closest and comes down between passes");
+                check(filterHigh - filterLow > 0.03f && filterHigh <= 1.0f && filterLow >= 0.0f, "followers: on Bus A Filter it moves as the filter does");
+                follow->setSelectedItemIndex(0, juce::sendNotificationSync);
+                state.getParameter(ParamIDs::modKnob[source])->setValueNotifyingHost(state.getParameter(ParamIDs::modKnob[source])->getDefaultValue());
+                rig.run(0.1);
+            }
+        }
+
+        // One layer per panel, each panel its own: Ride and both buses at once; Esc closes the newest first.
+        ed.openLayer({ Layers::Kind::Swell, 0 });
+        ed.openLayer({ Layers::Kind::Swirl, 0 });
+        ed.openLayer({ Layers::Kind::Filter, 1 });
+        settle();
+        // (Ride's row of keys stays under its layers: Auto Ride, the Ride Mode box and Throw are in reach of a click.)
+        auto reaches = [&](juce::Component& c)
+        {
+            auto* at = ed.m_content.getComponentAt(c.getBounds().getCentre());
+            return at == &c || (at != nullptr && c.isParentOf(at));
+        };
+        const bool three = ed.m_layers[0]->isOpen() && hostA.isOpen() && ed.m_layers[2]->isOpen() && ! rate->isVisible() && ed.m_swell.isVisible()
+                           && ed.m_rideButton.isVisible() && ! ed.m_keysMode.isVisible() && ed.m_throwButton.isVisible() && ed.m_rideMode.isVisible()
+                           && reaches(ed.m_rideButton) && reaches(ed.m_rideMode) && reaches(ed.m_throwButton);
+        for (const float scale : { 0.85f, 1.0f, 1.5f })
+        {
+            ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
+            checkTexts("three layers open at " + juce::String(scale, 2), ed, 1.0f, scale);
+        }
+        ed.setSize(Editor::c_width, Editor::c_height);
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        settle();
+        const bool newestFirst = ed.m_layers[0]->isOpen() && hostA.isOpen() && ! ed.m_layers[2]->isOpen();
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+        settle();
+        check(three && newestFirst && ! ed.m_layers[0]->isOpen() && ! hostA.isOpen() && rate->isVisible() && ed.m_rideButton.isVisible(),
+              "layers: Ride, Bus A and Bus B each hold a layer at once (Swell stays at Ride's left); Esc turns them back the newest first");
+
+        // The EQ key opens the plate over Bus B: Bus B's controls hide (their cables with them); Esc puts it away.
+        {
+            const int bWire = proc.getMods().connect(1, ParamIDs::bus[1][ParamIDs::Doppler], 0.5f);
+            ed.m_wires.rebuild();
+            auto* bDoppler = dynamic_cast<ModTarget*>(ed.m_controls[ParamIDs::bus[1][ParamIDs::Doppler]]);
+            const int before = plugsOn(bDoppler);
+            ed.m_eqKey.onClick();
+            rig.run(0.1);
+            const bool shown = ed.isEqPlateOpen() && ed.m_eqPlate->getBounds() == ed.m_sections[1].bounds && ! bDoppler->isVisible()
+                               && plugsOn(bDoppler) == 0 && ! ed.m_linkBuses.isVisible() && ! ed.m_flightPath[1].isVisible() && ed.m_eqKey.getToggleState();
+            for (const float scale : { 0.85f, 1.0f, 1.5f })
+            {
+                ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
+                checkTexts("the EQ plate at " + juce::String(scale, 2), ed, 1.0f, scale);
+            }
+            ed.setSize(Editor::c_width, Editor::c_height);
+            ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+            rig.run(0.1);
+            check(before == 1 && shown && ! ed.isEqPlateOpen() && bDoppler->isVisible() && plugsOn(bDoppler) == 1 && ed.m_layers[2]->getPage() == nullptr,
+                  "EQ: the key opens the plate exactly over Bus B, whose controls and cables hide under it; Esc puts it away and brings them back");
+            proc.getMods().disconnect(bWire);
+        }
+
+        // Output EQ: a handle drag is one undo step; a cut parks and unparks.
+        {
+            auto& history = proc.getHistory();
+            auto plain = [&](const char* id) { auto* p = proc.getState().getParameter(id); return p->convertFrom0to1(p->getValue()); };
+            ed.setEqPlateOpen(true);
+            auto& graph = ed.m_eqPlate->getGraph();
+            auto dragTo = [&](juce::Point<float> from, juce::Point<float> to)
+            {
+                graph.mouseDown(mouseAt(graph, from, from, false));
+                for (int i = 1; i <= 8; ++i)
+                    graph.mouseDrag(mouseAt(graph, from + (to - from) * (static_cast<float>(i) / 8.0f), from, true));
+                graph.mouseUp(mouseAt(graph, to, from, true));
+            };
+            graph.flattenAll();
+            history.clear();
+            const float hz0 = plain(ParamIDs::eqLowMidFreq);
+            dragTo(graph.handleCentre(OutputEq::LowMid), { graph.xForHz(1000.0f), graph.yForDb(6.0f) });
+            const bool moved = std::abs(plain(ParamIDs::eqLowMidFreq) - 1000.0f) < 5.0f && std::abs(plain(ParamIDs::eqLowMidGain) - 6.0f) < 0.05f
+                               && graph.getSelectedBand() == OutputEq::LowMid;
+            history.undo();
+            check(moved && std::abs(plain(ParamIDs::eqLowMidFreq) - hz0) < 0.01f && std::abs(plain(ParamIDs::eqLowMidGain)) < 1.0e-4f && ! history.canUndo(),
+                  "eq: dragging a handle sets its frequency and gain, and one Undo takes the whole drag back");
+
+            const auto parked = graph.handleCentre(OutputEq::LowCut);
+            const bool wasParked = graph.isParked(OutputEq::LowCut) && parked.x < static_cast<float>(graph.plotArea().getX());
+            dragTo(parked, { graph.xForHz(80.0f), parked.y });
+            const bool on = ! graph.isParked(OutputEq::LowCut) && std::abs(plain(ParamIDs::eqLowCut) - 80.0f) < 1.0f && proc.isOutputEqActive();
+            const auto at = graph.handleCentre(OutputEq::LowCut);
+            dragTo(at, { 2.0f, at.y });
+            const bool parkedAgain = graph.isParked(OutputEq::LowCut) && ! proc.isOutputEqActive();
+            check(wasParked && on && parkedAgain, "eq: Low Cut is parked outside the axis, pulling it in turns it on (80 Hz) and pushing it back out parks it");
+
+            const auto hi = graph.handleCentre(OutputEq::HighCut);
+            dragTo(hi, { graph.xForHz(12000.0f), hi.y });
+            const bool hiOn = ! graph.isParked(OutputEq::HighCut);
+            const auto hiAt = graph.handleCentre(OutputEq::HighCut);
+            graph.mouseDown(mouseAt(graph, hiAt, hiAt, false));
+            graph.mouseDoubleClick(mouseAt(graph, hiAt, hiAt, false));
+            graph.mouseUp(mouseAt(graph, hiAt, hiAt, false));
+            check(hiOn && graph.isParked(OutputEq::HighCut), "eq: High Cut comes in from the right, and a double-click parks it");
+
+            {
+                // Low Cut at the Low Shelf's own frequency: each handle is still the one a click on it picks.
+                auto* cut = proc.getState().getParameter(ParamIDs::eqLowCut);
+                const float before = cut->getValue();
+                cut->setValueNotifyingHost(cut->convertTo0to1(plain(ParamIDs::eqLowShelfFreq)));
+                rig.run(0.2);
+                graph.refresh();
+                const auto shelfAt = graph.handleCentre(OutputEq::LowShelf), cutAt = graph.handleCentre(OutputEq::LowCut);
+                graph.selectBand(-1);
+                const bool apart = graph.bandAt(shelfAt) == OutputEq::LowShelf && graph.bandAt(cutAt) == OutputEq::LowCut
+                                   && std::abs(shelfAt.x - cutAt.x) < 1.0f && std::abs(shelfAt.y - cutAt.y) > EqGraph::c_handle;
+                cut->setValueNotifyingHost(before);
+                rig.run(0.2);
+                graph.refresh();
+                check(apart, "eq: a Low Cut at the Low Shelf's frequency does not cover the shelf's handle (the cut's rides 3 dB under the line)");
+            }
+            ed.m_eqPlate->refresh();
+            check(Theme::getLook(ed.m_eqPlate->m_slope) == Theme::Look::Resting, "eq: the 24 dB key rests while Low Cut is off");
+            graph.flattenAll();
+            history.clear();
+            ed.setEqPlateOpen(false);
+        }
+        proc.getMods().disconnect(dopplerWire);
+        ed.m_wires.rebuild();
+
+        // Faders Together on the front: Rate reads the one swell's length, and Ride counts down to its top.
+        {
+            auto* mode = proc.getState().getParameter(ParamIDs::rideMode);
+            auto* rate = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::rate]);
+            const bool wasPlaying = proc.isPlaying();
+            proc.setPlaying(true);
+            rig.run(0.5);
+            const auto apartText = rate->getTextFromValue(rate->getValue());
+            const auto apartStatus = ed.rideStatus();
+            mode->setValueNotifyingHost(mode->convertTo0to1(static_cast<float>(ParamIDs::RideTogether)));
+            rig.run(0.8);
+            const auto togetherText = rate->getTextFromValue(rate->getValue());
+            const auto status = ed.rideStatus();
+            check(apartText == Params::ridePeriodText(static_cast<float>(rate->getValue()))
+                      && togetherText == juce::String(Params::passSeconds(static_cast<float>(rate->getValue())), 1) + " s" && togetherText != apartText,
+                  "together: Rate reads the length of the shared swell (" + togetherText + ", " + apartText + " apart)");
+            const bool counted = apartStatus.isEmpty() && status.startsWith("Peak in ") && status.endsWith(" s") && ed.m_rideStatus == status;
+            {
+                // What is typed into Rate is read on the scale the wheel shows.
+                rate->beginTyping();
+                const auto offered = rate->isTyping() ? rate->m_typing->getText() : juce::String();
+                if (rate->isTyping())
+                {
+                    rate->m_typing->setText("2.0 s", false);
+                    rate->endTyping(true, false);
+                }
+                rig.run(0.2);
+                const auto typed = rate->getTextFromValue(rate->getValue());
+                check(offered == togetherText && typed == "2.0 s", "together: the box to type Rate into opens with the swell's length (" + offered
+                                                                    + ") and 2.0 s typed is a 2.0 s swell (" + typed + ")");
+                auto* rateParam = proc.getState().getParameter(ParamIDs::rate);
+                rateParam->setValueNotifyingHost(rateParam->getDefaultValue());
+                // Rate's own layer: Rate is on it, live, with the Ride Mode box under the page.
+                ed.openLayer({ Layers::Kind::Together, 0 });
+                rig.run(0.5);
+                WheelKnob* pageRate = nullptr;
+                if (auto* page = ed.m_layers[0]->getPage())
+                    for (auto* child : page->getChildren())
+                        if (auto* w = dynamic_cast<WheelKnob*>(child); w != nullptr && w->caption == "Rate")
+                            pageRate = w;
+                const bool onPage = pageRate != nullptr && pageRate->isVisible() && Theme::getLook(*pageRate) != Theme::Look::Resting
+                                    && pageRate->getTextFromValue(pageRate->getValue()) == juce::String(Params::passSeconds(static_cast<float>(pageRate->getValue())), 1) + " s";
+                auto* under = ed.m_content.getComponentAt(ed.m_rideMode.getBounds().getCentre());
+                const bool modeInReach = ed.m_rideMode.isVisible() && (under == &ed.m_rideMode || ed.m_rideMode.isParentOf(under));
+                ed.m_layers[0]->close();
+                rig.run(0.5);
+                check(onPage && modeInReach, "together: Rate is on its own layer, reading the swell's length, and the Ride Mode box stays in reach under the page");
+            }
+            check(counted,
+                  "together: Ride counts down to the swell's top (\"" + status + "\"), and says nothing of it with the faders apart");
+            proc.setPlaying(false);
+            rig.run(0.3);
+            check(ed.rideStatus().isEmpty(), "together: no count-down while the rig is stopped");
+            mode->setValueNotifyingHost(mode->getDefaultValue());
+            proc.setPlaying(wasPlaying);
+            rig.run(0.3);
+        }
+
+        // Swell: a press writes the host's parameter (a DAW records it); a wire lands on it; a MIDI hold lights it.
+        {
+            auto& sw = ed.m_swell;
+            const auto at = sw.getDialCentre();
+            sw.mouseDown(click(sw, at, {}, 1));
+            const bool param = plain(ParamIDs::swell) > 0.5f && (proc.getSwellSources() & Proc::SwellFromParameter) != 0;
+            sw.mouseUp(click(sw, at, {}, 1));
+            const bool released = plain(ParamIDs::swell) < 0.5f;
+            check(param && released, "swell: pressing the button holds the host's Swell parameter, letting go releases it");
+
+            // A second hold from the key while the button is down: one press for the host, released by the last hand.
+            ed.holdSwell(Editor::HoldByButton, true);
+            ed.holdSwell(Editor::HoldByKey, true);
+            ed.holdSwell(Editor::HoldByButton, false);
+            const bool stillHeld = plain(ParamIDs::swell) > 0.5f;
+            ed.holdSwell(Editor::HoldByKey, false);
+            check(stillHeld && plain(ParamIDs::swell) < 0.5f, "swell: the button and the key together are one press, held until the last lets go");
+
+            // The notch opens the Swell layer (a press there does not swell).
+            sw.mouseDown(click(sw, sw.getNotchArea().getCentre(), {}, 1));
+            sw.mouseUp(click(sw, sw.getNotchArea().getCentre(), {}, 1));
+            settle();
+            check(ed.m_layers[0]->isOpen() && ed.m_layers[0]->getTarget().kind == Layers::Kind::Swell && plain(ParamIDs::swell) < 0.5f,
+                  "swell: its notch opens Ride / Swell without swelling");
+            ed.m_layers[0]->close();
+            settle();
+
+            // Auto Swell: the line under the word says so, and the notch fills.
+            set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
+            rig.run(0.2);
+            ed.updateNotches(true);
+            const bool line = sw.getLine() == "Auto: 4.0 s" && sw.isNotchFilled();
+            set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellPeaks));
+            rig.run(0.2);
+            const bool peaks = sw.getLine() == "Auto: Peaks";
+            set(ParamIDs::swellAuto, 0.0f);
+            rig.run(0.2);
+            ed.updateNotches(true);
+            check(line && peaks && sw.getLine().startsWith("Hold") && ! sw.isNotchFilled(),
+                  "swell: its second line reads Auto: 4.0 s or Auto: Peaks while Auto Swell is on, and its notch fills");
+
+            // A wire: Swell is a target like a knob, with a plug.
+            const int wire = proc.getMods().connect(2, ParamIDs::swell, 0.5f);
+            ed.m_wires.rebuild();
+            check(wire >= 0 && ed.m_wires.m_knobs.count(ParamIDs::swell) == 1 && plugsOn(&sw) == 1 && sw.isModulated(),
+                  "swell: a Mod jack wires to it like a knob (a plug on its rim, its reach drawn on it)");
+            proc.getMods().disconnect(wire);
+            ed.m_wires.rebuild();
+
+            // MIDI: the sustain pedal holds Swell; the button's lamp lights and it squashes.
+            juce::MidiBuffer pedal;
+            pedal.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+            rig.block.clear();
+            proc.processBlock(rig.block, pedal);
+            rig.run(0.3);
+            const bool midi = (proc.getSwellSources() & Proc::SwellFromMidi) != 0 && sw.isLampLit() && sw.m_scale.target < 0.95f;
+            pedal.clear();
+            pedal.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
+            proc.processBlock(rig.block, pedal);
+            rig.run(0.3);
+            check(midi && ! sw.isLampLit() && sw.m_scale.target > 0.95f && plain(ParamIDs::swell) < 0.5f,
+                  "swell: a MIDI hold (the sustain pedal) shows on the button: its lamp lights and it squashes, without touching the parameter");
+        }
+
+        // A click on the sea swells for a moment; the window closing in that moment lets go of the host's Swell.
+        {
+            ed.m_sea.onClick();
+            const bool pulsed = plain(ParamIDs::swell) > 0.5f && (ed.m_swellHolds & Editor::HoldByPulse) != 0;
+            rig.editor.reset();
+            check(pulsed && plain(ParamIDs::swell) < 0.5f,
+                  "swell: a click on the sea holds Swell for a moment; a window closed in that moment lets go of it");
+        }
+        proc.setPlaying(false);
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;

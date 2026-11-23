@@ -46,9 +46,135 @@ namespace
 
 //==============================================================================
 // SwellButton
+SwooshbucklerAudioProcessorEditor::SwellButton::SwellButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
+{
+    // A wire target like a knob (ModTarget), but a button to the hand: the slider underneath only carries the wires.
+    setSliderStyle(juce::Slider::LinearHorizontal);
+    setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    setRange(0.0, 1.0, 1.0);
+    setWantsKeyboardFocus(false);
+    setScrollWheelEnabled(false);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    caption = "Swell";
+    getProperties().set("howTo", "Hold it down to swell. Click its notch (the turned corner at its lower left) for Auto Swell, or right-click it for its menu. "
+                                 "Drag a Mod jack onto it to have a modulator hold it.");
+    m_scale.snap(1.0f);
+    updateLine();
+}
+
+juce::Rectangle<float> SwooshbucklerAudioProcessorEditor::SwellButton::getNotchArea() const
+{
+    // At its lower left, between two handles, clear of the boss.
+    return { 9.0f, static_cast<float>(getHeight()) - 19.0f, 8.0f, 8.0f };
+}
+
+juce::Point<float> SwooshbucklerAudioProcessorEditor::SwellButton::getPlugPosition(int index) const
+{
+    // On the rim at its upper right, past the handles; the next ones further round.
+    const float a = juce::degreesToRadians(45.0f + 26.0f * static_cast<float>(index));
+    return getDialCentre() + juce::Point<float>(std::sin(a), -std::cos(a)) * (getDialRadius() * 1.15f + 1.0f);
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::mouseMove(const juce::MouseEvent& e)
+{
+    const bool over = getNotchArea().expanded(3.0f).contains(e.position);
+    if (over != m_overNotch)
+    {
+        m_overNotch = over;
+        repaint();
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::mouseExit(const juce::MouseEvent&)
+{
+    if (std::exchange(m_overNotch, false))
+        repaint();
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::mouseDown(const juce::MouseEvent& e)
+{
+    // Cmd-drag on a wired Swell sets its newest wire's depth, as on a knob.
+    if (e.mods.isCommandDown() && isModulated())
+    {
+        ModTarget::mouseDown(e);
+        return;
+    }
+    if (e.mods.isPopupMenu())
+    {
+        if (onMenu)
+            onMenu();
+        return;
+    }
+    m_notchClick = getNotchArea().expanded(3.0f).contains(e.position);
+    if (m_notchClick)
+    {
+        if (onNotch && e.getNumberOfClicks() < 2)
+            onNotch();
+        return;
+    }
+    m_pressed = true;
+    if (onHold)
+        onHold(true);
+    press(true);
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::mouseDrag(const juce::MouseEvent& e)
+{
+    if (m_modGesture)
+        ModTarget::mouseDrag(e);
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::mouseUp(const juce::MouseEvent& e)
+{
+    if (m_modGesture)
+    {
+        ModTarget::mouseUp(e);
+        return;
+    }
+    m_notchClick = false;
+    if (! std::exchange(m_pressed, false))
+        return;
+    if (onHold)
+        onHold(false);
+    press(false);
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    // A double-click is two presses (already held and let go); Cmd-double-click puts the newest wire back to +50%.
+    if (e.mods.isCommandDown() && isModulated())
+        ModTarget::mouseDoubleClick(e);
+}
+
+void SwooshbucklerAudioProcessorEditor::SwellButton::updateLine()
+{
+    auto& state = m_processor.getState();
+    const int mode = juce::roundToInt(state.getRawParameterValue(ParamIDs::swellAuto)->load());
+    juce::String line;
+    if (mode == ParamIDs::AutoSwellPeaks)
+        line = "Auto: Peaks";
+    else if (mode == ParamIDs::AutoSwellClock)
+        line = "Auto: " + Params::secondsText(state.getRawParameterValue(ParamIDs::swellEvery)->load());
+    else
+        line = m_keyHint.isEmpty() ? juce::String("Hold") : "Hold or " + m_keyHint;
+    const bool lamp = m_processor.isSwellHeld();
+    if (line != m_line || lamp != m_lamp)
+    {
+        m_line = line;
+        m_lamp = lamp;
+        // The first line of its tooltip: what holds it, or what Auto Swell does.
+        getProperties().set("tipLine", mode == ParamIDs::AutoSwellOff ? (m_keyHint.isEmpty() ? juce::String("Hold it") : "Key: " + m_keyHint) : line);
+        repaint();
+    }
+}
+
 void SwooshbucklerAudioProcessorEditor::SwellButton::frame(float dt)
 {
-    // The one Swell spring (Motion::Springs), stepped with the real time of the frame.
+    // Whatever holds Swell (the button, its key, MIDI, a wire, Auto Swell) squashes it; the one Swell spring
+    // (Motion::Springs), stepped with the real time of the frame.
+    updateLine();
+    if (! m_pressed)
+        m_scale.target = m_lamp ? 0.9f : 1.0f;
     const bool moving = m_scale.stepSwell(dt);
     const float glow = m_glow + (m_processor.getEngine().getEnergy() - m_glow) * juce::jmin(1.0f, dt * 12.0f);
     const bool changed = moving || std::abs(glow - m_glow) > 2.0e-3f;
@@ -98,13 +224,89 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
     g.setColour(juce::Colours::white.withAlpha(0.3f));
     g.drawEllipse(disc(radius - 5.5f), 1.0f);
 
-    // The word is part of the drawing: it grows and shrinks with the button. The hint under it is ordinary text.
-    Theme::stampText(g, "Swell", juce::Rectangle<float>(radius * 1.7f, radius * 0.7f).withCentre(centre.translated(0.0f, -radius * 0.1f)),
+    // Its wires: a thin ring inside the rim for each, in the modulator's colour, as long as the share of the
+    // modulator's range that holds Swell (dashed for a negative depth: the low side).
+    for (size_t i = 0; i < m_modArcs.size(); ++i)
+    {
+        const auto& m = m_modArcs[i];
+        const float r = radius - 8.5f - 2.6f * static_cast<float>(i);
+        const float span = juce::MathConstants<float>::twoPi * juce::jlimit(0.02f, 1.0f, std::abs(m.depth));
+        juce::Path arc;
+        arc.addCentredArc(centre.x, centre.y, r, r, 0.0f, -0.5f * span, 0.5f * span, true);
+        strokeModPath(g, arc, m.colour, m.depth, 1.6f);
+    }
+
+    // The lamp, a small square above the word: lit while anything holds Swell.
+    {
+        const auto lamp = juce::Rectangle<float>(7.0f, 7.0f).withCentre(centre.translated(0.0f, -radius * 0.53f));
+        g.setColour(TC::edgeDark);
+        g.fillRect(lamp.expanded(1.0f));
+        g.setColour(m_lamp ? TC::text : TC::brassDark);
+        g.fillRect(lamp);
+    }
+
+    // The word is part of the drawing: it grows and shrinks with the button. The line under it is ordinary text.
+    Theme::stampText(g, "Swell", juce::Rectangle<float>(radius * 1.7f, radius * 0.7f).withCentre(centre.translated(0.0f, -radius * 0.06f)),
                      m_fonts.art(radius * 0.56f), juce::Justification::centred, TC::window);
     g.setColour(TC::window.withAlpha(0.85f));
-    Theme::fitText(g, m_keyHint.isEmpty() ? juce::String("Hold") : "Hold or " + m_keyHint,
-                   juce::Rectangle<float>(radius * 1.6f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.42f)),
+    Theme::fitText(g, m_line, juce::Rectangle<float>(radius * 1.6f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.44f)),
                    m_fonts.caption(), juce::Justification::centred);
+
+    // The notch, at the lower left (a corner turned down, as on the wheels): an outline while the Swell layer is at
+    // its defaults, filled when it is not.
+    SwooshLookAndFeel::drawNotch(g, getNotchArea(), m_notchFilled, m_overNotch ? TC::brass.brighter(0.3f) : TC::brass, m_overNotch ? TC::brass : TC::textDim);
+
+    if (! m_wireHover.isTransparent())
+    {
+        g.setColour(m_wireHover);
+        g.drawEllipse(disc(radius * 1.15f + 2.0f), 2.0f);
+    }
+}
+
+//==============================================================================
+// EqKey
+SwooshbucklerAudioProcessorEditor::EqKey::EqKey(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f)
+    : juce::Button("EQ"), m_processor(p), m_fonts(f)
+{
+    setWantsKeyboardFocus(false);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    m_shown = m_processor.getOutputEqParams();
+    m_lit = ! OutputEq::isFlat(m_shown);
+}
+
+void SwooshbucklerAudioProcessorEditor::EqKey::refresh()
+{
+    const auto p = m_processor.getOutputEqParams();
+    const bool same = p.on == m_shown.on && p.lowCutSlope == m_shown.lowCutSlope
+                      && juce::exactlyEqual(p.lowCutHz, m_shown.lowCutHz) && juce::exactlyEqual(p.highCutHz, m_shown.highCutHz)
+                      && juce::exactlyEqual(p.lowShelfHz, m_shown.lowShelfHz) && juce::exactlyEqual(p.lowShelfDb, m_shown.lowShelfDb)
+                      && juce::exactlyEqual(p.lowMidHz, m_shown.lowMidHz) && juce::exactlyEqual(p.lowMidDb, m_shown.lowMidDb)
+                      && juce::exactlyEqual(p.lowMidQ, m_shown.lowMidQ) && juce::exactlyEqual(p.highMidHz, m_shown.highMidHz)
+                      && juce::exactlyEqual(p.highMidDb, m_shown.highMidDb) && juce::exactlyEqual(p.highMidQ, m_shown.highMidQ)
+                      && juce::exactlyEqual(p.highShelfHz, m_shown.highShelfHz) && juce::exactlyEqual(p.highShelfDb, m_shown.highShelfDb);
+    if (same)
+        return;
+    m_shown = p;
+    m_lit = ! OutputEq::isFlat(p);
+    repaint();
+}
+
+void SwooshbucklerAudioProcessorEditor::EqKey::paintButton(juce::Graphics& g, bool over, bool down)
+{
+    // A control plate in Output's colour when its plate is up; "EQ", then the curve in a small well.
+    const bool on = getToggleState();
+    const auto r = getLocalBounds().toFloat();
+    SwooshLookAndFeel::drawControlPlate(g, r, TC::output, Theme::getLook(*this), on, over, down);
+    auto face = SwooshLookAndFeel::plateFace(r, down).reduced(5.0f, 3.0f);
+    const auto word = face.removeFromLeft(17.0f);
+    g.setColour(on ? TC::window : (over ? TC::text : TC::textDim.interpolatedWith(TC::text, m_lit ? 1.0f : 0.4f)));
+    Theme::fitText(g, "EQ", word, m_fonts.control(), juce::Justification::centredLeft);
+    face.removeFromLeft(3.0f);
+    const auto well = face.reduced(0.0f, 1.0f);
+    g.setColour(on ? TC::output.darker(0.55f) : TC::well);
+    g.fillRect(well);
+    EqGraph::paintMiniature(g, well.reduced(1.0f, 1.5f), m_shown, m_processor.getRenderRate(),
+                            on ? TC::text : TC::output, m_lit);
 }
 
 //==============================================================================
@@ -1191,6 +1393,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     , m_takes(p, *m_fonts)
     , m_variations(p, *m_fonts)
     , m_about(*this)
+    , m_eqKey(p, *m_fonts)
 {
     setLookAndFeel(&m_lnf);
     juce::LookAndFeel::setDefaultLookAndFeel(&m_lnf); // popup menus, alerts and file choosers match too
@@ -1338,12 +1541,12 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     // Tracks + output view + ride --------------------------------------------
     m_content.addAndMakeVisible(m_hold);
     m_hold.onHistory = [this](bool redo) { stepHistory(redo); };
-    m_hold.onSwell = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(250, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
+    m_hold.onSwell = [this] { pulseSwell(250); };
     m_hold.onStatus = [this](const juce::String& s) { toast(s); };
     m_hold.onTakeNoteClicked = [this] { showTakes(); };
     m_morphPad.laneColourFor = [this](int track) { return m_hold.laneColour(track); };
     m_content.addAndMakeVisible(m_sea);
-    m_sea.onClick = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(400, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
+    m_sea.onClick = [this] { pulseSwell(400); };
     m_sea.setFootHeight(c_roomFootH);
 
     // The room strip, on the sea's foot. Its plate keeps clicks off the sea; the controls sit on it.
@@ -1470,7 +1673,14 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                             "moment at the right. A swell is a hump; Energy sets how deep the dips between them go and Rate how long they are.");
     m_content.addAndMakeVisible(*m_rideStrip);
     m_content.addAndMakeVisible(m_swell);
-    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. Any MIDI note does the same while Keys is set to Swell.");
+    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. "
+                       "Any MIDI note does the same while Keys is set to Swell, and the sustain pedal in every Keys mode. A press is recorded by a DAW as the Swell parameter. "
+                       "Its lamp lights whenever something holds it.\n"
+                       "Drag a Mod jack onto it and Swell is held while the modulator is in its top part. The wire's depth sets how much of its range counts.\n"
+                       "Behind its notch, Auto Swell fires it by itself, on the peaks or on a clock.");
+    m_swell.onHold = [this](bool held) { holdSwell(HoldByButton, held); };
+    m_swell.onNotch = [this] { toggleLayer({ Layers::Kind::Swell, 0 }); };
+    m_swell.onMenu = [this] { showSwellMenu(); };
     m_rideButton.setClickingTogglesState(true);
     m_rideButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
     m_rideButton.setTooltip("Auto Ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them, the doppler passes do the moving, and the mix is eased down to about the level it has with the ride on.");
@@ -1478,14 +1688,11 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
 
-    m_followMasterButton.setClickingTogglesState(true);
-    m_followMasterButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
-    m_followMasterButton.setTooltip("Follow Master\nOn: every track's ride swells with the Master track's loudness instead of its own slow wave, so all the layers "
-                                    "move like that one sound. The Master itself plays as it is. Energy still sets how deep the faders dip. "
-                                    "It needs Auto Ride on and a Master track (the star on a lane); until then it waits.");
-    m_followMasterButton.setWantsKeyboardFocus(false);
-    m_content.addAndMakeVisible(m_followMasterButton);
-    m_followMasterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideFollowMaster, m_followMasterButton);
+    m_rideMode.addItemList(juce::StringArray(ParamIDs::rideModeNames, ParamIDs::numRideModes), 1);
+    m_rideMode.setWantsKeyboardFocus(false);
+    m_rideMode.setTooltip(juce::String("Ride Mode\n") + Params::tipFor(ParamIDs::rideMode));
+    m_content.addAndMakeVisible(m_rideMode);
+    m_rideModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::rideMode, m_rideMode);
 
     m_throwButton.setColour(juce::TextButton::buttonColourId, TC::brass.withAlpha(0.25f));
     m_throwButton.setWantsKeyboardFocus(false);
@@ -1520,7 +1727,15 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_followHost.setVisible(p.canFollowHost());
 
     addKnob(ParamIDs::energy, "Energy", TC::flight, "How deep the auto ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to -36 dB at 90% and right down to silence at 100%, so each whoosh rises out of nothing and falls back. Low: gentle movement that stays fairly level. Does nothing with Auto Ride off.");
-    addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. The readout is the time of one swell (each track rides a little faster or slower than it). Low: slow, long passes (25 s swells, 6 s passes). High: short ones (under 2 s swells, 1.6 s passes).");
+    {
+        auto& rate = addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. The readout is the time of one swell (each track rides a little faster or slower than it). Low: slow, long passes (25 s swells, 6 s passes). High: short ones (under 2 s swells, 1.6 s passes). In Faders Together every fader shares one swell, and the readout is its length (6 s to 1.6 s); each pass lasts two swells, and a change of Rate is taken up over about a second. Behind its notch: Faders Together's Peak At, Stagger and Hit Every.");
+        // (After the attachment, which sets the parameter's own text: in Faders Together the swell is the clock's.)
+        auto together = [this] { return juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::rideMode)->load()) == ParamIDs::RideTogether; };
+        rate.textFromValueFunction = [together](double v) { return Params::rateText(static_cast<float>(v), together()); };
+        // (What is typed is read on the scale the wheel shows.)
+        rate.typedText = [together](float v) { return Params::rateText(v, together()); };
+        rate.valueTextChanged();
+    }
     addKnob(ParamIDs::fill, "Fill", TC::flight, "Long echoes (about 0.5, 1 and 2 s, a little different on every track) after each track's fader, so they hang on into the dips of the ride and the gaps of unsteady sounds and keep the result going. Gappy sounds get more of it.");
     addKnob(ParamIDs::chaos, "Chaos", TC::flight, "How unpredictable it is. 0 is a steady pattern that repeats (every track plays in order from its start). Higher: every swell has a different size and speed, every pass a different speed, length and closeness, and crackle tracks jump around.");
     addKnob(ParamIDs::pitch, "Pitch", TC::flight, "Plays every track higher or lower, in semitones (up to two octaves either way), finer near the middle. Down makes everything bigger, heavier and slower; up makes it smaller and faster (the hits too).");
@@ -1537,7 +1752,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             "How far each pass travels across the stereo field. 0: in the middle. High: a full side-to-side fly-by, and the ear turned away from the pass hears it a little duller, as a head in the way would make it. With Link on, bus B uses bus A's Width.",
             "How much the pitch bends as a pass goes by (the doppler bend), together with Doppler: it rises on the way in and drops as the pass goes by. It changes the pitch only, not how the pass swells. Low: passes go by without the bend. High: a big race-car scream and drop.",
             "Weight: a sub octave, low overtones, and an extra low lift at the loudest moments. With the faders still (Auto Ride off, or Swell held) the lift follows each pass: up as it comes close, down as it leaves.",
-            "Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed. With the faders still (Auto Ride off, or Swell held) the passes alone drive the sweep.",
+            "Movement inside the sound: a phaser, then (from about a seventh of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed. With the faders still (Auto Ride off, or Swell held) the passes alone drive the sweep.",
             "A filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More: more of it, closing further at the peak, and over the top 40% a resonant edge. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
             "Saturation: grit and density, from a gentle thickening to a hard, flattened growl. The level is kept roughly steady, so it adds character rather than just loudness.",
             "How much bus A pushes this bus down at A's peaks (side-chain ducking, up to -20 dB in Volume mode), so the two buses don't pile up. Duck sets how (Volume, Darken or Mids). With Take Turns on, also how far the quieter bus goes down: at 0, Take Turns does nothing.",
@@ -1779,6 +1994,46 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_cablesButton.setTooltip("Cables\nShows or hides the cables. The plugs on the knobs stay either way, so you can still change a wire's depth or pull it out.");
     m_cablesButton.onClick = [this] { m_wires.setShowCables(m_cablesButton.getToggleState()); };
     m_content.addAndMakeVisible(m_cablesButton);
+
+    // The layers: a host over Ride, Bus A and Bus B, each turning its panel over to show what is behind one notched
+    // control. Under the cables, so a wire can reach a page's Varispeed.
+    for (int panel = 0; panel < numLayerPanels; ++panel)
+    {
+        auto& host = m_layers[static_cast<size_t>(panel)];
+        host = std::make_unique<DetailLayer>(p, *m_fonts);
+        host->onPageChanged = [this] { applyLayers(); rebuildWireTargets(); };
+        host->onClosed = [this](Layers::Target) { grabKeyboardFocus(); };
+        m_content.addChildComponent(*host);
+    }
+    // The notched controls: Swirl and Filter on each bus, Rate (Faders Together's layer) and Swell (its own).
+    {
+        const std::pair<const char*, Layers::Target> notched[] = {
+            { ParamIDs::bus[0][ParamIDs::Swirl], { Layers::Kind::Swirl, 0 } },   { ParamIDs::bus[1][ParamIDs::Swirl], { Layers::Kind::Swirl, 1 } },
+            { ParamIDs::bus[0][ParamIDs::Filter], { Layers::Kind::Filter, 0 } }, { ParamIDs::bus[1][ParamIDs::Filter], { Layers::Kind::Filter, 1 } },
+            { ParamIDs::rate, { Layers::Kind::Together, 0 } },
+        };
+        for (const auto& [id, target] : notched)
+            if (auto* knob = dynamic_cast<WheelKnob*>(m_controls[id]))
+            {
+                knob->setNotch(WheelKnob::Notch::Hollow);
+                knob->onOpen = [this, t = target] { toggleLayer(t); };
+                knob->onNotch = [this, t = target] { toggleLayer(t); };
+                knob->onContextMenu = [this, t = target, knob] { showWheelMenu(t, *knob); };
+            }
+        updateNotches(true); // their tooltips and how-to lines
+    }
+
+    // The Output EQ: its key in Output's title bar, its plate over Bus B (Output's meters stay in view under it).
+    m_eqKey.setTooltip("Output EQ\nA six-band EQ on the whole mix, drawn here as its curve (a flat line while it does nothing). It sits after "
+                       "Space and before Inflate and the limiter, and it belongs to the session: presets, Randomise and the dice leave it "
+                       "as it is. Click to open its graph over Bus B.");
+    m_eqKey.setClickingTogglesState(false);
+    m_eqKey.onClick = [this] { setEqPlateOpen(! isEqPlateOpen()); };
+    m_content.addAndMakeVisible(m_eqKey);
+    m_eqPlate = std::make_unique<EqPlate>(p, *m_fonts);
+    m_eqPlate->onClose = [this] { setEqPlateOpen(false); };
+    m_content.addChildComponent(*m_eqPlate);
+
     m_content.addAndMakeVisible(m_wires);
     m_wires.setPanel(&m_modPanel);
     m_hold.onLanesMoved = [this] { m_wires.rebuildSoon(); m_morphPad.ropesMoved(); }; // scrolling the tracks moves the plugs on their pitch boxes, and the morph's ropes
@@ -1896,6 +2151,14 @@ SwooshbucklerAudioProcessorEditor::~SwooshbucklerAudioProcessorEditor()
    #endif
     m_processor.getMods().onChange = nullptr;
     m_processor.setSwell(false);
+    if (m_swellHolds != 0)
+    {
+        m_swellHolds = 0;
+        m_processor.setSwellParameter(false);
+    }
+    for (auto& host : m_layers)
+        if (host != nullptr)
+            host->onPageChanged = nullptr;
     m_morph.finish();
     m_tooltips.setLookAndFeel(nullptr);
     if (&juce::LookAndFeel::getDefaultLookAndFeel() == &m_lnf)
@@ -2100,7 +2363,7 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         placeKnob(ParamIDs::throwLength, { kRight - lengthW, bodyY, lengthW, secondaryH }, WheelKnob::Size::Secondary);
         const int by = bodyY + secondaryH + 3;
         m_rideButton.setBounds(kx, by, 84, 18);
-        m_followMasterButton.setBounds(kx + 88, by, 106, 18);
+        m_rideMode.setBounds(kx + 88, by, 106, 18);
         m_throwButton.setBounds(kRight - 80, by, 80, 18);
         m_rideStripArea = { kx, ride.getY() + Lay::stripY, kRight - kx, Lay::stripH };
         m_rideStrip->setBounds(m_rideStripArea);
@@ -2157,9 +2420,12 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         diceAt(Presets::BusB, m_passModeLabel[1].getX() - 4, busB.getY() + y);
         diceAt(Presets::Hits, hits.getRight() - Lay::pad, hits.getY() + y);
         diceAt(Presets::Output, out.getRight() - Lay::pad, out.getY() + y);
+        // Output's EQ key, left of its die.
+        m_eqKey.setBounds(m_sectionDice[Presets::Output]->getX() - 8 - 52, out.getY() + y, 52, 22);
         // Each subtitle stops short of its title bar's first control.
         for (size_t i = 0; i < m_sections.size(); ++i)
             m_sections[i].subtitleRight = m_sectionDice[i + 1]->getX() - 8;
+        m_sections[3].subtitleRight = m_eqKey.getX() - 8;
 
         // The scope strips: what each section sends on, along the bottom of its panel. A bus's starts with its Flight
         // Path, then which way (Direction) and which side (Side) its passes take: one group (Output's is placed with
@@ -2215,17 +2481,24 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     // Row 4: Stowaway's plate at the left, as far open as it is, and Modulation in the rest of the row.
     m_wires.setBounds(0, 0, c_width, c_height);
     layoutBottomRow();
+
+    // The layers: each host covers its panel; its page sits on the panel's knob row (a bus's after the front
+    // wheel's cell, Ride's where its knobs start), Reset and Back at the right of its title bar. The EQ plate covers
+    // Bus B exactly.
+    for (int panel = 0; panel < numLayerPanels; ++panel)
     {
-        // Every knob a wire can reach, and each track's Semitones box.
-        std::map<juce::String, ModTarget*> targets;
-        for (const auto& [id, control] : m_controls)
-            if (ModMatrix::targetIndex(id) >= 0)
-                if (auto* target = dynamic_cast<ModTarget*>(control))
-                    targets[id] = target;
-        for (const auto& [id, target] : m_hold.getModTargets())
-            targets[id] = target;
-        m_wires.setTargets(std::move(targets));
+        const auto bounds = layerPanelBounds(panel);
+        auto& host = *m_layers[static_cast<size_t>(panel)];
+        host.setBounds(bounds);
+        const bool ride = panel == RidePanel;
+        const Layers::Target kind { ride ? Layers::Kind::Together : Layers::Kind::Swirl, juce::jmax(0, panel - 1) };
+        const juce::Point<int> page = ride ? juce::Point<int>(106, 37) : juce::Point<int>(Lay::pad + DetailLayer::c_frontCell, Lay::knobsY);
+        host.setPlaces({ page.x, page.y, DetailLayer::pageWidth(kind), DetailLayer::c_rowHeight },
+                       { Lay::pad, 9, bounds.getWidth() - 2 * Lay::pad, 22 });
     }
+    m_eqPlate->setBounds(EqPlate::bounds());
+    applyLayers();
+    rebuildWireTargets();
 
     m_footer = { Lay::left, Lay::footerY, Lay::right - Lay::left, Lay::footerH };
     m_toastArea = m_footer.withTrimmedLeft(m_footer.getWidth() / 2);
@@ -2506,16 +2779,31 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
             SwooshLookAndFeel::drawRule(g, { static_cast<float>(x), 13.0f }, { static_cast<float>(x), 37.0f });
     }
 
-    SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), "Ride", {}, TC::brass, f, Icons::Icon::Ride);
+    // A panel turned over to a layer is named after it ("Bus A / Swirl"), and its title bar's labels and readouts go
+    // with the controls they belong to.
+    auto layerUp = [this](int panel) { const auto& host = *m_layers[static_cast<size_t>(panel)]; return host.getPage() != nullptr && host.showsLayer(); };
+    const bool rideLayer = layerUp(RidePanel), busBHidden = isEqPlateOpen();
+    SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), rideLayer ? Layers::title(m_layers[RidePanel]->getTarget()) : juce::String("Ride"), {},
+                                 TC::brass, f, Icons::Icon::Ride);
+    if (! rideLayer)
     {
-        // The subtitle line doubles as the readout: the time to a throw's peak, or the keys that are held.
+        // The subtitle line doubles as the readout: the time to a throw's peak or to Faders Together's next one, or
+        // the keys that are held.
         const bool readout = m_rideStatus.isNotEmpty();
         g.setColour(readout ? TC::brass : TC::textFaint);
         Theme::fitText(g, readout ? m_rideStatus : juce::String("Rides the faders for you"), m_rideStatusArea, readout ? f.control() : f.body(),
                        juce::Justification::centredLeft, readout ? Theme::Fit::Message : Theme::Fit::Sentence);
     }
-    for (const auto& sec : m_sections)
-        SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.mark, static_cast<float>(sec.subtitleRight));
+    for (size_t i = 0; i < m_sections.size(); ++i)
+    {
+        const auto& sec = m_sections[i];
+        if (i == 1 && busBHidden)
+            continue; // the EQ plate lies over it
+        if (i < 2 && layerUp(static_cast<int>(i) + 1))
+            SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), Layers::title(m_layers[i + 1]->getTarget()), {}, sec.accent, f, sec.mark);
+        else
+            SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.mark, static_cast<float>(sec.subtitleRight));
+    }
     SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "Drag a jack onto any knob to wire it.", TC::brass, f,
                                  Icons::Icon::Modulation, static_cast<float>(m_cablesButton.getX() - 8));
 
@@ -2547,14 +2835,18 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         }
     }
     g.setColour(TC::textDim);
-    Theme::fitText(g, "Keys", m_keysLabel, f.caption(), juce::Justification::centredRight);
+    if (! rideLayer)
+        Theme::fitText(g, "Keys", m_keysLabel, f.caption(), juce::Justification::centredRight);
     Theme::fitText(g, "Gate", m_gateModeLabel, f.caption(), juce::Justification::centredRight);
     Theme::fitText(g, "Duck", m_duckModeLabel, f.caption(), juce::Justification::centredRight);
-    for (const auto& label : m_passModeLabel)
-        Theme::fitText(g, "Pass", label, f.caption(), juce::Justification::centredRight);
+    for (size_t b = 0; b < m_passModeLabel.size(); ++b)
+        if (m_passMode[b].isVisible())
+            Theme::fitText(g, "Pass", m_passModeLabel[b], f.caption(), juce::Justification::centredRight);
     // Flight Path, at the left of each bus's scope strip and of Stowaway's open plate's: dimmer while it rests.
     for (size_t b = 0; b < m_flightPath.size(); ++b)
     {
+        if (b == 1 && busBHidden)
+            continue;
         g.setColour(Theme::getLook(m_flightPath[b]) == Theme::Look::Normal ? TC::textDim : TC::textFaint);
         Theme::fitText(g, "Flight Path", m_flightPathLabel[b], f.caption(), juce::Justification::centredLeft);
     }
@@ -2583,7 +2875,7 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     }
 
     // Bus B's Ducked and Filtered are what bus A does to it: a tinted group of their own, in A's colour.
-    if (g.clipRegionIntersects(m_fromBusAGroup))
+    if (g.clipRegionIntersects(m_fromBusAGroup) && ! busBHidden && ! layerUp(BusBPanel))
     {
         const auto r = m_fromBusAGroup.toFloat();
         g.setColour(TC::busA.withAlpha(0.07f));
@@ -2856,7 +3148,7 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
             if (! m_spaceHeld)
             {
                 m_spaceHeld = true;
-                m_processor.setSwell(true);
+                holdSwell(HoldByKey, true);
                 m_swell.press(true);
             }
             return true;
@@ -2887,6 +3179,17 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         m_variations.setVisible(false); // a batch that is rendering carries on
         return true;
     }
+    // Over the rig: Esc puts the EQ plate away, then turns over the layer opened last.
+    if (key == juce::KeyPress::escapeKey && ! isTyping())
+    {
+        if (isEqPlateOpen())
+        {
+            setEqPlateOpen(false);
+            return true;
+        }
+        if (closeTopLayer())
+            return true;
+    }
     return false;
 }
 
@@ -2896,7 +3199,7 @@ bool SwooshbucklerAudioProcessorEditor::keyStateChanged(bool)
     if (m_spaceHeld && (! swellKey.isValid() || ! juce::KeyPress::isKeyCurrentlyDown(swellKey.getKeyCode())))
     {
         m_spaceHeld = false;
-        m_processor.setSwell(false);
+        holdSwell(HoldByKey, false);
         m_swell.press(false);
         return true;
     }
@@ -3535,7 +3838,13 @@ juce::String SwooshbucklerAudioProcessorEditor::rideStatus() const
             else
                 ++more;
         }
-    return more > 0 ? names + " +" + juce::String(more) : names;
+    if (shown > 0)
+        return more > 0 ? names + " +" + juce::String(more) : names;
+    // Faders Together, playing, with no key held: the time until the swell's next top (where the passes and the aimed hit land).
+    if (const float peakIn = m_processor.getCyclePeakIn();
+        peakIn >= 0.0f && m_processor.isPlaying() && m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f)
+        return "Peak in " + juce::String(peakIn, 1) + " s";
+    return {};
 }
 
 void SwooshbucklerAudioProcessorEditor::showAimControls()
@@ -4022,17 +4331,53 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     if ((m_morphSyncTick & 1) == 0 && ! covered)
         m_rideStrip->step();
     {
-        // Follow Master rests (hollow, still usable) until Auto Ride is on and a track is the Master.
-        const bool ready = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f && m_processor.getCargo().getMaster() >= 0;
-        if (m_followMasterShown != (ready ? 1 : 0))
+        // Ride Mode rests (hollow, still usable) while Auto Ride is off, or on Follow Master with no Master track.
+        // Follow Master can be chosen once a track is the Master; until then the tip says why.
+        const bool rideOn = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f;
+        const bool hasMaster = m_processor.getCargo().getMaster() >= 0;
+        const int mode = juce::jlimit(0, ParamIDs::numRideModes - 1, juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::rideMode)->load()));
+        const int shown = (rideOn ? 1 : 0) | (hasMaster ? 2 : 0) | (mode << 2);
+        if (m_rideModeShown != shown)
         {
-            m_followMasterShown = ready ? 1 : 0;
-            Theme::setLook(m_followMasterButton, ready ? Theme::Look::Normal : Theme::Look::Resting);
+            m_rideModeShown = shown;
+            if (auto* rate = dynamic_cast<WheelKnob*>(m_controls[ParamIDs::rate]))
+                rate->valueTextChanged(); // its readout is the shared swell's length in Faders Together
+            const bool following = mode == ParamIDs::RideFollowMaster;
+            m_rideMode.setItemEnabled(1 + ParamIDs::RideFollowMaster, hasMaster || following);
+            const juce::String reason = ! rideOn ? "It rests while Auto Ride is off."
+                                      : following && ! hasMaster ? "It rests until a track is the Master (the star on a lane)."
+                                      : ! hasMaster ? "Follow Master needs a Master track: click the star on a lane first."
+                                      : juce::String();
+            Theme::setLook(m_rideMode, ! rideOn || (following && ! hasMaster) ? Theme::Look::Resting : Theme::Look::Normal);
+            m_rideMode.setTooltip(juce::String("Ride Mode\n") + Params::tipFor(ParamIDs::rideMode) + (reason.isNotEmpty() ? "\n" + reason : juce::String()));
         }
     }
 
     if (! m_morph.items.empty())
         m_morph.step(dt);
+
+    // The layers: their folds, the notches, and the EQ key's curve and its plate.
+    {
+        bool moved = false;
+        for (auto& host : m_layers)
+            moved = host->step(dt) || moved;
+        if (moved)
+            applyLayers();
+        updateNotches();
+        if ((m_notchTick % 6) == 3)
+            m_eqKey.refresh();
+        if (isEqPlateOpen() && (m_notchTick & 1) == 0)
+            m_eqPlate->refresh();
+        // A page shows or hides its Varispeed with the Swirl type: its cable follows.
+        if ((m_notchTick % 6) == 0)
+            for (const auto& host : m_layers)
+                for (auto* target : host->wireTargets())
+                    if (target != nullptr && target->isModulated() && target->isReachable() != static_cast<bool>(target->getProperties()["wasReachable"]))
+                    {
+                        target->getProperties().set("wasReachable", target->isReachable());
+                        m_wires.rebuildSoon();
+                    }
+    }
 
     // The rolling die: a new face every tenth of a second for three tenths, then it settles on five.
     if (m_diceTime > 0.0 && m_diceRolling != nullptr)
@@ -4204,4 +4549,326 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
             m_toast.clear();
         m_content.repaint(m_footer);
     }
+}
+
+//==============================================================================
+// The layers (design 2.0), Swell from the window, and the Output EQ's plate.
+juce::Rectangle<int> SwooshbucklerAudioProcessorEditor::layerPanelBounds(int panel) const
+{
+    return panel == RidePanel ? m_performPanel : m_sections[static_cast<size_t>(panel == BusAPanel ? 0 : 1)].bounds;
+}
+
+void SwooshbucklerAudioProcessorEditor::toggleLayer(Layers::Target t)
+{
+    const auto& host = *m_layers[static_cast<size_t>(panelFor(t))];
+    if (host.isOpen() && host.getTarget() == t)
+    {
+        m_layers[static_cast<size_t>(panelFor(t))]->close();
+        return;
+    }
+    openLayer(t);
+}
+
+void SwooshbucklerAudioProcessorEditor::openLayer(Layers::Target t)
+{
+    const int panel = panelFor(t);
+    // Bus B's layer under the EQ plate: the plate makes way.
+    if (panel == BusBPanel && isEqPlateOpen())
+        setEqPlateOpen(false);
+    const juce::Colour accent = panel == RidePanel ? TC::flight : m_sections[static_cast<size_t>(panel - 1)].accent;
+    m_layerOpenedAt[static_cast<size_t>(panel)] = ++m_layerCount;
+    m_layers[static_cast<size_t>(panel)]->open(t, accent);
+    applyLayers();
+    // The keys stay with the window, so Esc closes it.
+    grabKeyboardFocus();
+}
+
+bool SwooshbucklerAudioProcessorEditor::closeTopLayer()
+{
+    int top = -1;
+    for (int panel = 0; panel < numLayerPanels; ++panel)
+        if (m_layers[static_cast<size_t>(panel)]->isOpen() && (top < 0 || m_layerOpenedAt[static_cast<size_t>(panel)] > m_layerOpenedAt[static_cast<size_t>(top)]))
+            top = panel;
+    if (top < 0)
+        return false;
+    m_layers[static_cast<size_t>(top)]->close();
+    applyLayers();
+    return true;
+}
+
+std::vector<juce::Component*> SwooshbucklerAudioProcessorEditor::layerCovers(int panel)
+{
+    // What a layer replaces: the panel's knob row and its title bar's controls. A bus's front wheels (Swirl, Filter)
+    // are placed by applyLayers itself; Swell and the row of keys under the knobs stay in Ride; every scope strip stays.
+    std::vector<juce::Component*> covers;
+    auto control = [this](const char* id) { const auto it = m_controls.find(id); return it != m_controls.end() ? static_cast<juce::Component*>(it->second) : nullptr; };
+    if (panel == RidePanel)
+    {
+        for (const auto* id : { ParamIDs::energy, ParamIDs::rate, ParamIDs::fill, ParamIDs::chaos, ParamIDs::pitch, ParamIDs::throwLength })
+            covers.push_back(control(id));
+        // (The row of keys under the knobs stays: Auto Ride, the Ride Mode box and Throw are what Ride's layers
+        // rest by, and the pages keep clear of them.)
+        covers.push_back(&m_keysMode);
+        covers.push_back(m_sectionDice[Presets::Ride].get());
+        covers.push_back(m_sectionLocks[Presets::Ride].get());
+    }
+    else
+    {
+        const int b = panel - 1;
+        for (int k = 0; k < ParamIDs::numBusControls; ++k)
+            if (ParamIDs::bus[b][k] != nullptr && k != ParamIDs::Swirl && k != ParamIDs::Filter)
+                covers.push_back(control(ParamIDs::bus[b][k]));
+        covers.push_back(&m_passMode[static_cast<size_t>(b)]);
+        const int section = b == 0 ? Presets::BusA : Presets::BusB;
+        covers.push_back(m_sectionDice[static_cast<size_t>(section)].get());
+        covers.push_back(m_sectionLocks[static_cast<size_t>(section)].get());
+        if (b == 1)
+            covers.insert(covers.end(), { static_cast<juce::Component*>(&m_linkBuses), &m_takeTurns });
+    }
+    covers.erase(std::remove(covers.begin(), covers.end(), nullptr), covers.end());
+    return covers;
+}
+
+void SwooshbucklerAudioProcessorEditor::applyLayers()
+{
+    const bool eq = isEqPlateOpen();
+    int sides = eq ? 8 : 0;
+    for (int panel = 0; panel < numLayerPanels; ++panel)
+    {
+        auto& host = *m_layers[static_cast<size_t>(panel)];
+        const bool under = panel == BusBPanel && eq;          // under the EQ plate: nothing of Bus B shows
+        const bool layer = host.showsLayer() && host.getPage() != nullptr;
+        const float alpha = host.sideAlpha();
+        if (layer)
+            sides |= 1 << panel;
+        for (auto* c : layerCovers(panel))
+        {
+            const bool visible = ! under && ! layer;
+            c->setVisible(visible);
+            c->setAlpha(visible ? alpha : 1.0f);
+        }
+        host.setVisible(! under && host.getPage() != nullptr);
+
+        if (panel == RidePanel)
+            continue;
+        // The bus's two notched wheels: on the front each in its own column; with the layer up, the one it belongs to
+        // in the first cell (live, and a second double-click closes it), the other hidden.
+        const int b = panel - 1;
+        const auto& bounds = m_sections[static_cast<size_t>(b)].bounds;
+        const auto target = host.getTarget();
+        for (const int k : { static_cast<int>(ParamIDs::Swirl), static_cast<int>(ParamIDs::Filter) })
+        {
+            auto* knob = m_controls[ParamIDs::bus[b][k]];
+            if (knob == nullptr)
+                continue;
+            const bool front = (k == ParamIDs::Swirl) == (target.kind == Layers::Kind::Swirl);
+            const int column = layer ? 0 : k;
+            knob->setBounds(bounds.getX() + Lay::pad + column * Lay::pitch, bounds.getY() + Lay::knobsY, Lay::pitch,
+                            WheelKnob::cellHeight(WheelKnob::Size::Primary));
+            const bool visible = ! under && (! layer || front);
+            knob->setVisible(visible);
+            knob->setAlpha(layer || ! visible ? 1.0f : alpha);
+        }
+        // Under the EQ plate the scope strip goes too (it is drawn over).
+        if (b == 1)
+            for (auto* c : std::initializer_list<juce::Component*> { &m_flightPath[1], m_direction[1].get(), m_side[1].get(), m_sectionScopes[1].get() })
+                c->setVisible(! under);
+    }
+    m_eqKey.setToggleState(eq, juce::dontSendNotification);
+    if (sides != m_layerSides)
+    {
+        m_layerSides = sides;
+        for (int panel = 0; panel < numLayerPanels; ++panel)
+            m_content.repaint(layerPanelBounds(panel).expanded(4));
+        m_wires.rebuild(); // the cables of hidden controls go, the front wheel's follow it
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::rebuildWireTargets()
+{
+    // Every knob a wire can reach, each track's Semitones box, Swell, and the open pages' wheels (Varispeed).
+    std::map<juce::String, ModTarget*> targets;
+    for (const auto& [id, control] : m_controls)
+        if (ModMatrix::targetIndex(id) >= 0)
+            if (auto* target = dynamic_cast<ModTarget*>(control))
+                targets[id] = target;
+    for (const auto& [id, target] : m_hold.getModTargets())
+        targets[id] = target;
+    targets[ParamIDs::swell] = &m_swell;
+    for (const auto& host : m_layers)
+    {
+        if (host == nullptr)
+            continue;
+        for (auto* target : host->wireTargets())
+        {
+            if (target == nullptr)
+                continue;
+            // Its parameter, by what it types into, its component ID, or (Varispeed, which types nothing) its bus.
+            juce::String id;
+            if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(target->getTypedParameter()))
+                id = withId->paramID;
+            else if (target->getComponentID().isNotEmpty())
+                id = target->getComponentID();
+            else if (host->getTarget().kind == Layers::Kind::Swirl)
+                id = ParamIDs::busDetail[juce::jlimit(0, ParamIDs::numBuses - 1, host->getTarget().bus)][ParamIDs::Varispeed];
+            if (ModMatrix::targetIndex(id) >= 0)
+                targets[id] = target;
+        }
+    }
+    m_wires.setTargets(std::move(targets));
+}
+
+void SwooshbucklerAudioProcessorEditor::updateNotches(bool force)
+{
+    if (! force && (++m_notchTick % 6) != 0)
+        return;
+    auto& state = m_processor.getState();
+    auto choice = [&state](const char* id) { return juce::roundToInt(state.getRawParameterValue(id)->load()); };
+    auto isDefault = [&state](const char* id)
+    {
+        auto* p = state.getParameter(id);
+        return p == nullptr || std::abs(p->getValue() - p->getDefaultValue()) < 1.0e-6f;
+    };
+    const Layers::Target targets[] = { { Layers::Kind::Swirl, 0 }, { Layers::Kind::Swirl, 1 }, { Layers::Kind::Filter, 0 },
+                                       { Layers::Kind::Filter, 1 }, { Layers::Kind::Together, 0 }, { Layers::Kind::Swell, 0 } };
+    static_assert(std::size(targets) == std::tuple_size<decltype(m_notchShown)>::value, "one notch for each layer");
+    for (size_t i = 0; i < std::size(targets); ++i)
+    {
+        const auto t = targets[i];
+        const bool off = Layers::isOffDefault(state, t);
+        // A type off its default is named in the wheel's first tooltip line.
+        const char* typeId = t.kind == Layers::Kind::Swirl ? ParamIDs::busDetail[t.bus][ParamIDs::SwirlType]
+                           : t.kind == Layers::Kind::Filter ? ParamIDs::busDetail[t.bus][ParamIDs::FilterType] : nullptr;
+        const int type = typeId != nullptr && ! isDefault(typeId) ? 1 + choice(typeId) : 0;
+        const auto& host = m_layers[static_cast<size_t>(panelFor(t))];
+        const bool open = host != nullptr && host->isOpen() && host->getTarget() == t;
+        const int shown = (off ? 1 : 0) + 2 * (open ? 1 : 0) + 4 * type + 1;
+        if (! force && shown == m_notchShown[i])
+            continue;
+        m_notchShown[i] = shown;
+        if (t.kind == Layers::Kind::Swell)
+        {
+            m_swell.setNotchFilled(off);
+            continue;
+        }
+        auto* knob = dynamic_cast<WheelKnob*>(m_controls[Layers::frontId(t)]);
+        if (knob == nullptr)
+            continue;
+        knob->setNotch(off ? WheelKnob::Notch::Filled : WheelKnob::Notch::Hollow);
+        // The how-to line says what a double-click does now.
+        knob->getProperties().set("howTo", juce::String(open ? "Double-click to close its layer (or Back, or Esc). "
+                                                             : "Double-click to open what is behind it (or click its notch, the turned corner at its lower left). ")
+                                               + "Shift-double-click to reset it. Right-click for its menu (or Alt-double-click to type a value). "
+                                                 "Drag a Mod jack onto it to modulate it.");
+        if (typeId == nullptr)
+            continue;
+        // Swirl and Filter: what the wheel does in the type it is set to, and what is behind its notch.
+        const juce::String bus = juce::String("Bus ") + ParamIDs::busNames[t.bus];
+        const bool swirl = t.kind == Layers::Kind::Swirl;
+        const int now = juce::jlimit(0, (swirl ? ParamIDs::numSwirlTypes : ParamIDs::numFilterTypes) - 1, choice(typeId));
+        static const char* const swirlTips[ParamIDs::numSwirlTypes] = {
+            "Movement inside the sound: a phaser, then (from about a seventh of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed. With the faders still (Auto Ride off, or Swell held) the passes alone drive the sweep.",
+            "Movement inside the sound: a phaser alone, its notches sweeping through the middle of the sound. The level stays put; only the colour moves.",
+            "Movement inside the sound: a flanger alone, its comb sweeping up as each pass comes close and back down as it leaves. The level stays put; only the colour moves.",
+            "How much of a second copy of the bus is mixed in, on a moving delay that runs either side of the first, so the two pass through zero. Motion (behind the notch) says what moves it, and Varispeed there leans it by hand.",
+            "How much of a delayed copy of the bus is mixed in, wandering a little, for a thicker sound. The level stays put.",
+        };
+        static const char* const filterTips[ParamIDs::numFilterTypes] = {
+            "A filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More: more of it, closing further at the peak, and over the top 40% a resonant edge. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
+            "A high-pass filter that follows each pass: it thins the tail out from the bottom and lets the low end back as the pass swells. More: more of it, and over the top 40% a resonant edge. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
+            "A band-pass filter whose band rises as each pass swells and falls in its tail. More: more of it, and over the top 40% a resonant edge. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
+            "A notch that rises through the sound as each pass swells and falls in its tail. More: more of it. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
+        };
+        const juce::String behind = swirl ? " Behind its notch: the Type (Phaser + Flanger, Phaser, Flanger, Tape Flanger or Doubler) and that type's own controls."
+                                          : " Behind its notch: the type (Low Pass, High Pass, Band Pass or Notch), a 24 dB slope, where it sits closed, Resonance, and a rhythm of its own.";
+        // A type off its default is named in the heading, which the first tooltip line shows.
+        const juce::String heading = bus + ": " + (swirl ? "Swirl" : "Filter")
+                                     + (type == 0 ? juce::String() : " (" + juce::String(swirl ? ParamIDs::swirlTypeNames[now] : ParamIDs::filterTypeNames[now]) + ")");
+        knob->setTooltip(heading + "\n" + (swirl ? swirlTips[now] : filterTips[now]) + behind);
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::showWheelMenu(Layers::Target t, WheelKnob& knob)
+{
+    const juce::String name = t.kind == Layers::Kind::Swirl ? "Swirl" : t.kind == Layers::Kind::Filter ? "Filter" : "Faders Together";
+    const auto& host = *m_layers[static_cast<size_t>(panelFor(t))];
+    const bool open = host.isOpen() && host.getTarget() == t;
+    juce::PopupMenu menu;
+    menu.addItem(1, open ? "Close " + name : "Open " + name + "...");
+    menu.addItem(2, "Type a Value...", knob.getTypedParameter() != nullptr);
+    menu.addItem(3, "Reset");
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&knob),
+                       [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this),
+                        safeKnob = juce::Component::SafePointer<WheelKnob>(&knob), t](int result)
+                       {
+                           if (safe == nullptr || safeKnob == nullptr)
+                               return;
+                           if (result == 1)
+                               safe->toggleLayer(t);
+                           else if (result == 2)
+                               safeKnob->beginTyping();
+                           else if (result == 3)
+                               safeKnob->resetToDefault();
+                       });
+}
+
+void SwooshbucklerAudioProcessorEditor::showSwellMenu()
+{
+    const Layers::Target t { Layers::Kind::Swell, 0 };
+    const auto& host = *m_layers[RidePanel];
+    const bool open = host.isOpen() && host.getTarget() == t;
+    const int mode = juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::swellAuto)->load());
+    juce::PopupMenu menu;
+    menu.addItem(1, open ? juce::String("Close Swell") : juce::String("Open Swell..."));
+    menu.addSectionHeader("Auto Swell");
+    for (int i = 0; i < ParamIDs::numAutoSwells; ++i)
+        menu.addItem(10 + i, ParamIDs::autoSwellNames[i], true, i == mode);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_swell),
+                       [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), t](int result)
+                       {
+                           if (safe == nullptr)
+                               return;
+                           if (result == 1)
+                               safe->toggleLayer(t);
+                           else if (result >= 10 && result < 10 + ParamIDs::numAutoSwells)
+                               if (auto* param = safe->m_processor.getState().getParameter(ParamIDs::swellAuto))
+                               {
+                                   param->beginChangeGesture();
+                                   param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(result - 10)));
+                                   param->endChangeGesture();
+                               }
+                       });
+}
+
+void SwooshbucklerAudioProcessorEditor::setEqPlateOpen(bool open)
+{
+    if (m_eqPlate == nullptr || open == m_eqPlate->isVisible())
+        return;
+    m_eqPlate->setVisible(open);
+    if (open)
+        m_eqPlate->refresh();
+    applyLayers();
+    if (! open)
+        grabKeyboardFocus(); // Esc and the rig's keys come back to the window
+}
+
+void SwooshbucklerAudioProcessorEditor::holdSwell(int by, bool held)
+{
+    const int before = m_swellHolds;
+    m_swellHolds = held ? (m_swellHolds | by) : (m_swellHolds & ~by);
+    // One press for the host from the first hand on it to the last one off.
+    if ((before != 0) != (m_swellHolds != 0))
+        m_processor.setSwellParameter(m_swellHolds != 0);
+}
+
+void SwooshbucklerAudioProcessorEditor::pulseSwell(int milliseconds)
+{
+    holdSwell(HoldByPulse, true);
+    const int generation = ++m_pulseGeneration;
+    juce::Timer::callAfterDelay(milliseconds, [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), generation]
+    {
+        // The window may have gone in the meantime, and a newer pulse keeps it held for its own time.
+        if (safe != nullptr && safe->m_pulseGeneration == generation)
+            safe->holdSwell(HoldByPulse, false);
+    });
 }

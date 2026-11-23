@@ -466,7 +466,7 @@ int main(int argc, char* argv[])
             auto p = plainParams();
             p.rideOn = true;
             p.energy = energy;
-            p.followMaster = follow;
+            p.rideMode = follow ? RigEngine::RideFollowMaster : RigEngine::RideApart;
             rig.setParams(p);
             rig.prepare(c_fs, c_block);
             rig.setParams(p);
@@ -649,7 +649,7 @@ int main(int argc, char* argv[])
         plug.proc.setTrackBus(1, 0);
         plug.proc.setMasterTrack(0);
         plug.proc.setMorphSource(0, 1);
-        plug.set(ParamIDs::rideFollowMaster, 1.0f);
+        plug.set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideFollowMaster));
         check(plug.proc.getCargo().getBusOverride(1) == 0, "bus: set through the plug-in");
         juce::MemoryBlock state;
         plug.proc.getStateInformation(state);
@@ -660,7 +660,7 @@ int main(int argc, char* argv[])
         check(c.getBusOverride(1) == 0 && c.getBusOverride(0) == -1, "bus: the plug-in's state brings the chosen bus back");
         check(c.getMaster() == 0 && c.getLive(0) != nullptr && c.getLive(0)->getContours() != nullptr, "master: the plug-in's state brings the Master back, contours ready");
         check(c.getMorphSource(0) == 1 && c.getMorphSource(1) == -1, "ropes: the plug-in's state brings the ropes back");
-        check(other.plain(ParamIDs::rideFollowMaster) > 0.5f, "follow master: saved with the session");
+        check(juce::roundToInt(other.plain(ParamIDs::rideMode)) == ParamIDs::RideFollowMaster, "follow master: saved with the session");
 
         juce::String what;
         plug.proc.undoEdit(&what); // Follow Master
@@ -673,11 +673,19 @@ int main(int argc, char* argv[])
         plug.proc.redoEdit(&what);
         check(plug.proc.getCargo().getBusOverride(1) == 0, "bus: and redo puts it back");
 
-        // Follow Master is the session's: a preset or Randomise leaves it alone, and it sits at the end of the host's list.
-        check(Presets::isSessionParameter(ParamIDs::rideFollowMaster), "follow master: belongs to the session, not to presets");
+        // Ride Mode (Follow Master's place) is the session's: a preset or Randomise leaves it alone. It comes after
+        // Keys in the host's list, ahead of the parameters added with it.
+        check(Presets::isSessionParameter(ParamIDs::rideMode), "follow master: Ride Mode belongs to the session, not to presets");
         const auto& params = plug.proc.getParameters();
-        auto* last = dynamic_cast<juce::AudioProcessorParameterWithID*>(params.getLast());
-        check(last != nullptr && last->paramID == ParamIDs::rideFollowMaster, "follow master: the newest parameter is the last in the host's list");
+        auto indexOf = [&params](const char* id)
+        {
+            for (int i = 0; i < params.size(); ++i)
+                if (auto* p = dynamic_cast<juce::AudioProcessorParameterWithID*>(params[i]); p != nullptr && p->paramID == id)
+                    return i;
+            return -1;
+        };
+        check(indexOf(ParamIDs::rideMode) == indexOf(ParamIDs::keysMode) + 1 && indexOf(ParamIDs::togetherPeakAt) == indexOf(ParamIDs::rideMode) + 1,
+              "follow master: Ride Mode follows Keys in the host's list, ahead of the parameters added with it");
     }
 
     //==========================================================================

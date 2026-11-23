@@ -16,6 +16,10 @@
 //   - Block sizes: the same samples whatever sizes of block the host asks for (1, 7, 32, 37, 64, 441, a first block
 //     of 7, random sizes), in Stereo, at 7.1.4 and rendering above the device rate; small blocks cost no more.
 //   - Direction on a wire: a square LFO wired to a bus's Direction sets each pass's way as the pass starts.
+//   - The Output EQ in the plug-in: with +12 dB on all four gain bands the Ceiling still holds on every speaker at
+//     every width (the EQ is before the limiters), the latency is what it was, and the mains and the LFE get the same
+//     curve: through a 24 dB an octave Low Cut at 80 Hz the LFE stays in step with the mains. What every band costs
+//     in the whole plug-in at 7.1.4, rendering at 192 kHz.
 //
 // Usage: SwooshbucklerWide [scratch folder]. Run it from a scratch folder; nothing is read from or written to the
 // user's settings.
@@ -30,6 +34,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <complex>
 #include <functional>
 #include <iostream>
 #include <vector>
@@ -793,6 +798,116 @@ int main(int argc, char* argv[])
     }
 
     //==========================================================================
+    std::cout << "The Output EQ in the plug-in" << std::endl;
+    {
+        auto boostAll = [](Plug& plug) {
+            for (const char* id : { ParamIDs::eqLowShelfGain, ParamIDs::eqLowMidGain, ParamIDs::eqHighMidGain, ParamIDs::eqHighShelfGain })
+                plug.setPlain(id, 12.0f);
+        };
+        // +12 dB on every gain band at every width: the Ceiling holds on every speaker (the LFE too, playing the low
+        // end of the mix), and the latency is what it is with the EQ flat.
+        const float ceiling = juce::Decibels::decibelsToGain(-0.3f) * 1.0001f;
+        for (int recordRate : { 0, 96000 })
+            for (auto w : c_widths)
+            {
+                if (recordRate > 0 && w != room::Width::Stereo && w != room::Width::Surround714)
+                    continue;
+                const juce::String at = nameOf(w) + (recordRate > 0 ? " (rendered at 96 kHz)" : "");
+                Plug flat(sources, w, recordRate), boosted(sources, w, recordRate);
+                for (auto* plug : { &flat, &boosted })
+                    plug->setPlain(ParamIDs::roomLfeMode, 2.0f); // Mixdown (it does nothing under 5.1)
+                boostAll(boosted);
+                flat.proc.setPlaying(true);
+                boosted.proc.setPlaying(true);
+                const auto a = flat.run(4.0), b = boosted.run(4.0);
+                float loudest = 0.0f, loudestFlat = 0.0f, lfe = 0.0f, apart = 0.0f;
+                bool finite = true;
+                const int lfeChannel = room::layout(w).lfe;
+                for (int ch = 0; ch < b.getNumChannels(); ++ch)
+                {
+                    const float peak = maxAbs(b.getReadPointer(ch), b.getNumSamples());
+                    finite = finite && std::isfinite(peak);
+                    loudest = std::max(loudest, peak);
+                    loudestFlat = std::max(loudestFlat, maxAbs(a.getReadPointer(ch), a.getNumSamples()));
+                    if (ch == lfeChannel)
+                        lfe = peak;
+                    apart = std::max(apart, maxDiff(a.getReadPointer(ch), b.getReadPointer(ch), b.getNumSamples()));
+                }
+                std::cout << "         " << at << ", +12 dB on four bands: the loudest speaker peaks at " << juce::String(db(loudest), 2) << " dB (flat "
+                          << juce::String(db(loudestFlat), 2) << " dB)" << (lfeChannel >= 0 ? ", the LFE at " + juce::String(db(lfe), 2) + " dB" : juce::String())
+                          << "; latency " << boosted.proc.getLatencySamples() << " (flat " << flat.proc.getLatencySamples() << ")" << std::endl;
+                check(finite && apart > 0.01f, at + ": the EQ is heard");
+                check(loudest <= ceiling, at + ": the Ceiling holds on every speaker with +12 dB on four bands");
+                check(boosted.proc.getLatencySamples() == flat.proc.getLatencySamples(), at + ": the EQ adds no latency");
+                check(boosted.proc.isOutputEqActive() && ! flat.proc.isOutputEqActive(), at + ": the plug-in says whether the EQ is doing anything");
+            }
+
+        // The mains and the LFE through a 24 dB an octave Low Cut at 80 Hz, at 5.1 and 7.1.4 with the LFE on Mixdown
+        // (the low end of the mains, under 120 Hz). Around its corner such a cut turns the phase by half a turn; one
+        // curve on every channel turns the mains and the LFE alike, so the LFE against the mains is where it was
+        // with the EQ flat. (The limiters work between here and the EQ, so this is held in angle, not to the sample.)
+        for (auto w : { room::Width::Surround51, room::Width::Surround714 })
+        {
+            auto render = [&](bool cut) {
+                Plug plug(sources, w, 0);
+                plug.setPlain(ParamIDs::roomLfeMode, 2.0f);
+                if (cut)
+                {
+                    plug.setPlain(ParamIDs::eqLowCut, 80.0f);
+                    plug.setPlain(ParamIDs::eqLowCutSlope, 1.0f);
+                }
+                plug.proc.setPlaying(true);
+                return plug.run(8.0);
+            };
+            const auto flat = render(false), cut = render(true);
+            const int lfeChannel = room::layout(w).lfe, len = flat.getNumSamples();
+            // The LFE against the mains summed, at one frequency: the cross-spectrum over half-second Hann frames.
+            auto against = [&](const juce::AudioBuffer<float>& out, double hz, double& lfePower, double& mainsPower) {
+                const int frame = 24000;
+                std::complex<double> cross = 0.0;
+                lfePower = mainsPower = 0.0;
+                for (int from = 24000; from + frame <= len; from += frame / 2) // (past the start, where the EQ glides in)
+                {
+                    std::complex<double> l = 0.0, m = 0.0;
+                    for (int i = 0; i < frame; ++i)
+                    {
+                        const double window = 0.5 - 0.5 * std::cos(juce::MathConstants<double>::twoPi * (i + 0.5) / frame);
+                        const auto turn = std::polar(window, -juce::MathConstants<double>::twoPi * hz * i / c_fs);
+                        double mains = 0.0;
+                        for (int ch = 0; ch < out.getNumChannels(); ++ch)
+                            if (ch != lfeChannel)
+                                mains += out.getSample(ch, from + i);
+                        l += static_cast<double>(out.getSample(lfeChannel, from + i)) * turn;
+                        m += mains * turn;
+                    }
+                    cross += l * std::conj(m);
+                    lfePower += std::norm(l);
+                    mainsPower += std::norm(m);
+                }
+                return cross;
+            };
+            double worstAngle = 0.0, worstLevel = 0.0;
+            juce::String line;
+            for (double hz : { 60.0, 80.0, 100.0 })
+            {
+                double lf = 0.0, mf = 0.0, lc = 0.0, mc = 0.0;
+                const auto flatCross = against(flat, hz, lf, mf), cutCross = against(cut, hz, lc, mc);
+                const double angle = std::abs(std::arg(cutCross * std::conj(flatCross))) * 180.0 / juce::MathConstants<double>::pi;
+                // How far the cut took the LFE down against how far it took the mains down.
+                const double level = 10.0 * std::log10((lc / lf) / (mc / mf));
+                const double cutDb = 10.0 * std::log10(mc / mf);
+                worstAngle = std::max(worstAngle, angle);
+                worstLevel = std::max(worstLevel, std::abs(level));
+                line << " " << juce::String(hz, 0) << " Hz: mains " << juce::String(cutDb, 1) << " dB, the LFE " << juce::String(level, 2) << " dB from that and "
+                     << juce::String(angle, 1) << " degrees from where it was;";
+            }
+            std::cout << "         " << nameOf(w) << ", Low Cut 80 Hz 24 dB:" << line << std::endl;
+            check(worstAngle < 10.0, nameOf(w) + ": the LFE stays in step with the mains through the Low Cut (within 10 degrees at 60, 80 and 100 Hz)");
+            check(worstLevel < 1.5, nameOf(w) + ": the Low Cut takes the LFE down as far as the mains (within 1.5 dB)");
+        }
+    }
+
+    //==========================================================================
     std::cout << "Speed: the whole plug-in at 7.1.4 against Stereo" << std::endl;
     {
         // Engine, output stage and, rendering above the device's 48 kHz, the downsampler and the monitor limiter.
@@ -813,6 +928,38 @@ int main(int argc, char* argv[])
                       << juce::String(percent[1], 1) << "%" << std::endl;
             check(percent[1] < 100.0, "7.1.4 runs in real time rendering at " + juce::String(recordRate > 0 ? recordRate / 1000 : 48) + " kHz");
         }
+    }
+
+    {
+        // The Output EQ's share: 7.1.4 rendering at 192 kHz, flat against every band in (seven filter sections).
+        double percent[2] = { 0.0, 0.0 };
+        for (int which = 0; which < 2; ++which)
+        {
+            Plug plug(sources, room::Width::Surround714, 192000);
+            if (which == 1)
+            {
+                plug.setPlain(ParamIDs::eqLowCut, 80.0f);
+                plug.setPlain(ParamIDs::eqLowCutSlope, 1.0f);
+                plug.setPlain(ParamIDs::eqHighCut, 12000.0f);
+                plug.setPlain(ParamIDs::eqLowShelfGain, 6.0f);
+                plug.setPlain(ParamIDs::eqLowMidGain, -9.0f);
+                plug.setPlain(ParamIDs::eqHighMidGain, 12.0f);
+                plug.setPlain(ParamIDs::eqHighShelfGain, -6.0f);
+            }
+            plug.proc.setPlaying(true);
+            plug.run(1.0);
+            double best = 1.0e9;
+            for (int pass = 0; pass < 3; ++pass)
+            {
+                const double t0 = TestClock::cpuMs();
+                plug.run(4.0);
+                best = std::min(best, 100.0 * (TestClock::cpuMs() - t0) / 4000.0);
+            }
+            percent[which] = best;
+        }
+        std::cout << "         7.1.4 rendering at 192 kHz: " << juce::String(percent[0], 1) << "% of a core with the Output EQ flat, " << juce::String(percent[1], 1)
+                  << "% with every band in (" << juce::String(percent[1] - percent[0], 2) << "% more; the EQ timed on its own is in the Output EQ test)" << std::endl;
+        check(percent[1] - percent[0] < 3.0, "the Output EQ with every band in adds under 3% of a core to the whole plug-in at 7.1.4 and 192 kHz");
     }
 
     Proc::useSettings(nullptr);
