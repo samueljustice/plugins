@@ -251,6 +251,7 @@ void ModMatrix::changed()
 void ModMatrix::prepare(double sampleRate)
 {
     m_sampleRate = sampleRate > 0.0 ? sampleRate : 48000.0;
+    swellTarget(); // (looked up once, here: the first process() would otherwise build the list of targets, which allocates)
     reset();
 }
 
@@ -342,8 +343,11 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
                 const float in = followerInputs[static_cast<size_t>(which)];
                 const float db = juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, in), -100.0f);
                 const float target = which >= FollowMaster ? juce::jlimit(0.0f, 1.0f, in) : juce::jlimit(0.0f, 1.0f, (db + 40.0f) / 34.0f);
-                const float tau = followerSeconds(set.knob);
-                const float tauNow = target > st.env ? tau * 0.3f : tau;
+                // (A Pass or a Filter input is a place that already moves smoothly: one time both ways, a tenth of
+                // the loudness inputs', so its top is not held back by a slow fall.)
+                const bool place = followsPlace(which);
+                const float tau = followerSeconds(set.knob, which);
+                const float tauNow = target > st.env && ! place ? tau * 0.3f : tau;
                 st.env += (target - st.env) * (1.0f - std::exp(static_cast<float>(-dt) / juce::jmax(0.001f, tauNow)));
                 st.value = st.env;
                 bipolar[si] = false;

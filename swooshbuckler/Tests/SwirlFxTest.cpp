@@ -105,6 +105,7 @@ namespace
         SwirlFx::Doubler doubler;
         float knob = 1.0f;
         std::array<float, 3> passNear {};
+        float filterOpen = 0.0f;
     };
     using Control = std::function<void(double seconds, Step&, SwirlFx&)>;
 
@@ -130,6 +131,7 @@ namespace
                 ln.lane[static_cast<size_t>(l)] = r.out[static_cast<size_t>(l)].data() + at;
             ln.passNearFrom = last;
             ln.passNearTo = step.passNear;
+            ln.filterOpen = step.filterOpen;
             last = step.passNear;
             if (tape)
                 fx.processTape(step.tape, step.knob, ln, chunk);
@@ -1223,6 +1225,69 @@ int main()
         std::cout << "         (Tape Flanger at its defaults over 3 s passes: " << num(level, 2) << " dB against the input, correlation " << num(corr, 2) << ", mono sum " << num(tape, 2) << " dB)" << std::endl;
     }
 
+    std::cout << "Tape Flanger: With the Pass as the engine drives it, and With the Filter" << std::endl;
+    {
+        // passNearFor: what the engine hands over for a nearness and the time to the pass's closest point.
+        const double lead = SwirlFx::c_passLead, hold = SwirlFx::c_passHold, window = SwirlFx::c_passWindowSeconds;
+        double worstFar = 0.0;
+        for (const double near : { 0.0, 0.2, 0.5, 0.77, 1.0 })
+            for (const double s : { -3.0, -window, window, 0.5 })
+                worstFar = std::max(worstFar, std::abs(SwirlFx::passNearFor(near, s) - (1.0 - hold) * near / lead));
+        check(worstFar < 1.0e-12, "passNearFor: outside its window it is (1 - hold) of the nearness over the lead, so the copy is never nearer than hold x Depth out there");
+        check(std::abs(SwirlFx::passNearFor(1.0, 0.0) - 1.0) < 1.0e-12 && std::abs(SwirlFx::passNearFor(0.0, 0.0) - 1.0) < 1.0e-12,
+              "passNearFor: 1 at the closest point (the copy (lead - 1) x Depth early), however near the pass is said to be");
+        // Where it crosses 1 / lead (the copy level with the dry): for a pass that is near all the time, for one that
+        // is near for an instant only, and for one in between. Always inside the window, and the same either side.
+        auto zeroAt = [lead](double sharpness)
+        {
+            // near = 1 / (1 + (s / sharpness)^2): 1 at the closest point, half at `sharpness` seconds.
+            for (double s = 0.0; s < 1.0; s += 1.0e-5)
+                if (SwirlFx::passNearFor(1.0 / (1.0 + (s / sharpness) * (s / sharpness)), s) < 1.0 / lead)
+                    return s;
+            return 1.0;
+        };
+        const double wide = zeroAt(1000.0), middling = zeroAt(0.1), sharp = zeroAt(0.001);
+        std::cout << "         the copy is level with the dry " << num(1000.0 * wide, 1) << " ms either side of the closest point for a pass that stays near, " << num(1000.0 * middling, 1)
+                  << " ms for one half as near 100 ms away, " << num(1000.0 * sharp, 1) << " ms for one near for a millisecond (the window is " << num(1000.0 * window, 0) << " ms)" << std::endl;
+        check(wide < window && wide > sharp && sharp > 0.2 * window && middling <= wide && middling >= sharp,
+              "passNearFor: the zero is inside the window whatever the pass, between " + num(1000.0 * sharp, 1) + " and " + num(1000.0 * wide, 1) + " ms from the closest point");
+        bool even = true;
+        for (double s = 0.0; s < 0.2; s += 0.001)
+            even = even && SwirlFx::passNearFor(0.6, s) == SwirlFx::passNearFor(0.6, -s);
+        check(even, "passNearFor: the same before the closest point as after it");
+
+        // With the Filter: d = Depth (1 - lead x open), 30 ms behind; Depth late with the filter closed.
+        const auto in = sine(1000.0, fs, 6.5, 0.1f);
+        auto openOf = [](double t) { return static_cast<float>(0.5 - 0.5 * std::cos(2.0 * c_pi * t / 2.0)); }; // 0 .. 1, a sweep every 2 s
+        const auto swept = splitTape(in, fs, 0, 1, [=](double t, Step& s, SwirlFx&)
+        {
+            s.tape.motion = SwirlFx::WithFilter;
+            s.tape.depthMs = 4.0f;
+            s.tape.wobble = 0.0f;
+            s.filterOpen = openOf(t);
+            s.passNear = { 1.0f, 1.0f, 1.0f }; // (not what it goes by)
+        });
+        const auto d = delayFromPhase(swept.wet, swept.dry, 1000.0, fs, 0.05, 6.4, swept.run.offset[0][swept.run.chunkAt(0.05)]);
+        double worst = 0.0;
+        for (double t = 2.2; t < 6.2; t += 0.01)
+            worst = std::max(worst, std::abs(d[static_cast<size_t>(t * fs)] - 4.0 * (1.0 - SwirlFx::c_filterLead * static_cast<double>(openOf(t - 0.03)))));
+        const double closed = d[static_cast<size_t>(4.03 * fs)], open = d[static_cast<size_t>(5.03 * fs)];
+        std::cout << "         With the Filter, Depth 4 ms: " << num(closed, 2) << " ms with the filter closed, " << num(open, 2) << " ms at its most open; off the law by " << num(worst * 1000.0, 1) << " us at most" << std::endl;
+        check(worst < 0.02, "with the filter: d = Depth (1 - " + num(SwirlFx::c_filterLead, 2) + " open), 30 ms behind");
+        check(std::abs(closed - 4.0) < 0.05 && std::abs(open + 4.0 * (SwirlFx::c_filterLead - 1.0)) < 0.05,
+              "with the filter: Depth late while it is closed, (lead - 1) x Depth early at its most open");
+        // Rate rests in it as it does With the Pass: nothing of On Its Own's sweep is in the move.
+        const auto fast = splitTape(in, fs, 0, 1, [=](double t, Step& s, SwirlFx&)
+        {
+            s.tape.motion = SwirlFx::WithFilter;
+            s.tape.depthMs = 4.0f;
+            s.tape.wobble = 0.0f;
+            s.tape.rateHz = 4.0f;
+            s.filterOpen = openOf(t);
+        });
+        check(fast.run.offset[0] == swept.run.offset[0], "with the filter: Rate changes nothing");
+    }
+
     std::cout << "No allocation, and a clean start" << std::endl;
     {
         SwirlFx fx;
@@ -1244,9 +1309,10 @@ int main()
                 ln.lane[l] = lane[l].data() + at;
             if (calls % 97 == 13)
                 ln.lane[2] = nullptr; // no throw in flight
-            ln.passNearTo = { 0.3f, 0.6f, 0.9f };
+            ln.passNearTo = { 0.3f, 0.6f, static_cast<float>(SwirlFx::passNearFor(0.9, 0.001 * (calls % 300 - 150))) };
+            ln.filterOpen = static_cast<float>(calls % 200) / 200.0f;
             const int phase = (calls / 400) % 5;
-            tape.motion = calls / 150 % 3;
+            tape.motion = calls / 150 % 4;
             tape.varispeed = phase == 1 ? 1.0f : (phase == 3 ? -1.0f : 0.0f);
             doubler.wave = calls / 150 % 3;
             doubler.thicken = calls / 300 % 2 == 0;

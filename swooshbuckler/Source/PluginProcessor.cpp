@@ -508,6 +508,7 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
                       && static_cast<int>(SweepFilter::c_types) == static_cast<int>(ParamIDs::numFilterTypes)
                       && static_cast<int>(SweepFilter::c_shapes) == static_cast<int>(ParamIDs::numFilterShapes)
                       && static_cast<int>(SwirlFx::ByHand) == static_cast<int>(ParamIDs::TapeByHand)
+                      && static_cast<int>(SwirlFx::WithFilter) == static_cast<int>(ParamIDs::TapeWithFilter)
                       && static_cast<int>(SwirlFx::WaveTriangle) == static_cast<int>(ParamIDs::WaveTriangle), "the same detail choices");
         auto detail = [&](int k) { return m_raw.busDetail[b][k]->load(); };
         auto choice = [&](int k, int count) { return juce::jlimit(0, count - 1, juce::roundToInt(detail(k))); };
@@ -928,6 +929,13 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             m_followerLevels[ModMatrix::FollowMaster] = master[0];
             m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
             m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
+            // Where each bus's whoosh and filter are (places, not loudness). The engine that renders tells its own
+            // modulators, on this thread: nothing is shared, and a render or an audition reads its own engine.
+            const auto places = m_engine.takeFollowerPlaces();
+            m_followerLevels[ModMatrix::FollowPassA] = places.pass[0];
+            m_followerLevels[ModMatrix::FollowPassB] = places.pass[1];
+            m_followerLevels[ModMatrix::FollowFilterA] = places.filter[0];
+            m_followerLevels[ModMatrix::FollowFilterB] = places.filter[1];
         }
         publishOutputPeak(preTrimPeak, len);
         publishChannelPeaks(channelPeaks.data(), len);

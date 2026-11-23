@@ -13,8 +13,9 @@
  *
  *   LFO      : sine, triangle, ramp, square or steps (sample and hold), bipolar
  *   Random   : a smooth random walk, bipolar
- *   Follower : follows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness,
- *              pitch or brightness, unipolar
+ *   Follower : follows the loudness of bus A, bus B, the hits or the output, the Master track's loudness,
+ *              pitch or brightness, or where a bus's whoosh or its filter is (how near the pass is to its
+ *              middle, how open the filter is), unipolar
  *   Macro    : a knob you turn (or automate), unipolar
  *
  * A wire adds depth x modulator to the knob's own (normalised) value. The parameter
@@ -84,10 +85,20 @@ public:
     };
 
     /** What a Follower can listen to. The first five are the RMS of the last block of each; the Master ones are
-        the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range. */
+        the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range.
+        The last four are places, not loudness (RigEngine::takeFollowerPlaces), already 0..1: how near a bus's
+        whoosh is to its middle in time (1 as the pass is closest), and how open a bus's filter is (0 closed .. 1
+        fully open). New inputs go at the end: the choice is saved by its number. */
     enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowStow, FollowOutput,
-                         FollowMaster, FollowMasterPitch, FollowMasterBright, c_numFollowerInputs };
-    static juce::StringArray followerNames() { return { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }; }
+                         FollowMaster, FollowMasterPitch, FollowMasterBright,
+                         FollowPassA, FollowPassB, FollowFilterA, FollowFilterB, c_numFollowerInputs };
+    static juce::StringArray followerNames()
+    {
+        return { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness",
+                 "Bus A Pass", "Bus B Pass", "Bus A Filter", "Bus B Filter" };
+    }
+    /** A Pass or a Filter input: a place that already moves smoothly, followed alike both ways. */
+    static bool followsPlace(int input) { return input >= FollowPassA && input < c_numFollowerInputs; }
     using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);
@@ -132,6 +143,10 @@ public:
     static float rateHz(float knob) { return 0.05f * std::pow(160.0f, juce::jlimit(0.0f, 1.0f, knob)); } // 0.05 .. 8 Hz
     /** Follower release time (its attack is 0.3x this): 2 s .. 26 ms (faster is finer than it updates). */
     static float followerSeconds(float knob) { return 2.0f * std::pow(0.0133f, juce::jlimit(0.0f, 1.0f, knob)); }
+    /** The same for an input: a Pass or a Filter input is followed in a tenth of that (200 ms .. 2.6 ms), up and
+        down alike, so it is as late on the way up as on the way down and the top stays where it is. */
+    static constexpr float c_placeShare = 0.1f;
+    static float followerSeconds(float knob, int input) { return (followsPlace(input) ? c_placeShare : 1.0f) * followerSeconds(knob); }
     static juce::String typeName(Type t);
     static juce::String shapeName(Shape s);
 

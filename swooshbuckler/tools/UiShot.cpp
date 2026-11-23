@@ -67,6 +67,11 @@
 //                             once with wires on Swell and Varispeed (and the front again after Back), the Output EQ
 //                             plate over Bus B, flat and with a curve, the EQ key drawing that curve
 //                             (--layers writes only these, and checks their texts)
+//   follow-pass.png follow-filter.png follow-menu.png motion-with-filter.png motion-menu.png
+//   motion-with-filter-resting.png (and window-... of each)
+//                             a Follower on Bus A Pass and on Bus A Filter (its scope drawing them), its menu open with
+//                             the four Pass and Filter inputs; bus A's Tape Flanger page With the Filter, Motion's menu
+//                             open, and the Motion box resting with Filter at 0% (--follow writes only these)
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //   speakers-dialog.png       the app asking before a change of Speakers empties the Last 60 s memory
@@ -96,7 +101,10 @@
 #include "FakeAudioDevice.h"
 #include "DemoSounds.h"
 
+#include <functional>
 #include <iostream>
+#include <set>
+#include <vector>
 
 namespace
 {
@@ -115,7 +123,7 @@ namespace
         juce::File out, work, state;
         float scale = 1.0f;
         double seconds = 3.0;
-        bool list = false, images = true, constellation = false, sea = false, docs = false, layersOnly = false;
+        bool list = false, images = true, constellation = false, sea = false, docs = false, layersOnly = false, followOnly = false;
     };
 
     /** One state of the window: its picture, and the texts in it. */
@@ -320,6 +328,140 @@ namespace
             if (auto* param = proc.getState().getParameter(id))
                 param->setValueNotifyingHost(param->getDefaultValue());
         rig.run(0.3);
+    }
+}
+
+namespace
+{
+    /** The Followers' Pass and Filter inputs and the Tape Flanger's With the Filter: the Follower card's menu open
+        (follow-menu.png), the card on Bus A Pass and on Bus A Filter with its scope drawing them
+        (follow-pass.png, follow-filter.png), bus A's Tape Flanger page with Motion's menu open (motion-menu.png), with
+        With the Filter in use (motion-with-filter.png) and with it resting because Filter is at 0%
+        (motion-with-filter-resting.png). Everything is put back as it was. */
+    void shootFollowers(Shots& shots, Rig& rig, Proc& proc)
+    {
+        auto& ed = *rig.editor;
+        auto set = [&](const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        };
+        auto settle = [&]()
+        {
+            for (auto& host : ed.m_layers)
+                host->finishFold();
+            ed.applyLayers();
+            ed.updateNotches(true);
+            rig.run(0.4);
+        };
+        // A box's own menu, open inside the window under the box, with the choice in use ticked (as the box shows it).
+        auto shootMenu = [&](juce::ComboBox& box, const juce::String& name, juce::Rectangle<int> cropTo)
+        {
+            juce::PopupMenu menu = *box.getRootMenu();
+            for (juce::PopupMenu::MenuItemIterator it(menu, true); it.next();)
+                it.getItem().isTicked = it.getItem().itemID == box.getSelectedId();
+            std::set<juce::Component*> before;
+            for (auto* child : ed.getChildren())
+                before.insert(child);
+            menu.setLookAndFeel(&box.getLookAndFeel());
+            menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(box).withParentComponent(&ed).withMinimumWidth(box.getWidth()), [](int) {});
+            juce::Component* window = nullptr;
+            for (auto* child : ed.getChildren())
+                if (before.count(child) == 0 && child->isVisible())
+                    window = child;
+            juce::Rectangle<int> menuArea; // in the window's own (unscaled) coordinates
+            if (window != nullptr)
+            {
+                // Under the box, or over it where there is no room under (as a box near the bottom of a screen does).
+                const auto under = ed.getLocalArea(&box, box.getLocalBounds());
+                const int height = juce::roundToInt(static_cast<float>(window->getHeight()) * rig.scale);
+                const int top = under.getBottom() + height <= ed.getHeight() ? under.getBottom() : under.getY() - height;
+                window->setTransform({});
+                window->setTopLeftPosition(under.getX(), top);
+                window->setTransform(juce::AffineTransform::scale(rig.scale, rig.scale, static_cast<float>(under.getX()), static_cast<float>(top)));
+                menuArea = (juce::Rectangle<int>(under.getX(), top, juce::roundToInt(static_cast<float>(window->getWidth()) * rig.scale), height).toFloat() / rig.scale).getSmallestIntegerContainer();
+            }
+            const auto image = shots.shoot("window-" + name, window);
+            shots.crop(image, name, cropTo.getUnion(menuArea));
+            juce::PopupMenu::dismissAllActiveMenus();
+            rig.run(0.2);
+        };
+
+        // The Follower card (Mod 4 in a new session).
+        const int source = 3;
+        std::vector<juce::ComboBox*> followBoxes;
+        std::function<void(juce::Component&)> walk = [&](juce::Component& c)
+        {
+            for (auto* child : c.getChildren())
+            {
+                if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getNumItems() > 0 && box->getItemText(0) == "Bus A")
+                    followBoxes.push_back(box);
+                walk(*child);
+            }
+        };
+        walk(ed.m_modPanel);
+        proc.setPlaying(true);
+        if (followBoxes.size() == 4)
+        {
+            auto& follow = *followBoxes[static_cast<size_t>(source)];
+            set(ParamIDs::modType[source], 2.0f);
+            set(ParamIDs::modKnob[source], 0.9f);
+            const int wire = proc.getMods().connect(source, ParamIDs::bus[0][ParamIDs::Swirl], 0.6f);
+            set(ParamIDs::modFollow[source], static_cast<float>(ModMatrix::FollowPassA));
+            ed.m_wires.rebuild();
+            rig.run(4.0);
+            shots.crop(shots.shoot("window-follow-pass"), "follow-pass", ed.m_modSection);
+            shootMenu(follow, "follow-menu", ed.m_modSection);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.5f);
+            set(ParamIDs::modFollow[source], static_cast<float>(ModMatrix::FollowFilterA));
+            rig.run(4.0);
+            shots.crop(shots.shoot("window-follow-filter"), "follow-filter", ed.m_modSection);
+            proc.getMods().disconnect(wire);
+            ed.m_wires.rebuild();
+            for (const auto* id : { ParamIDs::modType[source], ParamIDs::modKnob[source], ParamIDs::modFollow[source] })
+                proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+        }
+        else
+        {
+            std::cout << "FAULT in follow-menu: the four Follower menus were not found" << std::endl;
+            ++shots.faults;
+        }
+
+        // Bus A's Tape Flanger page: Motion's menu, With the Filter in use, and resting with Filter at 0%.
+        {
+            const Layers::Target t { Layers::Kind::Swirl, 0 };
+            const auto* filterParam = proc.getState().getParameter(ParamIDs::bus[0][ParamIDs::Filter]);
+            const float filterWas = filterParam->convertFrom0to1(filterParam->getValue());
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            set(ParamIDs::busDetail[0][ParamIDs::TapeMotion], static_cast<float>(ParamIDs::TapeWithFilter));
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.5f);
+            ed.openLayer(t);
+            settle();
+            const auto panel = ed.layerPanelBounds(Editor::panelFor(t));
+            shots.crop(shots.shoot("window-motion-with-filter"), "motion-with-filter", panel);
+            juce::ComboBox* motion = nullptr;
+            if (auto* page = ed.m_layers[static_cast<size_t>(Editor::panelFor(t))]->getPage())
+                for (auto* child : page->getChildren())
+                    if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getTitle().endsWith(": Motion"))
+                        motion = box;
+            if (motion != nullptr)
+                shootMenu(*motion, "motion-menu", panel);
+            else
+            {
+                std::cout << "FAULT in motion-menu: the Motion box was not found" << std::endl;
+                ++shots.faults;
+            }
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.0f);
+            rig.run(0.5);
+            shots.crop(shots.shoot("window-motion-with-filter-resting"), "motion-with-filter-resting", panel);
+            set(ParamIDs::bus[0][ParamIDs::Filter], filterWas);
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+            for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[0][ParamIDs::TapeMotion], ParamIDs::busDetail[0][ParamIDs::FilterSweep] })
+                proc.getState().getParameter(id)->setValueNotifyingHost(proc.getState().getParameter(id)->getDefaultValue());
+            rig.run(0.3);
+        }
     }
 }
 
@@ -669,10 +811,11 @@ int main(int argc, char* argv[])
         else if (a == "--sea") options.sea = true;
         else if (a == "--docs") options.docs = true;
         else if (a == "--layers") options.layersOnly = true;
+        else if (a == "--follow") options.followOnly = true;
         else
         {
             std::cerr << "Unknown option " << a << "\nUsage: SwooshbucklerUiShot --out <dir> [--scale 1.0] [--seconds 3] [--state <session file>] "
-                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs] [--layers]" << std::endl;
+                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs] [--layers] [--follow]" << std::endl;
             return 2;
         }
     }
@@ -732,6 +875,15 @@ int main(int argc, char* argv[])
         rig.run(options.seconds);
 
         // --layers: only the layers' pictures (shootLayers), and done.
+        if (options.followOnly)
+        {
+            shootFollowers(shots, rig, proc);
+            proc.setPlaying(false);
+            const int found = shots.faults, counted = shots.texts;
+            rig.editor.reset();
+            std::cout << counted << " texts checked, " << found << " faults" << std::endl;
+            return found == 0 ? 0 : 1;
+        }
         if (options.layersOnly)
         {
             shootLayers(shots, rig, proc);
@@ -789,6 +941,8 @@ int main(int argc, char* argv[])
 
         // The layers, the notches and the EQ plate (shootLayers).
         shootLayers(shots, rig, proc);
+        // The Followers' Pass and Filter inputs and With the Filter (shootFollowers).
+        shootFollowers(shots, rig, proc);
 
         // What the rig says back: the toast's plate at the top of the open water, risen into place.
         {

@@ -77,8 +77,18 @@ public:
         most. */
     static float cutoffHz(const Settings& s, float f, float peakness, float lfo, float sampleRate)
     {
+        return placeHz(s, openHz(s, f, peakness, lfo, sampleRate), sampleRate);
+    }
+    /** How open the filter is, as a frequency: where a Low Pass would be (cutoffHz() before each type's place on
+        the axis). */
+    static float openHz(const Settings& s, float f, float peakness, float lfo, float sampleRate)
+    {
+        return sj::clamp(s.closedAtHz * std::exp2(octaves(s, f, peakness, lfo)), 20.0f, 0.45f * sampleRate);
+    }
+    /** openHz() placed for the type in `s` (see cutoffHz()). */
+    static float placeHz(const Settings& s, float open, float sampleRate)
+    {
         const float top = 0.45f * sampleRate;
-        const float open = sj::clamp(s.closedAtHz * std::exp2(octaves(s, f, peakness, lfo)), 20.0f, top);
         switch (s.type)
         {
             case HighPass: return sj::clamp(c_mirrorHz2 / open, 20.0f, top);
@@ -87,6 +97,33 @@ public:
             default:       return open;
         }
     }
+    /** How open the filter is on the whole of its travel (0 closed .. 1 fully open), for an openHz(): a straight
+        line on the log-frequency axis from the lowest it can be with these settings (Closed At, less Sweep's three
+        octaves) to the highest it can be at any place of the front wheel (seven octaves over Closed At, plus
+        Sweep's three), each within 20 Hz and 0.45 fs. The front wheel is not in the ends, so turning it (or a
+        modulator on it) moves the answer as it moves the filter. */
+    static float openness(const Settings& s, float open, float sampleRate)
+    {
+        const float top = 0.45f * sampleRate;
+        const float swing = c_sweepOctaves * sj::clamp(s.sweep, 0.0f, 1.0f);
+        const float lo = sj::clamp(s.closedAtHz * std::exp2(-swing), 20.0f, top);
+        const float hi = sj::clamp(s.closedAtHz * std::exp2(c_followOctaves + swing), 20.0f, top);
+        if (! (hi > lo * 1.001f))
+            return 0.0f;
+        return sj::clamp(std::log(std::max(open, 1.0f) / lo) / std::log(hi / lo), 0.0f, 1.0f);
+    }
+    /** How far up its present travel the filter is (0 at the bottom .. 1 at the top), for an openHz() and the front
+        wheel f: the travel Follow and Sweep give it where the wheel is now (from the whoosh at nothing and the
+        rhythm at its lowest to the whoosh at its peak and the rhythm at its highest). 0 when that travel is under
+        c_stillOctaves: a filter that stands still has no most open moment. */
+    static float travel(const Settings& s, float f, float open, float sampleRate)
+    {
+        const float lo = openHz(s, f, 0.0f, -1.0f, sampleRate), hi = openHz(s, f, 1.0f, 1.0f, sampleRate);
+        if (! (hi > lo * std::exp2(c_stillOctaves)))
+            return 0.0f;
+        return sj::clamp(std::log(std::max(open, 1.0f) / lo) / std::log(hi / lo), 0.0f, 1.0f);
+    }
+    static constexpr float c_followOctaves = 7.0f, c_stillOctaves = 0.05f;
     static constexpr float c_mirrorHz2 = 20.0f * 22000.0f, c_centreMaxHz = 12000.0f, c_sweepOctaves = 3.0f;
     static float q(const Settings& s, float f)
     {
@@ -177,6 +214,26 @@ public:
     }
     /** The rhythm's value now (-1..1), as advance() last returned it. */
     float getRhythm() const { return m_lfo; }
+    /** The rhythm's value `seconds` from now, if nothing is changed meanwhile (-1..1). Sine and Triangle: exact.
+        The ramps and Square: their shape there, without the 4 ms their edges take. Random: the level it holds now
+        (the next one has not been drawn). */
+    float ahead(const Settings& s, float seconds) const
+    {
+        double phase = m_phase + static_cast<double>(sj::clamp(s.rateHz, 0.05f, 20.0f)) * static_cast<double>(seconds);
+        phase -= std::floor(phase);
+        const float ph = static_cast<float>(phase);
+        switch (s.shape)
+        {
+            case Triangle: { const float u = ph + 0.25f; return 1.0f - 4.0f * std::abs(u - std::floor(u) - 0.5f); }
+            case RampUp:   return 2.0f * ph - 1.0f;
+            case RampDown: return 1.0f - 2.0f * ph;
+            case Square:   return ph < 0.5f ? 1.0f : -1.0f;
+            case Random:   return m_lfo;
+            default:       return std::sin(sj::c_twoPi * ph);
+        }
+    }
+    /** Where the filter is right now (Hz, as placed for its type): the last chunk's end, smoothers and all. */
+    float getHz() const { return static_cast<float>(std::exp(m_s2)); }
     /** This chunk's filter: the type and slope from `s`, where it is (cutoffHz(), already placed for the type) and
         q() at the end of the chunk. */
     void setTarget(const Settings& s, float cutoff, float qValue)

@@ -453,6 +453,27 @@ public:
         against its dry in a bus's Tape Flanger or Doubler, in ms (SwirlFx::getLaneOffsetMs), and the Swirl type in use. */
     float getSwirlLaneOffsetMs(int bus, int lane) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].swirlFx.getLaneOffsetMs(lane); }
     int getSwirlTypeInUse(int bus) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].swirlType; }
+    /** What the Followers' Pass and Filter inputs read, bus by bus (audio thread, after process(): plain values the
+        thread that renders hands to its own modulators, so nothing is shared or locked, and an offline render's
+        engine tells its own).
+        pass: how near the bus's whoosh is to its middle in time, 0 far .. 1 at the closest point of the pass (the
+        pass's marker), from where the passes are and never from how loud anything is: the nearest of the bus's
+        two passes and any throw in flight, each its window times its nearness against that at its closest point
+        (what Swirl's Flanger sweeps by). Faders Together puts the passes on the clock, so it tops out on the
+        swell's peak. The most it has been since the last call (a close pass is at 1 for a moment only).
+        filter: how open the bus's filter is right now on the whole of its travel, 0 closed .. 1 fully open
+        (SweepFilter::openness): the front wheel with its modulation, Follow and the filter's own rhythm are all in
+        it. As of the last chunk rendered. */
+    struct FollowerPlaces
+    {
+        std::array<float, c_maxBuses> pass {}, filter {};
+    };
+    FollowerPlaces takeFollowerPlaces();
+    /** The same as of the last chunk rendered, without taking anything (the tests read these chunk by chunk), and
+        where the bus's filter itself is (Hz, as placed for its type, its smoothing included). */
+    float getPassNear(int bus) const { return m_passNearNow[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
+    float getFilterOpen(int bus) const { return m_filterOpenNow[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
+    float getFilterHz(int bus) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].sweep.getHz(); }
     /** The width to render: Mono and Stereo are the stereo engine (a Mono output folds it itself); Quad and wider
         is the room. Before prepare(), or on the audio thread between process() calls: from one room width to
         another the speakers' gains glide across the next chunk; between stereo and a room the output fades out
@@ -1283,6 +1304,8 @@ private:
     std::atomic<float> m_cycleSecondsView { 3.5f };
     std::atomic<bool> m_autoSwellView { false };
     std::array<std::atomic<float>, c_maxBuses> m_varispeedView {};
+    // For the Followers (takeFollowerPlaces; the audio thread's own).
+    std::array<float, c_maxBuses> m_passNearNow {}, m_passNearMost {}, m_filterOpenNow {};
     // The Master track (see getMasterFollow), the smoothed loudness the rides follow, and how far Follow Master is in.
     std::array<float, 3> m_masterFollow {};
     float m_masterRide = 0.0f, m_followMix = 0.0f;

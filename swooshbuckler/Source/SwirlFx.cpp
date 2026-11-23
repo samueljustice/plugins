@@ -30,6 +30,18 @@ double SwirlFx::leanSpeed(double varispeed)
     return v < 0.0 ? -s : s;
 }
 
+double SwirlFx::passNearFor(double near, double secondsFromClosest)
+{
+    // The bump: 1 at the closest point, 0 from c_passWindowSeconds either side of it on.
+    const double x = std::abs(secondsFromClosest) / c_passWindowSeconds;
+    const double c = x < 1.0 ? std::cos(0.5 * c_pi * x) : 0.0;
+    const double bump = c * c;
+    // The nearness is at least the bump (a pass that is near for an instant only still gets its sweep), and the
+    // last of the way to the dry and past it is the bump's alone: motion = Depth (1 - (1 - hold) n - (hold + lead - 1) bump).
+    const double n = std::max(std::clamp(near, 0.0, 1.0), bump);
+    return ((1.0 - c_passHold) * n + (c_passHold + c_passLead - 1.0) * bump) / c_passLead;
+}
+
 double SwirlFx::ownShape(double phase)
 {
     const double p = phase - std::floor(phase);
@@ -227,6 +239,8 @@ void SwirlFx::processTape(const Tape& settings, float knob, const Lanes& lanes, 
         double motion = own;
         if (settings.motion == WithPass)
             motion = depth * (1.0 - c_passLead * std::clamp(static_cast<double>(lanes.passNearTo[static_cast<size_t>(l)]), 0.0, 1.25));
+        else if (settings.motion == WithFilter)
+            motion = depth * (1.0 - c_filterLead * std::clamp(static_cast<double>(lanes.filterOpen), 0.0, 1.0));
         else if (settings.motion != OnItsOwn)
             motion = depth; // By Hand: the copy waits Depth late, and a lean brings it through the dry and back
         const double target = motion + m_hand;

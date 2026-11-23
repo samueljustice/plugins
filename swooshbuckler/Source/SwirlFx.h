@@ -27,8 +27,17 @@
  *   line's 16-point sinc under it (c_sincBelowHz), where the cubic's loss at the top would be heard to change as
  *   the copy moves.
  *   d = stops(settle(motion + hand)), in ms, positive = the copy later than the dry.
- *     With the Pass: motion = Depth (1 - c_passLead passNear): late when the pass is far, through zero just before
- *       its closest point, (c_passLead - 1) Depth early at it and back through zero just after.
+ *     With the Pass: motion = Depth (1 - c_passLead passNear), and passNear is the engine's: passNearFor() of how
+ *       near the pass is and how long it is until its closest point. Late when the pass is far ((1 - c_passHold)
+ *       of the nearness, so the copy is never level with the dry out there), and through zero inside
+ *       c_passWindowSeconds either side of the closest point whatever the pass's length and however near it comes:
+ *       (c_passLead - 1) Depth early at the closest point itself. The engine asks for the pass as it will be
+ *       c_settleLagSeconds on less the clean path's length, so that what settle makes of it sits on the middle of
+ *       the whoosh as it is heard (measured in SwirlWireTest, "centre").
+ *     With the Filter: motion = Depth (1 - c_filterLead filterOpen): the same, by how far up its present travel the
+ *       bus's filter is (SweepFilter::travel, the engine's, with the filter's own rhythm read the settle's time
+ *       ahead): late while the filter is closed, through zero as it nears its most open, (c_filterLead - 1) Depth
+ *       early there. A filter that stands still, or is not in at all, leaves the copy Depth late.
  *     On Its Own: motion = min(Depth, 8 ms Hz / Rate) sin(2 pi w(phase)), w(p) = p - c_ownWarp sin^2(pi p): the late
  *       half takes 60% of the cycle and the turn on the early side is the quick one. The cap holds the pitch swing
  *       near +-6% (measured in SwirlFxTest).
@@ -75,6 +84,8 @@
  *     silence goes into its line, so a lane that comes back (a throw) starts clean.
  *   - Lanes::passNearFrom / passNearTo: the engine's, for With the Pass (see Lanes). Only passNearTo is read: the
  *     motion goes from where the last call ended to it.
+ *   - Lanes::filterOpen: the engine's, for With the Filter (see Lanes): 0 while the bus's Filter wheel is at 0 or
+ *     nothing moves the filter.
  *   - delaySides(): the stereo bed's side signal, delayed by the same dry ring while Tape Flanger is on (it rejoins
  *     after the colours). Called every chunk the type is Tape Flanger, after processTape().
  *   - dryDelaySamples(): how long the dry ring is (c_dryMs in whole samples at this rate; the same from prepare()
@@ -97,6 +108,11 @@ public:
     // Tape Flanger, With the Pass: how far past zero the copy is at the pass's closest point (1.15 .. 1.5; see the
     // class comment and the measurements in SwirlFxTest).
     static constexpr double c_passLead = 1.3;
+    // With the Pass: the time either side of the pass's closest point in which the copy is brought through zero,
+    // and how much of the copy's lateness is left with the pass at its nearest outside that time.
+    static constexpr double c_passWindowSeconds = 0.08, c_passHold = 0.2;
+    // With the Filter: the same lead for the filter's place in its travel (zero at 1 / c_filterLead of the way up).
+    static constexpr double c_filterLead = 1.15;
     // On Its Own: the warp that gives the late side 60% of the cycle (0.1 / sin^2(0.6 pi)).
     static constexpr double c_ownWarp = 0.11056;
     static constexpr double c_ownSwingMsHz = 8.0;
@@ -115,7 +131,7 @@ public:
     static constexpr double c_thickenGain = 0.65, c_thickenEndMs = 45.0, c_thickenPower = 1.2, c_doublerFeedback = 0.68;
     static constexpr double c_spreadSecond = 1.3, c_spreadThird = 1.15, c_doublerSmoothSeconds = 0.005;
 
-    enum Motion { WithPass = 0, OnItsOwn, ByHand };
+    enum Motion { WithPass = 0, OnItsOwn, ByHand, WithFilter };
     enum Wave { WaveRandom = 0, WaveSine, WaveTriangle };
 
     /** Tape Flanger's settings (ParamIDs::busDetail TapeMotion .. Varispeed, in plain units). */
@@ -140,13 +156,16 @@ public:
         float feedback = 0.0f;  // -1 .. 1 (the loop gain is 0.68 x this)
     };
     /** The lanes of one chunk: left and right (stereo) or a room's first pass, second pass and throws. passNear: for
-        Tape Flanger With the Pass, each lane's nearness to its pass against its value at the closest point of that
-        pass (0 far .. 1 at the closest), at the start and the end of the chunk. */
+        Tape Flanger With the Pass, how far each lane's pass has brought its copy (0 far .. 1 at the closest point;
+        the copy is level with the dry at 1 / c_passLead): passNearFor() from the engine, or a plain nearness. At the
+        start and the end of the chunk. filterOpen: for With the Filter, how far up its present travel the bus's
+        filter is (0 closed .. 1 most open), every lane alike, at the end of the chunk. */
     struct Lanes
     {
         std::array<float*, c_lanes> lane {};
         int count = 2;
         std::array<float, c_lanes> passNearFrom {}, passNearTo {};
+        float filterOpen = 0.0f;
     };
 
     /** The wet's share for the front Swirl wheel (0..1): m = 0.5 knob^0.7, equal power. */
@@ -155,6 +174,13 @@ public:
         faster), On Its Own's place in its sweep (-1 .. 1) for a phase, the Doubler's widest wander (ms) at a rate,
         Thicken's loop gain at a delay, and the end stops. */
     static double leanSpeed(double varispeed);
+    /** With the Pass: what Lanes::passNear is for a pass `near` its closest point (0 far .. 1 there) with
+        `secondsFromClosest` to go to it (negative) or gone since (positive). Outside c_passWindowSeconds it is
+        (1 - c_passHold) near / c_passLead; inside, a raised cosine brings it to 1 at the closest point. */
+    static double passNearFor(double near, double secondsFromClosest);
+    /** How long settle takes to pass a slow move on: its two one-poles, less what the engine's chunks and the ring
+        take back (measured: with this the two zeros sit evenly either side of the middle, SwirlWireTest "centre"). */
+    static constexpr double c_settleLagSeconds = 2.0 * c_settleSeconds - 0.0025;
     static double ownShape(double phase);
     static double wanderRangeMs(double rateHz);
     static double thickenGain(double delayMs);

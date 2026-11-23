@@ -324,7 +324,18 @@ namespace
                 rest(*m_doubler[static_cast<size_t>(i)], {});
 
             const int motion = juce::jlimit(0, numTapeMotions - 1, choice(ids[TapeMotion]));
-            rest(*m_motion, {});
+            // With the Filter goes by this bus's filter: it has nothing to go by while the Filter wheel is at 0 with
+            // no modulator on it, or while nothing moves the filter (its Follow and its Sweep both at 0).
+            juce::String motionRests;
+            if (motion == TapeWithFilter)
+            {
+                const char* filterId = bus[m_bus][Filter];
+                if (value(filterId) <= 0.0005f && ! context.processor.getMods().hasWireTo(filterId))
+                    motionRests = "It rests: With the Filter goes by this bus's filter, and Filter is at 0%.";
+                else if (value(ids[FilterFollow]) <= 0.0005f && value(ids[FilterSweep]) <= 0.0005f)
+                    motionRests = "It rests: With the Filter goes by this bus's filter, and nothing moves it (its Follow and its Sweep are both at 0%).";
+            }
+            rest(*m_motion, motionRests);
             rest(*m_tapeDepth, {});
             rest(*m_tapeRate, motion == TapeOnItsOwn ? juce::String()
                                                      : "It rests: it sets the speed for On Its Own, and Motion is " + juce::String(tapeMotionNames[motion]) + ".");

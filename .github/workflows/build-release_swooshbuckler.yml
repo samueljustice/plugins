@@ -119,7 +119,7 @@ jobs:
     - name: Build the engine tests
       run: |
         cd swooshbuckler
-        cmake --build build --config Release --parallel --target SwooshbucklerRig SwooshbucklerClassify SwooshbucklerMaster SwooshbucklerSession SwooshbucklerStowaway SwooshbucklerRoom SwooshbucklerSurround SwooshbucklerWide SwooshbucklerSpaceLfe SwooshbucklerOutput SwooshbucklerHits SwooshbucklerFiles SwooshbucklerExport SwooshbucklerOutputEq SwooshbucklerSwirlFx SwooshbucklerSweepFilter SwooshbucklerTogether
+        cmake --build build --config Release --parallel --target SwooshbucklerRig SwooshbucklerClassify SwooshbucklerMaster SwooshbucklerSession SwooshbucklerStowaway SwooshbucklerRoom SwooshbucklerSurround SwooshbucklerWide SwooshbucklerSpaceLfe SwooshbucklerOutput SwooshbucklerHits SwooshbucklerFiles SwooshbucklerExport SwooshbucklerOutputEq SwooshbucklerSwirlFx SwooshbucklerSweepFilter SwooshbucklerTogether SwooshbucklerSwirlWire
 
     - name: Run the engine tests
       run: |
@@ -128,7 +128,7 @@ jobs:
         $build = (Resolve-Path build).Path
         $scratch = Join-Path $env:RUNNER_TEMP "swooshbuckler-tests"
         $failed = @()
-        foreach ($t in @("SwooshbucklerRig", "SwooshbucklerClassify", "SwooshbucklerMaster", "SwooshbucklerSession", "SwooshbucklerStowaway", "SwooshbucklerRoom", "SwooshbucklerSurround", "SwooshbucklerWide", "SwooshbucklerSpaceLfe", "SwooshbucklerOutput", "SwooshbucklerHits", "SwooshbucklerFiles", "SwooshbucklerExport", "SwooshbucklerOutputEq", "SwooshbucklerSwirlFx", "SwooshbucklerSweepFilter", "SwooshbucklerTogether")) {
+        foreach ($t in @("SwooshbucklerRig", "SwooshbucklerClassify", "SwooshbucklerMaster", "SwooshbucklerSession", "SwooshbucklerStowaway", "SwooshbucklerRoom", "SwooshbucklerSurround", "SwooshbucklerWide", "SwooshbucklerSpaceLfe", "SwooshbucklerOutput", "SwooshbucklerHits", "SwooshbucklerFiles", "SwooshbucklerExport", "SwooshbucklerOutputEq", "SwooshbucklerSwirlFx", "SwooshbucklerSweepFilter", "SwooshbucklerTogether", "SwooshbucklerSwirlWire")) {
           # JUCE and the Master test put each one at build\<name>_artefacts\Release\<name>.exe.
           $exe = Join-Path $build "${t}_artefacts\Release\$t.exe"
           if (-not (Test-Path $exe)) {
@@ -286,7 +286,7 @@ jobs:
     - name: Run tests
       run: |
         cd swooshbuckler
-        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerStowaway SwooshbucklerRoom SwooshbucklerSurround SwooshbucklerWide SwooshbucklerSpaceLfe SwooshbucklerOutput SwooshbucklerHits SwooshbucklerFiles SwooshbucklerExport SwooshbucklerOutputEq SwooshbucklerSwirlFx SwooshbucklerSweepFilter SwooshbucklerTogether SwooshbucklerApp SwooshbucklerFirstRun SwooshbucklerUi; do
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerStowaway SwooshbucklerRoom SwooshbucklerSurround SwooshbucklerWide SwooshbucklerSpaceLfe SwooshbucklerOutput SwooshbucklerHits SwooshbucklerFiles SwooshbucklerExport SwooshbucklerOutputEq SwooshbucklerSwirlFx SwooshbucklerSweepFilter SwooshbucklerTogether SwooshbucklerSwirlWire SwooshbucklerApp SwooshbucklerFirstRun SwooshbucklerUi; do
           exe=$(find build -name "$t" -type f -perm +111 | head -1)
           echo "== $t"
           "$exe"

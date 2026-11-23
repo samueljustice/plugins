@@ -26,7 +26,7 @@ namespace
         {
             case ModMatrix::Type::Lfo:      return "Modulator Type: LFO\nA steady repeating wave that moves each wired knob up and down around where you set it. Pick its shape below.";
             case ModMatrix::Type::Random:   return "Modulator Type: Random\nA smooth random wander up and down around each wired knob, never the same twice.";
-            case ModMatrix::Type::Follower: return "Modulator Type: Follower\nFollows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness, pitch or brightness (choose which underneath): the more there is of it, the further it turns each wired knob (one way only).";
+            case ModMatrix::Type::Follower: return "Modulator Type: Follower\nFollows the loudness of bus A, bus B, the hits or the output, the Master track's loudness, pitch or brightness, or where a bus's whoosh or its filter is (choose which underneath): the more there is of it, the further it turns each wired knob (one way only).";
             case ModMatrix::Type::Macro:    return "Modulator Type: Macro\nOne knob that turns every knob it is wired to at once, each by its own depth. Great to automate from your DAW.";
         }
         return {};
@@ -64,8 +64,14 @@ public:
                             "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.\n"
                             "Master, Master Pitch and Master Brightness follow the Master track (the lane with the lit star): how loud, "
                             "how high and how bright that sound is at the moment it is playing, each over the sound's own range. "
-                            "They rest until a track is made the Master.");
+                            "They rest until a track is made the Master.\n"
+                            "Bus A Pass and Bus B Pass follow where that bus's whoosh is in time, not how loud it is: nothing while "
+                            "the pass is far off, rising as it comes, all the way up at the middle of the whoosh (the pass at its "
+                            "closest) and back down as it leaves. A loud moment anywhere else does not move it.\n"
+                            "Bus A Filter and Bus B Filter follow how open that bus's filter is, from closed to fully open, "
+                            "whatever is moving it.");
         m_type.onChange = [this] { updateType(); };
+        m_follow.onChange = [this] { updateType(); }; // (Speed reads in the time that input is followed in)
         m_shape.setTooltip("LFO Shape\nSine and Triangle are smooth, Ramp rises then drops, Square jumps between two values, Steps jumps to a new random value every cycle.");
         m_clear.setTooltip("Clear\nPulls out every wire of this modulator. The knobs go back to just where you set them.");
         m_clear.setWantsKeyboardFocus(false);
@@ -85,17 +91,22 @@ public:
         const auto t = type();
         m_knob.caption = knobCaption(t);
         m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth."
-                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit."
+                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit. "
+                                                             "A Pass or a Filter input already moves smoothly, so it is followed ten times as fast, "
+                                                             "and as fast on the way down as on the way up."
                                                            : "Rate\nHow fast it moves, from one cycle every 20 seconds to 8 times a second.");
         // The readout in the knob's own units: the cycle time or rate, the follow time, or the amount.
-        m_knob.textFromValueFunction = [t](double v)
+        const int input = m_follow.getSelectedItemIndex();
+        m_knob.textFromValueFunction = [t, input](double v)
         {
             const float k = static_cast<float>(v);
             if (t == ModMatrix::Type::Macro)
                 return juce::String(juce::roundToInt(k * 100.0f)) + "%";
             if (t == ModMatrix::Type::Follower)
             {
-                const float sec = ModMatrix::followerSeconds(k);
+                const float sec = ModMatrix::followerSeconds(k, input);
+                if (sec < 0.01f)
+                    return juce::String(sec * 1000.0f, 1) + " ms";
                 return sec < 1.0f ? juce::String(juce::roundToInt(sec * 1000.0f)) + " ms" : juce::String(sec, 1) + " s";
             }
             const float hz = ModMatrix::rateHz(k);

@@ -232,6 +232,18 @@ std::array<float, RigEngine::c_sections> RigEngine::takeSectionLevels()
     return m_sectionLevels;
 }
 
+RigEngine::FollowerPlaces RigEngine::takeFollowerPlaces()
+{
+    FollowerPlaces places;
+    for (size_t b = 0; b < static_cast<size_t>(c_maxBuses); ++b)
+    {
+        places.pass[b] = std::max(m_passNearMost[b], m_passNearNow[b]);
+        places.filter[b] = m_filterOpenNow[b];
+        m_passNearMost[b] = 0.0f;
+    }
+    return places;
+}
+
 void RigEngine::prepare(double sampleRate, int maxBlockSize)
 {
     juce::ignoreUnused(maxBlockSize);
@@ -392,6 +404,7 @@ void RigEngine::reset()
     m_autoSwell.fires = false;
     m_cyclePeakView.store(-1.0f, std::memory_order_relaxed);
     m_autoSwellView.store(false, std::memory_order_relaxed);
+    m_passNearNow = m_passNearMost = m_filterOpenNow = {};
     for (auto& v : m_varispeedView)
         v.store(0.0f, std::memory_order_relaxed);
 
@@ -3077,11 +3090,35 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     // a Tape Flanger's copy moves With the Pass by it.
     std::array<float, 2> passNear {};
     float throwNear = 0.0f;
+    // And what a Tape Flanger With the Pass goes by (SwirlFx::passNearFor): the same nearness and the time to the
+    // closest point, both as they will be `tapeAhead` from now, which is how long the copy's settling takes less
+    // the Tape Flanger's own clean path: the copy then goes through zero round the middle of the whoosh as it is
+    // heard coming out of the Tape Flanger, and not that much after it.
+    std::array<float, 2> tapeNear {};
+    float tapeThrowNear = 0.0f;
+    const double tapeAhead = SwirlFx::c_settleLagSeconds - 0.001 * SwirlFx::c_dryMs;
     // (At the closest point the window is 1 and so is the nearness, but for a pass round the listener, held at its
     // own level all the way.)
     auto nearAtClosest = [room = m_room](const Head& h, float orbit)
     {
         return room && orbit > 0.0f ? 0.1f + 0.9f * std::sqrt(sj::clamp(1.0f + orbit * (h.orbitLoud - 1.0f), 0.0f, 1.0f)) : 1.0f;
+    };
+    // (The pass as it will be `tapeAhead` on, if nothing about it changes meanwhile: its window and its nearness
+    // from the same laws passPoint and roomPoint use. A pass that will be over by then counts as far.)
+    auto tapeNearOf = [room = m_room, tapeAhead, &nearAtClosest](const Head& h, float shape, float orbit)
+    {
+        const double pace = h.clockSeconds > 0.0f ? static_cast<double>(h.pace) : 1.0;
+        const double time = h.time + tapeAhead * pace;
+        if (time >= static_cast<double>(h.length))
+            return 0.0f;
+        const double sinceClosest = time - static_cast<double>(h.lenIn);
+        const double u = time < static_cast<double>(h.lenIn) ? 0.5 * time / static_cast<double>(h.lenIn) : 0.5 + 0.5 * sinceClosest / static_cast<double>(h.lenOut);
+        const float x = h.machRef * static_cast<float>(sinceClosest);
+        float nearness = h.closest / std::max(std::sqrt(x * x + h.closest * h.closest), 1.0e-6f);
+        if (room && orbit > 0.0f)
+            nearness += orbit * (h.orbitLoud - nearness);
+        const float near = passWindow(static_cast<float>(u), shape) * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f))) / nearAtClosest(h, orbit);
+        return static_cast<float>(SwirlFx::passNearFor(static_cast<double>(near), sinceClosest / std::max(pace, 1.0e-3)));
     };
 
     // A room (see the class comment): l and r are the two passes' lanes, t the throws'. The Flight Path (linked:
@@ -3329,6 +3366,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
                 const float near = window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f)));
                 proximity = std::max(proximity, near);
                 passNear[k] = near / nearAtClosest(h, orbit1);
+                tapeNear[k] = tapeNearOf(h, shape1, orbit1);
             }
             if (room)
             {
@@ -3403,6 +3441,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
                     const float near = window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f)));
                     proximity = std::max(proximity, near);
                     throwNear = std::max(throwNear, near / nearAtClosest(h, m_throwOrbit1));
+                    tapeThrowNear = std::max(tapeThrowNear, level > 0.0f ? tapeNearOf(h, 1.0f, m_throwOrbit1) : 0.0f);
                 }
                 if (room) // every throw into the throws' lane (a throw flies bus A's Flight Path on every bus)
                     bus.t[static_cast<size_t>(i)] += h.airL.lowpass(bus.throwLine.readSinc(pt.base * m_sampleRate + static_cast<double>(frames - 1 - i), pt.stretch, kernel)) * gain;
@@ -3443,6 +3482,20 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     const float levelNow = sj::clamp(bus.env / std::max(bus.peakRef, 1.0e-6f), 0.0f, 1.0f);
     const float nearNow = 1.0f - m_proxBlend * (1.0f - bus.prox);
     const float peakness = levelNow * nearNow;
+
+    // For the Followers (takeFollowerPlaces): how near this bus's whoosh is to its middle, the nearest of its
+    // passes and throws, from where they are and not from how loud anything is.
+    {
+        const float nearest = sj::clamp(std::max({ passNear[0], passNear[1], throwNear }), 0.0f, 1.0f);
+        m_passNearNow[busIndex] = nearest;
+        m_passNearMost[busIndex] = std::max(m_passNearMost[busIndex], nearest);
+    }
+    // The Filter's own rhythm moves on here, ahead of Swirl (a Tape Flanger With the Filter goes by where the
+    // filter is); the filter itself is further down, after Swirl. It runs whether the filter is heard or not.
+    const auto& filterDetail = m_params.filterDetail[busIndex];
+    const float filterRhythm = bus.sweep.advance(filterDetail, frames);
+    const float filterOpenHz = SweepFilter::openHz(filterDetail, p.filter, peakness, filterRhythm, fs);
+    m_filterOpenNow[busIndex] = SweepFilter::openness(filterDetail, filterOpenHz, fs);
 
     // Low end: sub octave, overtones, and a lift at the loudest point (a multiband-dynamics style lift).
     if (p.low > 1.0e-4f && room)
@@ -3766,9 +3819,15 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         lanes.lane = { bus.l.data(), bus.r.data(), third ? bus.t.data() : nullptr };
         lanes.count = room ? 3 : 2;
         // With the Pass: a room's lanes are a pass each and the throws; left and right hear whichever is nearest.
-        const float nearest = std::max({ passNear[0], passNear[1], throwNear });
-        lanes.passNearTo = room ? std::array<float, 3> { passNear[0], passNear[1], throwNear } : std::array<float, 3> { nearest, nearest, nearest };
+        const float nearest = std::max({ tapeNear[0], tapeNear[1], tapeThrowNear });
+        lanes.passNearTo = room ? std::array<float, 3> { tapeNear[0], tapeNear[1], tapeThrowNear } : std::array<float, 3> { nearest, nearest, nearest };
         lanes.passNearFrom = lanes.passNearTo;
+        // With the Filter: how far up its present travel the filter is, with its rhythm read as far ahead as the
+        // copy's settling takes (the whoosh's part in it, Follow, cannot be read ahead). A filter that is not in
+        // (the wheel at 0) or stands still leaves the copy where it waits.
+        if (detail.tape.motion == SwirlFx::WithFilter && p.filter > 1.0e-4f)
+            lanes.filterOpen = SweepFilter::travel(filterDetail, p.filter,
+                                                   SweepFilter::openHz(filterDetail, p.filter, peakness, bus.sweep.ahead(filterDetail, static_cast<float>(SwirlFx::c_settleLagSeconds)), fs), fs);
         if (bus.swirlType == SwirlTape)
         {
             if (m_params.varispeedHome[busIndex])
@@ -3823,10 +3882,9 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     const float f = p.filter;
     const float mix = f <= 0.8f ? (1.0f - std::pow(10.0f, -1.875f * f)) / (1.0f - std::pow(10.0f, -1.5f)) : 1.0f;
     {
-        const auto& filter = m_params.filterDetail[busIndex];
-        const float rhythm = bus.sweep.advance(filter, frames);
+        const auto& filter = filterDetail;
         const float q = SweepFilter::q(filter, f);
-        bus.sweep.setTarget(filter, SweepFilter::cutoffHz(filter, f, peakness, rhythm, fs), q);
+        bus.sweep.setTarget(filter, SweepFilter::placeHz(filter, filterOpenHz, fs), q);
         if (mix > 1.0e-4f)
         {
             const float trim = SweepFilter::trim(q);

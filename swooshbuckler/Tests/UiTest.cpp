@@ -3113,6 +3113,128 @@ int main(int argc, char* argv[])
         for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[0][ParamIDs::SwirlFeedback] })
             state.getParameter(id)->setValueNotifyingHost(state.getParameter(id)->getDefaultValue());
 
+        // Tape Flanger's Motion has a fourth choice, With the Filter. Its box rests, and says why, while it has
+        // nothing to go by: the bus's Filter at 0% with no modulator on it, or a filter nothing moves.
+        {
+            const char* motionId = ParamIDs::busDetail[0][ParamIDs::TapeMotion];
+            const char* filterId = ParamIDs::bus[0][ParamIDs::Filter];
+            const float filterWas = plain(filterId);
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            set(motionId, static_cast<float>(ParamIDs::TapeWithFilter));
+            set(filterId, 0.0f);
+            ed.openLayer({ Layers::Kind::Swirl, 0 });
+            settle();
+            juce::ComboBox* motion = nullptr;
+            WheelKnob* tapeRate = nullptr;
+            for (auto* child : hostA.getPage()->getChildren())
+            {
+                if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getTitle() == "Bus A / Swirl: Motion")
+                    motion = box;
+                if (auto* w = dynamic_cast<WheelKnob*>(child); w != nullptr && w->isVisible() && w->caption == "Rate")
+                    tapeRate = w;
+            }
+            const bool found = motion != nullptr && tapeRate != nullptr && motion->isVisible();
+            check(found && motion->getNumItems() == 4 && motion->getItemText(0) == "With the Pass" && motion->getItemText(1) == "On Its Own" && motion->getItemText(2) == "By Hand"
+                      && motion->getItemText(3) == "With the Filter" && motion->getText() == "With the Filter",
+                  "With the Filter: Motion offers With the Pass, On Its Own, By Hand, With the Filter, and shows the one in use");
+            if (found)
+            {
+                auto tip = [&] { return motion->getTooltip(); };
+                rig.run(0.2);
+                const bool atZero = Theme::getLook(*motion) == Theme::Look::Resting && tip().endsWith("It rests: With the Filter goes by this bus's filter, and Filter is at 0%.");
+                const auto says = tip();
+                const int wire = proc.getMods().connect(0, filterId, 0.5f);
+                rig.run(0.2);
+                const bool wired = Theme::getLook(*motion) == Theme::Look::Normal && ! tip().contains("It rests");
+                proc.getMods().disconnect(wire);
+                set(filterId, 0.5f);
+                set(ParamIDs::busDetail[0][ParamIDs::FilterFollow], 0.0f);
+                rig.run(0.2);
+                const bool still = Theme::getLook(*motion) == Theme::Look::Resting && tip().contains("It rests: With the Filter goes by this bus's filter, and nothing moves it");
+                set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.4f);
+                rig.run(0.2);
+                const bool moving = Theme::getLook(*motion) == Theme::Look::Normal && ! tip().contains("It rests");
+                check(atZero && wired && still && moving,
+                      "With the Filter: the Motion box rests with Filter at 0% (not with a modulator on Filter) and with a filter nothing moves, and says which (\""
+                          + says.fromLastOccurrenceOf("\n", false, false) + "\")");
+                check(tip().contains("With the Filter: it runs late while this bus's filter is closed and passes through zero where the filter is most open")
+                          && Theme::getLook(*tapeRate) == Theme::Look::Resting && tapeRate->getTooltip().contains("Motion is With the Filter"),
+                      "With the Filter: the Motion tooltip says what it does, and Rate rests in it (it is On Its Own's)");
+                // On the engine: the copy is no longer where With the Pass would have it.
+                check(proc.getEngine().getSwirlTypeInUse(0) == RigEngine::SwirlTape, "With the Filter: the Tape Flanger is in use on bus A");
+            }
+            hostA.close();
+            settle();
+            set(filterId, filterWas);
+            for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::SwirlType], motionId, ParamIDs::busDetail[0][ParamIDs::FilterFollow], ParamIDs::busDetail[0][ParamIDs::FilterSweep] })
+                state.getParameter(id)->setValueNotifyingHost(state.getParameter(id)->getDefaultValue());
+            rig.run(0.2);
+        }
+
+        // A Follower's inputs: four more at the end of its menu, Bus A Pass, Bus B Pass, Bus A Filter, Bus B Filter.
+        // Its Speed reads in the time that input is followed in, and its scope draws what it follows.
+        {
+            std::vector<juce::ComboBox*> followBoxes;
+            std::function<void(juce::Component&)> walk = [&](juce::Component& c)
+            {
+                for (auto* child : c.getChildren())
+                {
+                    if (auto* box = dynamic_cast<juce::ComboBox*>(child); box != nullptr && box->getNumItems() > 0 && box->getItemText(0) == "Bus A")
+                        followBoxes.push_back(box);
+                    walk(*child);
+                }
+            };
+            walk(ed.m_modPanel);
+            const int source = 3; // Mod 4 is a Follower in a new session
+            juce::ComboBox* follow = followBoxes.size() == 4 ? followBoxes[static_cast<size_t>(source)] : nullptr;
+            const bool found = follow != nullptr && follow->isVisible();
+            check(found && follow->getNumItems() == 12 && follow->getItemText(8) == "Bus A Pass" && follow->getItemText(9) == "Bus B Pass" && follow->getItemText(10) == "Bus A Filter"
+                      && follow->getItemText(11) == "Bus B Filter" && follow->getItemText(7) == "Master Brightness",
+                  "followers: the menu ends with Bus A Pass, Bus B Pass, Bus A Filter, Bus B Filter");
+            if (found)
+            {
+                WheelKnob* speed = nullptr;
+                for (auto* child : follow->getParentComponent()->getChildren())
+                    if (auto* w = dynamic_cast<WheelKnob*>(child))
+                        speed = w;
+                const auto loudness = speed != nullptr ? speed->getTextFromValue(speed->getValue()) : juce::String();
+                follow->setSelectedItemIndex(ModMatrix::FollowPassA, juce::sendNotificationSync);
+                rig.run(0.1);
+                const auto place = speed != nullptr ? speed->getTextFromValue(speed->getValue()) : juce::String();
+                const int saved = juce::roundToInt(plain(ParamIDs::modFollow[source]));
+                check(saved == ModMatrix::FollowPassA && follow->getText() == "Bus A Pass" && loudness.getIntValue() > 0 && std::abs(place.getIntValue() * 10 - loudness.getIntValue()) <= 10
+                          && place.endsWith(" ms") && follow->getTooltip().contains("Bus A Pass and Bus B Pass follow where that bus's whoosh is in time")
+                          && follow->getTooltip().contains("Bus A Filter and Bus B Filter follow how open that bus's filter is"),
+                      "followers: picking Bus A Pass sets the parameter, Speed reads a tenth of the time (" + loudness + " then " + place + "), and the tooltip says what the four follow");
+                // Playing: the Follower goes up to the top as a pass is closest and well down between passes.
+                set(ParamIDs::modKnob[source], 1.0f);
+                float low = 1.0f, high = 0.0f;
+                for (int k = 0; k < 160; ++k)
+                {
+                    rig.run(0.05);
+                    const float v = proc.getMods().getSourceValue(source);
+                    low = std::min(low, v);
+                    high = std::max(high, v);
+                }
+                follow->setSelectedItemIndex(ModMatrix::FollowFilterA, juce::sendNotificationSync);
+                rig.run(0.5);
+                float filterLow = 1.0f, filterHigh = 0.0f;
+                for (int k = 0; k < 160; ++k)
+                {
+                    rig.run(0.05);
+                    const float v = proc.getMods().getSourceValue(source);
+                    filterLow = std::min(filterLow, v);
+                    filterHigh = std::max(filterHigh, v);
+                }
+                std::cout << "         8 s of play: the Follower on Bus A Pass ran from " << low << " to " << high << ", on Bus A Filter from " << filterLow << " to " << filterHigh << std::endl;
+                check(high > 0.95f && low < 0.6f, "followers: on Bus A Pass it reaches the top as a pass is closest and comes down between passes");
+                check(filterHigh - filterLow > 0.03f && filterHigh <= 1.0f && filterLow >= 0.0f, "followers: on Bus A Filter it moves as the filter does");
+                follow->setSelectedItemIndex(0, juce::sendNotificationSync);
+                state.getParameter(ParamIDs::modKnob[source])->setValueNotifyingHost(state.getParameter(ParamIDs::modKnob[source])->getDefaultValue());
+                rig.run(0.1);
+            }
+        }
+
         // One layer per panel, each panel its own: Ride and both buses at once; Esc closes the newest first.
         ed.openLayer({ Layers::Kind::Swell, 0 });
         ed.openLayer({ Layers::Kind::Swirl, 0 });

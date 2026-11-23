@@ -92,8 +92,8 @@ namespace ParamIDs
     };
     enum SwirlTypeChoice { SwirlBoth = 0, SwirlPhaser, SwirlFlanger, SwirlTape, SwirlDoubler, numSwirlTypes };
     inline constexpr const char* swirlTypeNames[numSwirlTypes] = { "Phaser + Flanger", "Phaser", "Flanger", "Tape Flanger", "Doubler" };
-    enum TapeMotionChoice { TapeWithPass = 0, TapeOnItsOwn, TapeByHand, numTapeMotions };
-    inline constexpr const char* tapeMotionNames[numTapeMotions] = { "With the Pass", "On Its Own", "By Hand" };
+    enum TapeMotionChoice { TapeWithPass = 0, TapeOnItsOwn, TapeByHand, TapeWithFilter, numTapeMotions }; // (saved by number: new ones at the end)
+    inline constexpr const char* tapeMotionNames[numTapeMotions] = { "With the Pass", "On Its Own", "By Hand", "With the Filter" };
     enum DoublerWaveChoice { WaveRandom = 0, WaveSine, WaveTriangle, numDoublerWaves };
     inline constexpr const char* doublerWaveNames[numDoublerWaves] = { "Random", "Sine", "Triangle" };
     enum FilterTypeChoice { FilterLowPass = 0, FilterHighPass, FilterBandPass, FilterNotch, numFilterTypes };
@@ -610,9 +610,11 @@ namespace Params
         if (rest == "SwirlFollow")
             return "How far the sweep follows the whoosh. 100%: it opens and closes with each pass. 0%: it sweeps by itself.";
         if (rest == "TapeMotion")
-            return "What moves the second copy. With the Pass: it runs late while the pass is far off and passes through zero just "
-                   "before the pass is closest. On Its Own: a slow sweep at Rate. By Hand: it waits Depth behind the first, and only "
-                   "Varispeed moves it: lean faster to bring it through zero.";
+            return "What moves the second copy. With the Pass: it runs late while the pass is far off and passes through zero in "
+                   "the middle of the whoosh, as the pass is closest. On Its Own: a slow sweep at Rate. By Hand: it waits Depth "
+                   "behind the first, and only Varispeed moves it: lean faster to bring it through zero. With the Filter: it runs "
+                   "late while this bus's filter is closed and passes through zero where the filter is most open, so it keeps "
+                   "time with the filter's own Sweep.";
         if (rest == "TapeInvert")
             return "Turns the second copy upside down, so it cancels the first where the two meet: the sound thins right out "
                    "there, the low end first and for longest. Off: the two add up there, and the low end keeps its weight.";
@@ -822,7 +824,8 @@ namespace Params
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " Rate / Amount", defaultKnobs[m]));
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
-                                                              StringArray { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
+                                                              StringArray { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness",
+                                                                            "Bus A Pass", "Bus B Pass", "Bus A Filter", "Bus B Filter" }, 0));
         }
 
         // The room (Quad and wider): each bus's Flight Path, Stowaway's (Fly), and the room's own settings.

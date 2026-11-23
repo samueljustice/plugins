@@ -978,6 +978,67 @@ int main(int argc, char* argv[])
             setNorm(p, ParamIDs::eqLowMidGain, 0.5f);
         }
 
+        // The Followers' Pass and Filter inputs and the Tape Flanger's With the Filter: each is the last of its
+        // choices (a choice is saved by its number, so the earlier ones keep theirs), and comes back from a saved
+        // state, in this processor and in a fresh one. With the Filter is part of a look; what a Follower listens
+        // to is the session's.
+        {
+            auto choiceOf = [](juce::AudioProcessor& proc, const juce::String& id) { return dynamic_cast<juce::AudioParameterChoice*>(param(proc, id)); };
+            auto setChoice = [&](juce::AudioProcessor& proc, const juce::String& id, int index)
+            {
+                auto* c = choiceOf(proc, id);
+                setNorm(proc, id, c->convertTo0to1(static_cast<float>(index)));
+            };
+            auto* motion = choiceOf(p, ParamIDs::busDetail[0][ParamIDs::TapeMotion]);
+            auto* follows = choiceOf(p, ParamIDs::modFollow[0]);
+            check(motion != nullptr && motion->choices.size() == 4 && motion->choices[0] == "With the Pass" && motion->choices[1] == "On Its Own" && motion->choices[2] == "By Hand"
+                      && motion->choices[3] == "With the Filter" && motion->getIndex() == 0,
+                  "choices: Motion is With the Pass, On Its Own, By Hand, With the Filter, and opens on With the Pass");
+            check(follows != nullptr && follows->choices.size() == 12 && follows->choices[7] == "Master Brightness" && follows->choices[8] == "Bus A Pass" && follows->choices[9] == "Bus B Pass"
+                      && follows->choices[10] == "Bus A Filter" && follows->choices[11] == "Bus B Filter" && follows->choices == ModMatrix::followerNames(),
+                  "choices: a Follower's inputs end with Bus A Pass, Bus B Pass, Bus A Filter, Bus B Filter");
+            setChoice(p, ParamIDs::busDetail[0][ParamIDs::TapeMotion], ParamIDs::TapeWithFilter);
+            setChoice(p, ParamIDs::busDetail[1][ParamIDs::TapeMotion], ParamIDs::TapeByHand);
+            setChoice(p, ParamIDs::modFollow[0], ModMatrix::FollowFilterA);
+            setChoice(p, ParamIDs::modFollow[1], ModMatrix::FollowPassB);
+            setChoice(p, ParamIDs::modFollow[2], ModMatrix::FollowPassA);
+            setChoice(p, ParamIDs::modFollow[3], ModMatrix::FollowFilterB);
+            const auto look = p.captureLook();
+            check(look.count(ParamIDs::busDetail[0][ParamIDs::TapeMotion]) == 1 && Presets::isSessionParameter(ParamIDs::modFollow[0]),
+                  "look: Motion is part of a look; what a Follower listens to belongs to the session");
+            juce::MemoryBlock saved;
+            p.getStateInformation(saved);
+            setChoice(p, ParamIDs::busDetail[0][ParamIDs::TapeMotion], ParamIDs::TapeWithPass);
+            for (int m = 0; m < ParamIDs::numMods; ++m)
+                setChoice(p, ParamIDs::modFollow[m], 0);
+            auto asSaved = [&](juce::AudioProcessor& proc)
+            {
+                return choiceOf(proc, ParamIDs::busDetail[0][ParamIDs::TapeMotion])->getCurrentChoiceName() == "With the Filter"
+                    && choiceOf(proc, ParamIDs::busDetail[1][ParamIDs::TapeMotion])->getCurrentChoiceName() == "By Hand"
+                    && choiceOf(proc, ParamIDs::modFollow[0])->getCurrentChoiceName() == "Bus A Filter" && choiceOf(proc, ParamIDs::modFollow[1])->getCurrentChoiceName() == "Bus B Pass"
+                    && choiceOf(proc, ParamIDs::modFollow[2])->getCurrentChoiceName() == "Bus A Pass" && choiceOf(proc, ParamIDs::modFollow[3])->getCurrentChoiceName() == "Bus B Filter";
+            };
+            p.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+            check(asSaved(p), "state: With the Filter and the four Pass and Filter inputs come back from a saved state");
+            {
+                std::unique_ptr<juce::AudioProcessor> fresh(createPluginFilter());
+                fresh->setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+                check(asSaved(*fresh), "state: and in a fresh plug-in");
+            }
+            // A look brings Motion back (A/B, a user preset); a factory preset, which does not name it, puts it back to
+            // With the Pass. Neither touches what the Followers listen to.
+            setChoice(p, ParamIDs::busDetail[0][ParamIDs::TapeMotion], ParamIDs::TapeOnItsOwn);
+            p.applyLook(Presets::Preset { "A", look }, Presets::Unlisted::Default, "A", "A");
+            const bool lookBack = motion->getCurrentChoiceName() == "With the Filter";
+            const auto& first = Presets::factory().front();
+            p.applyLook(first, Presets::Unlisted::Default, first.name, first.name);
+            check(lookBack && motion->getIndex() == ParamIDs::TapeWithPass && follows->getCurrentChoiceName() == "Bus A Filter",
+                  "look: a look brings With the Filter back, a preset that does not name Motion puts it back to With the Pass, and the Followers' inputs stay");
+            for (int m = 0; m < ParamIDs::numMods; ++m)
+                setChoice(p, ParamIDs::modFollow[m], 0);
+            setChoice(p, ParamIDs::busDetail[1][ParamIDs::TapeMotion], ParamIDs::TapeWithPass);
+        }
+
         // CC64 holds Swell in every Keys mode; a note holds it only with Keys set to Swell.
         {
             p.prepareToPlay(c_fs, c_block);

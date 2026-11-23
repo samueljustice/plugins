@@ -14,18 +14,43 @@
 //   aim        an aimed hit lands on the bus as it is heard (the Tape Flanger's clean path is 8 ms long)
 //   change     a change of Type does not click, in stereo and in a room (with "each" as well: every change's own figure)
 //   filter     each Filter type, the 24 dB slope and its own rhythm, on the bus
+//   centre     Tape Flanger, With the Pass: where the copy goes through zero against the middle of the whoosh as it
+//              is heard, pass by pass, at several Rates and closenesses, in Stereo and 5.1 (a table)
+//   follow     the Followers' Pass and Filter inputs (the Pass tops out on the pass's marker and does not hear a loud
+//              burst; the Filter is where the filter is, measured), a Follower wired to its own bus's Filter settles,
+//              Tape Flanger With the Filter goes through zero round the filter's most open moment, and none of it
+//              allocates
 //   speed      each Swirl type at 7.1.4 and 192 kHz with a throw in flight, against Phaser + Flanger
 
 #include <JuceHeader.h>
 #include "RigEngine.h"
+#include "Modulators.h"
 #include "Parameters.h"
 #include "Room.h"
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <new>
 #include <memory>
 #include <vector>
+
+// Every allocation in the program is counted, so a stretch of the engine and its modulators can be shown to make none.
+namespace { std::atomic<long> g_allocations { 0 }; }
+void* operator new(std::size_t size)
+{
+    ++g_allocations;
+    if (void* p = std::malloc(size == 0 ? 1 : size))
+        return p;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t size) { return operator new(size); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 namespace
 {
@@ -896,6 +921,624 @@ int main(int argc, char* argv[])
                       << " through 15 changes of Type" << std::endl;
             check(finite(r.heard) && followed, "every Type asked for is in use within the 0.6 s (" + where + ")");
             check(changing <= 1.25f * calm, "a change of Type is no sharper than the sound itself (" + where + ")");
+        }
+    }
+
+    // ---- centre --------------------------------------------------------------------------------------------------
+    if (wanted("centre"))
+    {
+        std::cout << "centre: where the copy goes through zero against the middle of the whoosh as it is heard" << std::endl;
+        // The middle of the whoosh as heard: the pass's marker is where its window and its nearness top out, and they
+        // act on the sound as it leaves the pass's own delay; the Tape Flanger's clean path then makes it 8 ms later.
+        // First that itself, measured: white noise at a steady level through Fly-By passes that come close, the Tape
+        // Flanger at 0% (its clean path alone), and where the loudest 20 ms of each pass falls against its marker.
+        {
+            auto q = plain();
+            q.buses[0].swirl = 0.0f;
+            q.buses[0].doppler = 1.0f;
+            q.buses[0].passMode = 1;
+            q.buses[0].width = 0.0f;
+            q.chaos = 0.0f;
+            q.swirlDetail[0].type = RigEngine::SwirlTape;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            const Run r = run(*e, 2, c_rate, 90.0);
+            // Every pass's power laid over the others on its marker (the noise averages out), smoothed over 10 ms,
+            // and the top of that, to a fraction of a sample.
+            const float* x = r.heard.getReadPointer(0);
+            const int reach = static_cast<int>(0.1 * c_rate), half = static_cast<int>(0.005 * c_rate);
+            std::vector<double> laid(static_cast<size_t>(2 * reach + 1), 0.0);
+            int counted = 0;
+            for (const double m : r.marks[RigEngine::MarkPassA])
+            {
+                const int at = static_cast<int>(m);
+                if (at < 4 * static_cast<int>(c_rate) || at > r.heard.getNumSamples() - 4 * static_cast<int>(c_rate))
+                    continue;
+                ++counted;
+                for (int i = -reach; i <= reach; ++i)
+                    laid[static_cast<size_t>(i + reach)] += static_cast<double>(x[at + i]) * static_cast<double>(x[at + i]);
+            }
+            std::vector<double> smooth(laid.size(), 0.0);
+            for (int i = half; i < static_cast<int>(laid.size()) - half; ++i)
+                for (int k = -half; k <= half; ++k)
+                    smooth[static_cast<size_t>(i)] += laid[static_cast<size_t>(i + k)];
+            // (The top of a parabola through the smoothed curve's upper part: steadier than its one highest point.)
+            int top = half;
+            for (int i = half; i < static_cast<int>(laid.size()) - half; ++i)
+                if (smooth[static_cast<size_t>(i)] > smooth[static_cast<size_t>(top)])
+                    top = i;
+            double weight = 0.0, moment = 0.0;
+            for (int i = half; i < static_cast<int>(laid.size()) - half; ++i)
+                if (const double over = smooth[static_cast<size_t>(i)] - 0.97 * smooth[static_cast<size_t>(top)]; over > 0.0)
+                {
+                    weight += over;
+                    moment += over * static_cast<double>(i - reach);
+                }
+            const double mean = 1000.0 * moment / std::max(weight, 1.0e-30) / c_rate;
+            std::cout << "  the loudest moment of " << counted << " close Fly-By passes (noise at a steady level, the Tape Flanger's clean path alone, the passes laid over each other on their markers): "
+                      << num(mean, 1) << " ms after the marker (the clean path is 8.0 ms long)" << std::endl;
+            check(counted >= 20 && std::abs(mean - 8.0) < 3.0, "the middle of the whoosh as heard is the pass's marker and the clean path's 8 ms");
+        }
+        struct Case { const char* name; float rate, doppler, chaos; int passMode; bool together; };
+        const Case cases[] = {
+            { "Rate 0%, as it opens",            0.0f, 0.55f, 0.4f, 0, false },
+            { "Rate 40%, as it opens",           0.4f, 0.55f, 0.4f, 0, false },
+            { "Rate 100%, as it opens",          1.0f, 0.55f, 0.4f, 0, false },
+            { "Rate 40%, Fly-By",                0.4f, 0.55f, 0.4f, 1, false },
+            { "Rate 40%, Doppler 100% Chaos 100%", 0.4f, 1.0f, 1.0f, 0, false },
+            { "Rate 100%, Doppler 100% Chaos 100%", 1.0f, 1.0f, 1.0f, 1, false },
+            { "Rate 40%, Doppler 15% Chaos 0%",  0.4f, 0.15f, 0.0f, 0, false },
+            { "Rate 0%, Doppler 0%",             0.0f, 0.0f, 0.0f, 0, false },
+            { "Rate 40%, Faders Together",       0.4f, 0.55f, 0.4f, 0, true },
+        };
+        std::cout << "  (ms before and after the middle as heard: the nearest, the middle one, the furthest; the copy's place at the middle)" << std::endl;
+        for (const bool room : { false, true })
+            for (const auto& c : cases)
+            {
+                RigEngine::Params q;
+                q.hitAim = false;
+                q.rate = c.rate;
+                q.chaos = c.chaos;
+                q.rideMode = c.together ? RigEngine::RideTogether : RigEngine::RideApart;
+                q.buses[0].swirl = 0.5f;
+                q.buses[0].doppler = c.doppler;
+                q.buses[0].passMode = c.passMode;
+                q.swirlDetail[0].type = RigEngine::SwirlTape;
+                auto e = std::make_unique<RigEngine>();
+                if (room)
+                    e->setWidth(room::Width::Surround51);
+                start(*e, toneHold, q);
+                std::vector<float> d0, d1;
+                RigEngine* engine = e.get();
+                const Run r = run(*e, room ? 6 : 2, c_rate, 120.0, false, [](int) {}, [&d0, &d1, engine](int)
+                {
+                    d0.push_back(engine->getSwirlLaneOffsetMs(0, 0));
+                    d1.push_back(engine->getSwirlLaneOffsetMs(0, 1));
+                });
+                const double perMs = c_rate / c_chunk / 1000.0; // chunks to a millisecond
+                const int span = static_cast<int>(4000.0 * perMs);
+                std::vector<double> before, after, atMiddle;
+                int passes = 0;
+                for (const double m : r.marks[RigEngine::MarkPassA])
+                {
+                    // The middle as heard: the marker and the clean path's 8 ms.
+                    const double heard = m / c_chunk + 8.0 * perMs;
+                    const int at = static_cast<int>(std::lround(heard));
+                    if (at < span + 4 || at > static_cast<int>(d0.size()) - span - 4)
+                        continue;
+                    ++passes;
+                    const auto& d = room && d1[static_cast<size_t>(at)] < d0[static_cast<size_t>(at)] ? d1 : d0;
+                    if (d[static_cast<size_t>(at)] >= 0.0f)
+                        continue;
+                    // The zero either side, to a fraction of a chunk (d is read at the end of each chunk).
+                    int b = at, a = at;
+                    while (b > at - span && d[static_cast<size_t>(b)] < 0.0f) --b;
+                    while (a < at + span && d[static_cast<size_t>(a)] < 0.0f) ++a;
+                    if (b <= at - span || a >= at + span)
+                        continue;
+                    auto cross = [&d](int neg, int pos) { const double n = d[static_cast<size_t>(neg)], p = d[static_cast<size_t>(pos)]; return static_cast<double>(neg) + (static_cast<double>(pos) - neg) * (-n / (p - n)); };
+                    before.push_back((heard - cross(b + 1, b)) / perMs);
+                    after.push_back((cross(a - 1, a) - heard) / perMs);
+                    atMiddle.push_back(d[static_cast<size_t>(at)]);
+                }
+                auto three = [](std::vector<double> v)
+                {
+                    if (v.empty())
+                        return juce::String("none");
+                    std::sort(v.begin(), v.end());
+                    return juce::String(juce::roundToInt(v.front())) + " / " + juce::String(juce::roundToInt(v[v.size() / 2])) + " / " + juce::String(juce::roundToInt(v.back()));
+                };
+                auto middle = [](std::vector<double> v) { if (v.empty()) return 0.0; std::sort(v.begin(), v.end()); return v[v.size() / 2]; };
+                auto furthest = [](const std::vector<double>& v) { double w = 0.0; for (const double x : v) w = std::max(w, std::abs(x)); return w; };
+                const juce::String where = juce::String(room ? "5.1, " : "Stereo, ") + c.name;
+                std::cout << "  " << where << ": " << passes << " passes, " << before.size() << " with a zero either side; before " << three(before) << " ms, after " << three(after)
+                          << " ms; at the middle the copy is " << num(middle(atMiddle), 2) << " ms (the middle one)" << std::endl;
+                check(passes >= 20 && static_cast<int>(before.size()) == passes, "every pass has the copy early at its middle and a zero either side of it (" + where + ")");
+                check(furthest(before) <= 65.0 && furthest(after) <= 65.0 && std::abs(middle(before) - middle(after)) <= 10.0,
+                      "the zeros are within 65 ms of the middle as heard and even either side of it (" + num(middle(before), 0) + " ms before, " + num(middle(after), 0) + " after) (" + where + ")");
+            }
+    }
+
+    // ---- follow --------------------------------------------------------------------------------------------------
+    if (wanted("follow"))
+    {
+        std::cout << "follow: the Followers' Pass and Filter inputs, and Tape Flanger With the Filter" << std::endl;
+        // A quiet hiss with a loud burst every 0.7 s, on bus A: something loud that has nothing to do with the passes.
+        // And the same hiss without them.
+        CargoHold burstHold, hissHold;
+        {
+            bool ok = true;
+            for (const bool bursts : { true, false })
+            {
+                juce::AudioBuffer<float> b(1, static_cast<int>(c_rate * 7.0));
+                juce::Random r(77);
+                for (int i = 0; i < b.getNumSamples(); ++i)
+                {
+                    const double t = std::fmod(i / c_rate, 0.7);
+                    b.setSample(0, i, static_cast<float>((0.01 + (bursts ? 0.9 * std::exp(-t / 0.03) : 0.0)) * (r.nextFloat() * 2.0f - 1.0f)));
+                }
+                auto& hold = bursts ? burstHold : hissHold;
+                ok = ok && hold.loadFile(0, writeWav(folder, bursts ? "swirlwire_src_bursts" : "swirlwire_src_hiss", b), error);
+                hold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+                hold.setSkipSilence(0, false);
+            }
+            check(ok && burstHold.getBus(0) == 0 && hissHold.getBus(0) == 0, "loads a hiss with loud bursts, and the hiss alone, on bus A " + error);
+        }
+
+        // The Pass input, chunk by chunk, against the pass's marker.
+        struct Passes { std::vector<float> near, level; Run run; float peakIn = 1.0e9f; };
+        auto fly = [&](CargoHold& hold, bool together, bool room, int passMode, float rate, bool throws)
+        {
+            Passes out;
+            RigEngine::Params q;
+            q.hitAim = false;
+            q.rate = rate;
+            q.rideMode = together ? RigEngine::RideTogether : RigEngine::RideApart;
+            q.buses[0].passMode = passMode;
+            auto e = std::make_unique<RigEngine>();
+            if (room)
+                e->setWidth(room::Width::Surround51);
+            start(*e, hold, q);
+            RigEngine* engine = e.get();
+            out.run = run(*e, room ? 6 : 2, c_rate, 60.0, false,
+                          [engine, throws](int pos) { const int every = static_cast<int>(5.0 * c_rate) / c_chunk * c_chunk; if (throws && pos % every == every / 2) engine->throwWhoosh(0, 1.0f); },
+                          [&out, engine](int)
+                          {
+                              out.near.push_back(engine->getPassNear(0));
+                              out.level.push_back(engine->takeSectionLevels()[0]);
+                              // (On the clock, the pass's marker is on the swell's peak: how far from it the clock says it is.)
+                              for (int m = 0; m < engine->getNumMarkers(); ++m)
+                                  if (engine->getMarker(m).kind == RigEngine::MarkPassA && engine->getCyclePeakIn() >= 0.0f)
+                                  {
+                                      const float in = engine->getCyclePeakIn(), swell = engine->getCycleSeconds();
+                                      out.peakIn = out.peakIn > 1.0e8f ? std::min(in, swell - in) : std::max(out.peakIn, std::min(in, swell - in));
+                                  }
+                          });
+            return out;
+        };
+        const int perSecond = static_cast<int>(c_rate) / c_chunk;
+        // Where the Pass input tops out round each marker, in chunks from the marker's own chunk, and how high.
+        auto tops = [](const Passes& f, int kind, int& worst, float& lowest)
+        {
+            int counted = 0;
+            worst = 0;
+            lowest = 1.0f;
+            for (const double m : f.run.marks[static_cast<size_t>(kind)])
+            {
+                const int at = static_cast<int>(m) / c_chunk;
+                const int second = static_cast<int>(c_rate) / c_chunk, reach = second * 3 / 10;
+                if (at < 3 * second || at > static_cast<int>(f.near.size()) - second)
+                    continue;
+                // (The input is read at the end of each chunk and the marker is somewhere inside one: the chunk whose
+                // end is nearest the marker is that one or the one before it.)
+                int top = at - reach;
+                for (int i = at - reach; i <= at + reach; ++i)
+                    if (f.near[static_cast<size_t>(i)] > f.near[static_cast<size_t>(top)])
+                        top = i;
+                const int away = std::min(std::abs(top - at), std::abs(top - (at - 1)));
+                worst = std::max(worst, away);
+                lowest = std::min(lowest, f.near[static_cast<size_t>(top)]);
+                ++counted;
+            }
+            return counted;
+        };
+        struct PassCase { const char* name; bool together, room; int passMode; float rate; };
+        const PassCase passCases[] = { { "Stereo, Bed", false, false, 0, 0.4f }, { "Stereo, Fly-By, Rate 100%", false, false, 1, 1.0f }, { "5.1, Bed, Rate 0%", false, true, 0, 0.0f },
+                                       { "Stereo, Faders Together", true, false, 0, 0.4f }, { "5.1, Faders Together, Fly-By", true, true, 1, 0.7f } };
+        for (const auto& c : passCases)
+        {
+            const Passes f = fly(toneHold, c.together, c.room, c.passMode, c.rate, false);
+            int worst = 0;
+            float lowest = 0.0f;
+            const int counted = tops(f, RigEngine::MarkPassA, worst, lowest);
+            float least = 1.0f;
+            for (size_t i = static_cast<size_t>(3 * perSecond); i < f.near.size(); ++i)
+                least = std::min(least, f.near[i]);
+            std::cout << "  " << c.name << ": " << counted << " passes; the Pass input tops out " << worst << " chunk(s) from the marker at the most, at " << num(lowest, 4) << " or more; between passes it is down to "
+                      << num(least, 3) << (c.together ? "; the clock's peak is " + num(1000.0 * f.peakIn, 2) + " ms from the marker at the most" : juce::String()) << std::endl;
+            check(counted >= 8 && worst <= 1 && lowest >= 0.995f, juce::String("the Pass input tops out within one chunk of the pass's marker, at 1 (") + c.name + ")");
+            if (c.together)
+                check(f.peakIn <= 2.0f * c_chunk / static_cast<float>(c_rate), juce::String("Faders Together: that is the top of the swell (") + c.name + ")");
+            if (c.passMode == 1)
+                check(least < 0.15f, juce::String("between Fly-By passes it is most of the way down (") + c.name + ")");
+        }
+        {
+            // The same passes with a steady hiss and with the loud bursts in it: the input is the same to the bit, while
+            // the bus's loudness (what the Bus A input hears) is nothing alike.
+            const Passes steady = fly(hissHold, false, false, 1, 0.4f, false), loud = fly(burstHold, false, false, 1, 0.4f, false);
+            float apartMost = 0.0f, quiet = 1.0e9f, burst = 0.0f;
+            for (size_t i = 0; i < std::min(steady.near.size(), loud.near.size()); ++i)
+                apartMost = std::max(apartMost, std::abs(steady.near[i] - loud.near[i]));
+            // Its loudness while a pass is at its closest, burst or no burst (the 0.2 s round each marker).
+            for (const double m : loud.run.marks[RigEngine::MarkPassA])
+            {
+                const int at = static_cast<int>(m) / c_chunk;
+                if (at < 3 * perSecond || at > static_cast<int>(loud.near.size()) - perSecond)
+                    continue;
+                for (int i = at - perSecond / 10; i <= at + perSecond / 10; ++i)
+                {
+                    quiet = std::min(quiet, loud.level[static_cast<size_t>(i)]);
+                    burst = std::max(burst, loud.level[static_cast<size_t>(i)]);
+                }
+            }
+            std::cout << "  a hiss with a loud burst every 0.7 s against the hiss alone: the Pass input differs by " << juce::String(apartMost, 9) << " at the most; bus A's loudness round the markers runs from "
+                      << num(db(quiet), 1) << " to " << num(db(burst), 1) << " dB" << std::endl;
+            check(steady.near.size() == loud.near.size() && apartMost == 0.0f, "the Pass input does not hear a loud burst: it is the same whatever plays");
+            check(db(burst) - db(quiet) > 20.0, "(the bursts are there: the bus's loudness jumps by 20 dB and more round the markers)");
+        }
+        {
+            // A throw in flight is the nearest thing as it peaks.
+            const Passes f = fly(toneHold, false, true, 1, 0.0f, true);
+            // (A pass of the bus's own can be near at the same time, so not where it tops out: what it reads as the
+            // throw peaks, in the marker's chunk or the one before.)
+            int counted = 0;
+            float lowest = 1.0f;
+            for (const double m : f.run.marks[RigEngine::MarkThrow])
+            {
+                const int at = static_cast<int>(m) / c_chunk;
+                if (at < 1 || at >= static_cast<int>(f.near.size()))
+                    continue;
+                lowest = std::min(lowest, std::max(f.near[static_cast<size_t>(at)], f.near[static_cast<size_t>(at - 1)]));
+                ++counted;
+            }
+            std::cout << "  5.1, a throw every 5 s: " << counted << " throws; the Pass input reads " << num(lowest, 4) << " or more as each one peaks" << std::endl;
+            check(counted >= 8 && lowest >= 0.995f, "a throw in flight counts: the Pass input is at 1 as it peaks");
+        }
+
+        // The Filter input against where the filter itself is. Low Pass: the filter's own place is how open it is.
+        {
+            auto q = plain();
+            q.filterDetail[0].sweep = 0.6f;
+            q.filterDetail[0].rateHz = 3.0f;
+            q.filterDetail[0].follow = 1.0f;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            RigEngine* engine = e.get();
+            const double lo = 170.0 * std::pow(2.0, -1.8), hi = std::min(0.45 * c_rate, 170.0 * std::pow(2.0, 8.8));
+            double worst = 0.0, least = 1.0, most = 0.0;
+            run(*e, 2, c_rate, 30.0, false, [&q, engine](int pos)
+            {
+                q.buses[0].filter = static_cast<float>(0.5 + 0.45 * std::sin(c_twoPi * 0.37 * pos / c_rate)); // the wheel moves too
+                engine->setParams(q);
+            }, [&](int pos)
+            {
+                if (pos < static_cast<int>(c_rate))
+                    return;
+                const double open = engine->getFilterOpen(0), place = std::log(engine->getFilterHz(0) / lo) / std::log(hi / lo);
+                worst = std::max(worst, std::abs(open - place));
+                least = std::min(least, open);
+                most = std::max(most, open);
+            });
+            std::cout << "  the Filter input against the filter's own place on the log axis (Sweep 60% at 3 Hz, Follow 100%, the wheel moving 5% .. 95%): apart by " << num(100.0 * worst, 2)
+                      << "% of the travel at the most; it ran from " << num(least, 3) << " to " << num(most, 3) << std::endl;
+            check(worst <= 0.02 && most - least > 0.5, "the Filter input is where the filter is on its log-frequency travel, within 2%");
+        }
+        {
+            // And against the filter as it is heard: white noise through it standing still, the response fitted to
+            // a two-pole low-pass of its Q, which gives where it is.
+            auto heardSpectrum = [&](float closedAt, float knob, float* openOut)
+            {
+                auto q = plain();
+                q.buses[0].filter = knob;
+                q.levels[0] = 0.1f;
+                q.buses[0].doppler = 0.0f;
+                q.filterDetail[0].closedAtHz = closedAt;
+                q.filterDetail[0].follow = 0.0f;
+                auto e = std::make_unique<RigEngine>();
+                start(*e, noiseHold, q);
+                const auto heard = run(*e, 2, c_rate, 14.0).heard;
+                if (openOut != nullptr)
+                    *openOut = e->getFilterOpen(0);
+                return spectrum(heard, 0, static_cast<int>(2.0 * c_rate));
+            };
+            const auto flat = heardSpectrum(170.0f, 0.0f, nullptr);
+            struct Still { float closedAt, knob; };
+            double worst = 0.0;
+            for (const Still c : { Still { 170.0f, 0.8f }, Still { 170.0f, 1.0f }, Still { 60.0f, 0.9f }, Still { 800.0f, 0.8f }, Still { 2000.0f, 0.8f } })
+            {
+                float open = 0.0f;
+                const auto with = heardSpectrum(c.closedAt, c.knob, &open);
+                SweepFilter::Settings set;
+                set.closedAtHz = c.closedAt;
+                set.follow = 0.0f;
+                const double qv = SweepFilter::q(set, c.knob);
+                std::vector<std::pair<double, double>> points; // Hz, dB
+                for (double hz = 40.0; hz < 16000.0; hz *= std::pow(2.0, 1.0 / 6.0))
+                    points.push_back({ hz, 10.0 * std::log10(std::max(bandPower(with, hz, hz * 0.06), 1.0e-30) / std::max(bandPower(flat, hz, hz * 0.06), 1.0e-30)) });
+                double best = 1.0e30, fitted = 0.0;
+                for (double fc = 25.0; fc < 20000.0; fc *= std::pow(2.0, 1.0 / 200.0))
+                {
+                    const double g = std::tan(c_twoPi * 0.5 * fc / c_rate);
+                    double sum = 0.0, sumSq = 0.0;
+                    int n = 0;
+                    for (const auto& [hz, measured] : points)
+                    {
+                        const double w = std::tan(c_twoPi * 0.5 * hz / c_rate) / g;
+                        const double model = -10.0 * std::log10((1.0 - w * w) * (1.0 - w * w) + (w / qv) * (w / qv));
+                        if (model < -36.0)
+                            continue;
+                        const double d = measured - model;
+                        sum += d;
+                        sumSq += d * d;
+                        ++n;
+                    }
+                    const double spread = n > 6 ? sumSq / n - (sum / n) * (sum / n) : 1.0e30;
+                    if (spread < best)
+                    {
+                        best = spread;
+                        fitted = fc;
+                    }
+                }
+                const double lo = c.closedAt, hi = std::min(0.45 * c_rate, c.closedAt * 128.0);
+                const double place = std::log(fitted / lo) / std::log(hi / lo);
+                const double meant = c.closedAt * std::pow(2.0, 7.0 * (1.0 - 0.9 * std::sqrt(c.knob)));
+                worst = std::max(worst, std::abs(place - static_cast<double>(open)));
+                std::cout << "  Closed At " << num(c.closedAt, 0) << " Hz, Filter " << juce::roundToInt(100.0f * c.knob) << "%: the filter is heard at " << num(fitted, 1) << " Hz (the law says " << num(meant, 1)
+                          << "; the fit is within " << num(std::sqrt(best), 2) << " dB), which is " << num(place, 4) << " of the travel; the Filter input reads " << num(open, 4) << std::endl;
+            }
+            check(worst <= 0.02, "the Filter input tracks the filter as measured from its sound, within 2% of the travel (" + num(100.0 * worst, 2) + "% at the most)");
+        }
+
+        // Tape Flanger, With the Filter: the filter sweeping by itself (Follow 0%), the copy against its most open moments.
+        {
+            struct Swept { int cycles = 0, bracketed = 0; std::vector<double> before, after, atTop; double latest = 0.0, earliest = 0.0; };
+            auto sweep = [&](float rateHz, int type, int shape, float knob, float sweepDepth, bool room, float wobble = 0.0f)
+            {
+                Swept out;
+                auto q = plain();
+                q.buses[0].swirl = 0.5f;
+                q.buses[0].filter = knob;
+                q.swirlDetail[0].type = RigEngine::SwirlTape;
+                q.swirlDetail[0].tape.motion = SwirlFx::WithFilter;
+                q.swirlDetail[0].tape.wobble = wobble;
+                q.filterDetail[0].type = type;
+                q.filterDetail[0].shape = shape;
+                q.filterDetail[0].follow = 0.0f;
+                q.filterDetail[0].sweep = sweepDepth;
+                q.filterDetail[0].rateHz = rateHz;
+                auto e = std::make_unique<RigEngine>();
+                if (room)
+                    e->setWidth(room::Width::Surround51);
+                start(*e, noiseHold, q);
+                RigEngine* engine = e.get();
+                std::vector<float> d, open;
+                const double seconds = std::max(20.0, 12.0 / rateHz);
+                run(*e, room ? 6 : 2, c_rate, seconds, false, [](int) {}, [&d, &open, engine](int)
+                {
+                    d.push_back(engine->getSwirlLaneOffsetMs(0, 0));
+                    open.push_back(engine->getFilterOpen(0));
+                });
+                const double perMs = c_rate / c_chunk / 1000.0;
+                const int cycle = static_cast<int>(c_rate / c_chunk / rateHz);
+                for (size_t i = static_cast<size_t>(3.0 * c_rate / c_chunk); i < d.size(); ++i)
+                {
+                    out.latest = std::max(out.latest, static_cast<double>(d[i]));
+                    out.earliest = std::min(out.earliest, static_cast<double>(d[i]));
+                }
+                // Each most open moment: the middle of the stretch over 99.5% of that cycle's top (a sine is flat there).
+                for (int from = static_cast<int>(3.0 * c_rate / c_chunk); from + 2 * cycle < static_cast<int>(open.size()) - cycle; from += cycle)
+                {
+                    int top = from;
+                    for (int i = from; i < from + cycle; ++i)
+                        if (open[static_cast<size_t>(i)] > open[static_cast<size_t>(top)])
+                            top = i;
+                    if (top - cycle / 2 < 0 || top + cycle / 2 >= static_cast<int>(open.size()))
+                        continue;
+                    int a = top, b = top;
+                    const float bar = open[static_cast<size_t>(top)] - 0.002f;
+                    while (a > top - cycle / 4 && open[static_cast<size_t>(a - 1)] >= bar) --a;
+                    while (b < top + cycle / 4 && open[static_cast<size_t>(b + 1)] >= bar) ++b;
+                    const double middle = 0.5 * (a + b);
+                    const int at = static_cast<int>(std::lround(middle));
+                    ++out.cycles;
+                    out.atTop.push_back(d[static_cast<size_t>(at)]);
+                    if (d[static_cast<size_t>(at)] >= 0.0f)
+                        continue;
+                    int lo = at, hi = at;
+                    while (lo > at - cycle / 2 && d[static_cast<size_t>(lo)] < 0.0f) --lo;
+                    while (hi < at + cycle / 2 && d[static_cast<size_t>(hi)] < 0.0f) ++hi;
+                    if (lo <= at - cycle / 2 || hi >= at + cycle / 2)
+                        continue;
+                    auto cross = [&d](int neg, int pos) { const double n = d[static_cast<size_t>(neg)], p = d[static_cast<size_t>(pos)]; return static_cast<double>(neg) + (static_cast<double>(pos) - neg) * (-n / (p - n)); };
+                    ++out.bracketed;
+                    out.before.push_back((middle - cross(lo + 1, lo)) / perMs);
+                    out.after.push_back((cross(hi - 1, hi) - middle) / perMs);
+                }
+                return out;
+            };
+            auto mean = [](const std::vector<double>& v) { double m = 0.0; for (const double x : v) m += x / static_cast<double>(std::max<size_t>(1, v.size())); return m; };
+            struct SweepCase { const char* name; float rate; int type; bool room; };
+            const SweepCase sweeps[] = { { "1 Hz Sine, Low Pass, Stereo", 1.0f, SweepFilter::LowPass, false }, { "1 Hz Sine, High Pass, 5.1", 1.0f, SweepFilter::HighPass, true },
+                                         { "0.25 Hz Sine, Low Pass, Stereo", 0.25f, SweepFilter::LowPass, false }, { "4 Hz Sine, Low Pass, Stereo", 4.0f, SweepFilter::LowPass, false } };
+            for (const auto& c : sweeps)
+            {
+                const Swept r = sweep(c.rate, c.type, SweepFilter::Sine, 0.5f, 0.5f, c.room);
+                const double before = mean(r.before), after = mean(r.after);
+                std::cout << "  " << c.name << " (Filter 50%, Sweep 50%, Follow 0%, Wobble 0%): " << r.cycles << " sweeps, " << r.bracketed << " with the copy early at the filter's most open moment and a zero either side: "
+                          << num(before, 1) << " ms before it and " << num(after, 1) << " ms after (the middle of the two " << num(0.5 * (after - before), 1) << " ms after it); the copy there "
+                          << num(mean(r.atTop), 2) << " ms; over the run " << num(r.earliest, 2) << " .. " << num(r.latest, 2) << " ms" << std::endl;
+                check(r.cycles >= 8 && r.bracketed == r.cycles, juce::String("With the Filter: the copy goes through zero either side of every most open moment (") + c.name + ")");
+                // (The two zeros are a set share of the sweep apart, so their middle is what sits on the moment.)
+                check(std::abs(0.5 * (after - before)) <= (c.rate > 2.0f ? 12.0 : 10.0), juce::String("the middle of the two zeros is on the filter's most open moment, within 10 ms (") + c.name + ")");
+                check(r.latest > 2.0 && r.latest < 6.5, juce::String("the copy is late while the filter is closed (") + c.name + ")");
+            }
+            // Wobble is a spring that follows the move, so it leans the copy: said, at its default of 25%.
+            for (const float rate : { 0.25f, 1.0f, 4.0f })
+            {
+                const Swept r = sweep(rate, SweepFilter::LowPass, SweepFilter::Sine, 0.5f, 0.5f, false, 0.25f);
+                std::cout << "  (said) " << num(rate, 2) << " Hz with Wobble at 25%: " << r.bracketed << " of " << r.cycles << " sweeps with a zero either side, " << num(mean(r.before), 1) << " ms before and "
+                          << num(mean(r.after), 1) << " ms after (the middle of the two " << num(0.5 * (mean(r.after) - mean(r.before)), 1) << " ms after the most open moment)" << std::endl;
+            }
+            // It has nothing to go by: the Filter wheel at 0, or a filter nothing moves. The copy waits Depth late.
+            const Swept off = sweep(1.0f, SweepFilter::LowPass, SweepFilter::Sine, 0.0f, 0.5f, false), still = sweep(1.0f, SweepFilter::LowPass, SweepFilter::Sine, 0.5f, 0.0f, false);
+            std::cout << "  Filter at 0%: the copy stays at " << num(off.earliest == 0.0 ? off.latest : off.earliest, 2) << " .. " << num(off.latest, 2) << " ms; a filter nothing moves (Follow and Sweep at 0%): "
+                      << num(still.latest, 2) << " ms" << std::endl;
+            check(off.bracketed == 0 && off.latest > 3.9 && mean(off.atTop) > 3.9, "With the Filter rests with the Filter wheel at 0: the copy waits Depth late");
+            check(still.bracketed == 0 && still.latest > 3.9 && still.latest < 4.1 && still.earliest == 0.0, "and with a filter nothing moves");
+        }
+        {
+            // The filter as it opens (Follow 100%, no Sweep) with the faders riding: the envelope filter. Said, not
+            // checked: how often the copy gets through zero depends on how near each swell comes to the recent peak.
+            RigEngine::Params q;
+            q.hitAim = false;
+            q.buses[0].swirl = 0.5f;
+            q.buses[0].filter = 0.5f;
+            q.swirlDetail[0].type = RigEngine::SwirlTape;
+            q.swirlDetail[0].tape.motion = SwirlFx::WithFilter;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            RigEngine* engine = e.get();
+            std::vector<float> d, open;
+            run(*e, 2, c_rate, 120.0, false, [](int) {}, [&d, &open, engine](int)
+            {
+                d.push_back(engine->getSwirlLaneOffsetMs(0, 0));
+                open.push_back(engine->getFilterOpen(0));
+            });
+            int dips = 0;
+            float most = 0.0f, least = 1.0f;
+            for (size_t i = static_cast<size_t>(3 * perSecond) + 1; i < d.size(); ++i)
+            {
+                dips += d[i] < 0.0f && d[i - 1] >= 0.0f ? 1 : 0;
+                most = std::max(most, open[i]);
+                least = std::min(least, open[i]);
+            }
+            std::cout << "  (said) the filter as it opens (Follow 100%, Sweep 0%, Filter 50%, the faders riding, noise): in 117 s the copy went through zero " << dips << " times; the Filter input ran from "
+                      << num(least, 3) << " to " << num(most, 3) << std::endl;
+        }
+
+        // A Follower on a bus's Filter input, wired to that same bus's Filter: what the modulators read is a block
+        // old, so it goes round a loop. The filter stands still but for the wire (Follow and Sweep at 0%).
+        {
+            const int target = ModMatrix::targetIndex(ParamIDs::bus[0][ParamIDs::Filter]);
+            const int section = 512;
+            double worstRipple = 0.0;
+            juce::String said;
+            long made = 0;
+            for (const float depth : { 1.0f, 0.5f, -0.5f, -1.0f })
+                for (const float speed : { 0.0f, 0.4f, 1.0f })
+                    for (const float knob : { 0.0f, 0.02f, 0.1f, 0.3f, 0.6f, 1.0f })
+                    {
+                        auto q = plain();
+                        q.buses[0].filter = knob;
+                        q.filterDetail[0].follow = 0.0f;
+                        auto e = std::make_unique<RigEngine>();
+                        start(*e, noiseHold, q);
+                        auto mods = std::make_unique<ModMatrix>();
+                        mods->prepare(c_rate);
+                        mods->connect(0, ParamIDs::bus[0][ParamIDs::Filter], depth);
+                        std::array<ModMatrix::SourceSettings, ModMatrix::c_numSources> set;
+                        set[0] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, speed, ModMatrix::FollowFilterA };
+                        for (size_t k = 1; k < set.size(); ++k)
+                            set[k] = { ModMatrix::Type::Macro, ModMatrix::Shape::Sine, 0.0f, 0 };
+                        ModMatrix::FollowerInputs in {};
+                        RigEngine* engine = e.get();
+                        ModMatrix* m = mods.get();
+                        std::vector<float> open;
+                        const float alone = [&] { run(*e, 2, c_rate, 0.5, false, [](int) {}, [](int) {}); return engine->getFilterOpen(0); }();
+                        juce::AudioBuffer<float> scratch(2, c_chunk);
+                        const int total = static_cast<int>(6.0 * c_rate);
+                        open.reserve(static_cast<size_t>(total / section + 1));
+                        const long before = g_allocations.load();
+                        for (int pos = 0; pos < total; pos += c_chunk)
+                        {
+                            if (pos % section == 0)
+                            {
+                                // As the plug-in does it: the modulators, then the engine's settings, then the sound.
+                                m->process(set, section, in);
+                                q.busMod[0][ParamIDs::Filter] = juce::jlimit(0.0f, 1.0f, knob + m->offset(target)) - knob;
+                                engine->setParams(q);
+                            }
+                            engine->process(nullptr, nullptr, scratch.getWritePointer(0), scratch.getWritePointer(1), c_chunk);
+                            if ((pos + c_chunk) % section == 0)
+                            {
+                                const auto places = engine->takeFollowerPlaces();
+                                in[ModMatrix::FollowPassA] = places.pass[0];
+                                in[ModMatrix::FollowFilterA] = places.filter[0];
+                                if (pos > total - static_cast<int>(2.0 * c_rate))
+                                    open.push_back(places.filter[0]);
+                            }
+                        }
+                        made += g_allocations.load() - before;
+                        float lo = 1.0f, hi = 0.0f;
+                        for (const float v : open) { lo = std::min(lo, v); hi = std::max(hi, v); }
+                        worstRipple = std::max(worstRipple, static_cast<double>(hi - lo));
+                        if (speed > 0.99f && (knob < 0.001f || std::abs(knob - 0.3f) < 0.001f || knob > 0.99f))
+                            said << "    depth " << juce::roundToInt(100.0f * depth) << "%, Filter " << juce::roundToInt(100.0f * knob) << "%: " << num(alone, 3) << " alone, " << num(0.5f * (lo + hi), 3) << " with the wire\n";
+                    }
+            std::cout << "  a Follower on Bus A Filter wired to bus A's Filter (72 settings: depth +-100% and +-50%, Speed 0%, 40% and 100%, the wheel from 0% to 100%): over the last 2 s of 6 the Filter input moves by "
+                      << juce::String(worstRipple, 6) << " at the most. How open the filter settles (Speed 100%):\n" << said << std::flush;
+            check(worstRipple < 0.002, "wired to its own bus's Filter it settles: nothing rings or hunts");
+            check(made == 0, "nothing allocates while those run: the engine, its Pass and Filter inputs, the modulators (" + juce::String(static_cast<int>(made)) + ")");
+        }
+        {
+            // No allocation: the engine in a Tape Flanger With the Filter, both inputs taken and followed, a wire on Swirl.
+            auto q = plain();
+            q.buses[0].swirl = 0.5f;
+            q.swirlDetail[0].type = RigEngine::SwirlTape;
+            q.swirlDetail[0].tape.motion = SwirlFx::WithFilter;
+            q.filterDetail[0].sweep = 0.5f;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            auto mods = std::make_unique<ModMatrix>();
+            mods->prepare(c_rate);
+            mods->connect(0, ParamIDs::bus[0][ParamIDs::Swirl], 0.5f);
+            mods->connect(1, ParamIDs::bus[0][ParamIDs::Drive], 0.5f);
+            std::array<ModMatrix::SourceSettings, ModMatrix::c_numSources> set;
+            set[0] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowPassA };
+            set[1] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowFilterA };
+            set[2] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowPassB };
+            set[3] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowFilterB };
+            ModMatrix::FollowerInputs in {};
+            juce::AudioBuffer<float> scratch(2, c_chunk);
+            const int tSwirl = ModMatrix::targetIndex(ParamIDs::bus[0][ParamIDs::Swirl]);
+            for (int pos = 0; pos < static_cast<int>(c_rate); pos += c_chunk) // (running first)
+                e->process(nullptr, nullptr, scratch.getWritePointer(0), scratch.getWritePointer(1), c_chunk);
+            const long before = g_allocations.load();
+            float top = 0.0f, filterTop = 0.0f;
+            for (int pos = 0; pos < static_cast<int>(20.0 * c_rate); pos += c_chunk)
+            {
+                if (pos % 512 == 0)
+                {
+                    mods->process(set, 512, in);
+                    q.busMod[0][ParamIDs::Swirl] = mods->offset(tSwirl);
+                    e->setParams(q);
+                }
+                e->process(nullptr, nullptr, scratch.getWritePointer(0), scratch.getWritePointer(1), c_chunk);
+                if ((pos + c_chunk) % 512 == 0)
+                {
+                    const auto places = e->takeFollowerPlaces();
+                    in[ModMatrix::FollowPassA] = places.pass[0];
+                    in[ModMatrix::FollowPassB] = places.pass[1];
+                    in[ModMatrix::FollowFilterA] = places.filter[0];
+                    in[ModMatrix::FollowFilterB] = places.filter[1];
+                    top = std::max(top, mods->getSourceValue(0));
+                    filterTop = std::max(filterTop, mods->getSourceValue(1));
+                }
+            }
+            const long made = g_allocations.load() - before;
+            std::cout << "  20 s of the engine in a Tape Flanger With the Filter, four Followers on the Pass and Filter inputs, a wire on Swirl: " << made << " allocations (the Followers reached " << num(top, 3) << " and "
+                      << num(filterTop, 3) << ")" << std::endl;
+            check(made == 0 && top > 0.9f && filterTop > 0.3f, "nothing allocates: the engine's Pass and Filter inputs, the Followers on them, With the Filter");
         }
     }
 

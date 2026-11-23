@@ -227,6 +227,77 @@ int main()
         check(still && std::abs(up - 3.0f) < 1.0e-5f, "follow 0%: the level does not move it; sweep 100%: three octaves either way");
     }
 
+    std::cout << "How open it is: on the whole of its travel, and in its present travel" << std::endl;
+    {
+        const float fs = 48000.0f;
+        SweepFilter::Settings s;
+        // The whole travel with the layer at its defaults: Closed At (170 Hz) to seven octaves over it (0.45 fs comes first).
+        const float top = 0.45f * fs;
+        check(SweepFilter::openness(s, 170.0f, fs) == 0.0f && SweepFilter::openness(s, top, fs) == 1.0f && SweepFilter::openness(s, 20.0f, fs) == 0.0f,
+              "openness: 0 at Closed At, 1 at the top of the travel");
+        const float half = SweepFilter::openness(s, std::sqrt(170.0f * top), fs);
+        check(std::abs(half - 0.5f) < 1.0e-5f, "openness: a straight line on the log-frequency axis (half way at the geometric middle)");
+        // The front wheel moves the answer as it moves the filter: at the whoosh's peak the wheel at 0 is fully
+        // open and at 100% it is 0.7 octaves over Closed At, a tenth of the way.
+        const float atZero = SweepFilter::openness(s, SweepFilter::openHz(s, 0.0f, 1.0f, 0.0f, fs), fs), atFull = SweepFilter::openness(s, SweepFilter::openHz(s, 1.0f, 1.0f, 0.0f, fs), fs);
+        std::cout << "         at the whoosh's peak: the wheel at 0% reads " << atZero << ", at 100% " << atFull << std::endl;
+        check(atZero == 1.0f && std::abs(atFull - 0.7f / std::log2(top / 170.0f)) < 1.0e-4f, "openness: the front wheel is in it");
+        // Sweep widens the travel by its three octaves either way; the place is the same for every Type.
+        SweepFilter::Settings wide = s;
+        wide.sweep = 1.0f;
+        wide.follow = 0.0f;
+        SweepFilter::Settings following = wide;
+        following.follow = 1.0f; // (the whoosh gone and the rhythm at its bottom: three octaves under Closed At)
+        const float lowest = SweepFilter::openness(following, SweepFilter::openHz(following, 1.0f, 0.0f, -1.0f, fs), fs);
+        const float closedAt = SweepFilter::openness(wide, 170.0f, fs);
+        check(lowest < 1.0e-5f && std::abs(closedAt - 3.0f / std::log2(top / (170.0f / 8.0f))) < 1.0e-4f,
+              "openness: Sweep's octaves under Closed At are part of the travel (Closed At itself is then " + fmt("%.3f of the way up)", static_cast<double>(closedAt)));
+        for (const int type : { SweepFilter::HighPass, SweepFilter::BandPass, SweepFilter::Notch })
+        {
+            SweepFilter::Settings typed = wide;
+            typed.type = type;
+            check(SweepFilter::openHz(typed, 0.4f, 0.3f, 0.5f, fs) == SweepFilter::openHz(wide, 0.4f, 0.3f, 0.5f, fs)
+                      && SweepFilter::cutoffHz(typed, 0.4f, 0.3f, 0.5f, fs) == SweepFilter::placeHz(typed, SweepFilter::openHz(typed, 0.4f, 0.3f, 0.5f, fs), fs),
+                  std::string(c_typeNames[type]) + ": how open it is does not depend on the Type; cutoffHz is that, placed for the Type");
+        }
+        // The present travel: whatever the wheel, the whoosh at its peak with the rhythm at its top is 1 and the
+        // whoosh gone with the rhythm at its bottom is 0; nothing moving is 0.
+        bool ends = true;
+        for (const float f : { 0.05f, 0.3f, 0.6f, 1.0f })
+            for (const float follow : { 0.0f, 0.5f, 1.0f })
+                for (const float sweep : { 0.0f, 0.3f, 1.0f })
+                {
+                    SweepFilter::Settings t;
+                    t.follow = follow;
+                    t.sweep = sweep;
+                    const float hi = SweepFilter::travel(t, f, SweepFilter::openHz(t, f, 1.0f, 1.0f, fs), fs), lo = SweepFilter::travel(t, f, SweepFilter::openHz(t, f, 0.0f, -1.0f, fs), fs);
+                    const bool moves = follow > 0.0f || sweep > 0.0f;
+                    ends = ends && lo == 0.0f && (moves ? hi == 1.0f : hi == 0.0f);
+                }
+        check(ends, "travel: 0 at the bottom and 1 at the top of what Follow and Sweep give it wherever the wheel is; 0 when neither moves it");
+        // The rhythm read ahead: what advance() gives that much later, for the shapes that have no edge.
+        bool aheadOk = true;
+        float worstAhead = 0.0f;
+        for (const int shape : { SweepFilter::Sine, SweepFilter::Triangle })
+        {
+            SweepFilter f;
+            f.prepare(fs);
+            SweepFilter::Settings t;
+            t.shape = shape;
+            t.rateHz = 1.7f;
+            std::vector<float> told;
+            for (int n = 0; n < 6000; ++n)
+            {
+                const float now = f.advance(t, 32);
+                told.push_back(f.ahead(t, 45.0f * 32.0f / fs)); // 45 chunks on
+                if (n >= 45)
+                    worstAhead = std::max(worstAhead, std::abs(told[static_cast<size_t>(n - 45)] - now));
+            }
+            aheadOk = aheadOk && worstAhead < 2.0e-3f;
+        }
+        check(aheadOk, fmt("ahead: a Sine or Triangle rhythm 30 ms on is what advance() gives 30 ms later (%.5f off at most)", static_cast<double>(worstAhead)));
+    }
+
     std::cout << "Response of each type and slope (held, against the analytic response)" << std::endl;
     {
         const double probes[] = { 30.0, 60.0, 125.0, 250.0, 500.0, 707.0, 1000.0, 1414.0, 2000.0, 4000.0, 8000.0, 16000.0 };

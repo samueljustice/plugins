@@ -28,6 +28,12 @@
 
 - **An EQ on the whole mix**, after Space and before Inflate and the limiter. The EQ key in Output's title bar draws its curve; click it for a graph over Bus B with six handles: Low Cut (12 or 24 dB an octave), Low Shelf, two bells with Q, High Shelf and High Cut, each within 12 dB either way. It belongs to the session, is one curve on every speaker and the LFE, and passes the sound untouched while it is flat or off.
 
+### Followers for the middle of the whoosh and the filter
+
+- **Four more Follower inputs**: Bus A Pass, Bus B Pass, Bus A Filter and Bus B Filter. A Pass input follows where that bus's whoosh is in time: nothing while the pass is far off, all the way up at the middle of the whoosh (the pass at its closest), and down again as it leaves. It goes by where the passes are, not by loudness, so a hit or a loud moment elsewhere does not move it. A Filter input follows how open that bus's filter is, whatever is moving it. A Follower takes a tenth of its usual time over these and is as quick down as up.
+- **Tape Flanger's Motion has a fourth choice, With the Filter**: the second copy runs late while the bus's filter is closed and passes through zero where the filter is most open, so the flange keeps time with the filter's own Sweep.
+- **With the Pass passes through zero in the middle of the whoosh**: about 45 ms before the pass is closest and about 45 ms after, as it is heard, on every pass, at any Rate and however near the pass comes.
+
 ### Other changes
 
 - **The bus Filter moves smoothly.** Its cutoff used to step every 32 samples; it now glides from sample to sample. Renders differ from 2.2.1 by about −52 dB where the Filter is in.
