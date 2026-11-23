@@ -27,3 +27,10 @@ A first pass at the automatic map: multi-band onset detection, a hinted beat tra
 ## Not in the repository
 
 The session data, the written reports, the pairing files and the design sketch are in `~/Documents/BeatMapper-work`, because they name client projects and this repository is public.
+
+## Section-by-section engine
+
+- `engine/engine_sections.py` (called `engine2` in `score_sections.py`) maps the music in sections. A new section starts after a stretch with no hits, or where a shifted grid fits the next bars clearly better than the running one. Each section is tracked from its own first hit, and the gap is bridged with a whole or half number of beats.
+- `engine/score_sections.py` scores it. Like `score.py`, it needs the private pairing file.
+
+Result on four hand-made maps (350 beats), independently re-scored: beats within 10 ms of the hand grid with the same beat number went from 56% to 62%, and to 83% when the bar position at each detected restart is confirmed by hand. It depends on the tempo hint being within about 1 BPM.
