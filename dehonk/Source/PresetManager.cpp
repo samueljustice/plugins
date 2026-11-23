@@ -617,10 +617,20 @@ void PresetManager::restoreState (const juce::XmlElement& state, const std::func
 
     auto savedName = state.getStringAttribute (statePresetName.toString());
     const auto savedKind = state.getStringAttribute (statePresetKind.toString());
-    // One factory preset has a new name since the first test build: a session saved on it then
-    // still comes back on it.
-    if (savedKind == "factory" && savedName == "After RBass")
-        savedName = "After a bass enhancer";
+    // Factory presets that have been renamed: a session saved on one under its old name still
+    // comes back on it.
+    if (savedKind == "factory")
+    {
+        static const std::pair<const char*, const char*> renamed[]
+        {
+            { "After RBass", "After a bass enhancer" },          // renamed in 0.0.2
+            { "Heavy", "Master bus, heavy" },                     // renamed in 0.0.3
+            { "Narrow resonances only", "Narrow focus only" },    // renamed in 0.0.3
+        };
+        for (const auto& [oldName, newName] : renamed)
+            if (savedName == oldName)
+                savedName = newName;
+    }
     const auto savedFile = state.getStringAttribute (statePresetFile.toString())
                                .fromLastOccurrenceOf ("/", false, false)
                                .fromLastOccurrenceOf ("\\", false, false);

@@ -13,9 +13,14 @@
 //                deeper the notch, the bigger the goose. It waddles after its notch and flies off
 //                when the notch closes.
 //   Recordist    De-Honk at work. He walks along the bank to the worst goose, facing the way he
-//                goes, and holds the microphone out over it. Now and then, no more than once every
-//                several seconds, he winds up and takes one swing at it with the pole. Bypass: he
-//                sits down with a flask. Solo Honk: he cups a headphone and listens. Diff: he stops
+//                goes, and holds the microphone out over its head, never quite still. Between the
+//                two of them there is one bit at a time, with a rest after it that is shorter the
+//                busier the mix: he shoos it, swings and misses, it takes hold of the windshield,
+//                he lunges and it hops over the pole. How it ends is the plug-in's doing: if the
+//                notch closes he sends it off with one great swing; if the cut stays near Max Cut
+//                it walks up his pole and sits on his hat. With nothing to do he puts the pole on
+//                his shoulder and finds small things to see to. Bypass: he sits down with a
+//                flask. Solo Honk: he cups a headphone and listens. Diff: he stops
 //                and looks from side to side, comparing.
 //   Trees        the edges of the ranges: one stands on the far shore at each edge, in the colour
 //                of the range to its right, and moves as the edge is dragged.
@@ -325,7 +330,7 @@ public:
             case Treat::adjustHat:     startGesture (Gesture::hat, 1.6f); break;
             case Treat::wipeBrow:      startGesture (Gesture::wipe, 1.5f); break;
             case Treat::fistPump:      startGesture (Gesture::pump, kPumpSeconds); break;
-            case Treat::swing:         keeper.swingCool = 0.0f; break;
+            case Treat::swing:         keeper.bitWait = 1.0f; keeper.sinceBit = 9.0f; break;
             case Treat::stretch:       startGesture (Gesture::stretch, 2.6f); break;
             case Treat::breeze:        gust = 0.0f; break;
         }
@@ -440,10 +445,11 @@ private:
     static Xform place (Vec3 at, float yaw, float size) noexcept { return Xform::scale (size).then (Xform::rotY (yaw)).then (Xform::move (at)); }
 
     static constexpr float kLogHalf = 0.85f;          // half the turtles' log, in stream-creature sizes
+    static constexpr float kOfferSeconds = 3.5f;     // the microphone held out to the frog or the turtles, there and back
+    static constexpr float kHatSeconds = 0.8f;       // a hand to the brim of his hat, a push, and away
     static constexpr float kPumpSeconds = 0.75f;     // the recordist's fist pump, start to settle
     static constexpr float kTripSeconds = 1.5f;      // caught, two skips on the front foot, settle
-    static constexpr float kSwingSeconds = 1.25f;    // the bat: wind-up, a beat, the swing, back to rest
-    static constexpr float kSwingHit = 0.47f;        // how far through it the pole comes down on the goose
+    static constexpr float kF = 1.0f / 60.0f;        // the bits between him and his goose are timed in sixtieths of a second
     static constexpr float kKnockSeconds = 0.75f;    // a clicked goose in the air
     static constexpr float kFallSeconds = 3.4f;      // a clicked turtle: off the log, under, and back up
     static constexpr float kCastGrey = 0.3f;         // the most the weather greys the characters (the sky takes all of it)
@@ -524,17 +530,91 @@ private:
         float knock = 1.0f, knockTo = 0, knockX = 0, knockPhase = 0, dizzy = 0;   // clicked: in the air, where to, how far from its place now
         float z = kGooseZ, laneZ = kGooseZ, spreadX = 0, crowd = 0;    // its row on the bank, where it stands to be seen, how crowded
         bool crowded = false, byLog = false;                           // byLog: standing close behind the turtles' log
+        bool beaten = false;                                           // its notch closed while he was at it: it goes when he sends it
+        float hissClock = 0, alert = 0, skid = 0, depthSlow = 0;       // the hiss comes in bursts; neck up, watching; the slide as it lands; its depth a moment ago
         Spring squash;
         Blink blink;
     };
-    enum class Gesture { none, tap, hat, pump, wipe, sip, stretch, wave, tip };
+    enum class Gesture { none, tap, hat, pump, wipe, sip, stretch, wave, tip, shoulder, coil, polish, doze, offer };
+    /** What he and the goose he is working get up to between them. Each is a wind-up, the action,
+        a follow-through and a held ending, and each starts from and comes back to the pose he holds
+        the microphone in (see bitPose and gooseBit). One at a time, with a rest between. */
+    enum class Bit { none, shoo, whiff, tug, lunge, win, gooseWins, honk };
+    /** A bit can go more than one way (`var`): the lunge ends in his cable or in a skid (1), and
+        the swing that misses has three endings (the low two bits) and three lengths of wind-up
+        (the next two). */
+    static float whiffWind (int var) noexcept { const int w = (var >> 2) & 3; return w == 0 ? 14.0f : w == 1 ? 20.0f : 28.0f; }
+    static float bitFrames (Bit b, int var) noexcept
+    {
+        switch (b)
+        {
+            case Bit::shoo:      return 58.0f;
+            case Bit::whiff:     return ((var & 3) == 0 ? 84.0f : (var & 3) == 1 ? 96.0f : 92.0f) + whiffWind (var) - 20.0f;
+            case Bit::tug:       return 128.0f;
+            case Bit::lunge:     return var != 0 ? 98.0f : 160.0f;
+            case Bit::win:       return 114.0f;
+            case Bit::gooseWins: return 192.0f;
+            case Bit::honk:      return 56.0f;
+            case Bit::none:      break;
+        }
+        return 0.0f;
+    }
+    /** How long its action lasts: until then nothing else big in the picture may start. */
+    static float bitActionFrames (Bit b, int var) noexcept
+    {
+        switch (b)
+        {
+            case Bit::shoo:      return 42.0f;
+            case Bit::whiff:     return ((var & 3) == 0 ? 47.0f : (var & 3) == 1 ? 78.0f : 74.0f) + whiffWind (var) - 20.0f;
+            case Bit::tug:       return 100.0f;
+            case Bit::lunge:     return var != 0 ? 86.0f : 148.0f;
+            case Bit::win:       return 76.0f;
+            case Bit::gooseWins: return 174.0f;
+            case Bit::honk:      return 32.0f;
+            case Bit::none:      break;
+        }
+        return 0.0f;
+    }
+    static bool bigBit (Bit b) noexcept { return b == Bit::lunge || b == Bit::win || b == Bit::gooseWins; }
     struct Keeper
     {
         float x = -2.6f, speed = 0, phase = 0, facing = 1, yaw = 1.35f, poleYaw = -0.3f, shoo = 0, sit = 0, idle = 0;
         float recoil = 0, trip = 1.0f, tripWait = 9.0f, solo = 0, compare = 0, chase = 0, hand = -1.0f;
         float pumpWait = 0.0f, cableX = -3.9f, quiet = 0;
-        float swing = 1.0f, swingCool = 4.0f;      // the bat (0..1, 1 = not swinging) and the seconds before the next one
-        float runAmt = 0;                          // 0 standing .. 1 at a run, eased
+        // The bit that is playing: which, how far through (seconds), how much of it shows (it
+        // fades when it has to end early, so nothing jumps), the goose, which way the goose is,
+        // and where he stood when it began.
+        Bit bit = Bit::none, lastBit = Bit::none, nextBit = Bit::none;
+        float bt = 0, bitW = 0, bitDir = 1.0f, bitX = 0, bitRoom = 2.6f, bitReach = 1.2f, bitScale = 1.0f;   // bitScale: how far its steps take him, against how they are written
+        bool bitCut = false;
+        int bitVar = 0, lastWhiff = -1;            // which way this one goes (see bitFrames), and how the last miss ended
+        int bitGoose = -1;
+        float bitWait = 0.3f, gapScale = 1.0f;     // how far the rest between bits has run (1 = over), and this rest's share of scatter
+        float sinceBit = 9.0f, bigCool = 6.0f, gooseWinCool = 12.0f, cue = 0;   // cue: counting down the last frames before a bit
+        float heat = 0, honkCool = 0;              // how hard the mix is working him, 0..1
+        int rung = 0, rungGoose = -1;              // how far things have escalated with this goose
+        float ceilingT = 0;                        // seconds his goose's cut has sat near Max Cut
+        // Holding the microphone is never quite still: it follows the goose's head a moment late,
+        // he shifts his weight, breathes, takes a new grip, looks from the goose to the microphone
+        // and listens, crouches as the cut deepens, and flinches at a loud honk.
+        Spring micX, micY, tip, hatLag, hatHop, cableWave;
+        float aimW = 0, weight = -1.0f, weightTo = -1.0f, weightWait = 3.0f, grip = 1.0f, gripWait = 5.0f;
+        float glanceWait = 2.0f, lookGoose = 0, lookMic = 0, lookEar = 0, earT = 0, flinch = 0, crouch = 0, stance = 0;
+        // How he stands to a goose goes with its cut: upright for a light one, knees bent and a
+        // foot back for a middling one, low and wide for a deep one (0..2, eased). Each honk rocks
+        // him back, and every few seconds he takes a shuffle step towards it or away.
+        float stanceAt = 0, flinchT = 1.0f, flinchAmt = 0;
+        int stanceTo = 0;
+        float stepT = 1.0f, stepFrom = 0, stepTo = 0, stepWait = 2.5f;
+        float frontW = 1.0f, hatLand = 1.0f;       // which hand leads on the pole, eased; his hat landing back on his head (0..1, 1 = settled)
+        float holdArrive = 0;                      // seconds a goose has been kept waiting off the picture for his big moment
+        int glance = 0;
+        float headWas = 0, noGoose = 0, rest = 0, stillT = 0, fishLook = 0;   // rest: the pole on his shoulder, with nothing to do
+        bool shouldered = false;
+        int lastPiece = -1;
+        float runAmt = 0, yawTo = 1.35f;           // 0 standing .. 1 at a run, eased; the way he is turning to
+        float setOff = 1.0f, skidT = 1.0f;         // leaning back before a run, and the skid at the end of one (0..1, 1 = none)
+        bool ran = false;
         float switchT = 0, greet = 0, clickWait = 0;   // clickWait: above 0 while a click on him has not been answered yet
         int target = -1, clickTurn = 0;            // the goose he is working
         bool walking = false, going = false;       // going: on his way somewhere more than a shuffle off
@@ -546,15 +626,18 @@ private:
         Blink blink;
     };
     struct Ring { float x = 0, y = 0, z = 0, age = 1.0f, size = 0.5f, rate = 1.9f; bool flat = false; Rgb colour; bool splash = false; };
-    struct Burst { float x = 0, z = 0, t = 1.0f, size = 1.0f, seed = 0; float y = 0; bool feathers = false; };
-    struct Fish { float t = 9.0f, power = 0.5f, dir = 1.0f; bool flopped = true; };
+    struct Burst { float x = 0, z = 0, t = 1.0f, size = 1.0f, seed = 0; float y = 0; bool feathers = false; int kind = 0; float dir = 0; };   // kind: 0 drops (or feathers), 2 dust, 3 speed lines, 4 a hit
+    struct Fish { float t = 9.0f, power = 0.5f, dir = 1.0f; bool flopped = true; float size = 1.0f, off = 0.0f; };
     struct HotSpot { float x = 0, y = 0, rx = 1, ry = 1; Hot kind = Hot::none; int index = 0; };
-    struct Hat { int state = 0; float t = 0, wait = 140.0f; int goose = -1; };       // 0 on his head, 1 snatched, 2 on the goose, 3 on its way back
+    // 0 on his head, 1 snatched, 2 on the goose, 3 on its way back by itself, 4 he is fetching it with the pole
+    struct Hat { int state = 0; float t = 0, wait = 70.0f; int goose = -1; int prefer = -1; bool reach = false; Vec3 from; };
     struct Beaver
     {
         float x = 0, yaw = 0.4f, upright = 0, build = 0, sulk = 0, proud = 0, proudT = 0, pat = 0, slap = 0, earWait = 3.0f, ear = 1.0f, patWait = 5.0f;
         float patLen = 0.8f, carry = 0.0f;
         float wave = 1.0f, flop = 1.0f;     // a wave of the paw; a slap of the tail while floating (0..1, 1 = none)
+        float take = 1.0f, hurry = 0, brow = 1.0f;   // a start when the reading jumps, then it hurries; a wipe of its brow (0..1, 1 = none)
+        bool wiped = false;
         int pats = 0, patCount = 3;
         bool patting = false, idlePat = false;
         Blink blink;
@@ -564,14 +647,16 @@ private:
         float out = 1.0f, delay = 0, peekWait = 0, look = 0, lookTo = 0, lookWait = 2.0f, stretch = 1.0f, stretchWait = 9.0f;
         float antic = 1.0f, eyes = 0.0f;   // the start of a hide (0..1, head up, eyes wide); the eyes showing in the opening
         float fall = 1.0f, stretchDelay = -1.0f;   // clicked: toppling off the log and climbing back (0..1, 1 = on the log)
-        int stage = 3;                  // 0 right in, 1 eyes in the opening, 2 head peeking, 3 out
+        int stage = 3;                  // 0 right in, 1 an eye, then two, in the opening, 2 head peeking, 3 out
         bool in = false;
         Spring wobble, drop;            // the shell's rock, and its squash as it lands on the log
         Blink blink;
     };
     struct Frog
     {
-        int state = 0;                  // 0 sitting, 1 crouching, 2 in the air, 3 under, 4 swimming back, 5 climbing on
+        int state = 0;                  // 0 sitting, 1 crouching, 2 in the air, 3 under, 4 swimming back, 5 climbing on, 6 shaking itself dry,
+                                        // 7 staying in the water, eyes showing, until the cut eases
+        float lurk = 0, rest = 0;       // seconds it has stayed in; seconds it sits before it can tense again
         float x = 0, v = 0, t = 0, cool = 1.0f, side = 1.0f, landX = 0, tension = 0, puffWait = 2.0f, puff = 1.0f, look = 0.0f;
         float lookUp = 0.0f, below = 0.0f, quiver = 0.0f, sinceLeap = 99.0f;
         float leapH = 1.0f;             // how high this leap goes: kept low where it would pass in front of him
@@ -607,6 +692,9 @@ private:
         time += dt;
         const auto& f = in.frame;
         lively = ! stillPrev;
+        deepestCut = 0.0f;
+        for (int k = 0; k < f.numBands; ++k)
+            deepestCut = std::max (deepestCut, f.cutDb[k]);
         const bool focused = in.focus >= 0;
         follow (hush, focused ? 1.0f : 0.0f, dt, 0.35f);
         moving = moving || (hush > 0.02f && hush < 0.98f);
@@ -633,6 +721,18 @@ private:
             shown += g.used ? 1 : 0;                                  // on the bank, leaving ones too
             if (! g.used || g.leaving)
                 continue;
+            if (g.beaten)
+            {
+                // Its notch has closed and he is seeing it off: it goes when the pole sends it
+                // (or at once, if that is called off).
+                ++live;
+                if (keeper.bit != Bit::win || keeper.bitGoose != (int) (&g - geese.data()) || keeper.bitCut || in.calm)
+                {
+                    g.beaten = false;
+                    g.leaving = true;
+                }
+                continue;
+            }
             int best = -1;
             float bestD = 0.9f;
             for (int i = 0; i < numPeaks; ++i)
@@ -659,10 +759,25 @@ private:
             const bool busy = g.thief || g.knock < 1.0f || g.knockX < 0.0f || g.knockX > 0.0f;
             if ((g.unseen > g.patience && g.landed >= kGooseStaySeconds && ! busy) || in.calm)
             {
+                // The notch has closed: his work is done. If he has been at this goose he sees it
+                // off with one great swing (once any bit with it is over, and he has had a moment);
+                // otherwise it leaves by itself, with a small fist pump from him if he was near.
+                const int index = (int) (&g - geese.data());
+                const bool his = ! in.calm && index == keeper.target && keeper.shoo > 0.5f && std::abs (keeper.x - g.x) < 4.4f && gooseActive (g);
+                if (! in.calm && keeper.bit != Bit::none && keeper.bitGoose == index && ! keeper.bitCut)
+                    continue;
+                if (his && keeper.rung >= 1 && keeper.bigCool <= 0.0f && g.unseen < g.patience + 2.5f && canStartBit (in, g))
+                {
+                    if (keeper.sinceBit < 1.5f)
+                        continue;
+                    g.beaten = true;
+                    startBit (Bit::win, index);
+                    continue;
+                }
                 g.leaving = true;
-                // A job well done, if he was at it: a small fist pump.
-                if (! in.calm && keeper.shoo > 0.5f && std::abs (keeper.x - g.x) < 3.2f && g.age > 1.5f && g.peak > 3.0f && keeper.pumpWait <= 0.0f
-                    && keeper.swing >= 1.0f && keeper.clickWait <= 0.0f)
+                g.away = -8.0f * kF * 0.95f;                          // a crouch first, then up
+                if (his && std::abs (keeper.x - g.x) < 3.2f && g.age > 1.5f && g.peak > 3.0f && keeper.pumpWait <= 0.0f
+                    && keeper.bit == Bit::none && keeper.clickWait <= 0.0f && keeper.gesture == Gesture::none)
                 {
                     startGesture (Gesture::pump, kPumpSeconds);
                     keeper.pumpWait = rnd (7.0f, 12.0f);
@@ -728,10 +843,14 @@ private:
                             && (inRange[slot] < kGeesePerRange || moduleAt (g.homeX) == range)
                             && (least == nullptr || g.depth < least->depth))
                             least = &g;
-                    if (least != nullptr && ready->depth > least->depth + 2.0f && least->knock >= 1.0f && ! (least->knockX < 0.0f || least->knockX > 0.0f))
+                    if (least != nullptr && ready->depth > least->depth + 2.0f && least->knock >= 1.0f && ! (least->knockX < 0.0f || least->knockX > 0.0f)
+                        && ! least->beaten && ! (keeper.bit != Bit::none && keeper.bitGoose == (int) (least - geese.data())))
+                    {
                         least->leaving = true;
+                        least->away = -8.0f * kF * 0.95f;
+                    }
                 }
-                else if (spawnCool <= 0.0f && shown < kLiveGeese)
+                else if (spawnCool <= 0.0f && shown < kLiveGeese && ! holdArrival (ready->x, dt))
                     for (auto& g : geese)
                         if (! g.used)
                         {
@@ -785,9 +904,12 @@ private:
             g.arrive = std::min (1.0f, g.arrive + dt * 2.6f);
             if (! wasDown && g.arrive >= 1.0f)
             {
-                g.squash.v = 2.6f;                                    // lands with a squash
-                g.wag = 1.0f;                                         // and a wiggle of the tail
+                g.squash.v = 2.6f;                                    // lands with a squash,
+                g.wag = 1.0f;                                         // a wiggle of the tail,
+                g.skid = 1.0f;                                        // a short slide, and a puff of dust
+                addFx (2, g.x - std::cos (g.yaw) * 0.35f * cast, 0.0f, g.z - 0.05f, 0.8f * cast, std::cos (g.yaw) >= 0.0f ? 1.0f : -1.0f);
             }
+            g.skid = std::max (0.0f, g.skid - dt / (18.0f * kF));
             if (g.arrive >= 1.0f)
                 g.landed += dt;
             // The reeds part as it hops through them, and spring back once it is down.
@@ -807,7 +929,9 @@ private:
             const float goal = g.thief ? g.fleeX : g.spreadX;
             // A goose with far to go (a newcomer has landed beside it) hurries a little.
             const float top = g.thief ? 3.6f : std::abs (goal - g.x) > 0.6f * cast ? 2.4f : 1.5f;
-            const float wanted = g.arrive < 1.0f || ! active ? 0.0f : std::clamp ((goal - g.x) * 4.0f, -top, top);
+            // (In a bit with him it stays where the bit puts it.)
+            const bool inBit = keeper.bit != Bit::none && keeper.bitGoose == index;
+            const float wanted = g.arrive < 1.0f || ! active || inBit ? 0.0f : std::clamp ((goal - g.x) * 4.0f, -top, top);
             g.vx += (wanted - g.vx) * std::min (1.0f, dt * 8.0f);
             g.x += g.vx * dt;
             // Into its row: a few steps forward or back.
@@ -852,18 +976,20 @@ private:
             const float yawTo = (towards > 0.0f ? 0.0f : kPi) - turnAway * towards + 0.15f * std::sin (g.seed);
             follow (g.yaw, yawTo, dt, 0.24f);
 
-            // Only the one he is working minds the pole. When he winds up it stretches its neck out
-            // at the microphone and hisses; when the pole comes down it flaps up off the ground in a
-            // temper, and it stays cross for a second or two after.
+            // Only the one he is working minds the pole. It hisses at the microphone in short
+            // bursts with a rest between (so that a hiss is something that happens, not how it
+            // stands), and whenever he winds up for a swing.
             const bool worked = index == keeper.target && active && ! g.thief && ! away;
             g.temper = std::max (0.0f, g.temper - dt);
             const bool poleNear = worked && std::abs (micAt.x - g.x) < 2.0f && keeper.shoo > 0.5f;
-            follow (g.hiss, poleNear && g.flap >= 1.0f && (keeper.swing < 0.7f || g.temper > 0.0f) ? 1.0f : 0.0f, dt, 0.18f);
-            if (swingHit && worked && g.flap >= 1.0f && g.arrive >= 1.0f)
-            {
-                g.flap = 0.0f;
-                g.temper = 1.8f;
-            }
+            g.hissClock = poleNear ? g.hissClock + dt : 0.0f;
+            const float gf = inBit ? keeper.bt / kF : -1.0f;
+            const bool windUp = inBit && ((keeper.bit == Bit::whiff && gf > 6.0f && gf < whiffWind (keeper.bitVar) + 2.0f) || (keeper.bit == Bit::win && gf > 6.0f && gf < 33.0f));
+            const bool burst = poleNear && ! inBit && keeper.cue <= 0.0f && g.depth > 2.0f && std::fmod (g.hissClock + 1.2f, 3.2f) > 2.0f;
+            follow (g.hiss, (burst || windUp) && g.flap >= 1.0f ? 1.0f : 0.0f, dt, 0.1f);
+            // The others look over while a bit is on, necks up.
+            follow (g.alert, keeper.bit != Bit::none && ! inBit && active && keeper.bt < bitActionFrames (keeper.bit, keeper.bitVar) * kF ? 1.0f : 0.0f, dt, 0.1f);
+            g.depthSlow += (g.depth - g.depthSlow) * std::min (1.0f, dt / 0.5f);
             if (g.flap < 1.0f)
             {
                 const float before = g.flap;
@@ -878,7 +1004,7 @@ private:
                 g.preen = std::min (1.0f, g.preen + dt / 2.4f);
 
             // It honks, slower than it used to; out of focus it holds its beak shut.
-            if (g.hiss < 0.5f && g.still < 0.5f && ! away && g.preen >= 1.0f)
+            if (g.hiss < 0.5f && g.still < 0.5f && ! away && g.preen >= 1.0f && ! inBit)
                 g.honkPhase += dt * (0.55f + 0.1f * g.depth);
             if (active && g.depth > worstDepth) { worstDepth = g.depth; worstX = g.x; deepestGoose = index; }
 
@@ -887,7 +1013,22 @@ private:
             const float cycle = g.honkPhase - std::floor (g.honkPhase);
             const bool ringing = keeper.target >= 0 ? worked : index == ringGoose;
             if (ringing && g.arrive >= 1.0f && cycle < g.lastCycle && dt > 0.0f && g.hiss < 0.5f && g.still < 0.5f)
+            {
                 addRing (g.x + std::cos (g.yaw) * 0.9f * cast, (2.0f + 0.07f * g.depth) * cast, g.z - 0.3f, (0.4f + 0.05f * g.depth) * cast, false, 0.0f, 1.6f, rgb (0xe5533b));
+                if (worked && keeper.shoo > 0.8f)
+                {
+                    // The microphone jumps a little at each honk, and a loud one makes him flinch.
+                    // (All of him rocks back from it, more for a deeper cut.)
+                    keeper.micY.v += 1.1f * cast;
+                    if (keeper.bit == Bit::none)
+                    {
+                        keeper.flinchT = 0.0f;
+                        keeper.flinchAmt = g.depth > 4.0f ? 1.0f : g.depth > 2.0f ? 0.5f : 0.3f;
+                    }
+                    if (g.depth > 4.0f)
+                        keeper.flinch = 1.0f;
+                }
+            }
             g.lastCycle = cycle;
             moving = true;
         }
@@ -901,7 +1042,7 @@ private:
         for (auto& b : bursts)
             if (b.t < 1.0f)
             {
-                b.t += dt / (b.feathers ? 1.3f : 0.55f);
+                b.t += dt / (b.feathers ? 1.3f : b.kind == 2 ? 24.0f * kF : b.kind == 3 ? 9.0f * kF : b.kind == 4 ? 10.0f * kF : 0.55f);
                 moving = true;
             }
 
@@ -954,8 +1095,10 @@ private:
                 if (i >= 0 && i < kMaxGeese)
                 {
                     auto& g = geese[(size_t) i];
-                    if (g.used && ! g.leaving && g.arrive >= 1.0f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f) && ! g.thief)
+                    if (g.used && ! g.leaving && g.arrive >= 1.0f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f) && ! g.thief && ! g.beaten)
                     {
+                        if (keeper.bit != Bit::none && keeper.bitGoose == i)
+                            cutBit();
                         // Away from him, unless that is off the end of the bank.
                         float dir = g.x >= keeper.x ? 1.0f : -1.0f;
                         const float far = 2.3f * std::max (cast, 0.7f);
@@ -976,6 +1119,8 @@ private:
                 break;
             case Hot::keeper:
                 keeper.clickWait = 1.0f;                              // kept until he has answered it, as soon as his hands are free
+                if (keeper.bit != Bit::none && keeper.bit != Bit::win)
+                    cutBit();
                 break;
             case Hot::fly:
                 for (auto& d : flies)
@@ -1020,6 +1165,11 @@ private:
             gust = std::min (1.0f, gust + dt / 3.2f);
             fussing = true;
         }
+        if (bowT < 1.0f)
+        {
+            bowT = std::min (1.0f, bowT + dt / 1.2f);
+            moving = true;
+        }
         if (dabble < 1.0f)
         {
             dabble = std::min (1.0f, dabble + dt / 1.9f);
@@ -1031,11 +1181,15 @@ private:
             fussing = true;
             return;
         }
-        const bool big = keeper.swing < 1.0f || keeper.trip < 1.0f || hat.state != 0 || frog.state != 0 || fish.t < kFishLeap + 0.6f
+        const bool big = keeper.bit != Bit::none || keeper.cue > 0.0f || keeper.trip < 1.0f || hat.state != 0 || frog.state != 0 || fish.t < kFishLeap + 0.6f
                          || keeper.gesture != Gesture::none || reacting();
         if (dt <= 0.0f || big || (idleWait -= dt) > 0.0f)
             return;
-        idleWait = stillPrev ? rnd (30.0f, 60.0f) : anyGoose ? rnd (7.0f, 12.0f) : rnd (6.0f, 11.0f);
+        // With nothing for him to do, small business comes every few seconds for the first half
+        // minute, then less often, and once the pond has been left alone for a minute only now
+        // and then, so that it comes to rest.
+        const float lull = keeper.noGoose;
+        idleWait = anyGoose ? rnd (7.0f, 12.0f) : silence > 60.0f ? rnd (30.0f, 60.0f) : lull < 30.0f ? rnd (5.0f, 9.0f) : rnd (12.0f, 20.0f);
         startIdleEvent (in);
     }
 
@@ -1234,6 +1388,26 @@ private:
             }
     }
 
+    /** A short accent: a puff of dust (2), speed lines (3) or the flash of a hit (4). */
+    void addFx (int kind, float x, float y, float z, float size, float dir) noexcept
+    {
+        for (auto& b : bursts)
+            if (b.t >= 1.0f)
+            {
+                b = { x, z, 0.0f, size, rnd (0.0f, 6.0f), y, false, kind, dir };
+                return;
+            }
+    }
+    void addFeathers (float x, float y, float z, float size) noexcept
+    {
+        for (auto& b : bursts)
+            if (b.t >= 1.0f)
+            {
+                b = { x, z, 0.0f, size, rnd (0.0f, 6.0f), y, true };
+                return;
+            }
+    }
+
     /** Something has hit the water: rings spreading out and a few drops thrown up. The rings are
         thick foam with a darker edge, so that they show on pale water. */
     void splash (float x, float z, float size, bool drops = true) noexcept
@@ -1259,9 +1433,13 @@ private:
         int who[7] {}, n = 0;
         auto offer = [&] (int actor, bool free) { if (free && actor != lastActor) who[n++] = actor; };
         auto& k = keeper;
-        const bool kFree = k.gesture == Gesture::none && std::abs (k.speed) < 0.3f && k.trip >= 1.0f && hat.state == 0 && k.swing >= 1.0f
-                           && ! in.diff && ! in.soloHonk && k.clickWait <= 0.0f;
-        offer (0, kFree && (in.bypass ? k.sit > 0.97f : ((k.quiet > 4.0f || weather > 0.6f) && k.sit < 0.03f)));
+        const bool kFree = k.gesture == Gesture::none && std::abs (k.speed) < 0.3f && k.trip >= 1.0f && hat.state == 0 && k.bit == Bit::none
+                           && k.cue <= 0.0f && ! in.diff && ! in.soloHonk && k.clickWait <= 0.0f;
+        // Working a goose, he has a hand free for a moment only when the next bit is some way off.
+        const bool holdFree = k.shoo > 0.9f && k.target >= 0 && (1.0f - k.bitWait) * bitGap() > 4.0f;
+        const bool lull = k.noGoose > 4.0f && k.shoo < 0.1f;
+        const bool kOffer = kFree && (in.bypass ? k.sit > 0.97f : ((lull || holdFree || weather > 0.6f) && k.sit < 0.03f));
+        offer (0, kOffer);
         offer (1, ! focused);                                            // the beaver always has something
         offer (2, ! focused && frog.state == 0 && frog.tension < 0.3f);
         offer (3, ! focused && asleep < 0.5f && ! turtles[0].in && ! turtles[1].in && ! turtles[2].in);
@@ -1282,16 +1460,65 @@ private:
             return;
         }
         lastActor = who[std::min (n - 1, (int) (rnd() * (float) n))];
+        // With nothing to do he is the one to watch: he takes most of the turns.
+        if (kOffer && lull && ! in.bypass && lastActor != 0 && rnd() < 0.7f)
+            lastActor = 0;
         switch (lastActor)
         {
             case 0:
             {
                 const float pick = rnd();
-                if (in.bypass)                              { startGesture (Gesture::sip, 2.4f); idleBusy = 2.4f; }
-                else if (weather > 0.6f && pick < 0.5f)     { startGesture (Gesture::wipe, 1.5f); idleBusy = 1.5f; }
-                else if (pick < 0.4f)                       { startGesture (Gesture::tap, 2.6f); idleBusy = 2.6f; }
-                else if (pick < 0.7f)                       { startGesture (Gesture::hat, 1.6f); idleBusy = 1.6f; }
-                else                                        { startGesture (Gesture::stretch, 2.6f); idleBusy = 2.6f; }
+                auto play = [&] (Gesture g, float seconds, int piece) { startGesture (g, seconds); idleBusy = seconds; k.lastPiece = piece; };
+                if (in.bypass)                              play (Gesture::sip, 2.4f, -1);
+                else if (! lull)
+                {
+                    // A hand off the pole for a moment: the headphones, the hat, his brow.
+                    if (weather > 0.6f && pick < 0.5f)      play (Gesture::wipe, 1.5f, -1);
+                    else if (pick < 0.4f)                   play (Gesture::tap, 1.9f, -1);
+                    else if (pick < 0.75f)                  play (Gesture::hat, kHatSeconds, -1);
+                    else                                    play (Gesture::wipe, 1.5f, -1);
+                }
+                else if (! k.shouldered)
+                {
+                    // First the pole goes up onto his shoulder, and he has a look round. It stays
+                    // there until there is work again.
+                    play (Gesture::shoulder, 1.6f, 0);
+                    k.shouldered = true;
+                }
+                else
+                {
+                    // Then whatever he did not do last: coil some cable, see to the windshield, a
+                    // yawn and a stretch, nod off on the pole, hold the microphone out to the frog
+                    // or a turtle and listen, tap the headphones, set his hat, wipe his brow.
+                    const float frogAt = frog.x / std::max (0.1f, keeperToStream), logAt = (logX + 0.3f * fg) / std::max (0.1f, keeperToStream);
+                    const bool frogNear = frog.state == 0 && (frogAt - k.x) * k.facing > 0.7f && std::abs (frogAt - k.x) < 4.0f && in.focus < 0;
+                    const bool logNear = (logAt - k.x) * k.facing > 0.0f && std::abs (logAt - k.x) < 4.5f && asleep < 0.5f && in.focus < 0;
+                    int piece = 1 + std::min (7, (int) (pick * 8.0f));
+                    if (piece == k.lastPiece)
+                        piece = 1 + piece % 8;
+                    if (piece == 5 && ! frogNear && ! logNear)
+                        piece = 6;
+                    switch (piece)
+                    {
+                        case 1:  play (Gesture::coil, 2.4f, 1); break;
+                        case 2:  play (Gesture::polish, 1.8f, 2); break;
+                        case 3:  play (Gesture::stretch, 2.6f, 3); break;
+                        case 4:  play (Gesture::doze, 3.0f, 4); break;
+                        case 5:
+                            play (Gesture::offer, kOfferSeconds, 5);
+                            offerFrog = frogNear;
+                            offerX = frogNear ? frogAt : logAt;
+                            if (! frogNear)
+                            {
+                                turtles[1].stretchDelay = 0.5f;               // the turtles crane up at it
+                                turtles[2].stretchDelay = 0.8f;
+                            }
+                            break;
+                        case 6:  play (Gesture::tap, 2.6f, 6); break;
+                        case 7:  play (Gesture::hat, kHatSeconds, 7); break;
+                        default: play (Gesture::wipe, 1.5f, 8); break;
+                    }
+                }
                 k.idleGesture = true;
                 break;
             }
@@ -1367,7 +1594,8 @@ private:
         {
             if (keeper.shoo > 0.8f && ! idleNow)
                 hat.wait -= dt;
-            if (hat.wait > 0.0f || idleNow || keeper.trip < 1.0f || keeper.gesture != Gesture::none || keeper.swing < 1.0f)
+            if (hat.wait > 0.0f || idleNow || keeper.trip < 1.0f || keeper.gesture != Gesture::none || keeper.bit != Bit::none || keeper.cue > 0.0f
+                || keeper.bigCool > 0.0f || frog.state == 1 || frog.state == 2 || fish.t < kFishLeap)
                 return;
             // Only a goose standing on its own will do, so that the hat can be seen on its head,
             // and not in a crowd.
@@ -1387,12 +1615,16 @@ private:
                 for (int j = 0; j < kMaxGeese; ++j)
                     if (j != i && geese[(size_t) j].used && ! geese[(size_t) j].leaving && std::abs (geese[(size_t) j].x - g.x) < 1.2f)
                         alone = false;
-                if (alone && (best < 0 || g.depth > geese[(size_t) best].depth))
+                if (alone && (best < 0 || i == hat.prefer || (best != hat.prefer && g.depth > geese[(size_t) best].depth)))
                     best = i;
             }
             if (best < 0)
                 return;
-            hat = { 1, 0.0f, rnd (150.0f, 320.0f), best };
+            // About once in a minute or two of busy work; sooner when a goose he cannot shift
+            // takes it as its answer (see chooseBit).
+            hat = { 1, 0.0f, rnd (60.0f, 120.0f), best, -1, false, {} };
+            keeper.bigCool = 12.0f;
+            keeper.rung = std::min (keeper.rung, 1);
             auto& g = geese[(size_t) best];
             g.thief = true;
             g.fleeX = g.x;
@@ -1403,39 +1635,790 @@ private:
 
         moving = true;
         auto& g = geese[(size_t) hat.goose];
+        const float before = hat.t / kF;
         hat.t += dt;
+        const float f = hat.t / kF;
         const float away = g.x >= keeper.x ? 1.0f : -1.0f;
-        if (hat.state == 1 && hat.t > 0.5f)
+        const bool lost = idleNow || ! g.used || g.leaving;
+        auto handBack = [&]
         {
-            hat.state = 2; hat.t = 0.0f;
-            // Off it goes, towards the more open stretch of bank, away from him if it can.
-            float bestTo = g.x, bestScore = -1.0e9f;
-            for (float dir : { -1.0f, 1.0f })
-            {
-                const float to = std::clamp (g.x + dir * 4.5f, keeperLo - 1.0f, keeperHi + 1.0f);
-                float score = std::abs (to - g.x) + (dir * away > 0.0f ? 0.8f : 0.0f);
-                if ((keeper.x - g.x) * dir > 0.0f && (keeper.x - to) * dir < 0.0f)
-                    score -= 3.0f;                                   // not past him, where it would be hidden
-                for (const auto& o : geese)
-                    if (&o != &g && o.used && ! o.leaving && (o.x - g.x) * dir > 0.0f && (o.x - to) * dir < 0.6f)
-                        score -= 1.5f;
-                if (score > bestScore) { bestScore = score; bestTo = to; }
-            }
-            g.fleeX = bestTo;
-            g.wag = 1.0f;
-        }
-        else if (hat.state == 2 && (hat.t > 3.2f || (hat.t > 0.9f && std::abs (g.x - keeper.x) < 1.5f) || idleNow || ! g.used || g.leaving))
-        {
+            // Back it comes by itself (Bypass, or the goose has gone).
             hat.state = 3; hat.t = 0.0f;
             g.thief = false;
             g.squash.v = 2.0f;
             g.flap = 0.0f;                                   // put out at losing it
+        };
+        if (hat.state == 1 && hat.t > 0.5f)
+        {
+            hat.state = 2; hat.t = 0.0f;
+            // Off it goes: to an open stretch of bank where the hat can be seen on its head, away
+            // from him if it can, never past him, never in among the others, and never so close
+            // that he hides it.
+            float bestTo = g.x, bestScore = -1.0e9f;
+            for (float dir : { -1.0f, 1.0f })
+                for (float far : { 4.5f, 3.4f, 2.4f, 1.6f })
+                {
+                    const float to = std::clamp (g.x + dir * far, keeperLo - 1.0f, keeperHi + 1.0f);
+                    float score = 0.6f * std::min (3.0f, std::abs (to - g.x)) + (dir * away > 0.0f ? 0.8f : 0.0f);
+                    if ((keeper.x - g.x) * dir > 0.0f && (keeper.x - to) * dir < 0.0f)
+                        score -= 3.0f;
+                    if (std::abs (to - keeper.x) < 1.2f)
+                        score -= 4.0f;
+                    for (const auto& o : geese)
+                        if (&o != &g && o.used && ! o.leaving)
+                            score -= std::abs (o.x - to) < 0.9f ? 2.5f : (o.x - g.x) * dir > 0.0f && (o.x - to) * dir < 0.0f ? 0.4f : 0.0f;
+                    if (score > bestScore) { bestScore = score; bestTo = to; }
+                }
+            // Has he room to run after it? If not (it has not gone far, or his stretch of bank
+            // ends here), he stays where he is and fetches the hat back with the pole.
+            const float stand = std::clamp (bestTo + (keeper.x < bestTo ? -0.8f : 0.8f), keeperLo, keeperHi);
+            hat.reach = std::abs (stand - keeper.x) < 1.2f || std::abs (bestTo - keeper.x) < 1.5f;
+            if (hat.reach)
+            {
+                const float side = bestTo >= keeper.x ? 1.0f : -1.0f;
+                bestTo = keeper.x + side * std::clamp (std::abs (bestTo - keeper.x), 1.7f, 2.2f + 0.8f * cast);
+            }
+            g.fleeX = bestTo;
+            g.wag = 1.0f;
+        }
+        else if (hat.state == 2 && lost)
+            handBack();
+        else if (hat.state == 2 && hat.reach)
+        {
+            // He has had his start; the goose has got where it was going. Out goes the pole.
+            if (f > 24.0f && (std::abs (g.x - g.fleeX) < 0.15f || hat.t > 1.6f))
+            {
+                hat.state = 4; hat.t = 0.0f;
+                keeper.tip.v -= 1.0f;
+            }
+        }
+        else if (hat.state == 2 && (hat.t > 3.5f || (hat.t > 1.2f && std::abs (g.x - keeper.x) < 1.8f)))
+        {
+            // He has caught it up (or run out of patience within a pole's length of it): the pole
+            // goes out for his hat. Too far off even for that, it comes back by itself.
+            if (std::abs (g.x - keeper.x) < 2.2f + 0.8f * cast)
+            {
+                hat.state = 4; hat.t = 0.0f;
+                keeper.tip.v -= 1.0f;
+            }
+            else
+                handBack();
+        }
+        else if (hat.state == 4)
+        {
+            if (lost && f < 10.0f)
+                handBack();
+            else
+            {
+                if (before < 10.0f && f >= 10.0f)
+                {
+                    // Hooked off its head on the end of the pole.
+                    g.thief = false;
+                    g.squash.v = 2.4f;
+                    g.flap = 0.0f;
+                    g.wag = 1.0f;
+                }
+                if (f < 14.0f)
+                    hat.from = micAt + Vec3 { 0.0f, 0.2f * cast, 0.0f };          // on the pole's end, until the flick lets it go
+                if (f >= 28.0f)
+                {
+                    hat.state = 0; hat.t = 0.0f;
+                    keeper.hatLand = 0.0f;                                         // it lands with a squash, and he sets it straight
+                    keeper.hatHop.v = 1.2f;
+                    keeper.adjustNext = true;
+                }
+            }
         }
         else if (hat.state == 3 && hat.t > 0.6f)
         {
             hat.state = 0; hat.t = 0.0f;
             g.thief = false;
+            keeper.hatLand = 0.0f;
             keeper.adjustNext = true;
+        }
+    }
+
+    //------------------------------------------------------------------------------ the bits
+    // Each bit is written as curves over its frames (sixtieths of a second), for him and for the
+    // goose: changes to the pose each already has, which start and end at nothing. Being functions
+    // of the time alone, they look the same at any frame rate and can be faded out at any moment.
+    static float ramp (float f, float a, float b) noexcept { return smooth01 ((f - a) / (b - a)); }
+    static float pulse (float f, float a, float b) noexcept { return bump ((f - a) / (b - a)); }
+    /** 0 until frame a, then up to 1 with one overshoot and a settle, over about n frames. */
+    static float sprung (float f, float a, float n) noexcept
+    {
+        const float u = (f - a) / n;
+        return u <= 0.0f ? 0.0f : 1.0f - std::exp (-4.5f * u) * std::cos (7.5f * u);
+    }
+
+    /** 0 until frame a, then a wobble that dies away over about n frames (it peaks near 0.55). */
+    static float wobble (float f, float a, float n) noexcept
+    {
+        const float u = (f - a) / n;
+        return u <= 0.0f ? 0.0f : std::exp (-4.5f * u) * std::sin (7.5f * u);
+    }
+
+    struct BitPose
+    {
+        float pole = 0;        // added to the pole's angle
+        float lean = 0;        // his body, forward (+) or back along the bank
+        float sq = 0;          // squash (+) or stretch
+        float crouch = 0, hipX = 0, hop = 0, footLift = 0, backLift = 0;
+        float spin = 0;        // turned round, towards us
+        float back = 0;        // his hands drawn back along the pole
+        float level = 0;       // 1 = the pole brought down level, like a lance
+        float plant = 0;       // 1 = the pole stood upright beside him
+        float aim = 0;         // 1 = the microphone goes to the goose's beak
+        float draw = 0, lift = 0;   // the microphone drawn back towards him, and up (in his own sizes)
+        float flail = 0;       // 1 = his free hand out for balance
+        float loop = 0;        // 1 = the cable round his back boot
+        float headYaw = 0, shut = 0;   // his head turned (towards us +), his eyes narrowed
+        float hatLift = 0, hatDown = 0, cups = 0, nod = 0, wide = 0, mouth = 0, fan = 0;
+        float shift = 0;       // where he has got to along the bank, towards the goose
+    };
+
+    static BitPose bitPoseAt (Bit b, float f, int var) noexcept
+    {
+        BitPose p;
+        switch (b)
+        {
+            case Bit::shoo:
+            {
+                // A jab at it. He draws the pole back and sinks; steps in and puts the microphone
+                // just short of its beak; again, smaller; holds it there; and steps back, the
+                // pole's end springing up.
+                const float ant = ramp (f, 0.0f, 8.0f) - ramp (f, 8.0f, 11.0f);
+                const float jab = ramp (f, 8.0f, 12.0f) - 0.65f * ramp (f, 12.0f, 16.0f) + 0.35f * ramp (f, 16.0f, 20.0f) - 0.7f * ramp (f, 26.0f, 38.0f);
+                p.back = 0.2f * ant - 0.12f * jab;
+                p.draw = 0.5f * ant;
+                p.lift = 0.22f * ant;
+                p.aim = 0.92f * jab;
+                p.lean = -0.15f * ant + 0.3f * jab;
+                p.crouch = 0.06f * ant + 0.04f * jab;
+                p.hipX = -0.04f * ant + 0.07f * jab;
+                if (var == 0)
+                {
+                    p.footLift = 0.06f * pulse (f, 2.0f, 12.0f);
+                    p.backLift = 0.05f * pulse (f, 28.0f, 40.0f);
+                    p.shift = 0.25f * (ramp (f, 8.0f, 12.0f) - ramp (f, 28.0f, 40.0f));
+                }
+                else
+                {
+                    // Too close to it for the pole: a hop back first, to make room.
+                    p.backLift = 0.07f * pulse (f, 0.0f, 7.0f);
+                    p.footLift = 0.06f * pulse (f, 2.0f, 9.0f) + 0.05f * pulse (f, 30.0f, 42.0f);
+                    p.hop = 0.05f * pulse (f, 1.0f, 8.0f);
+                    p.shift = -0.25f * (ramp (f, 0.0f, 8.0f) - ramp (f, 30.0f, 42.0f));
+                }
+                p.sq = 0.05f * ant - 0.08f * pulse (f, 8.0f, 14.0f) - 0.05f * pulse (f, 16.0f, 22.0f);
+                p.pole = 0.36f * wobble (f, 27.0f, 14.0f);
+                p.nod = 0.12f * jab;
+                p.mouth = 0.35f * pulse (f, 8.0f, 28.0f);
+                break;
+            }
+            case Bit::whiff:
+            {
+                // A full wind-up (short, middling or long), a beat at the top, the stroke. Then
+                // one of three things: the miss carries him a quarter turn round, and he looks at
+                // the pole and at the goose; or it takes him right round and leaves him dizzy; or
+                // the pole's end goes into the reeds and he has to pull it out.
+                const float wind = whiffWind (var), h = f - (wind - 20.0f);
+                const int ending = var & 3;
+                const float up = ramp (f, 0.0f, wind), stroke = ramp (h, 24.0f, 29.0f);
+                p.sq = 0.08f * up * (1.0f - stroke) - 0.1f * pulse (h, 24.0f, 32.0f);
+                p.footLift = 0.07f * up * (1.0f - stroke);
+                p.fan = h > 24.5f && h < 28.6f ? 1.0f : 0.0f;
+                if (ending == 0)
+                {
+                    p.pole = 0.8f * up - 1.1f * stroke + 0.3f * sprung (h, 29.0f, 22.0f);
+                    p.spin = 1.3f * (ramp (h, 25.0f, 38.0f) - ramp (h, 58.0f, 80.0f));
+                    p.lean = -0.22f * up + 0.5f * stroke - 0.28f * ramp (h, 30.0f, 46.0f);
+                    p.hipX = -0.08f * up + 0.16f * stroke - 0.08f * ramp (h, 30.0f, 46.0f);
+                    p.nod = -0.22f * pulse (h, 44.0f, 60.0f) + 0.16f * pulse (h, 58.0f, 78.0f);
+                    p.mouth = 0.5f * pulse (h, 40.0f, 78.0f);
+                    p.wide = pulse (h, 28.0f, 56.0f);
+                }
+                else if (ending == 1)
+                {
+                    // Right round, once; then his head goes round twice by itself.
+                    const float dizzy = ramp (h, 46.0f, 50.0f) - ramp (h, 68.0f, 76.0f), a = (h - 48.0f) * 0.62f;
+                    p.pole = 0.8f * up - 1.1f * stroke + 0.3f * sprung (h, 29.0f, 22.0f) - 0.2f * dizzy + 0.16f * std::sin (a + 1.0f) * dizzy;
+                    p.spin = 6.2831853f * ramp (h, 25.0f, 47.0f);
+                    p.lean = -0.22f * up + 0.5f * stroke - 0.28f * ramp (h, 30.0f, 46.0f) + 0.15f * std::cos (a) * dizzy;
+                    p.hipX = -0.08f * up + 0.16f * stroke - 0.08f * ramp (h, 30.0f, 46.0f) + 0.09f * std::sin (a) * dizzy;
+                    p.headYaw = 0.55f * std::sin (a) * dizzy + 0.5f * dizzy;
+                    p.nod = 0.32f * std::cos (a) * dizzy;
+                    p.crouch = 0.05f * dizzy;
+                    p.footLift = p.footLift + 0.06f * pulse (h, 52.0f, 60.0f);
+                    p.backLift = 0.06f * pulse (h, 62.0f, 70.0f);
+                    p.flail = 0.7f * dizzy;
+                    p.shut = 0.55f * dizzy;
+                    p.mouth = 0.5f * pulse (h, 30.0f, 80.0f);
+                    p.wide = pulse (h, 26.0f, 46.0f);
+                    p.backLift += 0.06f * pulse (h, 78.0f, 90.0f);
+                }
+                else
+                {
+                    // Into the reeds. Two pulls; the second frees it, and he goes back a step.
+                    const float t1 = pulse (h, 36.0f, 44.0f), t2 = pulse (h, 46.0f, 54.0f), out = ramp (h, 52.0f, 56.0f);
+                    p.pole = 0.8f * up - 1.3f * stroke + 0.5f * sprung (h, 52.0f, 18.0f) + 0.05f * (t1 + t2) * (1.0f - out);
+                    p.back = 0.14f * (t1 + t2);
+                    p.lean = -0.22f * up + 0.5f * stroke - 0.1f * ramp (h, 30.0f, 36.0f) - 0.18f * (t1 + t2) - 0.18f * out - 0.26f * pulse (h, 52.0f, 76.0f);
+                    p.hipX = -0.08f * up + 0.16f * stroke - 0.05f * (t1 + t2) - 0.08f * ramp (h, 52.0f, 60.0f);
+                    p.crouch = 0.04f * (t1 + t2);
+                    p.shift = -0.22f * ramp (h, 53.0f, 63.0f);
+                    p.hop = 0.05f * pulse (h, 53.0f, 63.0f);
+                    p.backLift = 0.09f * pulse (h, 52.0f, 62.0f);
+                    p.flail = ramp (h, 52.0f, 55.0f) - ramp (h, 64.0f, 72.0f);
+                    p.nod = 0.14f * (ramp (h, 30.0f, 36.0f) - ramp (h, 52.0f, 58.0f));
+                    p.mouth = 0.5f * pulse (h, 34.0f, 74.0f);
+                    p.wide = pulse (h, 29.0f, 40.0f) + pulse (h, 52.0f, 70.0f);
+                }
+                break;
+            }
+            case Bit::tug:
+            {
+                // The goose has the windshield in its beak, and the pole is taut between them.
+                // Three tugs: each pulls him forward and drags him a step, and each time he digs
+                // his heels in and leans back further. It lets go: he goes back three steps with
+                // the pole waving, stands a moment looking at the microphone, and has a closer look.
+                const float let = 1.0f - ramp (f, 58.0f, 61.0f);
+                float pull = 0.0f, heave = 0.0f, drag = 0.0f;
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float a = 14.0f + 14.0f * (float) i;
+                    pull += pulse (f, a, a + 7.0f);
+                    heave += ramp (f, a + 5.0f, a + 12.0f);
+                    drag += ramp (f, a, a + 7.0f);
+                }
+                const float stag = ramp (f, 58.0f, 62.0f) - ramp (f, 80.0f, 88.0f);
+                p.aim = ramp (f, 3.0f, 11.0f) * let;
+                p.lean = 0.22f * pull * let - 0.14f * heave * let - 0.3f * pulse (f, 58.0f, 90.0f);
+                p.hipX = -0.05f * heave * let;
+                p.crouch = 0.035f * heave * let;
+                p.back = 0.05f * heave * let;
+                p.shift = 0.15f * drag - 0.2f * (ramp (f, 60.0f, 68.0f) + ramp (f, 68.0f, 76.0f) + ramp (f, 76.0f, 84.0f));
+                p.hop = 0.05f * (pulse (f, 60.0f, 68.0f) + pulse (f, 68.0f, 76.0f) + pulse (f, 76.0f, 84.0f));
+                p.backLift = 0.1f * (pulse (f, 60.0f, 68.0f) + pulse (f, 76.0f, 84.0f));
+                p.footLift = 0.1f * pulse (f, 68.0f, 76.0f);
+                p.flail = stag;
+                p.pole = stag * (0.45f + 0.35f * std::sin ((f - 58.0f) * 0.62f)) + 0.4f * (ramp (f, 98.0f, 104.0f) - ramp (f, 116.0f, 126.0f));
+                p.nod = -0.2f * (ramp (f, 84.0f, 90.0f) - ramp (f, 116.0f, 126.0f));
+                p.mouth = 0.6f * pulse (f, 8.0f, 90.0f);
+                p.wide = pulse (f, 6.0f, 70.0f);
+                break;
+            }
+            case Bit::lunge:
+            {
+                // A deep crouch with the pole drawn back like a lance, and a lunge that goes under
+                // the goose as it hops. Then his cable has his boot (see stepKeeper): when he has
+                // his feet again he hops twice more on the free one, looks down at it, kicks it
+                // off, and gives the goose a look. Or he skids: arms going at the end of it, a
+                // rock back on his heels, and a breath out.
+                const float wind = ramp (f, 0.0f, 16.0f), go = ramp (f, 16.0f, 24.0f), over = ramp (f, 26.0f, 40.0f);
+                p.crouch = 0.16f * wind * (1.0f - go);
+                p.back = 0.3f * wind - 0.55f * go + 0.25f * over;
+                p.level = wind * (1.0f - over);
+                p.lean = -0.1f * wind + 0.45f * go - 0.35f * over;
+                p.sq = 0.1f * wind * (1.0f - ramp (f, 16.0f, 18.0f)) - 0.15f * pulse (f, 16.0f, 28.0f);
+                p.shift = 1.2f * ramp (f, 16.0f, 27.0f);
+                p.wide = pulse (f, 14.0f, 42.0f);
+                if (var != 0)
+                {
+                    const float dig = pulse (f, 25.0f, 50.0f), arms = ramp (f, 36.0f, 40.0f) - ramp (f, 54.0f, 60.0f), puff = pulse (f, 70.0f, 90.0f);
+                    p.lean += -0.3f * dig + 0.2f * arms - 0.2f * pulse (f, 56.0f, 72.0f);
+                    p.hipX = -0.1f * dig;
+                    p.crouch += 0.08f * dig;
+                    p.flail = arms;
+                    p.pole = 0.5f * std::sin ((f - 38.0f) * 0.7f) * arms;
+                    p.footLift = 0.05f * pulse (f, 56.0f, 70.0f);
+                    p.sq += 0.07f * puff;
+                    p.shut = 0.8f * puff;
+                    p.mouth = 0.5f * pulse (f, 26.0f, 60.0f) + 0.35f * puff;
+                }
+                else
+                {
+                    const float hops = pulse (f, 78.0f, 88.0f) + pulse (f, 88.0f, 98.0f), hopping = ramp (f, 74.0f, 80.0f) - ramp (f, 96.0f, 102.0f);
+                    const float down = ramp (f, 98.0f, 105.0f) - ramp (f, 118.0f, 124.0f), glare = ramp (f, 126.0f, 132.0f) - ramp (f, 146.0f, 158.0f);
+                    const float kick = pulse (f, 118.0f, 128.0f);
+                    p.loop = ramp (f, 24.0f, 27.0f) - ramp (f, 121.0f, 125.0f);
+                    p.hop = 0.12f * hops + 0.05f * kick;
+                    p.backLift = 0.2f * hopping + 0.24f * kick;
+                    p.flail = hopping;
+                    p.pole = 0.35f * std::sin ((f - 78.0f) * 0.63f) * hopping - 0.3f * down + 0.12f * std::sin ((f - 130.0f) * 0.9f) * glare;
+                    p.sq += 0.08f * (pulse (f, 86.0f, 90.0f) + pulse (f, 96.0f, 101.0f));
+                    p.nod = 0.5f * down + 0.22f * glare;
+                    p.lean += -0.12f * hopping + 0.24f * down - 0.16f * kick + 0.2f * glare;
+                    p.crouch += 0.07f * down;
+                    p.hipX = 0.05f * glare - 0.05f * down;
+                    p.shut = 0.5f * glare;
+                    p.mouth = 0.4f * pulse (f, 76.0f, 100.0f);
+                }
+                break;
+            }
+            case Bit::win:
+            {
+                // The biggest wind-up, weight on his back foot and the front one off the ground; a
+                // beat; the stroke; everything stops for three frames as it lands; then the pole's
+                // weight takes him right round and he plants it. (The fist pump follows.)
+                const float up = ramp (f, 0.0f, 24.0f), stroke = ramp (f, 30.0f, 34.0f), rec = ramp (f, 37.0f, 50.0f);
+                p.pole = 1.0f * up - 1.45f * stroke + 0.45f * rec;
+                p.lean = -0.28f * up + 0.62f * stroke - 0.34f * rec;
+                p.hipX = -0.1f * up + 0.18f * stroke - 0.08f * rec;
+                p.footLift = 0.16f * up * (1.0f - ramp (f, 28.0f, 32.0f));
+                p.sq = 0.1f * up * (1.0f - stroke) - 0.12f * pulse (f, 30.0f, 40.0f);
+                p.spin = 6.2831853f * ramp (f, 37.0f, 57.0f);
+                p.plant = ramp (f, 46.0f, 57.0f) - ramp (f, 100.0f, 114.0f);
+                p.fan = f > 30.3f && f < 34.3f ? 1.0f : 0.0f;
+                p.wide = pulse (f, 16.0f, 40.0f);
+                break;
+            }
+            case Bit::gooseWins:
+            {
+                // The goose hops onto the end of the pole (it dips and springs), walks up it, and
+                // steps onto his hat, which comes down over his eyes. He freezes, starts, and sags.
+                const float on = ramp (f, 24.0f, 30.0f) - ramp (f, 68.0f, 76.0f), sag = ramp (f, 96.0f, 112.0f) - ramp (f, 156.0f, 170.0f);
+                p.pole = -0.3f * pulse (f, 22.0f, 34.0f) - 0.14f * on + 0.03f * std::sin (f * 0.48f) * on - 0.14f * sag;
+                p.hatDown = ramp (f, 73.0f, 78.0f) - ramp (f, 160.0f, 174.0f);
+                p.sq = 0.1f * pulse (f, 73.0f, 82.0f) - 0.12f * pulse (f, 86.0f, 96.0f);
+                p.crouch = 0.07f * sag;
+                p.lean = 0.08f * sag - 0.12f * pulse (f, 14.0f, 40.0f);
+                p.wide = pulse (f, 12.0f, 60.0f);
+                p.mouth = 0.6f * pulse (f, 14.0f, 72.0f) + 0.4f * pulse (f, 100.0f, 160.0f);
+                break;
+            }
+            case Bit::honk:
+            {
+                // It steps in, neck right up, and he bends down to it: the honk catches him leaning
+                // in. Hat up, headphones out, and he leans well away.
+                const float in = ramp (f, 3.0f, 10.0f) - ramp (f, 11.0f, 14.0f), take = ramp (f, 11.0f, 16.0f) - ramp (f, 28.0f, 46.0f);
+                p.lean = 0.16f * in - 0.3f * take;
+                p.hipX = 0.03f * in - 0.06f * take;
+                p.nod = 0.14f * in - 0.08f * take;
+                p.pole = 0.2f * take;
+                p.hatLift = 0.11f * pulse (f, 11.0f, 26.0f);
+                p.cups = pulse (f, 11.0f, 24.0f);
+                p.sq = -0.05f * pulse (f, 11.0f, 19.0f);
+                p.wide = pulse (f, 10.0f, 42.0f);
+                p.mouth = pulse (f, 11.0f, 48.0f);
+                break;
+            }
+            case Bit::none:
+                break;
+        }
+        return p;
+    }
+
+    /** The goose's side of a bit, as changes to how it stands. */
+    struct GooseBit
+    {
+        float dx = 0;          // along the bank, away from him (in units)
+        float dy = 0;          // off the ground (in its own heights)
+        float sq = 0, honk = 0, flap = 0, tumble = 0;
+        float low = 0;         // 1 = flat to the ground, neck down
+        float bite = 0;        // 1 = neck out and up, beak shut on the end of the windshield
+        float lean = 0;        // its whole body tipped back, away from him
+        float tall = 0;        // 1 = neck straight up, as tall as it can make itself
+        float ride = 0, u = 0; // on him: how far it has left the ground for the pole; 0 the pole's end .. 1 by his hands .. 2 on his hat
+    };
+
+    static GooseBit gooseBitAt (Bit b, float f, float room, int var) noexcept
+    {
+        GooseBit g;
+        switch (b)
+        {
+            case Bit::shoo:
+            {
+                // It leans back from the first jab; hops aside at the second, with a squash as it
+                // lands; and has one honk at the microphone.
+                const float h = pulse (f, 17.0f, 29.0f);
+                g.lean = 0.3f * (ramp (f, 9.0f, 13.0f) - ramp (f, 14.0f, 19.0f));
+                g.tall = 0.6f * pulse (f, 8.0f, 20.0f);
+                g.dx = 0.35f * ramp (f, 17.0f, 29.0f);
+                g.dy = 0.26f * h;
+                g.flap = 0.5f * h;
+                g.sq = 0.12f * pulse (f, 12.0f, 18.0f) - 0.1f * h;
+                g.honk = pulse (f, 34.0f, 48.0f);
+                break;
+            }
+            case Bit::whiff:
+            {
+                // It ducks just before the stroke, and pops up taller than before to honk.
+                const float h = f - (whiffWind (var) - 20.0f);
+                g.low = ramp (h, 22.0f, 28.0f) - ramp (h, 45.0f, 49.0f);
+                g.sq = 0.33f * g.low - 0.1f * pulse (h, 47.0f, 64.0f);
+                g.honk = pulse (h, 49.0f, 63.0f);
+                break;
+            }
+            case Bit::tug:
+            {
+                // A step back to take up the slack; then it throws its whole weight back, three
+                // times, feet sliding; lets go; and sits down hard.
+                float pull = 0.0f, slide = 0.0f;
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float a = 14.0f + 14.0f * (float) i;
+                    pull += pulse (f, a, a + 12.0f);
+                    slide += ramp (f, a, a + 7.0f);
+                }
+                g.bite = ramp (f, 1.0f, 9.0f) - ramp (f, 58.0f, 61.0f);
+                g.lean = 0.25f * pull * (1.0f - ramp (f, 57.0f, 60.0f));
+                g.dx = 0.3f * ramp (f, 0.0f, 10.0f) + 0.1f * slide;
+                g.flap = 0.35f * pull;
+                g.sq = 0.3f * pulse (f, 58.0f, 72.0f);
+                g.honk = pulse (f, 100.0f, 116.0f);
+                break;
+            }
+            case Bit::lunge:
+            {
+                // Straight up, a beat at the top, and down where it was. (When his cable has him
+                // it watches, and honks once at the look he gives it.)
+                const float up = std::clamp ((f - 14.0f) / 12.0f, 0.0f, 1.0f), down = std::clamp ((f - 30.0f) / 12.0f, 0.0f, 1.0f);
+                g.dy = 1.15f * (1.0f - (1.0f - up) * (1.0f - up) - down * down);
+                g.flap = 0.9f * (ramp (f, 13.0f, 17.0f) - ramp (f, 40.0f, 44.0f));
+                g.sq = 0.16f * pulse (f, 6.0f, 15.0f) - 0.12f * pulse (f, 15.0f, 27.0f);
+                if (var == 0)
+                {
+                    g.tall = 0.7f * (ramp (f, 48.0f, 56.0f) - ramp (f, 124.0f, 132.0f));
+                    g.honk = pulse (f, 132.0f, 148.0f);
+                }
+                break;
+            }
+            case Bit::win:
+            {
+                // It cowers; then it is sent along the bank, two bounces, and it is off.
+                if (f < 34.0f)
+                {
+                    g.low = 0.35f * ramp (f, 22.0f, 32.0f);
+                    g.sq = 0.1f * g.low;
+                    break;
+                }
+                const float u = std::clamp ((f - 37.0f) / 36.0f, 0.0f, 1.0f);
+                g.dx = room * (1.0f - (1.0f - u) * (1.0f - u * 0.5f));
+                const float v = u < 0.5f ? u / 0.5f : u < 0.8f ? (u - 0.5f) / 0.3f : (u - 0.8f) / 0.2f;
+                g.dy = (u < 0.5f ? 1.0f : u < 0.8f ? 0.45f : 0.2f) * 4.0f * v * (1.0f - v);
+                g.tumble = 12.566371f * smooth01 (u);
+                g.sq = f < 37.0f ? -0.2f : 0.0f;
+                g.flap = 0.75f;
+                g.honk = 1.0f;
+                break;
+            }
+            case Bit::gooseWins:
+            {
+                const float steps[3] = { 28.0f, 41.0f, 54.0f };
+                g.sq = 0.2f * pulse (f, 0.0f, 14.0f);
+                g.ride = ramp (f, 12.0f, 24.0f) - ramp (f, 156.0f, 172.0f);
+                g.dy = 0.9f * pulse (f, 12.0f, 24.0f) + 0.45f * pulse (f, 68.0f, 78.0f) + 0.7f * pulse (f, 156.0f, 172.0f);
+                for (float a : steps)
+                {
+                    g.u += ramp (f, a, a + 9.0f) / 3.0f;
+                    g.dy += 0.1f * pulse (f, a, a + 9.0f);
+                }
+                g.u += ramp (f, 68.0f, 78.0f);
+                g.flap = 0.7f * (pulse (f, 12.0f, 26.0f) + pulse (f, 66.0f, 80.0f) + pulse (f, 154.0f, 174.0f));
+                g.honk = pulse (f, 114.0f, 134.0f);
+                break;
+            }
+            case Bit::honk:
+                // In close, neck straight up, and a hop as it lets go: its beak is at his chin.
+                g.dx = -0.3f * (ramp (f, 0.0f, 9.0f) - ramp (f, 34.0f, 50.0f));
+                g.tall = ramp (f, 0.0f, 8.0f) - ramp (f, 30.0f, 44.0f);
+                g.dy = 0.3f * pulse (f, 9.0f, 22.0f);
+                g.honk = pulse (f, 8.0f, 30.0f);
+                g.flap = 0.45f * pulse (f, 8.0f, 26.0f);
+                g.sq = 0.1f * pulse (f, 3.0f, 10.0f) - 0.1f * pulse (f, 9.0f, 24.0f);
+                break;
+            case Bit::none:
+                break;
+        }
+        return g;
+    }
+
+    /** Where the tip of its beak is when it has hold of the windshield, tipped back by `lean`:
+        ahead of its feet and above them, in its own sizes (see drawGoose). */
+    static void biteTip (float lean, float& ahead, float& up) noexcept
+    {
+        const float a = 1.37f, u = 1.34f;
+        ahead = a * std::cos (lean) - u * std::sin (lean);
+        up = a * std::sin (lean) + u * std::cos (lean);
+    }
+
+    static float gooseSizeFor (float depth, float crowd, float cast) noexcept { return (1.0f + 0.07f * std::min (8.0f, depth)) * cast * (1.0f - 0.16f * crowd); }
+    float gooseSize (const Goose& g) const noexcept { return gooseSizeFor (g.depth, g.crowd, cast); }
+
+    /** The rest between two bits, in seconds, for how hard the mix is working him. */
+    float bitGap() const noexcept { return lerp (7.0f, 1.4f, std::clamp (keeper.heat, 0.0f, 1.0f)); }
+
+    /** True while a bit is in its action: nothing else big may start (a leap of the frog or the
+        fish waits its turn, and the hat and the cable leave him alone). */
+    bool bitActing() const noexcept
+    {
+        return keeper.cue > 0.0f || (keeper.bit != Bit::none && ! keeper.bitCut && keeper.bt < bitActionFrames (keeper.bit, keeper.bitVar) * kF);
+    }
+
+    /** May a bit with this goose start now? */
+    bool canStartBit (const WorldInput& in, const Goose& g) const noexcept
+    {
+        const auto& k = keeper;
+        return k.bit == Bit::none && ! in.calm && ! in.bypass && ! in.diff && ! in.soloHonk && hat.state == 0 && k.trip >= 1.0f && k.clickWait <= 0.0f
+               && g.used && ! g.leaving && ! g.thief && g.arrive >= 1.0f && g.landed > 1.2f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f)
+               && g.flap >= 1.0f && g.preen >= 1.0f
+               && frog.state != 1 && frog.state != 2 && fish.t >= kFishLeap && fish2.t >= kFishLeap;
+    }
+
+    /** How far a lunge takes him: most of the way to the goose, and never right up to it. */
+    float lungeReach (const Goose& g) const noexcept { return std::clamp (std::abs (g.x - keeper.x) - 0.8f, 0.7f, 1.2f); }
+
+    Bit chooseBit (const WorldInput& in, const Goose& g) noexcept
+    {
+        auto& k = keeper;
+        const float share = g.depth / std::max (1.0f, in.maxCutDb);
+        // The top of the ladder, or a cut that will not come off the ceiling: a result is due.
+        // Mostly the goose's; one time in four it settles for his hat (see stepHat).
+        if ((k.rung >= 3 || k.ceilingT > 6.0f) && k.bigCool <= 0.0f)
+        {
+            if (k.rung >= 3 && rnd() < 0.25f)
+            {
+                hat.wait = 0.0f;
+                hat.prefer = k.target;
+                k.rung = 1;
+                return Bit::none;
+            }
+            if (k.gooseWinCool <= 0.0f)
+                return Bit::gooseWins;
+        }
+        const float reach = lungeReach (g);
+        const bool room = std::abs (g.x - k.x) >= 1.5f && k.x + k.facing * reach > keeperLo && k.x + k.facing * reach < keeperHi && k.bigCool <= 0.0f;
+        Bit pool[3] {};
+        int n = 0;
+        auto add = [&] (Bit b, bool ok) { if (ok && b != k.lastBit && n < 3) pool[n++] = b; };
+        if (k.rung <= 0)
+            add (Bit::shoo, true);
+        else if (k.rung >= 2)
+        {
+            add (Bit::tug, share > 0.5f && std::abs (g.x - k.x) >= 1.8f && std::abs (g.x - k.x) <= 2.6f);     // with room for the pole to be taut between them
+            add (Bit::lunge, room);
+        }
+        if (n == 0)
+            add (Bit::whiff, true);
+        if (n == 0)
+            add (Bit::shoo, true);
+        return pool[std::min (n - 1, (int) (rnd() * (float) n))];
+    }
+
+    void startBit (Bit b, int index) noexcept
+    {
+        auto& k = keeper;
+        const auto& g = geese[(size_t) index];
+        k.bit = b; k.bt = 0.0f; k.bitW = 1.0f; k.bitCut = false; k.cue = 0.0f;
+        k.bitGoose = index;
+        k.bitDir = g.x >= k.x ? 1.0f : -1.0f;
+        k.bitX = k.x;
+        k.bitVar = 0;
+        if (b == Bit::lunge)
+            k.bitVar = rnd() < 0.34f ? 1 : 0;
+        else if (b == Bit::whiff)
+        {
+            // Never the ending he had last time, and the wind-up short, middling or long, so that
+            // the stroke does not always fall on the same beat.
+            int ending = std::min (2, (int) (rnd() * 3.0f));
+            if (ending == k.lastWhiff)
+                ending = (ending + 1 + (rnd() < 0.5f ? 1 : 0)) % 3;
+            if (k.lastWhiff < 0)
+                ending = 0;
+            k.lastWhiff = ending;
+            k.bitVar = ending | (std::min (2, (int) (rnd() * 3.0f)) << 2);
+        }
+        k.bitReach = lungeReach (g);
+        k.bitScale = b == Bit::lunge ? k.bitReach / 1.2f : 1.0f;
+        if (b == Bit::shoo)
+        {
+            // He jabs from a pole's length off: a step in if it is far, a hop back if it is close.
+            const float step = std::clamp (std::abs (g.x - k.x) - 2.5f * std::max (cast, 0.7f), -0.5f, 0.25f);
+            k.bitVar = step < 0.0f ? 1 : 0;
+            k.bitScale = std::abs (step) / 0.25f;
+        }
+        k.bitRoom = std::clamp (k.bitDir > 0.0f ? kHalfWidth - 1.0f - g.x : g.x + kHalfWidth - 1.0f, 0.8f, 2.6f);
+        k.speed = 0.0f;
+        k.walking = false;
+        if (bigBit (b))
+            k.bigCool = 12.0f;
+    }
+
+    /** A goose due to land beside him in the middle of something big waits off the picture for it
+        to be over: a second at most (a little longer while he sends one off and takes his bow),
+        the way the fish waits its turn. True while it is to wait. */
+    bool holdArrival (float x, float dt) noexcept
+    {
+        auto& k = keeper;
+        const bool winOn = (k.bit == Bit::win && ! k.bitCut) || (k.lastBit == Bit::win && k.sinceBit < 0.5f);
+        const bool moment = bitActing() || winOn || hat.state == 1 || hat.state == 4 || (hat.state == 2 && hat.t < 0.6f);
+        const bool near = std::abs (x - k.x) < 2.5f || (k.bit != Bit::none && k.bitGoose >= 0 && std::abs (x - geese[(size_t) k.bitGoose].x) < 2.5f);
+        if (! moment || ! near || k.holdArrive >= (winOn ? 1.5f : 1.0f))
+        {
+            if (! moment)
+                k.holdArrive = 0.0f;
+            return false;
+        }
+        k.holdArrive += dt;
+        return true;
+    }
+
+    /** A bit that cannot go on (its goose has gone, Bypass, a click...) eases out from where it is. */
+    void cutBit() noexcept
+    {
+        if (keeper.bit != Bit::none)
+            keeper.bitCut = true;
+    }
+
+    void endBit() noexcept
+    {
+        auto& k = keeper;
+        if (! k.bitCut)
+        {
+            auto& g = geese[(size_t) k.bitGoose];
+            if ((k.bit == Bit::shoo || k.bit == Bit::tug) && g.used && ! g.leaving)
+                g.x += k.bitDir * gooseBitAt (k.bit, bitFrames (k.bit, k.bitVar), k.bitRoom, k.bitVar).dx;      // where it ended up: it walks back
+            if (k.bit != Bit::honk)
+                k.rung = std::min (3, k.rung + 1);
+            if (k.bit == Bit::win)
+                k.rung = 0;
+            if (k.bit == Bit::gooseWins)
+            {
+                k.rung = 1;
+                k.gooseWinCool = 25.0f;
+                k.ceilingT = 0.0f;
+            }
+            if (k.bit != Bit::honk)
+                k.bitWait = 0.0f;
+        }
+        k.lastBit = k.bit;
+        k.bit = Bit::none;
+        k.bitW = 0.0f;
+        k.bitCut = false;
+        k.sinceBit = 0.0f;
+        k.gapScale = rnd (0.7f, 1.3f);
+    }
+
+    /** The reeds near `x` bow over, the way `dir` (from a stroke, or a skid). */
+    void bowReeds (float x, float dir) noexcept { bowX = x; bowDir = dir; bowT = 0.0f; }
+
+    /** What a bit sets off as it passes each of its moments. */
+    void bitEvents (const WorldInput&, Goose& g, float before, float f)
+    {
+        auto& k = keeper;
+        auto at = [&] (float frame) { return before < frame && f >= frame; };
+        const float size = gooseSize (g), feet = k.x + k.bitDir * 0.3f;
+        switch (k.bit)
+        {
+            case Bit::shoo:
+                if (at (12.0f)) { k.tip.v -= 1.2f; k.hatHop.v = 0.8f; addFx (2, feet, 0.0f, kKeeperZ - 0.1f, 0.6f * cast, -k.bitDir); }
+                if (at (20.0f)) k.tip.v -= 0.8f;
+                if (at (29.0f)) { g.squash.v = 2.2f; g.wag = 0.7f; }
+                if (at (40.0f)) k.blink.t = 0.0f;
+                break;
+            case Bit::whiff:
+            {
+                const float o = whiffWind (k.bitVar) - 20.0f;
+                const int ending = k.bitVar & 3;
+                if (at (o + 29.0f)) { k.hatHop.v = 1.4f; bowReeds (g.x, k.bitDir); }
+                if (at (o + 48.0f)) g.wag = 0.8f;
+                if (at (o + 60.0f)) k.blink.t = 0.0f;
+                if (ending == 1 && at (o + 47.0f))
+                    addFx (2, k.x, 0.0f, kKeeperZ - 0.1f, 0.8f * cast, -k.bitDir);
+                if (ending == 2)
+                {
+                    if (at (o + 40.0f) || at (o + 50.0f)) { bowReeds (g.x + k.bitDir * 0.4f, -k.bitDir); k.hatHop.v = 0.8f; }
+                    if (at (o + 53.0f)) { k.tip.v += 2.4f; k.hatHop.v = 1.6f; }
+                    if (at (o + 62.0f)) addFx (2, k.x - k.bitDir * 0.2f, 0.0f, kKeeperZ - 0.1f, 0.7f * cast, -k.bitDir);
+                }
+                break;
+            }
+            case Bit::tug:
+                for (float a : { 16.0f, 30.0f, 44.0f })
+                    if (at (a))
+                    {
+                        addFx (2, feet + k.bitDir * 0.2f, 0.0f, kKeeperZ - 0.1f, 0.8f * cast, k.bitDir);
+                        addFx (2, g.x + k.bitDir * (gooseBitAt (k.bit, f, k.bitRoom, k.bitVar).dx - 0.3f * size), 0.0f, g.z - 0.05f, 0.6f * cast, -k.bitDir);
+                        k.hatHop.v = 0.8f;
+                    }
+                if (at (59.0f)) { k.hatHop.v = 2.0f; k.tip.v += 2.5f; g.wag = 1.0f; }
+                if (at (64.0f)) addFx (2, g.x + k.bitDir * 0.6f, 0.0f, g.z - 0.05f, 0.9f * cast, k.bitDir);       // it sits down hard
+                if (at (68.0f) || at (76.0f) || at (84.0f)) addFx (2, k.x - k.bitDir * 0.2f, 0.0f, kKeeperZ - 0.1f, 0.6f * cast, -k.bitDir);
+                if (at (92.0f) || at (110.0f)) k.blink.t = 0.0f;
+                break;
+            case Bit::lunge:
+                if (at (17.0f)) addFx (3, k.x - k.bitDir * 0.5f, 1.25f * cast, kKeeperZ - 0.3f, 1.3f * cast, k.bitDir);
+                if (at (26.0f))
+                {
+                    if (k.bitVar == 0)
+                        k.trip = 0.15f / kTripSeconds;                 // the cable has his boot: straight into the two skips
+                    else
+                        bowReeds (k.x + k.bitDir * 1.5f, k.bitDir);
+                }
+                if (k.bitVar != 0)
+                {
+                    for (float a : { 27.0f, 32.0f, 38.0f })
+                        if (at (a))
+                            addFx (2, k.x + k.bitDir * 0.45f, 0.0f, kKeeperZ - 0.1f, 0.9f * cast, k.bitDir);
+                    if (at (56.0f)) g.preen = 0.0f;                    // and it sees to its feathers, unbothered
+                    if (at (72.0f)) k.hatHop.v = 0.8f;
+                }
+                else
+                {
+                    if (at (88.0f) || at (98.0f)) { addFx (2, k.x, 0.0f, kKeeperZ - 0.1f, 0.5f * cast, -k.bitDir); k.hatHop.v = 0.9f; }
+                    if (at (123.0f)) k.cableWave.v += 3.0f;            // kicked off: a wave runs down it
+                    if (at (134.0f)) addRing (g.x - k.bitDir * 0.9f * size, 1.9f * size, g.z - 0.3f, 0.5f * cast, false, 0.0f, 1.9f, rgb (0xe5533b));
+                    if (at (150.0f)) k.blink.t = 0.0f;
+                }
+                if (at (42.0f)) { g.squash.v = 2.4f; g.wag = 0.8f; }
+                break;
+            case Bit::win:
+                if (at (34.0f))
+                {
+                    // It lands. Everyone in the picture feels it.
+                    addFx (4, g.x - k.bitDir * 0.1f, 0.95f * size, g.z - 0.2f, 1.1f * cast, k.bitDir);
+                    addFeathers (g.x, 0.7f * size, g.z, size);
+                    bowReeds (g.x + k.bitDir * 0.8f, k.bitDir);
+                    for (auto& o : geese)
+                        if (&o != &g && o.used && ! o.leaving && gooseActive (o))
+                            o.squash.v = 1.6f;
+                    beaver.ear = 0.0f;
+                    beaver.blink.t = 0.0f;
+                    if (rnd() < 0.34f && dabble >= 1.0f)
+                        dabble = 0.0f;
+                }
+                if (at (55.0f) || at (66.0f)) addFx (2, g.x + k.bitDir * gooseBitAt (k.bit, f, k.bitRoom, k.bitVar).dx, 0.0f, g.z, 0.7f * cast, k.bitDir);
+                if (at (57.0f)) { startGesture (Gesture::pump, kPumpSeconds); k.pumpWait = rnd (7.0f, 12.0f); k.tip.v += 1.5f; }
+                if (at (73.0f))
+                {
+                    g.x += k.bitDir * k.bitRoom;
+                    g.beaten = false;
+                    g.leaving = true;
+                    g.away = 0.0f;
+                }
+                break;
+            case Bit::gooseWins:
+                if (at (24.0f)) k.tip.v -= 1.5f;
+                if (at (78.0f)) k.blink.t = 0.0f;
+                if (at (118.0f)) addRing (rideHat.x + k.bitDir * 0.3f * size, rideHat.y + 1.4f * size, kKeeperZ, 0.5f * cast, false, 0.0f, 1.6f, rgb (0xe5533b));
+                if (at (160.0f)) startGesture (Gesture::hat, kHatSeconds);
+                if (at (172.0f)) { g.squash.v = 2.4f; g.wag = 1.0f; }
+                if (at (180.0f))
+                    for (auto& o : geese)
+                        if (&o != &g && o.used && ! o.leaving && gooseActive (o))
+                        {
+                            o.honkPhase = std::floor (o.honkPhase) + 1.0f;     // one of the others has something to say about it
+                            break;
+                        }
+                break;
+            case Bit::honk:
+                if (at (10.0f)) addRing (g.x - k.bitDir * (0.3f + 0.75f * size), std::min (headAt.y - 0.2f * cast, 2.3f * size), g.z - 0.3f, 0.6f * cast, false, 0.0f, 1.9f, rgb (0xe5533b));
+                if (at (11.0f)) { k.hatHop.v = 1.0f; k.tip.v += 1.5f; }
+                if (at (44.0f)) k.blink.t = 0.0f;
+                break;
+            case Bit::none:
+                break;
         }
     }
 
@@ -1451,7 +2434,10 @@ private:
     {
         auto& k = keeper;
         const bool resting = in.bypass, frozen = in.diff && ! in.bypass, listening = in.soloHonk && ! resting && ! frozen;
-        const bool chasing = hat.state == 2;
+        // (With his hat gone he has a moment of disbelief first; and where there is no room to
+        // run he gets it back with the pole instead: see stepHat.)
+        const bool chasing = hat.state == 2 && ! hat.reach && hat.t > 16.0f * kF;
+        const bool hatless = hat.state == 2 || hat.state == 4;
         tick (k.blink, dt, 2.5f, 6.0f);
         if (k.solo < 0.05f && k.compare < 0.05f && k.gesture == Gesture::none && k.sit < 0.05f)
             k.hand = k.facing > 0.0f ? -1.0f : 1.0f;
@@ -1464,14 +2450,16 @@ private:
         // change his mind at once, or for a small difference.
         {
             auto ok = [&] (int i) { return i >= 0 && geese[(size_t) i].used && ! geese[(size_t) i].leaving && gooseActive (geese[(size_t) i]); };
-            if (! anyGoose || ! ok (k.target))
+            if (k.bit != Bit::none && k.bitGoose >= 0 && geese[(size_t) k.bitGoose].used)
+                k.target = k.bitGoose;                                // he sees a bit through with the goose it began with
+            else if (! anyGoose || ! ok (k.target))
             {
                 k.target = anyGoose && ok (deepestGoose) ? deepestGoose : -1;
                 k.switchT = 0.0f;
             }
             else if (ok (deepestGoose) && deepestGoose != k.target && geese[(size_t) deepestGoose].depth > geese[(size_t) k.target].depth + 2.0f)
             {
-                if ((k.switchT += dt) > 2.0f && k.swing >= 1.0f)
+                if ((k.switchT += dt) > 2.0f && k.cue <= 0.0f)
                 {
                     k.target = deepestGoose;
                     k.switchT = 0.0f;
@@ -1528,7 +2516,7 @@ private:
                 k.walking = true;
             if (k.walking && std::abs (spot - k.x) < 0.15f)
                 k.walking = false;
-            if (k.walking && k.swing >= 1.0f)
+            if (k.walking && k.bit == Bit::none)
                 want = spot;
         }
         else
@@ -1543,12 +2531,15 @@ private:
         const bool inPlace = std::abs (want - k.x) < 0.2f;
         follow (k.sit, resting && (inPlace || k.sit > 0.5f) ? 1.0f : 0.0f, dt, 0.28f);
 
-        // Now and then, at a run, his cable catches his foot.
-        if (std::abs (k.speed) > 2.6f && k.trip >= 1.0f && ! chasing && k.sit < 0.05f)
+        // Now and then, on the move, his cable catches his foot: about once in a minute or so of
+        // busy work, and never on top of anything else big.
+        if (std::abs (k.speed) > 1.5f && k.trip >= 1.0f && ! chasing && k.sit < 0.05f && k.bit == Bit::none && k.bigCool <= 0.0f
+            && frog.state != 1 && frog.state != 2 && fish.t >= kFishLeap)
             if ((k.tripWait -= dt) <= 0.0f)
             {
                 k.trip = 0.0f;
-                k.tripWait = rnd (14.0f, 40.0f);                       // seconds spent running, not seconds
+                k.tripWait = rnd (3.0f, 6.0f);                         // seconds spent on the move, not seconds
+                k.bigCool = 12.0f;
             }
         float held = 1.0f;
         if (k.trip < 1.0f)
@@ -1564,9 +2555,18 @@ private:
         // facing it; for anything longer he turns first and then sets off, so that he is never
         // seen running sideways or backwards.
         const bool shuffle = work && ! chasing && std::abs (tx - k.x) < 3.2f && std::abs (gap) < 0.5f;
-        const bool going = std::abs (gap) >= (k.going ? 0.15f : 0.5f) && ! shuffle && ! resting && ! frozen && ! in.calm;
+        const bool hatBusy = (k.adjustNext || k.hatLand < 1.0f || (k.gesture == Gesture::hat && ! k.idleGesture)) && ! chasing;     // his hat first
+        const bool going = std::abs (gap) >= (k.going ? 0.15f : 0.5f) && ! shuffle && ! resting && ! frozen && ! in.calm && k.bit == Bit::none && ! hatBusy;
+        // Setting off on a run: he leans back first, front knee up, and then goes.
+        if (going && ! k.going && std::abs (gap) > 1.6f && k.trip >= 1.0f && dt > 0.0f)
+            k.setOff = 0.0f;
         k.going = going;
-        if (going)
+        const float facingWas = k.facing;
+        if (k.bit != Bit::none)
+            k.facing = k.bitDir;
+        else if (hatless && ! chasing && hat.goose >= 0)
+            k.facing = geese[(size_t) hat.goose].x >= k.x ? 1.0f : -1.0f;     // he turns to the goose that has it
+        else if (going)
             k.facing = gap > 0.0f ? 1.0f : -1.0f;
         else if (std::abs (k.speed) > 0.3f && ! shuffle)
             k.facing = k.speed > 0.0f ? 1.0f : -1.0f;
@@ -1576,12 +2576,42 @@ private:
         const float along = std::cos (k.yaw) * (gap > 0.0f ? 1.0f : -1.0f);
         const float turned = going ? smooth01 ((along - 0.5f) / 0.25f) : 1.0f;
         const float pace = shuffle ? 0.8f : top;
-        const float speedWanted = std::clamp (gap * 3.0f, -pace, pace) * held * turned;
+        if (k.setOff < 1.0f)
+        {
+            k.setOff = std::min (1.0f, k.setOff + dt / (8.0f * kF));
+            moving = true;
+        }
+        const float speedWanted = std::clamp (gap * 3.0f, -pace, pace) * held * turned * (k.setOff < 1.0f || hatBusy ? 0.0f : 1.0f);
         k.speed += (speedWanted - k.speed) * std::min (1.0f, dt * (speedWanted * k.speed < 0.0f || turned < 1.0f ? 12.0f : 5.0f));
         // Bypass and Diff stop him where he is, once he has stepped clear of the creatures.
-        if (((resting || frozen) && (inPlace || k.sit > 0.05f)) || in.calm)
+        if (((resting || frozen) && (inPlace || k.sit > 0.05f)) || in.calm || k.bit != Bit::none)
             k.speed = 0.0f;
         k.x = std::clamp (k.x + k.speed * dt, keeperLo, keeperHi);
+        // Pulling up from a run: a short skid, heels in, two puffs of dust, and the pole's end
+        // carries on a little.
+        if (k.runAmt > 0.6f)
+            k.ran = true;
+        else if (k.ran && std::abs (k.speed) < 1.2f)
+        {
+            k.ran = false;
+            if (k.trip >= 1.0f && k.bit == Bit::none && dt > 0.0f)
+            {
+                k.skidT = 0.0f;
+                k.tip.v += 2.2f;
+                addFx (2, k.x + k.facing * 0.35f, 0.0f, kKeeperZ - 0.1f, 1.0f * cast, k.facing);
+                bowReeds (k.x + k.facing * 1.2f, k.facing);
+            }
+        }
+        if (k.skidT < 1.0f)
+        {
+            const float before = k.skidT;
+            k.skidT = std::min (1.0f, k.skidT + dt / (12.0f * kF));
+            if (before < 0.4f && k.skidT >= 0.4f)
+                addFx (2, k.x + k.facing * 0.5f, 0.0f, kKeeperZ - 0.15f, 0.8f * cast, k.facing);
+            moving = true;
+        }
+        if (k.facing * facingWas < 0.0f)
+            k.cableWave.v += 2.4f;                                     // the cable on the grass takes a wave as he turns
         // One turn of the phase is two steps, and the feet cover the ground he does.
         k.phase += std::abs (k.speed) * dt * 2.74f / cast;
         follow (k.runAmt, std::clamp (std::abs (k.speed) / 2.4f, 0.0f, 1.0f), dt, 0.12f);
@@ -1590,11 +2620,12 @@ private:
         // it (his head looks at it); three-quarters round towards us when there is nothing to do,
         // and squarely only when he compares, listens or greets us. A turn to set off or to a goose
         // is quick; the others take their time, and go round by way of facing us.
-        float turn = work ? 0.3f : 0.78f;
+        float turn = work || hatless ? 0.3f : 0.78f;
         turn = lerp (turn, 0.3f, going ? 1.0f : k.runAmt);
-        turn = lerp (turn, 1.5f, std::max ({ k.compare, 0.6f * k.solo, 0.8f * k.greet }));
+        turn = lerp (turn, 1.5f, std::max ({ k.compare, 0.6f * k.solo, 0.8f * k.greet, 0.45f * offerTurn() }));
         turn = lerp (turn, 0.75f, k.sit);                    // sitting: three-quarters on, so his legs show
-        follow (k.yaw, k.facing > 0.0f ? turn : kPi - turn, dt, going || std::abs (k.speed) > 0.6f || work ? 0.12f : 0.26f);
+        k.yawTo = k.facing > 0.0f ? turn : kPi - turn;
+        follow (k.yaw, k.yawTo, dt, going || std::abs (k.speed) > 0.6f || work || hatless ? 0.12f : 0.26f);
         // Standing, the pole points out to his side and a little away from us, so that the
         // microphone hangs over the geese from behind them and never comes in front of one (a
         // grey microphone over a white goose reads as a hump on its back). Sitting, he lays the
@@ -1610,26 +2641,226 @@ private:
         follow (k.recoil, blasted ? 1.0f : 0.0f, dt, blasted ? 0.3f : 0.5f);
         k.idle += dt;
 
-        // The bat. One clear wind-up and one swing, for the goose he is working and no other, and
-        // then nothing of the kind for several seconds.
-        swingHit = false;
-        k.swingCool = std::max (0.0f, k.swingCool - dt);
-        if (k.swing < 1.0f)
+        // The bits between him and his goose. One at a time; the busier the mix, the shorter the
+        // rest between them; and each goose is taken up a ladder: a shoo, then a swing that
+        // misses, then something bigger, and then a result, which the plug-in decides. If the notch
+        // closes he sends the goose off with one great swing (see step); if the cut stays near
+        // Max Cut the goose climbs his pole and sits on his hat.
+        k.sinceBit += dt;
+        k.bigCool = std::max (0.0f, k.bigCool - dt);
+        k.gooseWinCool = std::max (0.0f, k.gooseWinCool - dt);
+        k.honkCool = std::max (0.0f, k.honkCool - dt);
         {
-            const float before = k.swing;
-            k.swing = std::min (1.0f, k.swing + dt / kSwingSeconds);
-            swingHit = before < kSwingHit && k.swing >= kSwingHit;
+            int on = 0;
+            for (const auto& g : geese)
+                on += g.used && ! g.leaving && gooseActive (g) ? 1 : 0;
+            const float now = 0.5f * std::min (1.0f, (float) on / 4.0f) + 0.5f * std::min (1.0f, deepestCut / std::max (1.0f, in.maxCutDb));
+            follow (k.heat, anyGoose ? now : 0.0f, dt, 2.0f);
+        }
+        if (k.target != k.rungGoose)
+        {
+            k.rungGoose = k.target;
+            k.rung = 0;
+            k.lastBit = Bit::none;
+            k.ceilingT = 0.0f;
+        }
+        if (has)
+            k.ceilingT = tDepth >= 0.85f * in.maxCutDb ? k.ceilingT + dt : std::max (0.0f, k.ceilingT - 2.0f * dt);
+        if (k.bit != Bit::none)
+        {
+            auto& g = geese[(size_t) k.bitGoose];
+            const float before = k.bt / kF;
+            k.bt += dt;
+            const float f = k.bt / kF;
+            const bool sent = k.bit == Bit::win && f >= 34.0f;        // once the swing has landed it plays out
+            const bool gone = ! g.used || ((g.leaving || g.thief || ! gooseActive (g) || g.knock < 1.0f) && ! sent);
+            if (! k.bitCut && (gone || resting || frozen || listening || in.calm || chasing))
+                cutBit();
+            if (k.bitCut)
+            {
+                // Ended early: it eases out over a fifth of a second, never a jump.
+                k.bitW -= dt / (12.0f * kF);
+                if (k.bitW <= 0.0f)
+                    endBit();
+            }
+            else
+            {
+                bitEvents (in, g, before, f);
+                k.x = std::clamp (k.bitX + k.bitDir * bitPoseAt (k.bit, f, k.bitVar).shift * k.bitScale, keeperLo, keeperHi);
+                if (f >= bitFrames (k.bit, k.bitVar))
+                    endBit();
+            }
             moving = true;
         }
-        else if (has && close && k.shoo > 0.9f && std::abs (k.speed) < 0.2f && k.gesture == Gesture::none && k.swingCool <= 0.0f
-                 && idleBusy <= 0.0f && dt > 0.0f && k.clickWait <= 0.0f)
+        else if (dt > 0.0f)
         {
-            const auto& g = geese[(size_t) k.target];
-            if (g.landed > 1.2f && g.depth >= 2.5f && g.knock >= 1.0f && ! (g.knockX < 0.0f || g.knockX > 0.0f) && g.flap >= 1.0f && ! g.thief && g.preen >= 1.0f)
+            const bool ready = has && close && k.shoo > 0.9f && std::abs (k.speed) < 0.2f && k.gesture == Gesture::none
+                               && canStartBit (in, geese[(size_t) std::max (0, k.target)]) && geese[(size_t) k.target].depth >= 0.7f;
+            if (has && work)
+                k.bitWait = std::min (1.0f, k.bitWait + dt / (bitGap() * k.gapScale * (tDepth < 1.2f ? 1.4f : 1.0f)));      // a goose that is hardly cut is left alone longer
+            if (k.cue > 0.0f)
             {
-                k.swing = 0.0f;
-                k.swingCool = rnd (5.5f, 9.5f);
+                // The last few frames before it starts (a dragonfly on the microphone takes off).
+                if (! ready)
+                    k.cue = 0.0f;
+                else if ((k.cue -= dt) <= 0.0f)
+                    startBit (k.nextBit, k.target);
             }
+            else if (ready && k.sinceBit >= 1.5f)
+            {
+                const auto& g = geese[(size_t) k.target];
+                Bit next = Bit::none;
+                if (g.depth > 4.0f && g.depth - g.depthSlow > 1.0f && k.honkCool <= 0.0f && k.sinceBit > 2.5f)
+                {
+                    next = Bit::honk;                                  // a cut that has just jumped: a honk in his face
+                    k.honkCool = 14.0f;
+                }
+                else if (k.bitWait >= 1.0f)
+                {
+                    next = chooseBit (in, g);
+                    if (next == Bit::none)
+                        k.bitWait = 0.6f;
+                }
+                if (next != Bit::none)
+                {
+                    k.nextBit = next;
+                    k.cue = 10.0f * kF;
+                }
+            }
+        }
+
+        // Holding the microphone. It hangs over the goose's head and follows it a moment late,
+        // with a little overshoot; he shifts his weight from foot to foot, takes a new grip now and
+        // then, looks from the goose to the microphone and puts a hand to his headphones, crouches
+        // as the cut deepens, and jerks his head back at a loud honk. None of it is large.
+        {
+            const bool holding = close && has && k.bit == Bit::none;
+            follow (k.aimW, close && has && k.trip >= 1.0f && hat.state == 0 ? 1.0f : 0.0f, dt, 0.25f);
+            follow (k.stance, close ? 1.0f : 0.0f, dt, 0.25f);
+            if (has)
+            {
+                const auto& g = geese[(size_t) k.target];
+                const float size = gooseSize (g), toward = k.x >= g.x ? 1.0f : -1.0f;
+                float gx = g.x + g.knockX, gy = 0.0f, tipAhead = 0.0f, tipUp = 0.0f;
+                biteTip (0.0f, tipAhead, tipUp);
+                if (k.bit != Bit::none && k.bitGoose == k.target)
+                {
+                    const GooseBit b = gooseBitAt (k.bit, k.bt / kF, k.bitRoom, k.bitVar);
+                    gx += k.bitDir * b.dx * k.bitW;
+                    gy = (b.dy - 0.4f * b.low) * size * k.bitW * (b.ride > 0.0f ? 0.0f : 1.0f);
+                    biteTip (b.lean * k.bitW, tipAhead, tipUp);
+                }
+                k.micX.tick (gx + toward * 0.4f * size, dt, 10.0f, 0.6f);
+                k.micY.tick ((1.5f + 0.3f * honkOpen (g) * (1.0f - g.hiss)) * size + 0.5f * cast + gy, dt, 10.0f, 0.6f);
+                // Where the microphone goes when it is put to the goose's beak, or the goose has
+                // hold of it: its near end at the tip of the beak, wherever the goose has got to.
+                // (The pole swings in its own upright plane, a little behind the goose's row, so
+                // the goose turns its head to it: see drawNotchGoose.)
+                const float across = micAt.z - g.z, out = tipAhead * size + 0.2f * 1.5f * cast;
+                if (k.bit == Bit::tug)
+                    biteAt = { gx + toward * std::sqrt (std::max (0.3f * out * out, out * out - across * across)), tipUp * size, kKeeperZ };
+                else
+                    biteAt = { gx + toward * 0.5f * size, 1.6f * size + gy, kKeeperZ };       // a jab: at its head, from in front
+            }
+            else
+            {
+                k.micX.x = k.x + k.facing * 3.2f * cast; k.micX.v = 0.0f;
+                k.micY.x = 2.1f * cast; k.micY.v = 0.0f;
+            }
+            // How he stands to it: by how deep its cut is, with a little give so that he does not
+            // bob between two. A change takes a third of a second; he keeps it through a bit.
+            if (holding)
+            {
+                const float share = tDepth / std::max (1.0f, in.maxCutDb);
+                const float up1 = k.stanceTo >= 1 ? 0.28f : 0.38f, up2 = k.stanceTo >= 2 ? 0.58f : 0.68f;
+                k.stanceTo = share > up2 ? 2 : share > up1 ? 1 : 0;
+            }
+            else if (k.bit == Bit::none && k.cue <= 0.0f)
+                k.stanceTo = 0;
+            {
+                const float to = (float) k.stanceTo, step = dt * 3.0f;
+                if (std::abs (to - k.stanceAt) > 1.0e-4f)
+                    moving = true;
+                k.stanceAt = std::abs (to - k.stanceAt) <= step ? to : k.stanceAt + std::copysign (step, to - k.stanceAt);
+            }
+            if (k.flinchT < 1.0f)
+            {
+                k.flinchT = std::min (1.0f, k.flinchT + dt / (20.0f * kF));
+                moving = true;
+            }
+            // Footwork: every two or three seconds a shuffle step towards the goose or away, with
+            // a small hop, one foot and then the other. Called away, he brings his feet together.
+            if (k.stepT < 1.0f)
+            {
+                k.stepT = std::min (1.0f, k.stepT + dt / (11.0f * kF));
+                moving = true;
+            }
+            else if (holding && k.cue <= 0.0f && k.gesture == Gesture::none)
+            {
+                if ((k.stepWait -= dt) <= 0.0f)
+                {
+                    const float stride = 0.15f * std::max (cast, 0.7f);
+                    k.stepFrom = k.stepTo;
+                    k.stepTo = std::abs (k.stepTo) > 0.01f ? 0.0f : (rnd() < 0.5f ? stride : -stride);
+                    k.stepT = 0.0f;
+                    k.stepWait = rnd (2.0f, 3.5f);
+                }
+            }
+            else if (! close && k.bit == Bit::none && std::abs (k.stepTo) > 0.01f)
+            {
+                k.stepFrom = k.stepTo;
+                k.stepTo = 0.0f;
+                k.stepT = 0.0f;
+            }
+            if (k.hatLand < 1.0f)
+            {
+                k.hatLand = std::min (1.0f, k.hatLand + dt / (10.0f * kF));
+                moving = true;
+            }
+            if (holding && (k.weightWait -= dt) <= 0.0f)
+            {
+                k.weightTo = -k.weightTo;
+                k.weightWait = rnd (2.5f, 4.0f);
+            }
+            follow (k.weight, k.weightTo, dt, 0.2f);
+            if (holding && (k.gripWait -= dt) <= 0.0f)
+            {
+                k.grip = 0.0f;
+                k.gripWait = rnd (4.0f, 7.0f);
+                k.tip.v += 1.2f;
+            }
+            if (k.grip < 1.0f)
+                k.grip = std::min (1.0f, k.grip + dt / (18.0f * kF));
+            if (holding && (k.glanceWait -= dt) <= 0.0f)
+            {
+                const float pick = rnd();
+                k.glance = k.glance != 0 ? 0 : pick < 0.6f ? 1 : 2;      // the goose, the microphone, the goose, his headphones...
+                k.glanceWait = k.glance == 2 ? 40.0f * kF + rnd (0.3f, 0.8f) : rnd (1.5f, 3.0f);
+            }
+            if (! holding)
+                k.glance = 0;
+            follow (k.lookGoose, holding && k.glance == 0 ? 1.0f : 0.0f, dt, 0.045f);
+            follow (k.lookMic, holding && k.glance == 1 ? 1.0f : 0.0f, dt, 0.045f);
+            follow (k.lookEar, holding && k.glance == 2 && k.gesture == Gesture::none ? 1.0f : 0.0f, dt, 0.09f);
+            k.flinch = std::max (0.0f, k.flinch - dt / (10.0f * kF));
+            k.fishLook = std::max (0.0f, k.fishLook - dt);
+            follow (k.crouch, (holding || k.bit != Bit::none) && in.maxCutDb > 2.5f ? std::clamp ((tDepth - 2.0f) / (in.maxCutDb - 2.0f), 0.0f, 1.0f) : 0.0f, dt, 0.4f);
+            k.tip.tick (0.0f, dt, 19.0f, 0.22f);                       // the pole's end: about 3 Hz, gone in half a second
+            k.hatHop.tick (0.0f, dt, 24.0f, 0.3f);
+            k.cableWave.tick (0.0f, dt, 9.0f, 0.22f);
+            // His hat follows his head a few frames late and settles after he stops.
+            k.hatLag.x = std::clamp (k.hatLag.x - (headAt.x - k.headWas), -0.3f, 0.3f);
+            k.hatLag.tick (0.0f, dt, 28.0f, 0.45f);
+            k.headWas = headAt.x;
+            k.noGoose = has ? 0.0f : k.noGoose + dt;
+            if (work || resting || frozen || listening)
+                k.shouldered = false;
+            // Up onto his shoulder takes half a second (see keeperRig), and down a little less.
+            k.rest = std::clamp (k.rest + (k.shouldered ? dt / (32.0f * kF) : -dt / (26.0f * kF)), 0.0f, 1.0f);
+            const bool doing = k.bit != Bit::none || k.cue > 0.0f || k.gesture != Gesture::none || std::abs (k.speed) > 0.3f || k.trip < 1.0f;
+            k.stillT = doing ? 0.0f : k.stillT + dt;
+            moving = moving || std::abs (k.tip.x) > 0.004f || std::abs (k.tip.v) > 0.05f || std::abs (k.hatLag.x) > 0.01f || k.hatHop.busy()
+                            || k.cableWave.busy() || k.flinch > 0.0f || (k.rest > 0.02f && k.rest < 0.98f) || k.grip < 1.0f;
         }
 
         // The cable trails after him along the grass.
@@ -1645,20 +2876,24 @@ private:
         const bool greeting = k.gesture == Gesture::wave || k.gesture == Gesture::tip;
         if (k.gesture != Gesture::none)
         {
-            const bool fits = k.gesture == Gesture::pump || (standing && (greeting || (k.gesture == Gesture::sip) == (k.sit > 0.9f)));
-            if (! fits)
+            const bool lullPiece = k.gesture == Gesture::shoulder || k.gesture == Gesture::coil || k.gesture == Gesture::polish || k.gesture == Gesture::doze
+                                   || k.gesture == Gesture::offer || k.gesture == Gesture::stretch;
+            const bool fits = k.gesture == Gesture::pump || (standing && ! (lullPiece && work) && (greeting || (k.gesture == Gesture::sip) == (k.sit > 0.9f)));
+            if (! fits && k.gesture == Gesture::offer)
+                k.gt = std::max (k.gt, 1.0f - k.gt);                   // called away: the way back is the way out, run backwards
+            else if (! fits)
                 k.gt = std::max (k.gt, 0.85f);                         // cut short: straight to its ending
             k.gt += dt / k.glen;
             if (k.gt >= 1.0f)
                 k.gesture = Gesture::none;
             (k.idleGesture ? fussing : moving) = true;
         }
-        else if (standing && dt > 0.0f && k.swing >= 1.0f)
+        else if (standing && dt > 0.0f && k.bit == Bit::none)
         {
             if (k.adjustNext)
             {
                 k.adjustNext = false;
-                startGesture (Gesture::hat, 1.6f);
+                startGesture (Gesture::hat, kHatSeconds);
             }
             else if (k.clickWait > 0.0f)
             {
@@ -1697,31 +2932,82 @@ private:
         // Looking about is part of his idle business (Diff, which is not idle, counts above).
         fussing = fussing || std::abs (k.look) > 0.02f || std::abs (k.eyeLook) > 0.02f || std::abs (k.torsoLook) > 0.02f;
 
-        micAt = keeperRig().mic;
+        {
+            const KeeperRig rig = keeperRig();
+            const float sc = 1.5f * cast;
+            micAt = rig.mic;
+            headAt = rig.head.apply ({ 0.04f, rig.hipY + 1.08f, 0.0f });
+            // Which hand leads on the pole changes over a tenth of a second, never at once.
+            const float to = rig.frontRaw, step = dt / (6.0f * kF);
+            k.frontW = std::abs (to - k.frontW) <= step ? to : k.frontW + std::copysign (step, to - k.frontW);
+            if (k.frontW > 0.0f && k.frontW < 1.0f)
+                moving = true;
+            // Where a goose can stand on him: the end of the pole, by his hands, and his hat.
+            rideTip = rig.mic + Vec3 { 0.0f, 0.15f * sc, 0.0f };
+            rideGrip = rig.upper.apply (rig.grip + rig.dir * 0.55f) + Vec3 { 0.0f, 0.04f * sc, 0.0f };
+            rideHat = rig.head.apply ({ 0.01f, rig.hipY + 1.08f + 0.44f - 0.14f * rig.hatDown, 0.0f });
+        }
     }
 
     //------------------------------------------------------------------------------ the fish
     void stepFish (const WorldInput& in, float dt)
     {
         // One leap for a click, and no more than one every few seconds however many clicks there
-        // are. With another range in focus the fish stays down.
-        if (fish.t >= kFishRest && in.snapOn && in.frame.snapCutDb > 2.0f && dt > 0.0f && (in.focus < 0 || in.focus == kNumModules))
+        // are. With another range in focus the fish stays down. A ring spreads on the water a
+        // moment before it comes up. A second click soon after the first brings a second, smaller
+        // fish close behind. A leap never starts on top of a bit between him and his goose: it
+        // waits a moment for its turn, and is let go if the turn does not come.
+        const bool minded = in.snapOn && (in.focus < 0 || in.focus == kNumModules);
+        const bool click = minded && in.frame.snapCutDb > 2.0f && snapWas <= 2.0f && dt > 0.0f;
+        snapWas = in.frame.snapCutDb;
+        if (click || (minded && in.frame.snapCutDb > 2.0f && fish.t >= kFishRest && dt > 0.0f))
         {
-            fish = { 0.0f, std::clamp (in.frame.snapCutDb / 12.0f, 0.3f, 1.0f), (spawned++ % 2) ? 1.0f : -1.0f, false };
-            splash (fishX() - fish.dir * 0.75f, kFishZ, 0.55f, false);
-        }
-        if (fish.t < kFishRest)
-            fish.t += dt;
-        if (fish.t < kFishLeap + 0.6f)
-        {
-            if (! fish.flopped && fish.t >= kFishLeap)
+            if (fish.t >= kFishRest)
             {
-                fish.flopped = true;
-                splash (fishX() + fish.dir * 0.75f, kFishZ, 1.6f + 0.6f * fish.power);       // the belly-flop
+                fishPend = 1.2f;
+                fishPower = std::clamp (in.frame.snapCutDb / 12.0f, 0.3f, 1.0f);
             }
-            moving = true;
+            else if (click && fish.t > 0.1f && fish.t < 1.0f && fish2.t >= kFishRest && ! bitActing())
+            {
+                fish2 = { -kFishLead - 10.0f * kF, 0.6f * fish.power, fish.dir, false, 0.62f, -fish.dir * 0.55f };
+                addRing (fishX() + fish2.off - fish2.dir * 0.75f, 0.03f, kFishZ + 0.25f, 0.3f, true, 0.0f, 2.2f, rgb (0xf4fbff), true);
+            }
+        }
+        if (fishPend > 0.0f)
+        {
+            fishPend -= dt;
+            if (! bitActing() && keeper.trip >= 1.0f && hat.state == 0 && fish.t >= kFishRest && dt > 0.0f)
+            {
+                fishPend = 0.0f;
+                fish = { -kFishLead, fishPower, (spawned++ % 2) ? 1.0f : -1.0f, false, 1.0f, 0.0f };
+                addRing (fishX() - fish.dir * 0.75f, 0.03f, kFishZ, 0.4f, true, 0.0f, 2.0f, rgb (0xf4fbff), true);
+                // A big one turns his head, if he has nothing else on.
+                if (fish.power > 0.55f && keeper.bit == Bit::none && keeper.gesture == Gesture::none && keeper.sit < 0.1f
+                    && (fishX() - keeper.x) * keeper.facing > 0.0f)
+                    keeper.fishLook = 0.9f;
+            }
+        }
+        for (Fish* fi : { &fish, &fish2 })
+        {
+            auto& fs = *fi;
+            const float before = fs.t;
+            if (fs.t < kFishRest)
+                fs.t += dt;
+            if (fs.t < kFishLeap + 0.6f)
+            {
+                if (before < 0.0f && fs.t >= 0.0f)
+                    splash (fishX() + fs.off - fs.dir * 0.75f, kFishZ, 0.55f * fs.size, false);
+                if (! fs.flopped && fs.t >= kFishLeap)
+                {
+                    fs.flopped = true;
+                    splash (fishX() + fs.off + fs.dir * 0.75f, kFishZ, (1.6f + 0.6f * fs.power) * fs.size);       // the belly-flop
+                }
+                moving = true;
+            }
         }
     }
+    static constexpr float kFishLead = 12.0f / 60.0f;   // the ring on the water this long before it leaps
+    float fishPower = 0.5f;
     static constexpr float kFishLeap = 0.95f, kFishZ = 0.95f, kFishRest = 4.5f;
     float fishX() const noexcept { return worldX (2700.0f); }
 
@@ -1742,6 +3028,18 @@ private:
         dam += std::clamp (target - dam, -dt / 30.0f, dt / 24.0f);
 
         const bool building = target > dam + 0.02f, shrinking = target < dam - 0.02f && dam > 0.02f;
+        // The reading jumps: a start (ears up, eyes wide, quite still), and then it hurries.
+        b.hurry = std::max (0.0f, b.hurry - dt);
+        if (in.frame.activity > 0.03f && in.focus < 0 && std::clamp (in.frame.wash / 0.8f, 0.0f, 1.0f) - washSlow > 0.3f && b.take >= 1.0f && b.hurry <= 0.0f && dt > 0.0f)
+        {
+            b.take = 0.0f;
+            b.hurry = 6.0f;
+        }
+        if (b.take < 1.0f) { b.take = std::min (1.0f, b.take + dt / 0.6f); moving = true; }
+        // The dam starts to come apart: it wipes its brow, once.
+        if (shrinking && ! b.wiped && b.sulk > 0.6f) { b.wiped = true; b.brow = 0.0f; }
+        if (! shrinking && b.sulk < 0.1f) b.wiped = false;
+        if (b.brow < 1.0f) { b.brow = std::min (1.0f, b.brow + dt / 1.5f); moving = true; }
         follow (b.build, building ? 1.0f : 0.0f, dt, 0.4f);
         follow (b.sulk, shrinking ? 1.0f : 0.0f, dt, 0.5f);
         follow (b.carry, carryingStick() ? 1.0f : 0.0f, dt, 0.12f);
@@ -1787,7 +3085,7 @@ private:
         follow (b.proud, b.proudT > 0.0f ? 1.0f : 0.0f, dt, 0.18f);
 
         // Coming apart: it turns its back on the thing and slaps its tail on the water.
-        if (b.sulk > 0.6f)
+        if (b.sulk > 0.6f && b.brow >= 1.0f)
         {
             const float before = b.slap;
             b.slap += dt / 1.8f;
@@ -1823,7 +3121,7 @@ private:
             stickRest (stickIndex, c, yawS, lenS);
             home = c.x - (beaverHoldAt.x - b.x);
         }
-        const float wade = placing ? 1.8f : 0.9f;
+        const float wade = (placing ? 1.8f : 0.9f) * (b.hurry > 0.0f && b.take >= 1.0f ? 1.7f : b.take < 1.0f ? 0.0f : 1.0f);
         b.x += std::clamp ((home - b.x) * 3.0f, -wade, wade) * dt;
         const float yawTo = b.sulk > 0.5f ? kPi - 0.15f : b.proud > 0.5f ? kPi * 0.5f - 0.25f : up ? 0.5f : kPi - 0.45f + 0.25f * std::sin (time * 0.07f);
         follow (b.yaw, yawTo, dt, 0.35f);
@@ -1885,6 +3183,13 @@ private:
         guardHold = hit ? 0.35f : std::max (0.0f, guardHold - dt);
         const bool hide = hit || guardHold > 0.0f;
         follow (asleep, guardOn ? 0.0f : 1.0f, dt, 1.2f);
+        // A really big hit rocks their log.
+        const bool big = guardOn && in.focus < 0 && in.frame.guard > 0.7f * std::max (in.guardAmount, 0.05f);
+        if (big && ! guardBig && dt > 0.0f)
+            logRock.v += 0.6f;
+        guardBig = big;
+        logRock.tick (0.0f, dt, 12.0f, 0.2f);
+        moving = moving || logRock.busy();
 
         for (int i = 0; i < 3; ++i)
         {
@@ -1903,7 +3208,7 @@ private:
                     {
                         t.in = true; t.stage = 0;
                         t.wobble.v += (i == 1 ? -6.0f : 6.0f);
-                        t.drop.x = 0.2f; t.drop.v = 0.0f;
+                        t.drop.x = 0.17f; t.drop.v = 0.0f;
                     }
                 }
                 if (t.in)
@@ -1920,7 +3225,7 @@ private:
                 if (t.in && (t.peekWait -= dt) <= 0.0f)
                 {
                     // Coming out: two eyes in the opening first, then the head, just, then all of it.
-                    if (t.stage == 0)      { t.stage = 1; t.peekWait = 0.6f; }
+                    if (t.stage == 0)      { t.stage = 1; t.peekWait = 0.78f; }      // one eye for a third of a second, then both
                     else if (t.stage == 1) { t.stage = 2; t.peekWait = rnd (0.7f, 1.1f); }
                     else                   { t.stage = 3; t.in = false; ++peekOrder; }
                 }
@@ -1929,7 +3234,7 @@ private:
             follow (t.out, to, dt, to < t.out ? 0.035f : 0.22f);
             follow (t.eyes, t.in && t.stage == 1 ? 1.0f : 0.0f, dt, 0.08f);
             t.wobble.tick (0.0f, dt, 14.0f, 0.25f);                   // about 2 Hz, dying away over half a second
-            t.drop.tick (0.0f, dt, 17.0f, 0.4f);
+            t.drop.tick (0.0f, dt, 21.0f, 0.24f);                     // two bounces on the log
 
             // Out and at ease: it looks about, and stretches its neck up into the sun, when the
             // director says so.
@@ -1982,7 +3287,8 @@ private:
         if (fr.below > 1.0f)
             fr.armed = true;
         const float near = anyGoose && ! in.bypass ? smooth01 ((worstDepth / ceiling - 0.55f) / 0.4f) : 0.0f;
-        follow (fr.tension, atCeiling && ! fr.armed ? 1.0f : near, dt, 0.5f);
+        fr.rest = std::max (0.0f, fr.rest - dt);                          // just back on its pad: it sits a moment before it can tense again
+        follow (fr.tension, fr.rest > 0.0f ? 0.0f : atCeiling && ! fr.armed ? 1.0f : near, dt, 0.5f);
         const float high = smooth01 ((fr.tension - 0.6f) / 0.4f);
         if (high > 0.0f)
         {
@@ -2008,6 +3314,13 @@ private:
             fr.v += (0.0f - fr.v) * std::min (1.0f, dt * 4.0f);
             follow (fr.lookUp, 0.0f, dt, 0.2f);
         }
+        if (keeper.gesture == Gesture::offer && offerFrog && fr.state == 0)
+        {
+            // The microphone is being held out to it: it looks up at it.
+            follow (fr.look, keeper.x * keeperToStream > fr.x ? 1.0f : -1.0f, dt, 0.15f);
+            follow (fr.lookUp, 1.0f, dt, 0.2f);
+            fussing = true;
+        }
         fr.x += fr.v * dt;
         fr.pad.tick (0.0f, dt, 9.0f, 0.22f);
 
@@ -2023,7 +3336,8 @@ private:
         {
             case 0:
                 fr.cool -= dt;
-                if (atCeiling && fr.armed && fr.cool <= 0.0f && dt > 0.0f)
+                // (Never on top of a bit between him and his goose, the cable or the hat: it waits.)
+                if (atCeiling && fr.armed && fr.cool <= 0.0f && dt > 0.0f && ! bitActing() && keeper.trip >= 1.0f && hat.state == 0)
                 {
                     fr.state = 1; fr.t = 0.0f;
                     fr.armed = false;
@@ -2043,12 +3357,33 @@ private:
                 break;
             case 1: if (fr.t >= 0.3f)  { fr.state = 2; fr.t = 0.0f; fr.pad.v = 2.4f; } break;
             case 2: if (fr.t >= 0.7f)  { fr.state = 3; fr.t = 0.0f; splash (fr.landX, streamZ, 0.6f * fg); } break;
-            case 3: if (fr.t >= 0.5f)  { fr.state = 4; fr.t = 0.0f; addRing (fr.landX, 0.03f, streamZ, 0.3f * fg, true, 0.0f, 1.6f, rgb (0xf4fbff)); } break;
+            case 3:
+                if (fr.t >= 0.5f)
+                {
+                    // Its third leap in twenty seconds: it has had enough, and stays in the water
+                    // with only its eyes showing until the cut eases.
+                    fr.state = fr.repeats >= 2 && ! fr.byClick ? 7 : 4;
+                    fr.t = 0.0f; fr.lurk = 0.0f;
+                    addRing (fr.landX, 0.03f, streamZ, 0.3f * fg, true, 0.0f, 1.6f, rgb (0xf4fbff));
+                }
+                break;
+            case 7:
+                fr.lurk += dt;
+                if (fr.below > 0.6f || fr.lurk > 20.0f || in.bypass) { fr.state = 4; fr.t = 0.0f; fr.repeats = 0; }
+                break;
             case 4: if (fr.t >= 0.8f)  { fr.state = 5; fr.t = 0.0f; } break;
+            case 6: if (fr.t >= 20.0f * kF) { fr.state = 0; fr.t = 0.0f; fr.rest = 0.5f; } break;
             case 5:
                 if (fr.t >= 0.5f)
                 {
-                    fr.state = 0; fr.t = 0.0f; fr.pad.v = 1.8f;
+                    // Back on the pad: it shakes itself dry.
+                    fr.state = 6; fr.t = 0.0f; fr.pad.v = 1.8f;
+                    for (auto& b : bursts)
+                        if (b.t >= 1.0f)
+                        {
+                            b = { fr.x, streamZ, 0.0f, 0.4f * fg, rnd (0.0f, 6.0f) };
+                            break;
+                        }
                     // (A leap asked for with the mouse leaves the ceiling's own timing as it was.)
                     fr.cool = fr.byClick ? fr.coolKept : std::min (30.0f, rnd (2.8f, 5.5f) * (float) (1 << std::min (fr.repeats, 4)));
                     fr.byClick = false;
@@ -2101,8 +3436,10 @@ private:
         const bool wanted = in.frame.keyed ? keyHold >= 1.0f : keyHold > 0.0f;
         const bool settle = keeper.quiet > 4.0f || in.focus >= 0;   // nothing going on, or a range in focus: they find a post to sit on
         // He is standing still (working a goose from where he stands is fine: it rides the jab).
+        // (It lifts off in the last frames before a bit begins: the sign that something is coming.)
         const bool micFree = std::abs (keeper.speed) < 0.3f && keeper.gesture == Gesture::none && keeper.trip >= 1.0f
-                             && hat.state == 0 && keeper.sit < 0.1f && keeper.recoil < 0.3f;
+                             && hat.state == 0 && keeper.sit < 0.1f && keeper.recoil < 0.3f && keeper.bit == Bit::none && keeper.cue <= 0.0f;
+        const float keyLevel = std::clamp ((in.frame.keyDb + 45.0f) / 35.0f, 0.0f, 1.0f);
         if (! wanted)
             micVisits = 0;
 
@@ -2164,6 +3501,9 @@ private:
             }
             if (d.perch == 2 && settle)
                 continue;                                           // sitting it out
+            // In the way of a bit: it darts off at once.
+            if (d.perch == 0 && keeper.bit != Bit::none && std::abs (d.pos.x - micAt.x) < 1.6f && d.pos.z < 1.2f)
+                d.wait = 0.0f;
             if (d.perch != 2)
                 moving = true;
             if ((d.wait -= dt) > 0.0f)
@@ -2177,13 +3517,13 @@ private:
                 d.to = postTop (i);
                 d.wait = 1.0f;
             }
-            else if (i == 0 && d.perch == 0 && micFree && (micVisits == 0 || rnd() < 0.3f))
+            else if (i == 0 && d.perch == 0 && micFree && (micVisits == 0 || keeper.stillT > 3.0f))
             {
                 // The first one lands on the microphone soon after they come (a second or two),
-                // and now and then again after that.
+                // and again whenever he has held still for a few seconds. It stays until he moves.
                 d.perch = 1;
                 d.to = micPerch();
-                d.wait = rnd (2.5f, 5.0f);
+                d.wait = micVisits == 0 ? rnd (2.5f, 5.0f) : 30.0f;
                 ++micVisits;
             }
             else
@@ -2191,12 +3531,17 @@ private:
                 d.perch = 0;
                 const float centre = 0.6f * keeper.x;
                 // Short darts over the water, just above the reed tops and below the trees.
-                d.to = { std::clamp (d.pos.x + rnd (-2.6f, 2.6f) + 0.15f * (centre - d.pos.x), -kHalfWidth + 0.8f, kHalfWidth - 0.8f), rnd (1.2f, 2.2f) * std::max (cast, 0.75f) + 0.2f, rnd (0.5f, 2.4f) };
-                d.wait = rnd (0.35f, 1.5f);
+                // Short darts over the water and a hover between, higher the louder the dialogue is.
+                d.to = { std::clamp (d.pos.x + rnd (-2.6f, 2.6f) + 0.15f * (centre - d.pos.x), -kHalfWidth + 0.8f, kHalfWidth - 0.8f),
+                         (1.1f + 0.9f * keyLevel + rnd (0.0f, 0.35f)) * std::max (cast, 0.75f) + 0.2f, rnd (0.5f, 2.4f) };
+                // ...and clear of the pole while he is swinging it about.
+                if (keeper.bit != Bit::none && std::abs (d.to.x - micAt.x) < 1.8f)
+                    d.to.x = std::clamp (micAt.x + (d.pos.x >= micAt.x ? 1.9f : -1.9f), -kHalfWidth + 0.8f, kHalfWidth - 0.8f);
+                d.wait = rnd (0.5f, 0.85f);
             }
             const Vec3 way = d.to - d.from;
             d.hop = 0.0f;
-            d.hopLen = 0.16f + 0.07f * std::sqrt (dot (way, way));
+            d.hopLen = 0.09f + 0.045f * std::sqrt (dot (way, way));
         }
     }
     Vec3 micPerch() const noexcept { return { micAt.x, micAt.y + 0.3f * cast, micAt.z }; }
@@ -2426,6 +3771,12 @@ private:
                 const float d = (x - gustAt) / 2.4f;
                 lean += 0.3f * std::exp (-d * d);
             }
+            if (bowT < 1.0f)
+            {
+                // Bowing away from a stroke or a skid, and back.
+                const float d = (x - bowX) / 1.6f;
+                lean += 0.55f * bowDir * std::exp (-d * d) * std::exp (-3.0f * bowT) * std::cos (9.0f * bowT) * (bowT < 0.12f ? bowT / 0.12f : 1.0f);
+            }
             for (const auto& g : geese)
                 if (g.used && (g.reed > 0.004f || g.reed < -0.004f))
                 {
@@ -2482,6 +3833,9 @@ private:
         float aim = 0;           // the head's tilt when hissing, up (+) or down, towards the microphone
         float shade = 1.0f;      // a goose in the back row of a crowd is a touch greyer, so the front ones stand out against it
         float preen = 0;         // 1 = the neck curled right back, beak in the feathers of its back
+        float alert = 0;         // 1 = neck up straight, watching something
+        float tall = 0;          // 1 = neck straight up and stretched: as tall as it can make itself
+        float bite = 0;          // 1 = neck out and up, beak shut on something (see biteTip)
     };
 
     /** A goose facing +x in its own space, feet at the origin. `hatAt`, if given, receives where a
@@ -2505,9 +3859,10 @@ private:
         // Neck and head, the neck in two pieces with a goose's curve. Walking, the head bobs
         // forward with each step. Hissing, the neck goes out low and forward with the head level,
         // like a snake, not straight out like a pole.
-        float lean = 0.30f + 0.55f * p.honk + 0.28f * p.walkAmt * (0.5f + 0.5f * std::sin (p.walk * 2.0f));
-        float length = 0.46f + 0.30f * p.honk;
+        float lean = 0.30f + 0.55f * p.honk * (1.0f - 0.75f * p.tall) + 0.28f * p.walkAmt * (0.5f + 0.5f * std::sin (p.walk * 2.0f)) - 0.2f * p.alert - 0.2f * p.tall;
+        float length = 0.46f + 0.30f * p.honk + 0.14f * p.alert + 0.3f * p.tall;
         lean = lerp (lean, -0.12f, p.reach); length = lerp (length, 0.95f, p.reach);
+        lean = lerp (lean, 0.785f, p.bite); length = lerp (length, 0.75f, p.bite);
         const Vec3 neck0 { 0.30f, bodyY + 0.16f, 0.0f };
         Vec3 head { neck0.x + std::sin (lean) * length, neck0.y + std::cos (lean) * length, 0.0f };
         Vec3 mid = (neck0 + head) * 0.5f + Vec3 { std::cos (lean), -std::sin (lean), 0.0f } * 0.04f;
@@ -2531,7 +3886,7 @@ private:
         r.limb (up.apply (neck0), up.apply (mid), 0.14f, 0.11f, white, 7, glow);
         r.limb (up.apply (mid), up.apply (head), 0.11f, 0.09f, white, 7, glow);
         r.blob (Xform::move ({ head.x + 0.04f * fwd, head.y + 0.03f, head.z }).then (up), 0.2f, 0.18f, 0.17f, white, 8, 5, glow);
-        const float open = 0.02f + 0.17f * p.honk + p.hiss * (0.09f + 0.025f * std::sin (time * 9.0f));
+        const float open = lerp (0.02f + 0.17f * p.honk + p.hiss * (0.09f + 0.025f * std::sin (time * 9.0f)), 0.05f, p.bite);
         const float dip = 0.16f * p.preen;
         r.limb (up.apply ({ head.x + 0.17f * fwd, head.y + 0.045f, head.z }), up.apply ({ head.x + 0.52f * fwd, head.y + 0.03f + open - dip, head.z }), 0.09f, 0.02f, orange, 5, glow);
         r.limb (up.apply ({ head.x + 0.17f * fwd, head.y - 0.02f, head.z }), up.apply ({ head.x + 0.47f * fwd, head.y - 0.04f - open - dip, head.z }), 0.07f, 0.02f, orange, 5, glow);
@@ -2573,15 +3928,21 @@ private:
     void drawNotchGoose (int index, float glow)
     {
         const auto& g = geese[(size_t) index];
-        const float size = (1.0f + 0.07f * std::min (8.0f, g.depth)) * cast * (1.0f - 0.16f * g.crowd);
+        float size = gooseSize (g);
         GoosePose pose;
         pose.shade = inBackRow (g) ? 1.0f - 0.55f * g.crowd : 1.0f;
         pose.blink = g.blink.closed();
         Vec3 pos { g.x + g.knockX, 0.0f, g.z };
-        float yaw = g.yaw, sq = g.squash.x, tumble = 0.0f;
+        float yaw = g.yaw, sq = g.squash.x, tumble = 0.0f, tip = 0.0f;
         const float live = 1.0f - g.still;                           // out of focus it stands still, beak shut
 
-        if (g.leaving)
+        if (g.leaving && g.away < 0.0f)
+        {
+            // About to go: a crouch first.
+            sq = 0.26f * smooth01 (1.0f + g.away / (8.0f * kF * 0.95f));
+            pose.flap = 0.25f * sq / 0.26f;
+        }
+        else if (g.leaving)
         {
             // Off it goes, over the water.
             const float t = g.away;
@@ -2595,8 +3956,9 @@ private:
         }
         else if (g.arrive < 1.0f)
         {
-            // Hops up out of the water.
+            // Hops up out of the water (and lands a little short of its place: see the slide below).
             const float t = g.arrive;
+            pos.x -= std::cos (g.yaw) * 0.3f * cast;
             pos.z = g.z + (1.0f - t) * 1.6f;
             pos.y = 0.9f * std::sin (t * kPi);
             pose.flap = 0.4f + 0.6f * std::sin (t * kPi);
@@ -2604,6 +3966,10 @@ private:
         }
         else
         {
+            // The slide as it lands.
+            pos.x -= std::cos (g.yaw) * 0.3f * cast * g.skid * g.skid;
+            sq += 0.12f * g.skid;
+            pose.alert = g.alert * live;
             pose.honk = honkOpen (g) * (1.0f - g.hiss) * live * (index == keeper.target || index == ringGoose ? 1.0f : 0.7f);
             pose.preen = envelope (g.preen, 0.22f, 0.22f) * (g.preen < 1.0f ? 1.0f : 0.0f);
             // Waddling, it keeps its head forward rather than carry the neck out like a lance.
@@ -2636,10 +4002,50 @@ private:
                 pose.honk = std::max (pose.honk, e);
                 pose.hiss = 0.0f;
             }
+            // In a bit with him: see gooseBitAt.
+            if (keeper.bit != Bit::none && keeper.bitGoose == index)
+            {
+                const GooseBit b = gooseBitAt (keeper.bit, keeper.bt / kF, keeper.bitRoom, keeper.bitVar);
+                const float w = keeper.bitW, dir = keeper.bitDir;
+                pos.x += dir * b.dx * w;
+                pos.y += b.dy * size * w;
+                sq += b.sq * w;
+                tumble = (dir > 0.0f ? -1.0f : 1.0f) * b.tumble * w;
+                pose.honk = lerp (pose.honk, b.honk, w);
+                pose.flap = std::max (pose.flap, b.flap * w * (0.6f + 0.4f * std::sin (time * 24.0f)));
+                pose.hiss = std::max (pose.hiss, b.low * w) * (1.0f - b.bite * w);
+                pose.tall = b.tall * w;
+                tip = b.lean * w;
+                if (b.bite > 0.0f)
+                {
+                    // It has the windshield: beak shut on it, and turned to where the microphone is.
+                    pose.bite = b.bite * w;
+                    pose.honk *= 1.0f - pose.bite;
+                    float to = std::atan2 (-(micAt.z - pos.z), micAt.x - pos.x);
+                    while (to - yaw > kPi) to -= 2.0f * kPi;
+                    while (to - yaw < -kPi) to += 2.0f * kPi;
+                    yaw = lerp (yaw, to, pose.bite);
+                }
+                if (b.low > 0.0f)
+                    pose.aim = lerp (pose.aim, -0.3f, b.low * w);
+                if (b.ride > 0.0f)
+                {
+                    // On his pole, and then on his hat: it stands on him, a little smaller, facing him.
+                    const float ride = b.ride * w;
+                    const Vec3 on = b.u <= 1.0f ? lerp (rideTip, rideGrip, b.u) : lerp (rideGrip, rideHat, b.u - 1.0f);
+                    const float lift = pos.y;
+                    pos = lerp (Vec3 { pos.x, 0.0f, pos.z }, on, ride);
+                    pos.y += lift;
+                    size *= 1.0f - 0.2f * ride;
+                    yaw = lerp (yaw, dir > 0.0f ? kPi : 0.0f, ride);
+                    pose.walkAmt = lerp (pose.walkAmt, 0.0f, ride);
+                    pose.hiss *= 1.0f - ride;
+                }
+            }
             // Snatching the hat: a stretch up at his head.
             if (g.thief && hat.state == 1)
                 pose.reach = bump (hat.t / 0.5f);
-            if (g.thief && hat.state == 2)
+            if (g.thief && (hat.state == 2 || hat.state == 4))
                 pose.flap = std::max (pose.flap, 0.35f + 0.25f * std::sin (time * 20.0f));
             // Clicked: head over heels through the air, squawking; then it shakes itself and waddles back.
             if (g.knock < 1.0f)
@@ -2667,7 +4073,7 @@ private:
         addHot (Hot::goose, index, { pos.x, pos.y + 0.62f * size, pos.z }, 0.56f * size, 0.62f * size);
         Xform hatX;
         const Xform roll = Xform::move ({ 0.0f, -0.62f, 0.0f }).then (Xform::rotZ (tumble)).then (Xform::move ({ 0.0f, 0.62f, 0.0f }));
-        drawGoose (squash (sq).then (roll).then (Xform::scale (size)).then (Xform::rotY (yaw)).then (Xform::move (pos)), pose, glow,
+        drawGoose (squash (sq).then (roll).then (Xform::rotZ (tip)).then (Xform::scale (size)).then (Xform::rotY (yaw)).then (Xform::move (pos)), pose, glow,
                    index == hat.goose ? &hatX : nullptr);
         if (index == hat.goose)
             gooseHatAt = Xform::scale (1.8f * cast / size).then (hatX);           // a little larger on a goose, so it reads
@@ -2695,7 +4101,10 @@ private:
     struct KeeperRig
     {
         Xform body, upper, head;       // feet and legs; torso, arms and pole; the head (same coordinates as upper)
-        float hipY = 0.62f, swing[2] {}, knee[2] {};
+        float hipY = 0.62f, hipX = 0.0f, swing[2] {}, knee[2] {};
+        float breath = 0.0f, cups = 0.0f, wide = 0.0f, hatDown = 0.0f, coil = 0.0f, fan = 0.0f, hatSquash = 0.0f;
+        float frontRaw = 1.0f;         // 1 = the hand on his +z side leads on the pole
+        Vec3 hatLag;                   // his hat trailing behind his head (world)
         Vec3 hand[2], elbow[2], grip, dir;
         float ang = 0, pyaw = 0, len = 2.1f;     // the pole's angle up, its heading against his, its length to the microphone
         float eyes = 1.0f, mouth = 0.0f, smile = 0.0f, happy = 0.0f, eyeShift = 0.0f, hatLift = 0.0f, hatTwist = 0.0f;
@@ -2706,6 +4115,27 @@ private:
         Vec3 mic;                      // world
     };
 
+    /** Holding the microphone out to the frog or the turtles, frame by frame. The pole comes down
+        off his shoulder the way it went up; he turns to them, head first; the pole dips back a
+        little and then comes round low in front of him, past its mark and back; he listens; and
+        it all goes back the way it came. */
+    struct OfferPose { float down = 0, turn = 0, back = 0, round = 0, low = 0, ear = 0; };
+    OfferPose offerAt() const noexcept
+    {
+        OfferPose o;
+        if (keeper.gesture != Gesture::offer)
+            return o;
+        const float end = keeper.glen / kF, f = keeper.gt * end;
+        o.down = ramp (f, 0.0f, 26.0f) - ramp (f, end - 28.0f, end - 2.0f);
+        o.turn = ramp (f, 10.0f, 24.0f) - ramp (f, end - 50.0f, end - 34.0f);
+        o.back = pulse (f, 26.0f, 34.0f);
+        o.round = (ramp (f, 32.0f, 52.0f) + 0.12f * wobble (f, 50.0f, 16.0f)) * (1.0f - ramp (f, end - 54.0f, end - 30.0f));
+        o.low = pulse (f, 32.0f, 52.0f) + pulse (f, end - 54.0f, end - 30.0f);
+        o.ear = ramp (f, 52.0f, 62.0f) - ramp (f, end - 66.0f, end - 56.0f);
+        return o;
+    }
+    float offerTurn() const noexcept { return offerAt().turn; }
+
     KeeperRig keeperRig() const
     {
         const auto& k = keeper;
@@ -2713,15 +4143,43 @@ private:
         const float sc = 1.5f * cast;                 // his size
         const float run = k.runAmt * (1.0f - k.sit);
 
-        // The bat: the pole drawn up and back as he leans away, a beat, one swing down at the goose
-        // with his weight behind it, and back to rest.
-        float batAng = 0.0f, batLean = 0.0f;
-        if (k.swing < 1.0f)
+        // The bit that is playing, as changes to the pose he holds (faded out if it is cut short).
+        BitPose bp;
+        if (k.bit != Bit::none)
         {
-            const float up = smooth01 (k.swing / 0.34f), down = smooth01 ((k.swing - (kSwingHit - 0.08f)) / 0.08f), back = smooth01 ((k.swing - 0.62f) / 0.38f);
-            batAng = 0.7f * up - 1.15f * down + 0.45f * back;
-            batLean = -0.2f * up + 0.44f * down - 0.24f * back;
+            bp = bitPoseAt (k.bit, k.bt / kF, k.bitVar);
+            const float w = k.bitW;
+            for (float* v : { &bp.pole, &bp.lean, &bp.sq, &bp.crouch, &bp.hipX, &bp.hop, &bp.footLift, &bp.backLift, &bp.spin, &bp.back, &bp.level, &bp.plant, &bp.aim,
+                              &bp.draw, &bp.lift, &bp.flail, &bp.loop, &bp.headYaw, &bp.shut, &bp.hatLift, &bp.hatDown, &bp.cups, &bp.nod, &bp.wide, &bp.mouth, &bp.fan })
+                *v *= w;
         }
+        // Standing to work a goose: feet apart, weight going from one to the other; breathing.
+        const float hold = k.stance * (1.0f - run) * (1.0f - k.sit);
+        const float setOff = bump (k.setOff), skid = bump (k.skidT);
+        g.breath = 0.02f * std::sin (k.idle * 1.571f) * (1.0f - run) * (1.0f - k.sit);
+        // How he stands to the goose: upright; knees bent, leaning to it, a foot back; or low and
+        // wide. Each honk rocks him back on his heels, and his shoulders go against his hips as
+        // his weight shifts.
+        const float mid = hold * smooth01 (k.stanceAt), deep = hold * smooth01 (k.stanceAt - 1.0f);
+        const float rock = k.flinchAmt * ramp (k.flinchT, 0.0f, 0.2f) * (1.0f - ramp (k.flinchT, 0.2f, 1.0f)) * hold;
+        float batLean = bp.lean - 0.16f * setOff - 0.24f * skid + 0.15f * mid + 0.1f * deep - 0.07f * k.weight * hold - 0.18f * rock;
+        // His hat gone: a start, and a hand clapped to the top of his head. Getting it back with
+        // the pole: out level to the goose's head, and a flick up (see stepHat).
+        float slap = 0.0f, hook = 0.0f, flick = 0.0f;
+        if (hat.state == 2)
+            slap = ramp (hat.t / kF, 0.0f, 6.0f) - ramp (hat.t / kF, 16.0f, 26.0f);
+        if (hat.state == 4)
+        {
+            hook = ramp (hat.t / kF, 0.0f, 10.0f) - ramp (hat.t / kF, 14.0f, 28.0f);
+            flick = ramp (hat.t / kF, 10.0f, 15.0f) - ramp (hat.t / kF, 18.0f, 30.0f);
+        }
+        batLean += 0.26f * hook - 0.2f * flick - 0.1f * slap;
+        // A shuffle step: where it has got him to, the hop in it, and how far through it is.
+        const float stepOff = lerp (k.stepFrom, k.stepTo, smooth01 (k.stepT));
+        const float stepHop = k.stepT < 1.0f ? 0.045f * bump ((k.stepT - 0.2f) / 0.6f) : 0.0f;
+        // The pole on its way up onto his shoulder: his knees give as its weight lands.
+        const OfferPose off = offerAt();
+        const float restIn = k.rest * (1.0f - run) * (1.0f - k.sit);
 
         // The trip: the cable round his back boot, two skips on the front foot with his arms out
         // and the pole see-sawing, then he finds his feet with a small lean back.
@@ -2729,7 +4187,7 @@ private:
         const float ts = k.trip * kTripSeconds;
         if (k.trip < 1.0f)
         {
-            g.loop = 1.0f - smooth01 ((ts - 0.16f) / 0.12f);
+            g.loop = 1.0f - smooth01 ((ts - 0.16f) / 0.12f);        // (a lunge keeps it there longer: see below)
             tripPitch = ts < 0.2f ? 0.45f * smooth01 (ts / 0.2f)
                       : ts < 0.56f ? 0.45f + 0.08f * std::sin ((ts - 0.2f) / 0.18f * kPi)
                                    : 0.45f * (1.0f - smooth01 ((ts - 0.56f) / 0.3f)) - 0.12f * bump ((ts - 0.7f) / 0.45f);
@@ -2744,8 +4202,9 @@ private:
         const int hi = hs > 0.0f ? 1 : 0;
         const float gt = k.gt;
         float gw = 0.0f, nod = 0.0f, pumpHop = 0.0f, pumpSquash = 0.0f, elbowW = 0.0f;
+        float lookAdd = 0.0f, poleUp = 0.0f, upright = bp.plant, toMic = 0.0f, earUp = 0.0f;
         Vec3 target, elbowAt;
-        float hipY = 0.62f - 0.4f * k.sit;
+        float hipY = 0.62f - 0.4f * k.sit - (0.08f * mid + 0.07f * deep + bp.crouch + 0.05f * skid + 0.05f * hook + 0.035f * bump ((restIn - 0.84f) / 0.16f)) * (1.0f - k.sit);
         // At a run his hips drop at the full stretch of each stride, so that his feet stay on the grass.
         const float bob = -0.13f * run * std::abs (std::sin (k.phase)) + 0.012f * std::sin (k.idle * 1.6f) * (1.0f - run) + tripHop;
 
@@ -2758,9 +4217,10 @@ private:
             g.happy = smooth01 (s / 0.1f) * (1.0f - smooth01 ((s - 0.6f) / 0.15f));
             g.smile = g.happy;
         }
-        g.hipY = hipY + bob + pumpHop;
+        g.hipY = hipY + bob;
         hipY = g.hipY;
-        const Vec3 hc { 0.04f, hipY + 1.08f, 0.0f };          // head centre
+        g.hipX = (bp.hipX + 0.085f * k.weight * hold - 0.03f * mid - 0.03f * rock - 0.07f * setOff - 0.09f * skid) * (1.0f - k.sit);
+        const Vec3 hc { 0.04f - 0.05f * k.flinch, hipY + 1.08f + 0.6f * g.breath, 0.0f };          // head centre
 
         switch (k.gesture)
         {
@@ -2793,12 +4253,17 @@ private:
             }
             case Gesture::hat:
             {
-                gw = envelope (gt, 0.15f, 0.2f);
-                target = { hc.x + 0.04f, hc.y + 0.55f, hs * 0.22f };
-                const float u = (gt - 0.2f) / 0.55f;
-                g.hatLift = 0.13f * bump (u);
-                g.hatTwist = 0.3f * std::sin (u * 2.0f * kPi) * bump (u);
-                g.eyes = 1.0f - 0.5f * bump (u);
+                // Finger and thumb on the front of the brim, elbow down and out, and a push: the
+                // hat goes up a little past where it sits, and settles when he lets go.
+                const float f = gt * k.glen / kF, end = k.glen / kF;
+                gw = ramp (f, 0.0f, 10.0f) - ramp (f, end - 14.0f, end - 2.0f);
+                g.hatLift = 0.06f * sprung (f, 10.0f, 9.0f) * (1.0f - ramp (f, end - 14.0f, end - 6.0f));
+                g.hatTwist = 0.1f * wobble (f, 10.0f, 12.0f);
+                target = { hc.x + 0.44f, hc.y + 0.17f + g.hatLift, hs * 0.1f };
+                elbowAt = { hc.x + 0.62f, hc.y - 0.3f, hs * 0.3f };
+                elbowW = gw;
+                nod = 0.1f * gw;
+                g.eyes = 1.0f - 0.3f * gw;
                 break;
             }
             case Gesture::wipe:
@@ -2851,9 +4316,59 @@ private:
                 const float u = (gt - 0.15f) / 0.7f;
                 g.hatLift = 0.3f * bump (u);
                 g.hatTwist = -0.35f * bump (u);
-                target = { hc.x + 0.04f, hc.y + 0.55f + g.hatLift, hs * 0.22f };
+                target = { hc.x + 0.44f, hc.y + 0.17f + g.hatLift, hs * 0.1f };     // by the front of the brim
+                elbowAt = { hc.x + 0.62f, hc.y - 0.3f + 0.5f * g.hatLift, hs * 0.3f };
+                elbowW = gw;
                 nod = 0.24f * bump (u);
                 g.smile = gw;
+                break;
+            }
+            case Gesture::shoulder:
+            {
+                // The pole goes up onto his shoulder (see `rest`), and he has a look round.
+                gw = 0.5f * envelope (gt, 0.15f, 0.5f);
+                target = { 0.3f, hipY + 0.62f, hs * 0.2f };
+                lookAdd = 0.75f * std::sin ((gt - 0.4f) / 0.55f * 2.0f * kPi) * envelope ((gt - 0.4f) / 0.55f, 0.2f, 0.2f) * (gt > 0.4f && gt < 0.95f ? 1.0f : 0.0f);
+                break;
+            }
+            case Gesture::coil:
+            {
+                // A loop of cable gathered up in his free hand, round and round.
+                gw = envelope (gt, 0.12f, 0.15f);
+                const float a = gt * k.glen * 7.5f;
+                target = { 0.3f + 0.13f * std::cos (a), hipY + 0.26f + 0.13f * std::sin (a), hs * 0.36f };
+                nod = 0.2f * gw;
+                g.coil = gw;
+                break;
+            }
+            case Gesture::polish:
+            {
+                // The microphone brought up in front of him: two taps on the windshield, and a wipe along it.
+                gw = envelope (gt, 0.2f, 0.2f);
+                poleUp = gw;
+                toMic = gw;
+                nod = -0.28f * gw;
+                g.eyes = 1.0f - 0.25f * pulse (gt, 0.3f, 0.4f) - 0.25f * pulse (gt, 0.42f, 0.52f);
+                break;
+            }
+            case Gesture::doze:
+            {
+                // Leaning on the pole, stood on its end; his head sinks, his eyes close, and he
+                // comes to with a jerk.
+                const float w = envelope (gt, 0.14f, 0.12f), sink = smooth01 ((gt - 0.15f) / 0.5f), jerk = smooth01 ((gt - 0.72f) / 0.035f);
+                upright = std::max (upright, w);
+                batLean += 0.13f * w;
+                nod = 0.42f * sink * (1.0f - jerk) - 0.16f * pulse (gt, 0.72f, 0.86f);
+                g.eyes = 1.0f - 0.92f * smooth01 ((gt - 0.25f) / 0.3f) * (1.0f - jerk);
+                g.wide = pulse (gt, 0.72f, 0.9f);
+                break;
+            }
+            case Gesture::offer:
+            {
+                // The microphone held out towards the stream, to the frog or a turtle, and a hand
+                // to his ear to hear what it has to say.
+                earUp = off.ear;
+                nod = 0.12f * off.turn;
                 break;
             }
             case Gesture::none:
@@ -2865,55 +4380,136 @@ private:
         // follows his head round a little, late.
         // Leaning is along the bank, the way he is going, whichever way his body is turned: a
         // turn into the direction of travel, a tilt, and back.
-        const float towards = k.yaw - (k.facing > 0.0f ? 0.0f : kPi);
+        // (A spin takes his whole body round, towards us; the lean stays along the bank.)
+        const float spun = k.facing * bp.spin;
+        const float towards = k.yaw + spun - (k.facing > 0.0f ? 0.0f : kPi);
         auto leanAlong = [towards] (float a) { return Xform::rotY (towards).then (Xform::rotZ (-a)).then (Xform::rotY (-towards)); };
-        g.body = squash (pumpSquash + tripSquash).then (leanAlong (0.22f * run)).then (Xform::scale (sc)).then (Xform::rotY (k.yaw)).then (Xform::move ({ k.x, 0.0f, kKeeperZ }));
+        g.body = squash (pumpSquash + tripSquash + bp.sq - 0.07f * bump (slap)).then (leanAlong (0.22f * run)).then (Xform::scale (sc)).then (Xform::rotY (k.yaw + spun))
+                     .then (Xform::move ({ k.x + stepOff, (pumpHop + bp.hop + stepHop) * sc, kKeeperZ }));
         const float torso = tripPitch - 0.36f * k.recoil + batLean;
         const float torsoYaw = 0.22f * std::clamp (k.torsoLook / 0.6f, -1.0f, 1.0f);
         g.upper = Xform::move ({ 0.0f, -hipY, 0.0f }).then (leanAlong (torso)).then (Xform::rotZ (-0.1f * k.solo)).then (Xform::rotY (torsoYaw))
-                      .then (Xform::move ({ 0.0f, hipY, 0.0f })).then (g.body);
-        const float tilt = 0.22f * k.solo * hs, headYaw = k.look - torsoYaw;
-        nod += 0.1f * k.solo - 0.12f * k.recoil;
+                      .then (Xform::move ({ g.hipX, hipY, 0.0f })).then (g.body);
+        // His head: down at the goose, up at the microphone, round towards us with a hand to his
+        // headphones; back at a loud honk; and it leads when he turns, his body coming round after.
+        const float lead = std::clamp (k.yawTo - k.yaw, -0.8f, 0.8f) * 0.7f * (1.0f - k.sit);
+        const float tilt = 0.22f * k.solo * hs + 0.16f * k.lookEar * hold * hs;
+        const float headYaw = k.look - torsoYaw + lookAdd + lead + k.facing * hold * (0.5f * k.lookEar + 0.14f * k.lookGoose - 0.08f * k.lookMic)
+                              + k.facing * 0.5f * bump (std::clamp (k.fishLook / 0.9f, 0.0f, 1.0f)) + k.facing * bp.headYaw;
+        nod += 0.1f * k.solo - 0.12f * k.recoil + bp.nod + hold * (0.13f * k.lookGoose - 0.15f * k.lookMic) - 0.12f * k.flinch - 0.1f * rock + 0.12f * slap + 0.1f * hook - 0.2f * flick;
         g.head = Xform::move ({ -hc.x, -hc.y, 0.0f }).then (Xform::rotZ (-nod)).then (Xform::rotX (tilt)).then (Xform::rotY (headYaw)).then (Xform::move (hc)).then (g.upper);
         g.eyeShift = -0.09f * std::clamp ((k.eyeLook - k.look) / 0.4f, -1.0f, 1.0f);
+        g.hatLift += bp.hatLift + 0.12f * std::max (0.0f, k.hatHop.x);
+        g.hatDown = bp.hatDown;
+        g.cups = bp.cups;
+        g.wide = std::max ({ g.wide, bp.wide, k.flinch, slap, flick });
+        g.hatSquash = 0.4f * bump (k.hatLand * 2.5f);
+        g.fan = bp.fan;
+        g.hatLag = { k.hatLag.x, 0.0f, 0.0f };
 
-        // Legs. Caught, the back foot is held behind him while he skips on the front one.
+        // Legs. Running, they swing from the hip. Standing, his feet stay where they are on the
+        // grass and his knees take up whatever his hips do: a crouch, a shift of weight, a lean.
+        // Caught, the back foot is held behind him while he skips on the front one.
+        const float planted = (1.0f - run) * (1.0f - k.sit) * (1.0f - caught);
         for (int s = 0; s < 2; ++s)
         {
             const float ph = k.phase + (s == 1 ? 0.0f : kPi);
             g.swing[s] = (1.0f - k.sit) * (0.75f * run * std::sin (ph) * (1.0f - caught) + (s == 1 ? -0.9f : 0.3f) * caught) + k.sit * 1.5f;
             // The knee bends as the leg comes forward, and a little as the foot takes his weight.
             g.knee[s] = (1.0f - k.sit) * (1.0f - caught) * run * (0.18f + 1.05f * std::max (0.0f, std::cos (ph)));
+            if (planted > 0.01f)
+            {
+                const float front = s == 0 ? 1.0f : 0.0f;
+                float fx = (s == 0 ? 0.13f : -0.13f) * hold + front * (0.1f * setOff + 0.06f * bp.footLift / 0.16f + 0.03f * mid + 0.09f * deep + 0.1f * hook) + 0.12f * skid * front
+                           - (1.0f - front) * (0.14f * mid + 0.07f * deep + 0.5f * bp.backLift);
+                float fy = 0.05f + front * (bp.footLift + 0.15f * setOff) + (1.0f - front) * bp.backLift;
+                if (k.stepT < 1.0f)
+                {
+                    // The foot on the side he is going leads, and the other comes after it.
+                    const float along = std::cos (k.yaw), way = (k.stepTo - k.stepFrom) * along;
+                    const float u = k.stepT * 1.7f - ((way > 0.0f) == (s == 0) ? 0.0f : 0.7f);
+                    if (std::abs (along) > 0.3f)
+                        fx += (lerp (k.stepFrom, k.stepTo, smooth01 (u)) - stepOff) / (sc * along);
+                    fy += 0.07f * bump (u);
+                }
+                const float dx = fx - g.hipX, dy = hipY - fy;
+                const float d = std::clamp (std::sqrt (dx * dx + dy * dy), 0.12f, 0.569f);
+                const float thigh = std::atan2 (dx, dy) + std::acos (std::clamp ((0.09f + d * d - 0.0729f) / (0.6f * d), -1.0f, 1.0f));
+                const float bend = kPi - std::acos (std::clamp ((0.09f + 0.0729f - d * d) / 0.162f, -1.0f, 1.0f));
+                g.swing[s] = lerp (g.swing[s], thigh, planted);
+                g.knee[s] = lerp (g.knee[s], bend, planted);
+            }
         }
 
         // The pole: out to the side he is facing, pointed at the goose. Seated, it lies on the
         // grass beside him.
         // Held out over the goose he is working, with the slow drift of a pole held at arm's length;
         // carried upright at a run.
-        float ang = 0.45f + k.shoo * (batAng - 0.25f + 0.02f * std::sin (k.idle * 1.1f)) + 0.2f * k.recoil - 0.18f * gw + 0.45f * flail * std::sin (ts * 2.0f * kPi * 2.6f);
-        ang = lerp (ang, 1.0f, run * (1.0f - flail));
-        ang = lerp (ang, -0.19f, k.sit);
-        ang = lerp (ang, 0.25f, k.solo * 0.6f);
-        g.pyaw = k.poleYaw - k.yaw;
-        g.grip = { 0.38f + 0.28f * k.recoil - 0.14f * run, hipY + 0.44f - 0.12f * k.sit, 0.0f };
+        float ang = 0.45f + k.shoo * (-0.25f + 0.02f * std::sin (k.idle * 1.1f)) + 0.2f * k.recoil - 0.18f * gw + 0.45f * flail * std::sin (ts * 2.0f * kPi * 2.6f);
+        // (Offering the microphone to the stream, the pole comes round towards us: first a little
+        // the other way, then round, past its mark and back.)
+        const float round = std::clamp (off.round, 0.0f, 1.0f);
+        g.pyaw = k.poleYaw - k.yaw + k.facing * (1.25f * off.round - 0.12f * off.back);
+        g.grip = { 0.38f + 0.28f * k.recoil - 0.14f * run - bp.back, hipY + 0.44f - 0.12f * k.sit + g.breath, 0.0f };
+        g.len = 2.1f + k.extend * (1.0f - k.sit);
         auto aim = [&] (float a)
         {
             g.ang = a;
             g.dir = { std::cos (a) * std::cos (g.pyaw), std::sin (a), -std::cos (a) * std::sin (g.pyaw) };
         };
-        g.len = 2.1f + k.extend * (1.0f - k.sit);
+        // Working a goose, the microphone hangs where stepKeeper says: over its head, a moment
+        // behind it (or at its beak; or, when it has his hat, at the hat). Solved in the pole's own
+        // upright plane: how far along the bank and how high, from his hands.
+        const float handFlail = std::max (flail, bp.flail);
+        const float aimW = std::max (k.aimW * (1.0f - 0.6f * k.solo), hook) * (1.0f - run) * (1.0f - k.sit) * (1.0f - flail);
+        if (aimW > 0.01f)
+        {
+            Vec3 to = lerp (Vec3 { k.micX.x, k.micY.x, kKeeperZ }, biteAt, bp.aim) + Vec3 { -k.bitDir * bp.draw * sc, bp.lift * sc, 0.0f };
+            to = lerp (to, gooseHatAt.t + Vec3 { 0.0f, 0.1f * sc, 0.0f }, hook / std::max (hook, std::max (aimW, 1.0e-3f)));
+            const Vec3 e = g.upper.turn ({ std::cos (g.pyaw), 0.0f, -std::sin (g.pyaw) }), u = g.upper.turn ({ 0.0f, 1.0f, 0.0f });
+            const Vec3 rel = to - g.upper.apply (g.grip);
+            float det = e.x * u.y - e.y * u.x;
+            if (std::abs (det) < 0.25f * sc * sc)
+                det = std::copysign (0.25f * sc * sc, std::abs (det) > 1.0e-6f ? det : k.facing);
+            const float cx = std::max (lerp (0.45f, 0.3f, bp.aim), (rel.x * u.y - rel.y * u.x) / det), cy = (e.x * rel.y - e.y * rel.x) / det;
+            ang = lerp (ang, std::atan2 (cy, cx), aimW);
+            // (Put right to a goose close by, the pole slides back through his hands.)
+            g.len = lerp (g.len, std::clamp (std::sqrt (cx * cx + cy * cy), lerp (1.2f, 0.55f, std::max (bp.aim, hook)), 3.2f), aimW);
+        }
+        ang += bp.pole + k.tip.x + 0.03f * bump (k.grip) * hold + 0.8f * flick;
+        ang = lerp (ang, -0.04f, bp.level);
+        ang = lerp (ang, 1.0f, run * (1.0f - flail));
+        ang = lerp (ang, -0.19f, k.sit);
+        ang = lerp (ang, 0.25f, k.solo * 0.6f);
+        ang = lerp (ang, -0.3f, round) + 0.1f * off.back - 0.14f * off.low;
+        // Stood on its end beside him; brought up in front of his face; laid back over his shoulder.
+        ang = lerp (ang, 1.47f, upright);
+        ang = lerp (ang, 1.12f, poleUp);
+        g.len = lerp (g.len, 1.5f, std::max (poleUp, 0.6f * upright));
+        g.grip = lerp (g.grip, Vec3 { 0.3f, hipY + 0.5f, 0.0f }, upright);
+        // Onto his shoulder, never over the top of him: first up on its end out in front of him,
+        // drawn in short; a beat; then tipped back past his ear on our side, and let out again.
+        const float rest = restIn * (1.0f - poleUp) * (1.0f - upright) * (1.0f - off.down);
+        {
+            const float up = smooth01 (rest / 0.4f), over = smooth01 ((rest - 0.52f) / 0.34f);
+            ang = lerp (lerp (ang, 1.47f, up), 2.62f, over);
+            g.len = lerp (g.len, 1.4f, up * (1.0f - over));
+            g.grip = lerp (lerp (g.grip, Vec3 { 0.62f, hipY + 0.5f, -hs * 0.1f }, up), Vec3 { 0.14f, hipY + 0.6f, hs * (0.2f + 0.34f * bump (over)) }, over);
+        }
         aim (ang);
         // Standing, the microphone stays inside the picture: above the water's edge (never down
         // among the creatures in the stream), clear of the top edge, and clear of the sides (the
-        // pole swings round away from us, behind the geese, rather than out of the picture).
-        if (k.sit < 0.5f)
+        // pole swings round away from us, behind the geese, rather than out of the picture). The
+        // nearer the pole is to upright the less of this there is, and none once it is on its end.
+        const float keepIn = smooth01 ((std::cos (g.ang) - 0.05f) / 0.3f);
+        if (k.sit < 0.5f && keepIn > 0.0f)
             for (int pass = 0; pass < 4; ++pass)
             {
                 const Vec3 m = g.upper.apply (g.grip + g.dir * g.len);
                 const float rad = 0.17f * sc;
                 const float lowY = r.heightAtRow (kBankRow * (float) r.height, m.z) + rad;
                 const float topY = r.heightAtRow (0.04f * (float) r.height, m.z) - rad;
-                const float need = m.y < lowY ? lowY - m.y : m.y > topY ? topY - m.y : 0.0f;
+                const float need = keepIn * (m.y < lowY ? lowY - m.y : m.y > topY ? topY - m.y : 0.0f);
                 if (std::abs (need) >= 1.0e-3f)
                     aim (std::asin (std::clamp (std::sin (g.ang) + need * (1.0f - 2.0f * k.sit) / (g.len * sc), -0.97f, 0.97f)));
                 const Vec3 m2 = g.upper.apply (g.grip + g.dir * g.len);
@@ -2921,7 +4517,7 @@ private:
                 if (! p0.ok || ! p1.ok)
                     break;
                 const float perUnit = std::max (1.0f, p1.x - p0.x), margin = 0.62f * sc * perUnit + 4.0f;
-                const float over = p0.x < margin ? (margin - p0.x) / perUnit : p0.x > (float) r.width - margin ? ((float) r.width - margin - p0.x) / perUnit : 0.0f;
+                const float over = keepIn * (p0.x < margin ? (margin - p0.x) / perUnit : p0.x > (float) r.width - margin ? ((float) r.width - margin - p0.x) / perUnit : 0.0f);
                 if (std::abs (over) < 1.0e-3f)
                     continue;
                 // Swing it round: the pole's heading P across the bank, with (cos P, -sin P) its way,
@@ -2935,18 +4531,32 @@ private:
                     g.len = std::max (1.5f, g.len - (limit - std::abs (cosP)) * reachX / sc);
                 aim (g.ang);
             }
-        const int front = -std::sin (g.pyaw) > 0.0f ? 1 : 0;
-        g.hand[front] = g.grip + g.dir * (0.22f + 0.22f * k.recoil);
-        g.hand[1 - front] = g.grip - g.dir * 0.26f;
-        // Tripping: the back hand comes off the pole and out, for balance.
+        // His hands on the pole: one ahead of the other, and they change places smoothly when the
+        // pole comes across him.
+        g.frontRaw = -std::sin (g.pyaw) > 0.0f ? 1.0f : 0.0f;
+        const int front = k.frontW > 0.5f ? 1 : 0;
         {
-            const float side = (1 - front) == 1 ? 1.0f : -1.0f;
-            g.hand[1 - front] = lerp (g.hand[1 - front], Vec3 { 0.0f, hipY + 0.78f, side * 0.8f }, flail);
+            const Vec3 ahead = g.grip + g.dir * (0.22f + 0.22f * k.recoil + 0.07f * bump (k.grip) * hold), behind = g.grip - g.dir * 0.26f;
+            g.hand[1] = lerp (behind, ahead, smooth01 (k.frontW));
+            g.hand[0] = lerp (ahead, behind, smooth01 (k.frontW));
+        }
+        if (rest > 0.01f)
+        {
+            // Over his shoulder: one hand on the end in front of him, the other at his side.
+            const float w = smooth01 ((rest - 0.52f) / 0.34f);
+            g.hand[1 - hi] = lerp (g.hand[1 - hi], Vec3 { 0.05f, hipY + 0.12f, -hs * 0.34f }, w);
+            g.hand[hi] = lerp (g.hand[hi], g.grip - g.dir * 0.34f, w);
+        }
+        // Tripping, or losing his balance: the back hand comes off the pole and out, and goes round.
+        {
+            const float side = (1 - front) == 1 ? 1.0f : -1.0f, a = k.bt * 15.0f;
+            const Vec3 out { 0.22f * std::cos (a) * bp.flail, hipY + 0.78f + 0.22f * std::sin (a) * bp.flail, side * 0.8f };
+            g.hand[1 - front] = lerp (g.hand[1 - front], out, handFlail);
         }
 
         // Listening hard: a hand cupped over one headphone, elbow out.
         const Vec3 ear { hc.x - 0.02f, hc.y - 0.03f, hs * 0.42f };
-        const float cup = k.solo * (1.0f - gw);
+        const float cup = std::max ({ k.solo, k.lookEar * hold, earUp }) * (1.0f - gw);
         g.hand[hi] = lerp (g.hand[hi], ear, cup);
         g.eyes = std::min (g.eyes, 1.0f - 0.55f * k.solo);
 
@@ -2963,20 +4573,30 @@ private:
             const float sw = std::sin (k.phase + (hi == 1 ? kPi : 0.0f));
             g.hand[hi] = lerp (g.hand[hi], Vec3 { 0.08f + 0.32f * sw, hipY + 0.3f + 0.1f * std::max (0.0f, sw), hs * 0.36f }, run * (1.0f - flail) * (1.0f - cup));
         }
+        if (toMic > 0.0f)
+        {
+            const float s = gt * k.glen;
+            target = g.grip + g.dir * (g.len - 0.12f + (gt < 0.55f ? 0.0f : 0.2f * std::sin ((gt - 0.55f) * k.glen * 9.0f)))
+                     + Vec3 { 0.0f, -0.16f - 0.07f * std::abs (std::sin (std::min (s, 0.55f * k.glen) * 9.0f)) * (gt < 0.55f ? 1.0f : 0.0f), hs * 0.1f };
+        }
         g.hand[hi] = lerp (g.hand[hi], target, gw);
+        g.hand[hi] = lerp (g.hand[hi], Vec3 { hc.x - 0.02f, hc.y + 0.37f, hs * 0.08f }, slap);        // clapped to the top of his bare head
 
-        // Elbows: bent a little outwards and down, unless a gesture places one.
+        // Elbows: bent a little outwards and down (well out, standing low to a deep cut), unless a
+        // gesture places one.
         for (int s = 0; s < 2; ++s)
         {
             const float side = s == 1 ? 1.0f : -1.0f;
-            const Vec3 shoulder { 0.0f, hipY + 0.52f, side * 0.27f };
-            g.elbow[s] = (shoulder + g.hand[s]) * 0.5f + Vec3 { -0.05f, -0.1f, side * 0.1f };
+            const Vec3 shoulder { 0.0f, hipY + 0.52f + g.breath, side * 0.27f };
+            g.elbow[s] = (shoulder + g.hand[s]) * 0.5f + Vec3 { -0.05f - 0.04f * deep, -0.1f + 0.04f * deep, side * (0.1f + 0.12f * deep) };
         }
         g.elbow[hi] = lerp (g.elbow[hi], elbowAt, elbowW);
+        g.elbow[hi] = lerp (g.elbow[hi], Vec3 { -0.22f, hc.y - 0.3f, hs * 0.5f }, slap);
         g.elbow[hi] = lerp (g.elbow[hi], Vec3 { hc.x + 0.1f, hc.y - 0.4f, hs * 0.62f }, cup * (1.0f - elbowW));
 
-        g.eyes = std::min (g.eyes, 1.0f - k.blink.closed());
-        g.mouth = std::max ({ g.mouth, 0.9f * k.recoil, 0.6f * flail });
+        g.eyes = std::min ({ g.eyes, 1.0f - k.blink.closed(), 1.0f - bp.shut });
+        g.mouth = std::max ({ g.mouth, 0.9f * k.recoil, 0.6f * flail, bp.mouth, 0.5f * k.flinch, 0.8f * slap, 0.4f * rock });
+        g.loop = std::max (g.loop, bp.loop);
         g.mic = g.upper.apply (g.grip + g.dir * g.len);
         return g;
     }
@@ -3011,7 +4631,7 @@ private:
         for (int s = 0; s < 2; ++s)
         {
             const float side = s == 1 ? 1.0f : -1.0f;
-            const Vec3 hip { 0.0f, hipY, side * 0.16f };
+            const Vec3 hip { g.hipX, hipY, side * 0.16f };
             const float thigh = g.swing[s], shin = thigh - g.knee[s];
             const Vec3 knee { hip.x + std::sin (thigh) * 0.3f, hip.y - std::cos (thigh) * 0.3f, hip.z };
             const Vec3 foot { knee.x + std::sin (shin) * 0.27f, std::max (0.08f, knee.y - std::cos (shin) * 0.27f), hip.z };
@@ -3032,7 +4652,8 @@ private:
             const float trail = keeper.facing;
             Vec3 a { keeper.cableX + trail * 0.35f, 0.03f, kKeeperZ - 0.2f };
             a = lerp (a, backFoot + Vec3 { 0.0f, 0.05f, 0.0f }, g.loop);
-            const Vec3 b { keeper.cableX - trail * 0.9f, 0.03f, kKeeperZ - 0.3f }, c { keeper.cableX - trail * 3.0f, 0.03f, kKeeperZ - 0.4f };
+            const float wave = keeper.cableWave.x;          // a wave runs along it when he turns
+            const Vec3 b { keeper.cableX - trail * 0.9f, 0.03f + 0.22f * std::max (0.0f, wave), kKeeperZ - 0.3f - 0.25f * wave }, c { keeper.cableX - trail * 3.0f, 0.03f, kKeeperZ - 0.4f };
             const Rgb lead = rgb (0x3a2e2a);
             r.limb (belt, lerp (belt, a, 0.55f) + Vec3 { 0.0f, -0.12f, 0.0f }, 0.03f, 0.03f, lead, 3);
             r.limb (lerp (belt, a, 0.55f) + Vec3 { 0.0f, -0.12f, 0.0f }, a, 0.03f, 0.03f, lead, 3);
@@ -3060,7 +4681,7 @@ private:
         // Head: one big round head, a little hair showing at the back under the hat, dot eyes
         // and a button nose on the front, a headphone cup over each ear with the band going up
         // under the hat, and the hat sitting down on top.
-        const Vec3 head { 0.04f, hipY + 1.08f, 0.0f };
+        const Vec3 head { 0.04f - 0.05f * keeper.flinch, hipY + 1.08f + 0.6f * g.breath, 0.0f };
         constexpr float hx = 0.33f, hy = 0.32f, hz = 0.31f;
         auto faceX = [&] (float y, float z) { return hx * std::sqrt (std::max (0.0f, 1.0f - (y * y) / (hy * hy) - (z * z) / (hz * hz))); };
         r.blob (Xform::move (head).then (hd), hx, hy, hz, skin, 12, 7);
@@ -3071,8 +4692,8 @@ private:
             if (g.happy > 0.5f)
                 happyEye (hd, { head.x + faceX (0.04f, side * 0.13f) + 0.01f, head.y + 0.04f, side * 0.13f }, 0.055f, 0.028f, 0.017f, cans);      // eyes shut tight, grinning
             else
-                r.blob (Xform::move ({ head.x + faceX (0.04f, ez) - 0.005f, head.y + 0.04f, ez }).then (hd), 0.03f, std::max (0.008f, 0.075f * g.eyes), 0.05f, cans, 5, 3, 0.5f);
-            r.blob (Xform::move ({ head.x - 0.03f, head.y - 0.03f, side * (hz + 0.02f) }).then (hd), 0.13f, 0.14f, 0.07f, band, 9, 4);           // ear cups
+                r.blob (Xform::move ({ head.x + faceX (0.04f, ez) - 0.005f, head.y + 0.04f, ez }).then (hd), 0.03f, std::max (0.008f, 0.075f * g.eyes * (1.0f + 0.45f * g.wide)), 0.05f * (1.0f + 0.2f * g.wide), cans, 5, 3, 0.5f);
+            r.blob (Xform::move ({ head.x - 0.03f, head.y - 0.03f, side * (hz + 0.02f + 0.16f * g.cups) }).then (hd), 0.13f, 0.14f, 0.07f, band, 9, 4);           // ear cups (a honk in his face springs them out)
             r.limb (hd.apply ({ head.x - 0.03f, head.y + 0.08f, side * (hz + 0.03f) }), hd.apply ({ head.x - 0.03f, head.y + 0.25f, side * 0.22f }), 0.03f, 0.03f, band, 5);   // the band, up under the hat
         }
         r.blob (Xform::move ({ head.x + faceX (-0.04f, 0.0f), head.y - 0.04f, 0.0f }).then (hd), 0.05f, 0.045f, 0.05f, skin * 0.96f, 6, 4);     // nose
@@ -3083,20 +4704,42 @@ private:
             else
                 r.blob (Xform::move ({ mx, head.y - 0.15f - 0.02f * g.mouth, 0.0f }).then (hd), 0.02f, 0.022f + 0.05f * g.mouth, 0.075f - 0.015f * g.mouth, rgb (0xc04a4a), 7, 3);     // mouth
         }
-        keeperHatAt = Xform::rotY (g.hatTwist).then (Xform::move ({ head.x - 0.03f, head.y + 0.2f + g.hatLift, 0.0f })).then (hd);
+        // His hat: a little behind his head whenever he moves, and pushed down over his eyes when a
+        // goose is standing on it.
+        keeperHatAt = squash (0.3f * g.hatDown + g.hatSquash).then (Xform::rotY (g.hatTwist)).then (Xform::rotZ (-0.42f * g.hatDown - 0.5f * g.hatLag.x * (keeper.facing > 0.0f ? 1.0f : -1.0f)))
+                          .then (Xform::move ({ head.x - 0.03f + 0.13f * g.hatDown, head.y + 0.2f + g.hatLift - 0.06f * g.hatDown, 0.0f })).then (hd).then (Xform::move (g.hatLag));
 
         // The pole, with a big fluffy end out in front.
         // It telescopes: a thinner second section slides out for a goose further off.
-        const Vec3 back = g.grip - g.dir * 0.7f, joint = g.grip + g.dir * 1.3f, tip = g.grip + g.dir * (g.len - 0.2f);
+        const Vec3 back = g.grip - g.dir * (0.7f + 0.6f * std::max (0.0f, 1.2f - g.len)), joint = g.grip + g.dir * std::min (1.3f, std::max (0.1f, g.len - 0.3f)), tip = g.grip + g.dir * (g.len - 0.2f);
         r.limb (up.apply (back), up.apply (joint), 0.04f, 0.035f, rgb (0x505868), 5);
         r.limb (up.apply (joint), up.apply (tip), 0.026f, 0.024f, rgb (0x6a7282), 5);
         r.blob (Xform::rotZ (g.ang).then (Xform::rotY (g.pyaw)).then (Xform::move (g.grip + g.dir * g.len)).then (up), 0.34f, 0.17f, 0.17f, fur, 8, 5);
+        if (g.fan > 0.0f && keeper.bit != Bit::none)
+        {
+            // The fastest frames of a swing: the pole shown where it was a frame and two frames
+            // ago as well, paler, and the sweep between filled in, so that the stroke can be seen.
+            const float f = keeper.bt / kF, now = bitPoseAt (keeper.bit, f, keeper.bitVar).pole;
+            const Rgb pale = rgb (0xfffdf6);
+            Vec3 last = up.apply (g.grip + g.dir * g.len);
+            const Vec3 hub = up.apply (g.grip + g.dir * 0.3f);
+            for (int i = 1; i <= 2; ++i)
+            {
+                const float a = g.ang + (bitPoseAt (keeper.bit, f - 1.1f * (float) i, keeper.bitVar).pole - now) * keeper.bitW;
+                const Vec3 d { std::cos (a) * std::cos (g.pyaw), std::sin (a), -std::cos (a) * std::sin (g.pyaw) };
+                const Vec3 end = up.apply (g.grip + d * g.len), mid = up.apply (g.grip + d * (g.len * 0.5f));
+                r.triangle (hub, last, end, pale, pale, pale, 0.34f / (float) i);
+                r.limb (mid, end, 0.03f, 0.03f, rgb (0xb9bfca), 4, 0.5f);
+                r.blob (Xform::rotZ (a).then (Xform::rotY (g.pyaw)).then (Xform::move (g.grip + d * g.len)).then (up), 0.3f, 0.13f, 0.13f, rgb (0xd9d2c4), 6, 4, 0.5f);
+                last = end;
+            }
+        }
 
         // Arms: two short pieces from the shoulders, bent at the elbow, with round mitts.
         for (int s = 0; s < 2; ++s)
         {
             const float side = s == 1 ? 1.0f : -1.0f;
-            const Vec3 shoulder { 0.0f, hipY + 0.52f, side * 0.27f };
+            const Vec3 shoulder { 0.0f, hipY + 0.52f + g.breath, side * 0.27f };
             r.limb (up.apply (shoulder), up.apply (g.elbow[s]), 0.09f, 0.085f, jacket, 6);
             r.limb (up.apply (g.elbow[s]), up.apply (g.hand[s]), 0.085f, 0.08f, jacket, 6);
             r.blob (Xform::move (g.hand[s]).then (up), 0.1f, 0.1f, 0.1f, skin, 6, 4);
@@ -3111,6 +4754,21 @@ private:
         }
         if (g.drop.y > -50.0f)
             r.blob (Xform::move (g.drop).then (up), 0.04f, 0.06f, 0.04f, rgb (0x8fd0e2), 5, 3, 0.6f);
+        if (g.coil > 0.02f)
+        {
+            // The loop of cable he is gathering, hanging from his hand.
+            const int hi = keeper.hand > 0.0f ? 1 : 0;
+            const Vec3 o = up.apply (g.hand[hi] + Vec3 { 0.0f, -0.2f * g.coil, 0.0f });
+            const float rad = 0.17f * sc * g.coil;
+            Vec3 prev = o + Vec3 { rad, 0.0f, 0.0f };
+            for (int i = 1; i <= 8; ++i)
+            {
+                const float a2 = 6.2831853f * (float) i / 8.0f;
+                const Vec3 pt = o + Vec3 { std::cos (a2) * rad * 0.7f, std::sin (a2) * rad, 0.0f };
+                r.limb (prev, pt, 0.03f, 0.03f, rgb (0x3a2e2a), 3);
+                prev = pt;
+            }
+        }
     }
 
     /** His hat, wherever it is: on his head, on a goose, or flying between the two. */
@@ -3120,8 +4778,18 @@ private:
         if (hat.state != 0 && hat.goose >= 0)
         {
             const Vec3 a = keeperHatAt.t, b = gooseHatAt.t;
-            if (hat.state == 2)
+            const float f = hat.t / kF;
+            if (hat.state == 2 || (hat.state == 4 && f < 10.0f))
                 x = gooseHatAt;
+            else if (hat.state == 4 && f < 14.0f)
+                x = Xform::rotZ (0.25f * keeper.facing).then (Xform::scale (1.7f * cast)).then (Xform::move (hat.from));     // on the end of his pole
+            else if (hat.state == 4)
+            {
+                // Flicked up off the pole: over, once, and down onto his head.
+                const float t = std::clamp ((f - 14.0f) / 14.0f, 0.0f, 1.0f);
+                const Vec3 p = lerp (hat.from, a, t) + Vec3 { 0.0f, 1.5f * cast * 4.0f * t * (1.0f - t), 0.0f };
+                x = Xform::rotZ (-6.2832f * smooth01 (t) * keeper.facing).then (Xform::scale (cast * lerp (1.7f, 1.5f, t))).then (Xform::move (p));
+            }
             else
             {
                 const float t = hat.state == 1 ? smooth01 ((hat.t - 0.15f) / 0.35f) : smooth01 (hat.t / 0.6f);
@@ -3140,19 +4808,25 @@ private:
     //============================================================================== the fish
     void drawFish()
     {
-        if (fish.t >= kFishLeap)
+        drawFish (fish);
+        drawFish (fish2);
+    }
+    void drawFish (const Fish& fs)
+    {
+        if (fs.t >= kFishLeap || fs.t < 0.0f)
             return;
-        const float t = fish.t / kFishLeap, x = fishX() + fish.dir * (t - 0.5f) * 1.5f;
+        const float t = fs.t / kFishLeap, x = fishX() + fs.off + fs.dir * (t - 0.5f) * 1.5f;
         // High enough that the twist at the top happens clear of the reed tops.
-        const float y = (2.5f + 0.9f * fish.power) * cast * std::sin (t * kPi) - 0.15f;
+        const float y = (2.5f + 0.9f * fs.power) * cast * std::sin (t * kPi) - 0.15f;
         // Nose up out of the water, a full twist at the top, and flat on its belly at the end.
         const float tilt = (0.75f * (1.0f - smooth01 (t / 0.55f)) - 0.1f * smooth01 ((t - 0.55f) / 0.3f)) * 1.4f;
         const float twist = 6.2832f * smooth01 ((t - 0.3f) / 0.4f);
-        const float stretch = 1.0f + 0.25f * bump (t / 0.3f);
-        const Xform at = Xform::scale (1.4f * cast).then (Xform::rotX (twist)).then (Xform::rotZ (tilt))
-                             .then (Xform::rotY (fish.dir > 0.0f ? 0.0f : kPi)).then (Xform::move ({ x, y, kFishZ }));
-        const float flick = 0.12f * std::sin (fish.t * 30.0f);
-        r.blob (at, 0.34f * stretch, 0.16f, 0.1f, rgb (0xf4b6c6), 8, 4, 0.35f);
+        // Long and thin on the way up, and flat as it goes in.
+        const float stretch = 1.0f + 0.25f * bump (t / 0.3f) - 0.2f * bump ((t - 0.88f) / 0.12f);
+        const Xform at = Xform::scale (1.4f * cast * fs.size).then (Xform::rotX (twist)).then (Xform::rotZ (tilt))
+                             .then (Xform::rotY (fs.dir > 0.0f ? 0.0f : kPi)).then (Xform::move ({ x, y, kFishZ }));
+        const float flick = 0.12f * std::sin (fs.t * 30.0f);
+        r.blob (at, 0.34f * stretch, 0.16f / std::sqrt (stretch), 0.1f, rgb (0xf4b6c6), 8, 4, 0.35f);
         r.limb (at.apply ({ -0.26f, 0.0f, 0.0f }), at.apply ({ -0.5f, 0.0f, flick }), 0.02f, 0.17f, rgb (0xe58aa6), 4, 0.35f);
         r.limb (at.apply ({ -0.02f, 0.12f, 0.0f }), at.apply ({ -0.16f, 0.24f, 0.0f }), 0.05f, 0.0f, rgb (0xe58aa6), 3, 0.35f);         // fin
         for (float side : { -1.0f, 1.0f })
@@ -3265,17 +4939,19 @@ private:
         for (float side : { -1.0f, 1.0f })
             r.box (Xform::move ({ 0.19f, -0.1f, side * 0.022f }).then (head), 0.012f, 0.04f, 0.02f, tooth);
         const bool happy = b.proud > 0.5f || waving > 0.5f;
+        const float startled = b.take < 1.0f ? envelope (b.take, 0.12f, 0.3f) : 0.0f;
+        const float brow = b.brow < 1.0f ? envelope (b.brow, 0.2f, 0.2f) : 0.0f;
         for (float side : { -1.0f, 1.0f })
         {
             if (lazy > 0.5f)
                 happyEye (head, { 0.13f, 0.08f, side * 0.1f }, 0.035f, 0.018f, 0.011f, dark);     // eyes shut, smiling
             else
             {
-                const float open = happy ? 0.25f : (1.0f - b.blink.closed()) * (1.0f - 0.45f * b.sulk);
+                const float open = happy ? 0.25f : (1.0f - b.blink.closed()) * (1.0f - 0.45f * b.sulk) * (1.0f + 0.7f * startled);
                 r.blob (Xform::move ({ 0.12f, 0.07f, side * 0.1f }).then (head), 0.03f, std::max (0.007f, 0.04f * open), 0.03f, dark, 5, 3);
             }
             const float flick = side > 0.0f ? 0.5f * bump (b.ear) : 0.0f;
-            r.blob (Xform::rotX (side * flick).then (Xform::move ({ -0.04f, 0.15f, side * 0.13f })).then (head), 0.05f, 0.05f, 0.03f, fur * 0.85f, 6, 3);
+            r.blob (Xform::rotX (side * flick).then (Xform::move ({ -0.04f, 0.15f + 0.05f * startled, side * 0.13f })).then (head), 0.05f, 0.05f * (1.0f + 0.5f * startled), 0.03f, fur * 0.85f, 6, 3);
         }
 
         // The flat tail: slapped down on the water when the dam is coming apart; floating, held
@@ -3298,6 +4974,7 @@ private:
             paw = lerp (paw, holdLocal + Vec3 { -0.04f, 0.0f, side * 0.13f }, b.carry);     // a stick held across its chest, then set down
             if (side > 0.0f)                                                                // the arm on our side, up over its head
             {
+                paw = lerp (paw, Vec3 { 0.5f, 0.2f, 0.1f * std::sin (b.brow * 9.0f) }, brow);      // across its brow
                 const float swing = std::sin (b.wave * 2.0f * kPi * 2.5f);                  // two and a half swings
                 paw = lerp (paw, Vec3 { 0.84f - 0.06f * std::abs (swing), 0.1f, side * (0.2f + 0.2f * swing) }, waving);
             }
@@ -3312,7 +4989,7 @@ private:
     {
         const float k = fg, logY = 0.06f * k - logSink, rad = 0.2f * k;
         const Vec3 a { logX - kLogHalf * k, logY, streamZ - 0.05f * k }, b { logX + kLogHalf * k, logY + 0.02f * k, streamZ + 0.1f * k };
-        return lerp (a, b, kTurtleAlong[i]) + Vec3 { 0.0f, rad * 0.9f, 0.0f };
+        return lerp (a, b, kTurtleAlong[i]) + Vec3 { 0.0f, rad * 0.9f + (kTurtleAlong[i] - 0.5f) * 2.0f * kLogHalf * k * logRock.x, 0.0f };
     }
     static constexpr float kTurtleAlong[3] = { 0.13f, 0.48f, 0.83f };
 
@@ -3321,7 +4998,8 @@ private:
         const Rgb bark = rgb (0x9a7a5a), endC = rgb (0xe0c49a);
         const float k = fg;
         const float logY = 0.06f * k - logSink, rad = 0.2f * k;          // riding low enough to keep clear of the geese (see setSize)
-        const Vec3 a { logX - kLogHalf * k, logY, streamZ - 0.05f * k }, b { logX + kLogHalf * k, logY + 0.02f * k, streamZ + 0.1f * k };
+        const float tipY = kLogHalf * k * logRock.x;                   // rocked by a big hit
+        const Vec3 a { logX - kLogHalf * k, logY - tipY, streamZ - 0.05f * k }, b { logX + kLogHalf * k, logY + 0.02f * k + tipY, streamZ + 0.1f * k };
         r.limb (a, b, rad, rad * 0.92f, bark, 8);
         r.blob (Xform::rotY (1.5708f).then (Xform::rotZ (1.5708f)).then (Xform::move (a)), rad * 0.95f, 0.02f * k, rad * 0.95f, endC, 8, 2);
         r.blob (Xform::rotY (1.5708f).then (Xform::rotZ (1.5708f)).then (Xform::move (b)), rad * 0.87f, 0.02f * k, rad * 0.87f, endC, 8, 2);
@@ -3400,8 +5078,11 @@ private:
         {
             const float e = t.eyes, shut = t.blink.closed();
             const float glance = 0.025f * std::sin (time * 2.4f + (float) t.peekWait);
+            const bool one = t.stage == 1 && t.peekWait > 0.45f;      // one eye first
             for (float side : { -1.0f, 1.0f })
             {
+                if (one && side < 0.0f)
+                    continue;
                 r.blob (Xform::move ({ 0.32f, 0.13f, side * 0.045f + glance }).then (shellX), 0.034f * e, 0.04f * e * (1.0f - 0.8f * shut), 0.036f * e, white, 6, 3);
                 r.blob (Xform::move ({ 0.35f, 0.13f, side * 0.045f + glance * 1.4f }).then (shellX), 0.015f * e, 0.022f * e * (1.0f - 0.8f * shut), 0.018f * e, dark, 5, 3);
             }
@@ -3484,14 +5165,29 @@ private:
             {
                 const float t = fr.t / 0.7f;
                 pos.x = lerp (fr.x, fr.landX, t);
-                pos.y += (0.62f * k * fr.leapH) * std::sin (t * kPi) - 0.25f * k * smooth01 ((t - 0.75f) / 0.25f);
-                sq = -0.3f * bump (t / 0.5f);
+                // Up fast, a beat at the top, and down.
+                const float s2 = 2.0f * t - 1.0f, hang = 0.5f + 0.5f * std::copysign (std::pow (std::abs (s2), 1.7f), s2);
+                pos.y += (0.62f * k * fr.leapH) * std::sin (hang * kPi) - 0.25f * k * smooth01 ((t - 0.75f) / 0.25f);
+                sq = -0.34f * bump (t / 0.45f) + 0.12f * bump ((t - 0.4f) / 0.2f);
                 legs = bump (t * 1.4f);
                 spin = fr.side * 0.6f * std::sin (t * kPi);
                 yaw = fr.side > 0.0f ? 0.2f : kPi - 0.2f;
                 break;
             }
             case 3: pos.x = fr.landX; pos.y = -0.5f * k; break;                                         // under
+            case 7:                                                                                     // staying in: its eyes above the water
+                pos.x = fr.landX;
+                pos.y = lerp (-0.5f * k, -0.17f * k, smooth01 (fr.t / 0.4f)) + 0.012f * k * std::sin (fr.t * 2.4f);
+                yaw = 1.5708f - 0.4f * fr.side;
+                break;
+            case 6:                                                                                     // a shake from nose to tail
+            {
+                const float u = fr.t / (20.0f * kF), fade = 1.0f - u;
+                yaw = facing + 0.4f * std::sin (fr.t * 46.0f) * fade;
+                spin = 0.12f * std::sin (fr.t * 46.0f + 1.0f) * fade;
+                sq = 0.06f * std::sin (fr.t * 23.0f) * fade;
+                break;
+            }
             case 4:                                                                                     // eyes above the water, swimming back
             {
                 const float t = smooth01 (fr.t / 0.8f);
@@ -3643,6 +5339,47 @@ private:
         {
             if (b.t >= 1.0f)
                 continue;
+            if (b.kind == 2)
+            {
+                // A puff of dust: three small clouds that swell, rise a little and thin away.
+                const float t = b.t, out = 1.0f - (1.0f - t) * (1.0f - t);
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float a = b.seed + (float) i * 2.1f;
+                    const float s = 0.17f * b.size * (0.5f + out) * (1.0f - t * t) * (1.0f - 0.2f * (float) i);
+                    r.blob (Xform::move ({ b.x - b.dir * (0.1f + 0.22f * (float) i) * b.size * out + 0.08f * std::cos (a) * b.size,
+                                           b.y + (0.1f + 0.16f * (float) i * out + 0.1f * out) * b.size, b.z + 0.06f * std::sin (a) }),
+                            s, s * 0.8f, s * 0.7f, rgb (0xf3ead2), 6, 3, 0.75f);
+                }
+                continue;
+            }
+            if (b.kind == 3)
+            {
+                // Speed lines behind a lunge: three thin streaks, gone in a moment.
+                const Rgb c = rgb (0xfffdf6);
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float y = b.y + (0.34f * (float) (i - 1) + 0.05f * std::sin (b.seed + (float) i)) * b.size;
+                    const float x0 = b.x - b.dir * (0.2f + 0.25f * (float) (i & 1)) * b.size, len = (1.1f - 0.25f * (float) (i & 1)) * b.size * (1.0f - 0.5f * b.t);
+                    const float x1 = x0 - b.dir * len, th = 0.035f * b.size;
+                    r.triangle ({ x0, y + th, b.z }, { x0, y - th, b.z }, { x1, y, b.z }, c, c, c, 0.75f * (1.0f - b.t));
+                }
+                continue;
+            }
+            if (b.kind == 4)
+            {
+                // A hit: a small star of light where it landed.
+                const Rgb c = rgb (0xfff3c4);
+                const float reach = b.size * (0.35f + 0.75f * b.t), in = b.size * 0.18f * (1.0f + b.t);
+                for (int i = 0; i < 7; ++i)
+                {
+                    const float a = b.seed + (float) i * 0.8976f, w = 0.16f;
+                    const Vec3 tipAt { b.x + std::cos (a) * reach, b.y + std::sin (a) * reach, b.z };
+                    r.triangle ({ b.x + std::cos (a - w) * in, b.y + std::sin (a - w) * in, b.z }, { b.x + std::cos (a + w) * in, b.y + std::sin (a + w) * in, b.z }, tipAt,
+                                c, c, c, 0.95f * (1.0f - b.t * b.t));
+                }
+                continue;
+            }
             if (b.feathers)
             {
                 // A puff of feathers: out fast, then drifting down, rocking as they fall.
@@ -3734,7 +5471,7 @@ private:
     WorldInput input;
     std::array<Goose, kMaxGeese> geese {};
     std::array<Ring, 28> rings {};
-    std::array<Burst, 8> bursts {};
+    std::array<Burst, 14> bursts {};
     std::array<HotSpot, 24> hots {};               // where the mouse can find someone, as last drawn
     int hotCount = 0;
     Hot clicked = Hot::none;                       // a click waiting for the next step
@@ -3744,7 +5481,8 @@ private:
     std::array<Turtle, 3> turtles {};
     std::array<Fly, 3> flies {};
     Keeper keeper;
-    Fish fish;
+    Fish fish, fish2;                              // the second, smaller one follows when two clicks come close together
+    float fishPend = 0.0f, snapWas = 0.0f;         // a leap waiting for its turn; the click reading last step
     Hat hat;
     Beaver beaver;
     Frog frog;
@@ -3776,7 +5514,13 @@ private:
     float reedLife = 0.0f, gust = 1.0f;            // how much the reeds sway; a breeze crossing them (0..1, 1 = none)
     float dabble = 1.0f, residentPhase = 0.0f;     // the goose out on the pond: tipping up to feed; where it has paddled to
     int ringGoose = -1, lastActor = -1;            // the goose whose honks show as rings; who had the last piece of small business
-    bool swingHit = false;                         // this step, the pole came down
+    float deepestCut = 0.0f;                       // the deepest cut in any band, this step
+    Vec3 rideTip, rideGrip, rideHat, headAt, biteAt;               // where a goose stands on the end of his pole, near his hands, and on his hat
+    float bowX = 0.0f, bowDir = 1.0f, bowT = 1.0f; // the reeds bowing away from a stroke or a skid (0..1, 1 = not)
+    Spring logRock;                                // the turtles' log, rocked by a big hit
+    float offerX = 0.0f;                           // where along the bank the creature he holds the microphone out to is
+    bool offerFrog = false;
+    bool guardBig = false;
     float axisWas[2] { 0.0f, 1.0f };
     float pp = 1.0f;                               // the picture's pixels per point of the window
     std::array<Cand, kMaxCands> cands {};          // notches that may yet bring a goose

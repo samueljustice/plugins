@@ -319,7 +319,7 @@ void BandView::renderBackdrop (float scale)
         g.setColour (toy::skyPale);
         g.fillRoundedRectangle (col, 6.5f);
         g.setColour (toy::ink.withAlpha (0.6f));
-        drawShaped (g, shaped ("mix", nameFace, 8.5f), juce::Rectangle<float> (col.getX() - 6.0f, cutLane.getCentreY() - 6.0f, col.getWidth() + 12.0f, 12.0f), true);
+        drawShaped (g, shaped ("level", nameFace, 8.5f), juce::Rectangle<float> (col.getX() - 6.0f, cutLane.getCentreY() - 6.0f, col.getWidth() + 12.0f, 12.0f), true);
     }
 
     g.setColour (toy::ink);
@@ -594,7 +594,7 @@ void BandView::paintMoving (juce::Graphics& g)
     else if (state.diff)
         chip (g, "hearing: untreated", at, toy::sunYellow);
     else if (state.soloHonk)
-        chip (g, "hearing: removed only", at, toy::sunYellow);
+        chip (g, "hearing: delta (removed only)", at, toy::sunYellow);
     else
         chip (g, "cut " + juce::String (deepest, 1) + " dB", at, deepest > 0.5f ? toy::pink : toy::paper);
 }

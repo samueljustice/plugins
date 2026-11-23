@@ -107,36 +107,38 @@ Zero latency by default. **Lookahead** (off, 5, 10, 20 ms) delays the audio path
 
 ## 4. Controls
 
+The controls as first specified, under the names they have had since 0.0.3 (13.21 lists the renames; Focus Low and High became the ranges' edges, and Link a choice of three, in 13.11 and 13.17).
+
 | Control | Range | Default | What it does |
 |---|---|---|---|
 | Threshold | -60 to 0 dBFS | -16 dBFS | De-Honk acts only while the mix is louder than this. Fully off below it, fully on 6 dB above. At -60 it always acts |
 | Depth | 0 to 100% | 50% | How much of the detected excess is removed |
-| Sharpness | Broad to Narrow | 20% (towards broad) | Whether it treats the whole low-mid bump or only individual resonances |
-| Speed | Slow to Fast | Middle | How quickly a cut goes in (40 ms at Slow to 5 ms at Fast). Until 17 November 2026 it set the release as well; see 13.16 |
+| Focus (was Sharpness) | Broad to Narrow | 20% (towards broad) | Whether it treats the whole low-mid bump or only individual resonances |
+| Attack (was Speed) | 40 ms to 5 ms | 14 ms (the middle) | How quickly a cut goes in, shown as the attack time. Until 17 November 2026 it set the release as well; see 13.16 |
 | Release | 50 ms to 1.5 s | 400 ms | How slowly a cut lets go once its build-up has gone (13.16) |
 | Max Cut | 3 to 12 dB | 6 dB | The deepest any one cut may go, whatever Depth is (13.16) |
 | Impact Guard | Off to 100% | 100% | How much of the cut is lifted while a broadband impact sounds (13.16) |
-| Focus Low | 60 to 400 Hz | 120 Hz | Bottom of the band it may cut |
+| Focus Low (now the lowest edge; not the Focus knob) | 60 to 400 Hz | 120 Hz | Bottom of the band it may cut |
 | Focus High | 200 Hz to 1.5 kHz | 300 Hz | Top of the band it may cut |
 | Link | 0 to 100% | 100% | Shared or per-channel detection |
 | Lookahead | Off, 5, 10, 20 ms | Off | Catches transients at the cost of latency |
 | Mix | 0 to 100% | 100% | Dry/wet |
 | Trim | ±12 dB | 0 dB | Output level |
-| Solo Honk | On/off | Off | Plays only what is being removed |
-| Diff | Hold or latch | Off | Plays the untreated signal for comparison, and overlays before and after on the display |
+| Delta (was Solo Honk) | On/off | Off | Plays only what is being removed |
+| Compare (was Diff) | Hold or latch | Off | Plays the untreated signal for comparison, level-matched |
 | Bypass | On/off | Off | Click-free, latency-matched |
 
-Threshold, Depth, Sharpness and Speed are the main knobs. The display shows the mix level against the threshold so it can be set by eye. Focus Low and High are dragged directly on the display. Everything else sits in a small secondary row.
+Threshold, Depth, Focus and Attack are the main knobs. The display shows the mix level against the threshold so it can be set by eye. The range edges (first specified as Focus Low and High, not related to the Focus knob) are dragged directly on the display. Everything else sits in a small secondary row.
 
 All parameters are automatable and smoothed. Presets: a short factory set ("Master bus", "After RBass", "Printed stem", "Narrow resonances only", "Heavy") plus user save/load, using the same preset manager pattern as Subbertone.
 
-### 4.1 Solo Honk and Diff
+### 4.1 Delta and Compare (Solo Honk and Diff until 0.0.3)
 
 Both are listening tools, not part of the sound, and both are large buttons beside the three main knobs.
 
-**Solo Honk** outputs the input minus the treated signal: exactly the honk De-Honk is taking out and nothing else. If what you hear is only ugly, the settings are right. If you hear wanted body or bass in it, back off Depth or raise Focus Low. It follows Mix and Trim, so what you hear is what is leaving the track.
+**Delta** outputs the input minus the treated signal: exactly the honk De-Honk is taking out and nothing else. If what you hear is only ugly, the settings are right. If you hear wanted body or bass in it, back off Depth or raise the lowest edge. It follows Mix and Trim, so what you hear is what is leaving the track.
 
-**Diff** switches the output to the untreated signal while held (click to latch). It is matched in latency, so with lookahead on there is no jump in time, and it crossfades over a few milliseconds so the switch itself does not click. While it is on, the display shows the untreated spectrum with the treated one outlined on top and the total difference in dB. It differs from Bypass in that the host's bypass state is not touched and analysis keeps running, so the comparison is instant in both directions.
+**Compare** switches the output to the untreated signal while held (click to latch). It is matched in latency, so with lookahead on there is no jump in time, and it crossfades over a few milliseconds so the switch itself does not click. While it is on, the display shows the untreated spectrum with the treated one outlined on top and the total difference in dB. It differs from Bypass in that the host's bypass state is not touched and analysis keeps running, so the comparison is instant in both directions.
 
 Neither is stored as on in a preset or recalled as on with a session, and neither is automatable, so a mix cannot be bounced with one left engaged by accident. While either is on, its button pulses and a label on the display says what is being heard.
 
@@ -1218,3 +1220,26 @@ New: `steady_noise_is_left_alone` (fails, as above) and `steady_detection` (pass
 - **Several windows.** The display frames are a ring that any number of windows read, each from its own place (section 4). Three windows on one instance: 355, 356 and 361 frames each in 8 s, all three at 60 pictures a second (was 86, 68 and 406 frames, 47.6 to 60 pictures a second).
 - **Trim's value** no longer sits on a paper patch: each letter has a thin paper edge, so the whole fill shows at small trims.
 - **Geese.** A goose taking off holds its place in the spacing until it is half way up, so the others do not walk into it; a goose hopping in is placed with the rest and lands where it will stand; the two rows behind the log, being close together, are spaced nearly as one row; a goose with far to go walks a little faster. On the recorded busy frames (1800 pictures), with a wider count that includes landing and leaving geese: at 1868x588 (the default picture) 92 to 88 pictures with two on top of each other (57 to 58 counting only geese on the ground), at 934x331 70 to 51 (35 to 14), at 333x187 65 to 35 (30 to 0). At the default size what is left is crowding at the log end of the bank, where there is not room for every goose within reach of its notch, and geese swapping rows when one joins a run.
+
+### 13.21 Names (0.0.3, 21 November 2026)
+
+A naming review found that "Diff" played the opposite of what a mixer expects from the word (the untreated mix, where "diff" and "delta" mean what is removed), that "Solo Honk" was not where anyone looks for a delta, and a few smaller clashes. Samuel approved the whole set. Only names changed: no parameter ID, version hint or choice order moved, so sessions, presets and automation come back as they were (`DeHonkHostCheck` restores the 0.0.1 and early 0.0.2 states).
+
+| Was | Now | Where |
+|---|---|---|
+| Solo Honk | Delta | window, tooltip, band view ("hearing: delta (removed only)"); not a parameter |
+| Diff | Compare | window, tooltip (says latency- and level-matched); not a parameter |
+| (none) | "listen" caption over the pair | window |
+| Sharpness | Focus | window and host name (ID `sharpness`) |
+| Speed | Attack, shown in ms | window and host name (ID `speed`) |
+| Dialogue, Dialogue Amount | Dialogue Key, Dialogue Key Amount | window and host names; the sidechain bus is still "Dialogue" |
+| Woof ... Snap (switches) | Woof On ... Snap On | host names |
+| Woof low ... Bark high | Edge Woof Low, Edge Woof/Tub, Edge Tub/Fog, Edge Fog/Bark, Edge Bark High | host names |
+| Link | Channel Link | host name; the window still says Link |
+| level bar "mix" | "level" | band view |
+| Heavy, Narrow resonances only | Master bus, heavy; Narrow focus only | factory presets, with the old names mapped in `PresetManager::restoreState()` |
+
+**Attack.** The stored value keeps its sense (0 slow, 100 fast) and the core's curve (40 ms at 0 to 5 ms at 100 in equal ratios, 14 ms at 50). The host is shown the attack time (`ParamRanges::attackMsForSpeed`, typed times read back with `speedForAttackMs`). The window's knob is attached through `AttackKnobAttachment`, which runs it in milliseconds: turned up or dragged up the attack gets longer and the number goes up, as on any attack knob. A host's automation lane draws the stored value, so there a higher line is a shorter attack; its value text is in milliseconds as well.
+
+**The range tabs** show the range each covers as a second line, from the edges as the core uses them, and their tooltips give the same figures. Snap's reads "clicks, 2.5 kHz". The shelf is 10 points taller for it, and Mix and Trim moved down level with Detection to give the listening buttons room under their caption.
+

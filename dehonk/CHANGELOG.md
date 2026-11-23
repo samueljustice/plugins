@@ -1,5 +1,29 @@
 # De-Honk changes
 
+## 0.0.3
+
+The third test build. It is published as a pre-release and is not in the Sammy J's Plugins installer.
+
+**New names.** Solo Honk is now Delta; Diff is now Compare. They sit under a small "listen" caption, and with Delta on the band view reads "hearing: delta (removed only)". What they do has not changed. The other renames:
+
+- Sharpness is now Focus.
+- Speed is now Attack, and shows the attack time it gives, from 5 to 40 ms (14 ms by default). In the window, turned up, the attack is slower. In a host's automation lane and on a control surface it runs the other way round: higher is a shorter attack. The time shown is right either way. A session keeps its setting, and automation written with 0.0.2 still drives it.
+- Dialogue is now Dialogue Key, and its bar is Dialogue Key Amount in the host. The sidechain input is still called Dialogue.
+- In the host's parameter list, the range switches are Woof On, Tub On, Fog On, Bark On and Snap On, the edges are Edge Woof Low, Edge Woof/Tub, Edge Tub/Fog, Edge Fog/Bark and Edge Bark High, and Link is Channel Link (it is still Link in the window).
+- The factory preset Heavy is now "Master bus, heavy", and "Narrow resonances only" is now "Narrow focus only". A session saved on either under its old name still comes back on it.
+- The level bar in the band view is captioned "level" (it was "mix", like the Mix control).
+
+Only names have changed: every parameter keeps its place and its values, so sessions, presets and automation from 0.0.2 come back as they were.
+
+**The window**
+
+- Each range tab shows the frequencies it covers under its name, and follows the edges as they are dragged. Snap's reads "clicks, 2.5 kHz". The tabs' tooltips give the same figures.
+- Mix and Trim sit level with Detection, under the listening buttons.
+- Woof's description says the low end booming on every hit (it said barking, which is Bark's word).
+- The tooltips use the words a mixer is likely to look for: Delta's says it is the difference between in and out, a solo of the cuts; Compare's says level-matched and A/B, before and after; Dialogue Key's says sidechain and key input.
+
+**The pond.** The sound recordist and the animals are livelier.
+
 ## 0.0.2
 
 The second test build. It is published as a pre-release and is not in the Sammy J's Plugins installer.

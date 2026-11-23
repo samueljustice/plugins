@@ -40,7 +40,7 @@ namespace
             .withValueFromStringFunction ([] (const juce::String& s) { return s.retainCharacters ("0123456789.").getFloatValue(); });
     }
 
-    // A 0..100 control whose ends have names (Sharpness: Broad..Narrow, Speed: Slow..Fast).
+    // A 0..100 control whose ends have names (Focus: Broad..Narrow).
     juce::AudioParameterFloatAttributes namedEnds (const char* low, const char* high)
     {
         const juce::String lowName (low), highName (high);
@@ -238,15 +238,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout DeHonkAudioProcessor::create
                         })));
     layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::depth), "Depth",
                     juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f, percent()));
-    layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::sharpness), "Sharpness",
+    layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::sharpness), "Focus",
                     juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), sharpnessDefault, namedEnds ("Broad", "Narrow")));
-    layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::speed), "Speed",
-                    juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f, namedEnds ("Slow", "Fast")));
+    // Attack: stored as before (0 slow .. 100 fast), shown as the attack time that gives.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::speed), "Attack",
+                    juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
+                    juce::AudioParameterFloatAttributes()
+                        .withLabel ("ms")
+                        .withStringFromValueFunction ([] (float v, int) { return attackText (attackMsForSpeed (v)); })
+                        .withValueFromStringFunction ([] (const juce::String& s)
+                        {
+                            const auto text = s.trim().toLowerCase();
+                            if (text == "slow") return 0.0f;
+                            if (text == "fast") return 100.0f;
+                            const double number = text.retainCharacters ("0123456789.").getDoubleValue();
+                            const double ms = text.endsWithChar ('s') && ! text.endsWith ("ms") ? number * 1000.0 : number;
+                            return (float) speedForAttackMs (ms);
+                        })));
 
     for (int m = 0; m < dehonk::kNumModules; ++m)
-        layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::moduleOn[m]), moduleNames[m],
+        layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::moduleOn[m]), moduleOnNames[m],
                                                                 coreDefaults.moduleOn[m]));
-    layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::snapOn), "Snap", coreDefaults.snapOn));
+    layout.add (std::make_unique<juce::AudioParameterBool> (id (ParamIDs::snapOn), "Snap On", coreDefaults.snapOn));
 
     for (int e = 0; e < dehonk::kNumEdges; ++e)
         layout.add (std::make_unique<juce::AudioParameterFloat> (id (ParamIDs::edges[e]), edgeNames[e],
@@ -308,12 +321,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout DeHonkAudioProcessor::create
                             return s.retainCharacters ("0123456789.").getFloatValue();
                         })));
 
-    layout.add (std::make_unique<juce::AudioParameterChoice> (added (ParamIDs::linkMode), "Link",
+    layout.add (std::make_unique<juce::AudioParameterChoice> (added (ParamIDs::linkMode), "Channel Link",
                     juce::StringArray { linkModeNames, numLinkModes }, linkModeDefault));
 
     // The dialogue sidechain.
-    layout.add (std::make_unique<juce::AudioParameterBool> (added (ParamIDs::dialogue), "Dialogue", coreDefaults.dialogueOn));
-    layout.add (std::make_unique<juce::AudioParameterFloat> (added (ParamIDs::dialogueAmount), "Dialogue Amount",
+    layout.add (std::make_unique<juce::AudioParameterBool> (added (ParamIDs::dialogue), "Dialogue Key", coreDefaults.dialogueOn));
+    layout.add (std::make_unique<juce::AudioParameterFloat> (added (ParamIDs::dialogueAmount), "Dialogue Key Amount",
                     juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f), dialogueAmountDefault, percent()));
 
     // Each range's own timing: the lock, then the attack and release it uses when unlocked.

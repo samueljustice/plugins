@@ -16,7 +16,7 @@
 #include <memory>
 #include <optional>
 
-/** A large listening button (Solo Honk, Diff): a rounded square that stays pressed down, in its
+/** A large listening button (Delta, Compare): a rounded square that stays pressed down, in its
     second colour, with its name bobbing, while on. */
 class ListenButton : public juce::Button
 {
@@ -36,7 +36,7 @@ private:
     float pulse = 0.0f;
 };
 
-/** Diff: on while the mouse is held; a click without a drag latches it on, and the next click
+/** Compare: on while the mouse is held; a click without a drag latches it on, and the next click
     releases it (SPEC 4.1). Space or Return toggles the latch. */
 class DiffButton : public ListenButton
 {
@@ -67,6 +67,28 @@ private:
     juce::uint32 pressTime = 0;
 
     static constexpr juce::uint32 clickMs = 350;  // longer than this is a hold, not a click
+};
+
+//==============================================================================
+/** Attack's knob. The parameter keeps its old sense (0 slow .. 100 fast, "speed"); the knob shows
+    the attack time that gives, and runs the way an attack knob does: turned up (to the right, or
+    dragged up), the attack gets longer and the number goes up. Gestures as a SliderAttachment's. */
+class AttackKnobAttachment : private juce::Slider::Listener
+{
+public:
+    AttackKnobAttachment (juce::RangedAudioParameter& speed, juce::Slider& knob);
+    ~AttackKnobAttachment() override;
+
+private:
+    void sliderValueChanged (juce::Slider*) override;
+    void sliderDragStarted (juce::Slider*) override { attachment.beginGesture(); }
+    void sliderDragEnded (juce::Slider*) override   { attachment.endGesture(); }
+
+    juce::Slider& slider;
+    juce::ParameterAttachment attachment;
+    bool ignoreCallbacks = false;
+
+    JUCE_DECLARE_NON_COPYABLE (AttackKnobAttachment)
 };
 
 //==============================================================================
@@ -164,19 +186,20 @@ private:
 
     juce::Slider thresholdKnob, depthKnob, maxCutKnob, sharpnessKnob, speedKnob, releaseKnob;
     juce::Label thresholdCaption, depthCaption, maxCutCaption, sharpnessCaption, speedCaption, releaseCaption;
-    DetectionSelector detectionSelector;    // under Sharpness, with its name to its left
-    juce::Label detectionCaption;
-    ListenButton soloButton { "Solo Honk", dehonk::toy::sunYellow, dehonk::toy::jacketRed };
+    DetectionSelector detectionSelector;    // under Focus, with its name to its left
+    juce::Label detectionCaption, listenCaption;
+    ListenButton soloButton { "Delta", dehonk::toy::sunYellow, dehonk::toy::jacketRed };
     DiffButton diffButton;
 
     juce::Slider guardBar, dialogueBar, mixBar, trimBar;
-    SwitchLamp guardSwitch { "Impact Guard" }, dialogueSwitch { "Dialogue" };
+    SwitchLamp guardSwitch { "Impact Guard" }, dialogueSwitch { "Dialogue Key" };
     LinkSelector linkSelector;
     juce::ComboBox lookaheadBox;
     juce::Label guardCaption, linkCaption, dialogueCaption, mixCaption, trimCaption, lookaheadCaption;
 
-    std::unique_ptr<SliderAttachment> thresholdAttachment, depthAttachment, maxCutAttachment, sharpnessAttachment, speedAttachment,
+    std::unique_ptr<SliderAttachment> thresholdAttachment, depthAttachment, maxCutAttachment, sharpnessAttachment,
                                       releaseAttachment, guardAttachment, dialogueAmountAttachment, mixAttachment, trimAttachment;
+    std::unique_ptr<AttackKnobAttachment> speedAttachment;
     std::unique_ptr<ComboBoxAttachment> lookaheadAttachment;
     std::unique_ptr<ButtonAttachment> bypassAttachment, dialogueAttachment;
 

@@ -16,7 +16,7 @@
  *     macOS:   ~/Library/Application Support/Sammy J/De-Honk/Presets
  *     Windows: %APPDATA%\Sammy J\De-Honk\Presets
  * - A preset stores every parameter except Bypass by ID, with its real (not normalised) value. A
- *   parameter a preset does not list takes its default. Solo Honk and Diff are not parameters and
+ *   parameter a preset does not list takes its default. Delta and Compare are not parameters and
  *   are never stored (SPEC 4.1).
  * - A user preset is identified by its file, not its name: Save and Delete act on the file that
  *   was loaded.

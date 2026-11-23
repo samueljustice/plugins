@@ -136,7 +136,34 @@ namespace ParamRanges
     inline constexpr float dialogueAmountDefault = coreDefaults.dialogueAmount * 100.0f;   // percent
 
     inline constexpr const char* moduleNames[dehonk::kNumModules] { "Woof", "Tub", "Fog", "Bark" };
-    inline constexpr const char* edgeNames[dehonk::kNumEdges] { "Woof low", "Woof / Tub", "Tub / Fog", "Fog / Bark", "Bark high" };
+    /** The host's names for the range switches and the edges. */
+    inline constexpr const char* moduleOnNames[dehonk::kNumModules] { "Woof On", "Tub On", "Fog On", "Bark On" };
+    inline constexpr const char* edgeNames[dehonk::kNumEdges] { "Edge Woof Low", "Edge Woof/Tub", "Edge Tub/Fog", "Edge Fog/Bark", "Edge Bark High" };
+
+    /** Attack (the "speed" parameter, 0..100): the attack time a setting gives, in milliseconds,
+        on the core's curve (DeHonkCore.cpp): 40 ms at 0 down to 5 ms at 100, in equal ratios.
+        The stored value keeps its meaning (higher is quicker); the window and the host show the time. */
+    inline double attackMsForSpeed (double speedPercent) noexcept
+    {
+        const dehonk::Tuning tune;
+        const double s = juce::jlimit (0.0, 1.0, speedPercent * 0.01);
+        return (double) tune.attackSlowMs * std::pow ((double) tune.attackFastMs / (double) tune.attackSlowMs, s);
+    }
+
+    /** The setting (0..100) that gives an attack of ms, clamped to what the control reaches. */
+    inline double speedForAttackMs (double ms) noexcept
+    {
+        const dehonk::Tuning tune;
+        const double slow = tune.attackSlowMs, fast = tune.attackFastMs;
+        const double clamped = juce::jlimit (fast, slow, ms);
+        return 100.0 * std::log (clamped / slow) / std::log (fast / slow);
+    }
+
+    /** An attack time as the window and the host show it: tenths of a millisecond under 10. */
+    inline juce::String attackText (double ms)
+    {
+        return (ms < 9.95 ? juce::String (ms, 1) : juce::String (juce::roundToInt (ms))) + " ms";
+    }
 
     /** Neighbouring edges never come closer than this ratio (the core enforces the same). */
     inline constexpr float minEdgeRatio = 1.1f;
