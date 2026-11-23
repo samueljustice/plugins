@@ -1,4 +1,4 @@
-# Beat mapper research scripts
+# Tempo Tantrum research scripts
 
 Throwaway Python from the design research for a Pro Tools beat mapping tool. Nothing here is the app. The scripts were written quickly, expect paths to be passed in or edited at the top, and have no tests.
 
