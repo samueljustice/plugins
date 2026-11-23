@@ -77,6 +77,10 @@ The quickest way to work is the renderer. Dial in a sound you like, then ask for
 
 It plays in mono, in stereo or in surround up to 7.1.4. In surround every pass flies through the room on a path you choose (across the front, past your head front to back, or overhead), each at a height of its own, and each hit lands where its whoosh is. Recordings and renders come out at any width, laid out as Pro Tools writes them or as one mono file per speaker.
 
+The faders can also ride together. In Faders Together every fader follows one repeating swell, each bus's doppler pass is closest at its top, and an aimed hit lands there, while Chaos still varies the size of each swell and how each pass flies.
+
+The front stays one knob for one idea, and four controls have more behind them: double-click Swirl, Filter or Rate (or click Swell's notch) and its panel turns over. Behind Swirl are a phaser, a flanger, a through-zero tape flanger with a varispeed you lean on, and a doubler; behind Filter, its type, slope and a rhythm of its own; behind Swell, a setting that fires it ahead of each of Bus A's passes or on a clock. The output has an EQ with a graph.
+
 There is more in it: a spectral morph between the two buses, a third bus called Stowaway, and modulators you patch with cables. The manual covers all of it. It runs as an app as well as a plug-in.
 
 <details>

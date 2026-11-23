@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## 2.3.0
+## Unreleased
 
 ### Faders Together
 

@@ -51,7 +51,7 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 
 Hold **Swell**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped. Return is Play / Stop, R is Randomise, T arms the tape and L saves the last minute. Every key can be changed in Settings: see [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi).
 
-Every knob is a ship's wheel with a sand pointer, and under it its name and its value, always in its own units. The ring around the wheel fills with the value in its section's colour. Every control has a tooltip: rest on it and it tells you its name and what it is set to, and a moment later the whole explanation.
+Every knob is a ship's wheel with a sand pointer, and under it its name and its value, always in its own units. The ring around the wheel fills with the value in its section's colour. Every control has a tooltip: rest on it and it tells you its name and what it is set to, and a moment later the whole explanation. A few wheels carry a small notch at their lower left: double-click one to see what is behind it (see [What is behind a wheel](#what-is-behind-a-wheel)).
 
 ## How it works
 
@@ -263,7 +263,7 @@ The wander runs inside the rig, not in the window: the dot keeps flying with the
 
 ### What is behind a wheel
 
-<img src="docs/images/layer-swirl.png" width="476" alt="Bus A turned over to what is behind Swirl">
+<img src="docs/images/layer-swirl.png" width="476" alt="Bus A turned over to what is behind Swirl, with Tape Flanger chosen">
 
 The front of the window keeps to one knob for one idea. Five controls have more behind them, and each of those carries a **notch**, a small turned corner at its lower left: **Swirl** and **Filter** on each bus, **Rate**, and the **Swell** button. The notch is an outline while everything behind it is as it starts out, and filled once something there has been changed.
 
@@ -321,8 +321,9 @@ Set **Ride Mode** to **Faders Together** and the movement gets a structure: ever
 - **Chaos** leaves the timing alone. It varies how big each swell is, how close and how fast each pass flies, which way it goes, and where the tracks jump to. At 0% every swell is like the last.
 - **Energy** is what it is in the other modes: how deep the faders dip between the tops.
 - While the rig plays, the top of the Ride panel counts down to the next top ("Peak in 1.2 s"), and the Last 8 s strip shows the regular swells.
+- With **Aim** on, the hits go to the tops of the swell: every top, or every second, third or fourth as Hit Every says. The Hits' Sensitivity has no say in this mode.
 - The hit tracks are not ridden in this mode: a hit plays at its fader's level.
-- With the same sounds, Faders Together is a little quieter than Faders Apart (2 to 3 dB on the demo sounds): the faders are down together between the tops instead of overlapping.
+- With the same sounds, Faders Together is a little quieter than Faders Apart (about 2 to 3 dB on the demo sounds): the faders are down together between the tops instead of overlapping.
 
 Double-click **Rate**, or click its notch, and the Ride panel turns over to **Ride / Together**:
 
@@ -600,7 +601,7 @@ The modes are matched in level: with the same sound on Stowaway and everything w
 
 Every Impact track plays here. The Hits jump up and push both buses down out of the way, so each impact punches through the whoosh. There are two ways of timing them:
 
-- **Aim** (on by default): the hits are **aimed at the peaks of the doppler passes** on Bus A and Bus B. Each pass is loudest at its middle, when it's closest to you, and that moment is known as soon as the pass starts. So Swooshbuckler looks ahead: when a peak is coming, it decides whether it earns a hit (closer passes on a louder bus score higher, against **Sensitivity**), picks every hit track's next sound, and starts each one early by that sound's own lead-in, so all the transients land right on the peak. It allows for each track's pitch and Vari, and peaks that land together (with Link, say) fire once. The gate isn't needed, so Gate, Release, Hold, Floor and Sync Hits rest, and the lamp reads Aimed Hits and flashes on each hit.
+- **Aim** (on by default): the hits are **aimed at the peaks of the doppler passes** on Bus A and Bus B. Each pass is loudest at its middle, when it's closest to you, and that moment is known as soon as the pass starts. So Swooshbuckler looks ahead: when a peak is coming, it decides whether it earns a hit (closer passes on a louder bus score higher, against **Sensitivity**), picks every hit track's next sound, and starts each one early by that sound's own lead-in, so all the transients land right on the peak. It allows for each track's pitch and Vari, and peaks that land together (with Link, say) fire once. The gate isn't needed, so Gate, Release, Hold, Floor and Sync Hits rest, and the lamp reads Aimed Hits and flashes on each hit. In [Faders Together](#faders-together) the hits are aimed at the tops of the shared swell instead, as Hit Every says, and Sensitivity has no say.
 - **The hit gate** (Aim off): the hits play only when the gate opens. The gate listens to Bus A and Bus B together.
 
 Sessions saved before Aim existed open with it off, so they keep the gate they were made with.
