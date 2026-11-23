@@ -9,6 +9,14 @@ its typefaces and the way it marks its panel headings. The plug-ins come from bu
 look of its own in THEMES gets the plain one. Pictures stay in the repository and are linked from there.
 
 MANUAL_CACHE=<dir> keeps GitHub's rendering of each README between runs (for working on the looks locally).
+
+One manual on its own, for a plug-in whose source isn't in this repository (a private one's tester manual):
+
+    manuals.py --single <manual .md> <out dir> --id <id> --name <name> [--home <url> --home-label <text>]
+               [--get <url> --get-label <text>] [--note <text>] [--noindex]
+
+It writes <out dir>/index.html. Pictures keep their relative paths (copy them next to the page); links to
+other files of that repository are left as plain text, since the page can't reach them.
 """
 import hashlib
 import html
@@ -21,7 +29,20 @@ import urllib.request
 
 import releases
 
-out, repo = sys.argv[1:3]
+SINGLE = None
+if len(sys.argv) > 1 and sys.argv[1] == "--single":
+    import argparse
+    ap = argparse.ArgumentParser(prog="manuals.py --single")
+    ap.add_argument("markdown"); ap.add_argument("out")
+    ap.add_argument("--id", required=True); ap.add_argument("--name", required=True)
+    ap.add_argument("--home", default="https://samueljustice.github.io/plugins/")
+    ap.add_argument("--home-label", default="Sammy J's Plugins")
+    ap.add_argument("--get", default=""); ap.add_argument("--get-label", default="Download")
+    ap.add_argument("--note", default=""); ap.add_argument("--noindex", action="store_true")
+    SINGLE = ap.parse_args(sys.argv[2:])
+    out, repo = SINGLE.out, "samueljustice/plugins"
+else:
+    out, repo = sys.argv[1:3]
 root = pathlib.Path(__file__).resolve().parents[2]
 RAW = f"https://raw.githubusercontent.com/{repo}/main/"
 BLOB = f"https://github.com/{repo}/blob/main/"
@@ -86,8 +107,12 @@ def link(folder: str, url: str) -> str:
     url = html.unescape(url)
     if url.startswith("#"):
         return url
+    if SINGLE:   # a manual on its own: web addresses as they are, its own pictures, nothing else
+        if re.match(r"^(?:https?:|mailto:)", url):
+            return url
+        return url if re.match(r"^(?:\./)?[\w.-]+/[\w./-]+\.(?:gif|png|jpe?g|webp|svg|mp4)$", url, re.I) else ""
     if re.match(rf"https://github\.com/{re.escape(repo)}/releases/latest/?$", url):
-        return "../#get"                      # "It comes in Sammy J's Plugins": the download buttons
+        return "../#get"                     # "It comes in Sammy J's Plugins": the download buttons
     m = re.match(rf"https://github\.com/{re.escape(repo)}/(?:blob|tree)/main/(.*)$", url)
     if m:
         url, folder = m.group(1), ""
@@ -107,6 +132,8 @@ def link(folder: str, url: str) -> str:
 def picture(folder: str, url: str) -> str:
     url = html.unescape(url)
     if re.match(r"^(?:[a-z][a-z0-9+.-]*:|//|data:)", url):
+        return url
+    if SINGLE:
         return url
     return RAW + resolve(folder, url)
 
@@ -319,6 +346,33 @@ THEMES = {
   .button.get-win { background: linear-gradient(#e8503c, #d22a1c 55%, #8a160c); color: #fff3d6; border-color: #ff9a80 #4a0804 #4a0804 #ff9a80; }
 """,
     },
+    # A tester manual built with --single from the private body-language repository (its MANUAL.md).
+    "body-language": {
+        "fonts": ["Fraunces:opsz,wght@9..144,400;9..144,600", INTER],
+        "strap": "Sammy J / Dialogue movement",
+        "vars": "--bg:#0d241e; --panel:#12302a; --ink:#efe9da; --dim:#b4bfb2; --line:#24453c; --a1:#cdae70; --a2:#ec6a45; --a3:#cdae70; --a4:#ec6a45; --link:#cdae70;"
+                " --display:'Fraunces', Georgia, serif; --body:'Inter', system-ui, sans-serif; --mono:ui-monospace, Menlo, Consolas, monospace; --radius:6px; --size:17px;",
+        "css": """
+  body { background: radial-gradient(1000px 420px at 70% -60px, rgba(205, 174, 112, .10) 0, transparent 70%), var(--bg); }
+  .bar, .toc, .title .strap, .title .version, .foot { letter-spacing: .16em; text-transform: uppercase; font-size: 11px; font-weight: 500; }
+  .mark { font: 600 17px/1 var(--display); letter-spacing: .02em; color: var(--a1) !important; }
+  .title h1 { font: 600 clamp(44px, 8vw, 96px)/1 var(--display); letter-spacing: -.01em; }
+  .title h1::after { content: ""; display: block; width: 120px; height: 2px; margin-top: 22px; background: linear-gradient(90deg, var(--a1) 0 70%, var(--a2) 70%); }
+  .title .strap { color: var(--a1); }
+  .doc h2 { font: 600 30px/1.15 var(--display); padding-top: 26px; border-top: 1px solid var(--line); }
+  .doc h2::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 14px; vertical-align: middle;
+    position: relative; top: -3px; border: 1.5px solid var(--a1); background: var(--k); }
+  .k1, .k3, .k5 { --k: transparent; } .k2, .k4, .k6 { --k: var(--a1); }
+  .doc h3 { font: 600 21px/1.3 var(--display); color: var(--a1); }
+  .doc h4 { font: 500 12px/1.4 var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .doc strong { color: #fffaf0; }
+  .doc th { font: 500 11px/1.4 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--a1); }
+  .doc blockquote { border-color: var(--a2); }
+  .doc img { border-color: var(--line); background: var(--panel); }
+  .toc a.on { color: var(--a1); border-color: var(--a1); }
+  .button { background: var(--a1); border-color: var(--a1); color: #10231d; font: 600 12px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; border-radius: 999px; padding: 13px 20px; }
+""",
+    },
 }
 PLAIN = {
     "fonts": [INTER],
@@ -478,7 +532,8 @@ SCRIPT = """
 
 def build(pid: str, name: str, folder: str) -> str:
     theme = THEMES.get(pid, PLAIN)
-    doc = render((root / folder / "README.md").read_text(encoding="utf-8"))
+    source = pathlib.Path(SINGLE.markdown) if SINGLE else root / folder / "README.md"
+    doc = render(source.read_text(encoding="utf-8"))
 
     # GitHub's headings: <div class="markdown-heading"><hN ...>text</hN><a id="user-content-slug" ...>...</a></div>
     kinds = iter(range(10 ** 6))
@@ -503,6 +558,8 @@ def build(pid: str, name: str, folder: str) -> str:
             break
 
     doc = re.sub(r'(<a\b[^>]*?\bhref=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(link(folder, m.group(2)))}"', doc)
+    # A link the page can't follow (a single manual's links into its private repository) becomes plain text.
+    doc = re.sub(r'<a\b[^>]*?\bhref=""[^>]*>(.*?)</a>', r"\1", doc, flags=re.S)
     doc = re.sub(r'(<(?:img|source|video)\b[^>]*?\bsrc=)"([^"]*)"', lambda m: f'{m.group(1)}"{html.escape(picture(folder, m.group(2)))}"', doc)
     # A picture's own link is to the file in the repository: point it at the picture itself, and open it in
     # the page's picture viewer, which steps through every picture in the manual (badges aside).
@@ -525,7 +582,11 @@ def build(pid: str, name: str, folder: str) -> str:
     version = versions.get(name, "")
     fonts = "&".join("family=" + f for f in theme["fonts"])
     live = releases.LIVE_SCRIPT % {"repo": repo} if pid in TOYS else ""
-    if pid in TOYS:
+    if SINGLE:
+        get_it = ((f'<a class="button" href="{html.escape(SINGLE.get)}">{html.escape(SINGLE.get_label)}</a>' if SINGLE.get else "")
+                  + (f"<span>{html.escape(SINGLE.note)}</span>" if SINGLE.note else "") + "<span>The manual</span>")
+        get_link = SINGLE.get or SINGLE.home
+    elif pid in TOYS:
         # A toy isn't in the installer: its own installers, from its newest release (the page checks again on load).
         prefix = prefixes.get(pid, pid + "-v")
         r = releases.newest(RELEASES, prefix)
@@ -552,7 +613,7 @@ def build(pid: str, name: str, folder: str) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}: the manual</title>
-<meta name="description" content="{html.escape(described)}">
+<meta name="description" content="{html.escape(described)}">{chr(10) + '<meta name="robots" content="noindex, nofollow">' if SINGLE and SINGLE.noindex else ""}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?{fonts}&display=swap" rel="stylesheet">
@@ -565,10 +626,10 @@ def build(pid: str, name: str, folder: str) -> str:
 </head>
 <body>
 <div class="bar">
-  <a href="../">&larr; Sammy J's Plugins</a>
+  <a href="{html.escape(SINGLE.home) if SINGLE else "../"}">&larr; {html.escape(SINGLE.home_label) if SINGLE else "Sammy J's Plugins"}</a>
   <span class="mark">{html.escape(title)}</span>
-  <a href="{get_link}">Get it</a>
-  <a href="{BLOB}{folder}/README.md">On GitHub</a>
+  <a href="{html.escape(get_link)}">Get it</a>
+  {"" if SINGLE else f'<a href="{BLOB}{folder}/README.md">On GitHub</a>'}
 </div>
 <div class="shell">
   <header class="title">
@@ -583,7 +644,7 @@ def build(pid: str, name: str, folder: str) -> str:
 </div>
 <div class="foot">
   <span>Made by Samuel Justice</span>
-  <a href="../">Sammy J's Plugins</a>
+  <a href="{"https://samueljustice.github.io/plugins/" if SINGLE else "../"}">Sammy J's Plugins</a>
   <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a>
 </div>
 <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Pictures">
@@ -600,8 +661,14 @@ def build(pid: str, name: str, folder: str) -> str:
 
 
 prefixes = releases.tag_prefixes()
-RELEASES = releases.all_releases(repo) if TOYS else None
 outdir = pathlib.Path(out)
+if SINGLE:
+    page = build(SINGLE.id, SINGLE.name, "")
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "index.html").write_text(page, encoding="utf-8")
+    print(f"Wrote {outdir / 'index.html'} ({len(page) // 1024} KB)")
+    sys.exit(0)
+RELEASES = releases.all_releases(repo) if TOYS else None
 for pid, name, folder in plugins:
     if not (root / folder / "README.md").exists():
         continue
