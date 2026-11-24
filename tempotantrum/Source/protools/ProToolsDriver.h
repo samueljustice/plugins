@@ -147,7 +147,8 @@ public:
     // The bar|beat|ticks the open Identify Beat dialog shows, as it is written there.
     Result readIdentifyBeatLocation (const Element& dialog, std::string& shown);
 
-    // Cmd+Z, once. Not sent while a window is open that was not there at rememberWindows.
+    // Edit > Undo, pressed once through Accessibility. Not pressed while a window is open that was
+    // not there at rememberWindows, or while the menu item is switched off.
     Result sendUndo();
 
     // Up to this long, in steps, asking `cancelled`. Fails when the run was stopped.

@@ -331,7 +331,7 @@ void WaveformView::setMap (const tt::MapResult& newMap, int newBeatsPerBar)
     repaint();
 }
 
-void WaveformView::setPlayhead (double seconds)
+void WaveformView::setPlayhead (double seconds, bool playing)
 {
     if (juce::exactlyEqual (seconds, playhead))
         return;
@@ -342,13 +342,11 @@ void WaveformView::setPlayhead (double seconds)
     if (! hasAudio())
         return;
 
-    // A small step forward means the music is playing. When the playhead reaches the right
-    // edge of what is in view, the view moves on so the playhead sits near its left edge.
-    const double step = seconds - previous;
-    const bool playing = step > 0.0 && step < 0.5;
+    // While the music plays, when the playhead reaches the right edge of what is in view, the view
+    // moves on so the playhead sits near its left edge. A seek, a nudge or a scrub never moves the view.
     const bool wasInView = previous >= viewStart && previous <= viewEnd;
 
-    if (playing && wasInView && ! dragging && barEditorPin < 0
+    if (playing && seconds > previous && wasInView && ! dragging && barEditorPin < 0
         && seconds >= viewEnd - span() * 0.02 && viewEnd < duration - 1.0e-6)
     {
         const double length = span();

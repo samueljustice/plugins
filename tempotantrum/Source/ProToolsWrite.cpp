@@ -264,6 +264,7 @@ public:
         setOpaque (true);
         setSize (floatWidth, floatHeight);
         stopButton.setWantsKeyboardFocus (false);
+        stopButton.setTriggeredOnMouseDown (true);   // the click brings Tempo Tantrum forward; the stop is asked for before the run sees that
         stopButton.onClick = [this]
         {
             if (onStop != nullptr)
@@ -342,7 +343,7 @@ ProToolsWriteSheet::ProToolsWriteSheet()
 
     writeButton.setTooltip ("Brings Pro Tools to the front and runs Event > Identify Beat once for each pin");
     askButton.setTooltip ("Shows the macOS prompt that opens System Settings");
-    undoButton.setTooltip ("Brings Pro Tools to the front and sends Cmd+Z once for each pin that was written");
+    undoButton.setTooltip ("Brings Pro Tools to the front and presses Edit > Undo once for each pin that was written");
     againButton.setTooltip ("Goes back to the start of this sheet");
 
     startBox.setRange (0.0, 1.0e13, 1.0, 0);

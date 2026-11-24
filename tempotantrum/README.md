@@ -64,7 +64,7 @@ Pro Tools comes to the front and a small panel stays above it with the count, **
 - **Check each pin afterwards**: once every pin is written, the app goes to each one again, opens Identify Beat, reads the location Pro Tools suggests there and cancels. It presses no OK, so it changes nothing. A pin within 2 ticks of its bar and beat is good. The sheet says **All 24 pins check out**, or lists the pins that do not and how many ticks they are off.
 - **Type slowly**: holds each key for longer. Try it if a run stops because a number did not arrive.
 
-**Undo in Pro Tools (24 steps)** brings Pro Tools forward and sends Cmd+Z once for each pin that was written. It asks for a second click first. The app cannot see what Pro Tools did with them, so it says **Sent 24 undos**: look at the session. If you have done anything else in Pro Tools since the run, undo by hand, because Cmd+Z undoes whatever came last.
+**Undo in Pro Tools (24 steps)** brings Pro Tools forward and presses Edit > Undo once for each pin that was written. It asks for a second click first. The app cannot see what Pro Tools did with them, so it says **Sent 24 undos**: look at the session. If you have done anything else in Pro Tools since the run, undo by hand, because Undo undoes whatever came last.
 
 **Copy log** and **Save log…** give the log of every run since the app was opened. It holds the names of the Pro Tools windows, which include the session name, and the name of the music file.
 
@@ -106,9 +106,9 @@ The line at the top of the panel says how the run ended. **Stop**, or Escape in 
 | E | Zoom to two bars around the selected pin or the playhead. Again goes back. |
 | Cmd-Option-], Cmd-Option-[ | Draw the waveform taller or shorter. |
 | Left, Right | Select the previous or next pin and bring it into view. |
-| Comma, Full stop | Move the selected pin 1 ms earlier or later. With Shift 10 ms, with Option one sample. Moves less than a second apart are undone together. |
+| Comma, Full stop | Move the selected pin 1 ms earlier or later. With Shift 10 ms, with Option one sample. Moves of one pin less than a second apart are undone together. |
 | Backspace, Delete | Delete the selected pin. |
-| F2, F3, F4 | Snap: Off, Hits, Grid. |
+| F2, F3, F4 | Snap: Off, Hits, Grid. On most Mac keyboards, hold fn with them. |
 | N, Shift-N | Jump to the next place to check, or the one before, and loop it. |
 | Escape | Stop looping and keep playing. |
 | Shift-T | Tap the tempo. Taps more than two seconds apart start a new count. |

@@ -187,9 +187,12 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
         return outcome;
     };
 
+    // Set when an Identify Beat dialog could not be cancelled; it goes into the reason the run stopped.
+    std::string dialogNote;
+
     const auto stop = [&] (const std::string& reason, int pin = 0) -> WriteOutcome
     {
-        outcome.reason = reason;
+        outcome.reason = dialogNote.empty() ? reason : reason + ". " + dialogNote;
         outcome.failedPin = pin;
         return finish();
     };
@@ -205,6 +208,19 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
     Driver driver ([&say] (const std::string& text) { say (text); }, cancelled);
     driver.setBundleIdentifier (settings.bundleIdentifier);
     driver.setQuick (true, settings.slowKeys);
+
+    const auto cancelOrNote = [&] (const Element& dialog)
+    {
+        const auto closed = driver.cancelDialog (dialog);
+
+        if (! closed.ok)
+        {
+            say ("The Identify Beat dialog may still be open in Pro Tools (" + closed.message + "). Cancel it by hand.");
+            dialogNote = "The Identify Beat dialog may still be open in Pro Tools: press its Cancel button";
+        }
+
+        return closed;
+    };
 
     if (settings.bundleIdentifier != Driver::defaultBundleIdentifier)
         say ("Looking for the application " + settings.bundleIdentifier + " in place of Pro Tools");
@@ -372,9 +388,7 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
         // A location that does not read back as typed has already cancelled the dialog.
         if (const auto r = driver.setIdentifyBeatLocation (dialog, barBeat, true); ! r.ok || ! r.confirmed)
         {
-            if (const auto closed = driver.cancelDialog (dialog); ! closed.ok)
-                say ("The Identify Beat dialog may still be open in Pro Tools (" + closed.message + "). Cancel it by hand.");
-
+            cancelOrNote (dialog);
             return stop (r.ok ? "the bar|beat in the Identify Beat dialog could not be read back, so OK was not pressed" : r.message, number);
         }
 
@@ -384,6 +398,10 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
         if (const auto r = driver.confirmIdentifyBeat (dialog, okPressed); ! r.ok)
         {
             outcome.okPressedOnFailedPin = okPressed;
+
+            if (! okPressed)   // the dialog is still up with the location typed in it
+                cancelOrNote (dialog);
+
             return stop (r.message, number);
         }
 
@@ -441,13 +459,8 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
             {
                 step = driver.readIdentifyBeatLocation (dialog, shown);
 
-                if (const auto closed = driver.cancelDialog (dialog); ! closed.ok)
-                {
-                    say ("The Identify Beat dialog may still be open in Pro Tools (" + closed.message + "). Cancel it by hand.");
-
-                    if (step.ok)
-                        step = closed;
-                }
+                if (const auto closed = cancelOrNote (dialog); ! closed.ok && step.ok)
+                    step = closed;
             }
 
             if (! step.ok)
@@ -535,7 +548,7 @@ UndoOutcome runUndo (const std::string& bundleIdentifier, int steps, const std::
 
     say ("Tempo Tantrum " + appVersion + ", undo in Pro Tools");
     say ("Date: " + dateAndTime());
-    say ("Cmd+Z to send: " + std::to_string (steps));
+    say ("Undo steps to press: " + std::to_string (steps));
     say ("");
 
     if (progress)

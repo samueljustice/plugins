@@ -121,8 +121,9 @@ private:
     juce::String counterText, tempoText, refinedTempoText;
     std::vector<double> taps;
 
-    // A run of nudges less than a second apart, with no other edit between them, is one undo step.
+    // A run of nudges of one pin less than a second apart, with no other edit between them, is one undo step.
     int nudgeSerial = -1;               // the document's edit serial after the last nudge
+    int nudgePin = -1;                  // the pin it moved
     double lastNudgeMs = 0.0;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;

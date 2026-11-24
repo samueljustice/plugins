@@ -43,6 +43,9 @@ struct Tuning
     int steadyRunStrong = 3;      // or this many strong hits in a row
     double steadyLimit = 0.6;     // early or late in that test: by more than this share of the pin tolerance
     double steadyFloor = 0.25;    // or, where the hits sit very evenly, by as little as this share of it
+    double steadyAround = 0.4;    // a hit within this share of a beat of a line is near it, though not on it or off it
+    int steadyLostWindow = 16;    // a constant grid is left where, of this many lines in a row with a hit near them,
+    double steadyLostShare = 0.25; // no more than this share have the hit on them
     int steadyCarry = 3;          // after a gap, this many beats on the grid carried across it keep the section going
     double regularNear = 0.3;     // a regular pin goes on a hit within this share of the pin tolerance of the grid
     double regularTempo = 0.0005; // and close enough that the tempo either side of it changes by no more than this share

@@ -126,6 +126,8 @@ int main (int argc, char* argv[])
         else if (arg == "--restart")         { if (! parsePin (value(), true, userPins)) return usage(); }
         else if (arg == "--pin-every")       options.pinEveryBars = value().getIntValue();
         else if (arg == "--list-onsets" || arg == "--dump-onsets")   listOnsets = true;
+        else if (arg == "--onsets-file")     onsetsFile = value();
+        else if (arg == "--no-refine")       tuning.refineTempo = false;
         else if (arg == "--no-steady")       tuning.steady = false;
         else if (arg.startsWith ("--"))      return usage();
         else                                 file = arg;

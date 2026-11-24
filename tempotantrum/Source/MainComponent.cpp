@@ -348,12 +348,13 @@ MainComponent::MainComponent (bool withAudio)
     {
         const double now = juce::Time::getMillisecondCounterHiRes();
         const int before = document.getEditSerial();
-        document.movePin (index, time, before == nudgeSerial && now - lastNudgeMs < 1000.0);
+        document.movePin (index, time, before == nudgeSerial && index == nudgePin && now - lastNudgeMs < 1000.0);
 
         // A nudge that was refused starts no run.
         if (document.getEditSerial() != before)
         {
             nudgeSerial = document.getEditSerial();
+            nudgePin = index;
             lastNudgeMs = now;
 
             if (! player.isPlaying())
@@ -902,7 +903,7 @@ void MainComponent::timerCallback()
         updatePlayButton();
 
     if (document.hasMusic())
-        waveform.setPlayhead (player.getPlayheadSeconds());
+        waveform.setPlayhead (player.getPlayheadSeconds(), player.isPlaying());
 
     updateCounter();
 
@@ -992,7 +993,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
     if (keyIs (key, KeyPress::tabKey, alt) || keyIs (key, KeyPress::tabKey, alt | shift))      { moveToHit (-1); return true; }
     if (keyIs (key, KeyPress::returnKey, 0))        { seekTo (0.0); return true; }
 
-    // Pins. A full stop or comma with Shift arrives as its shifted character on some keyboards.
+    // Pins. A full stop or comma with Shift arrives as its shifted character.
     if (keyIs (key, KeyPress::leftKey, 0))          { selectNeighbourPin (-1); return true; }
     if (keyIs (key, KeyPress::rightKey, 0))         { selectNeighbourPin (1); return true; }
 
@@ -1001,8 +1002,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
 
         if (keyIs (key, ',', 0))                                { nudgeSelectedPin (-0.001); return true; }
         if (keyIs (key, '.', 0))                                { nudgeSelectedPin (0.001); return true; }
-        if (keyIs (key, ',', shift) || keyIs (key, '<', shift)) { nudgeSelectedPin (-0.010); return true; }
-        if (keyIs (key, '.', shift) || keyIs (key, '>', shift)) { nudgeSelectedPin (0.010); return true; }
+        // Shift with the comma key types '<' on US and UK keyboards and ';' on German and Swiss ones;
+        // with the full stop key, '>' and ':'.
+        if (keyIs (key, ',', shift) || keyIs (key, '<', shift) || keyIs (key, ';', shift)) { nudgeSelectedPin (-0.010); return true; }
+        if (keyIs (key, '.', shift) || keyIs (key, '>', shift) || keyIs (key, ':', shift)) { nudgeSelectedPin (0.010); return true; }
         if (keyIs (key, ',', alt))                              { nudgeSelectedPin (-oneSample); return true; }
         if (keyIs (key, '.', alt))                              { nudgeSelectedPin (oneSample); return true; }
     }

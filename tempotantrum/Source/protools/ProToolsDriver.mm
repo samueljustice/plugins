@@ -27,7 +27,6 @@ constexpr int keypadStarKey = 67;
 constexpr int keypadEnterKey = 76;
 constexpr int escapeKey = 53;
 constexpr int periodKey = 47;
-constexpr int zKey = 6;
 constexpr int topRowDigitKeys[10] = { 29, 18, 19, 20, 21, 23, 22, 26, 28, 25 };
 
 using Clock = std::chrono::steady_clock;
@@ -654,9 +653,13 @@ struct Driver::State
             log (text);
     }
 
+    // While a dialog is being cancelled the stop is not looked at: a run stopped with the
+    // Identify Beat dialog open still closes it.
+    bool cleaningUp = false;
+
     bool stopped() const
     {
-        return cancelled && cancelled();
+        return ! cleaningUp && cancelled && cancelled();
     }
 
     // False when the run was stopped during the wait.
@@ -2217,6 +2220,13 @@ Result Driver::cancelDialog (const Element& dialog)
         if (! dialog)
             return Result::good();
 
+        // This runs even when the run has been stopped, and presses Cancel even when Tempo Tantrum
+        // has come forward (a click on Stop does that): pressing a button through Accessibility
+        // sends no key. Escape, which does, is still only sent while Pro Tools is in front.
+        const bool wasCleaning = s.cleaningUp;
+        s.cleaningUp = true;
+        struct Restore { bool& flag; bool value; ~Restore() { flag = value; } } restore { s.cleaningUp, wasCleaning };
+
         // Closed only if Pro Tools says so. Without an answer nothing is known about the dialog.
         auto open = State::Open::unknown;
         const auto askStart = Clock::now();
@@ -2248,9 +2258,6 @@ Result Driver::cancelDialog (const Element& dialog)
 
         if (! button)
             button = copyElement (ax (dialog), kAXCancelButtonAttribute);
-
-        if (auto guard = s.frontGuard(); ! guard.ok)
-            return guard;
 
         if (button)
         {
@@ -2491,10 +2498,12 @@ Result Driver::goToSampleQuick (long long sample)
         if (auto r = s.pressKey (keypadEnterKey, kCGEventFlagMaskNumericPad, 0, "keypad Enter"); ! r.ok)
             return r;
 
-        // The counter must show the sample. It is asked until it does, for as long as the fixed
-        // waits it replaces.
+        // The counter must show the sample, and must have taken Enter: while digits are being typed
+        // it may show them already. A match counts at once when the counter said it had the keyboard
+        // after keypad * and now says it has given it up, and otherwise from 100 ms after Enter.
+        // It is asked until then, for as long as the fixed waits it replaces.
         std::string shown;
-        bool arrived = false, answered = true;
+        bool arrived = false, answered = true, stillTyping = false, leftEntry = false;
         const auto entered = Clock::now();
 
         do
@@ -2502,8 +2511,10 @@ Result Driver::goToSampleQuick (long long sample)
             const auto info = readInfo (ax (s.counter));
             answered = info.answered && info.hasValue;
             shown = info.value;
+            leftEntry = counterHasKeys && info.answered && ! info.focused;
+            stillTyping = ! leftEntry && millisecondsSince (entered) < 100;
 
-            if (answered && counterDigits (shown) == wanted)
+            if (answered && counterDigits (shown) == wanted && ! stillTyping)
             {
                 arrived = true;
                 break;
@@ -2534,7 +2545,8 @@ Result Driver::goToSampleQuick (long long sample)
             return Result::bad (answered ? "the Main Counter shows " + quoted (shown) + " after going to sample " + wanted
                                          : "the Main Counter could not be read after going to sample " + wanted);
 
-        s.say ("The Main Counter shows " + shown + ", " + std::to_string (millisecondsSince (start)) + " ms for the move");
+        s.say ("The Main Counter shows " + shown + (leftEntry ? " and has given up the keyboard, " : ", ")
+               + std::to_string (millisecondsSince (start)) + " ms for the move");
         return Result::good();
     }
 }
@@ -2726,17 +2738,72 @@ Result Driver::sendUndo()
             return State::stoppedResult();
 
         if (! now)
-            return s.noAnswer ("when asked for its windows, so Cmd+Z was not sent");
+            return s.noAnswer ("when asked for its windows, so Undo was not pressed");
 
         if (s.baseline)
             if (const auto extra = notIn (*now, *s.baseline); ! extra.empty())
             {
-                s.say ("A window is open that was not there at the start. Cmd+Z is not sent:\n" + s.describe (extra.front(), 5));
+                s.say ("A window is open that was not there at the start. Undo is not pressed:\n" + s.describe (extra.front(), 5));
                 return Result::bad ("a window titled " + quoted (readInfo (ax (extra.front())).title) + " is open in " + s.appName
-                                    + ", so Cmd+Z was not sent. Nothing was pressed in it");
+                                    + ", so Undo was not pressed. Nothing was pressed in it");
             }
 
-        return s.pressKey (zKey, kCGEventFlagMaskCommand, 0, "Cmd+Z");
+        // Undo is pressed in the Edit menu, not sent as Cmd+Z: a key code types Z only on some
+        // keyboard layouts. The item's title starts with "Undo" and names the step it undoes.
+        const auto menuBar = copyElement (ax (s.app), kAXMenuBarAttribute);
+
+        if (! menuBar)
+            return Result::bad ("the menu bar of " + s.appName + " could not be read, so Undo was not pressed");
+
+        Element editMenu;
+
+        for (const auto& m : childrenOf (menuBar))
+            if (normalise (readInfo (ax (m)).title) == "edit")
+            {
+                editMenu = m;
+                break;
+            }
+
+        if (! editMenu)
+            return Result::bad ("the Edit menu of " + s.appName + " was not found, so Undo was not pressed");
+
+        auto items = childrenOf (editMenu);
+
+        if (items.size() == 1 && readInfo (ax (items[0])).role == "AXMenu")
+            items = childrenOf (items[0]);
+
+        Element undo;
+        Info undoInfo;
+
+        for (const auto& i : items)
+        {
+            const auto info = readInfo (ax (i));
+
+            if (normalise (info.title).rfind ("undo", 0) == 0)
+            {
+                undo = i;
+                undoInfo = info;
+                break;
+            }
+        }
+
+        if (! undo)
+            return Result::bad ("the Edit menu of " + s.appName + " has no Undo item, so nothing was undone");
+
+        if (undoInfo.hasEnabled && ! undoInfo.enabled)
+            return Result::bad ("Undo is switched off in the Edit menu of " + s.appName + " (" + quoted (undoInfo.title)
+                                + "), so there is nothing to undo");
+
+        if (auto guard = s.frontGuard(); ! guard.ok)
+            return guard;
+
+        const AXError error = AXUIElementPerformAction (ax (undo), kAXPressAction);
+        s.say ("Pressed " + quoted (undoInfo.title) + " in the Edit menu (AXPress): " + errorName (error));
+
+        if (error != kAXErrorSuccess && error != kAXErrorCannotComplete)
+            return Result::bad (quoted (undoInfo.title) + " could not be pressed in the Edit menu (" + errorName (error) + ")");
+
+        return s.wait (s.keyGapMilliseconds) ? Result::good() : State::stoppedResult();
     }
 }
 

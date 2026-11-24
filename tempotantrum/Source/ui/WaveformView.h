@@ -32,7 +32,7 @@ public:
     // Only the peaks are read, once, during this call. Call on the message thread.
     void setAudio (const juce::AudioBuffer<float>* mix, const juce::AudioBuffer<float>* drums, double sampleRate);
     void setMap (const tt::MapResult& map, int beatsPerBar);     // copies what it needs
-    void setPlayhead (double seconds);                           // repaints two thin strips only
+    void setPlayhead (double seconds, bool playing = false);     // repaints two thin strips only; while playing, pages the view
     void setBusy (bool analysing);                               // dims the lanes and shows "Listening…"
     void showRange (double startSeconds, double endSeconds);     // zoom to this range
     void showAll();

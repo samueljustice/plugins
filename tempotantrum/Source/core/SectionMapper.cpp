@@ -630,11 +630,14 @@ struct Mapper
         double offset = 0.0;     // hit time less line time
         double strength = 0.0;
         double time = 0.0;
+        bool busy = false;       // a hit lies within `around` of the line (its kind may still be none)
     };
 
-    LineHit hitOnLine (double line, double near, double wide) const
+    LineHit hitOnLine (double line, double near, double wide, double around) const
     {
         LineHit out;
+        for (int i = h.lowerBound (line - around); i < h.size() && h.on[(size_t) i] <= line + around && ! out.busy; ++i)
+            out.busy = h.st[(size_t) i] >= c.thrOn;
         for (int i = h.lowerBound (line - wide); i < h.size() && h.on[(size_t) i] <= line + wide; ++i)
         {
             if (h.st[(size_t) i] < c.thrOn)
@@ -643,12 +646,14 @@ struct Mapper
             const auto kind = std::abs (d) <= near ? LineHit::on : LineHit::off;
             if (out.kind == LineHit::none || (kind == LineHit::on && out.kind == LineHit::off)
                 || (kind == out.kind && h.st[(size_t) i] > out.strength))
-                out = { kind, d, h.st[(size_t) i], h.on[(size_t) i] };
+                out = { kind, d, h.st[(size_t) i], h.on[(size_t) i], out.busy };
         }
+        out.busy = out.busy || out.kind != LineHit::none;
         return out;
     }
 
     double steadyWide (double P) const   { return std::max (pinTol, std::min (c.steadyWideMs / 1000.0, 0.2 * P)); }
+    double steadyAround (double P) const { return c.steadyAround * P; }
 
     // The lines 0..L of the grid a + k * P. With `tied`, line 0 is the start of the stretch itself,
     // whatever is near it: the grid has to pass close to the start.
@@ -656,9 +661,9 @@ struct Mapper
     {
         std::vector<LineHit> lines ((size_t) L + 1);
         if (tied)
-            lines[0] = { LineHit::on, tStart - a, 1.0, tStart };
+            lines[0] = { LineHit::on, tStart - a, 1.0, tStart, true };
         for (int k = tied ? 1 : 0; k <= L; ++k)
-            lines[(size_t) k] = hitOnLine (a + k * P, pinTol, steadyWide (P));
+            lines[(size_t) k] = hitOnLine (a + k * P, pinTol, steadyWide (P), steadyAround (P));
         return lines;
     }
 
@@ -791,6 +796,34 @@ struct Mapper
         };
         const int inAll = firstRun (with, c.steadyRun), inStrong = firstRun (strong, c.steadyRunStrong);
         scan.firstBad = inAll < 0 ? inStrong : (inStrong < 0 ? inAll : std::min (inAll, inStrong));
+
+        // Hits too far from their lines to count as off them: after a tempo change with no gap the hits
+        // move more than steadyWide away within a few beats. The grid has been left at a line with no hit
+        // on it when, of the steadyLostWindow lines from there that have a hit near them (within
+        // steadyAround of a beat), no more than steadyLostShare have one on them.
+        std::vector<int> busy;
+        for (int k = 1; k < (int) lines.size(); ++k)
+            if (lines[(size_t) k].busy)
+                busy.push_back (k);
+        const auto window = (size_t) std::max (1, c.steadyLostWindow);
+        for (size_t i = 0; i < busy.size(); ++i)
+        {
+            if (scan.firstBad >= 0 && busy[i] >= scan.firstBad)
+                break;
+            if (lines[(size_t) busy[i]].kind == LineHit::on)
+                continue;
+            const size_t end = std::min (busy.size(), i + window);
+            if (end - i < window / 2 || busy[end - 1] - busy[i] > 2 * (int) window)
+                continue;
+            int onCount = 0;
+            for (size_t j = i; j < end; ++j)
+                onCount += lines[(size_t) busy[j]].kind == LineHit::on;
+            if (onCount <= c.steadyLostShare * (double) (end - i))
+            {
+                scan.firstBad = busy[i];
+                break;
+            }
+        }
         return scan;
     }
 
@@ -960,6 +993,8 @@ struct Mapper
         if (steady->ended || strongAfter >= c.minSec)
         {
             auto rest = trackFrom (lastTime, tEnd, steady->P, beat0 + steady->last, true, steady->ended ? 0.0 : 0.5 * steady->P);
+            if (rest.tt.size() < 2 && steady->ended)   // the hits left the grid all at once (the beat shifted): a grid off the last beat
+                rest = trackFrom (lastTime, tEnd, steady->P, beat0 + steady->last, true, 0.5 * steady->P);
             if (rest.tt.size() >= 2)
             {
                 tr.tt.resize ((size_t) steady->last);
@@ -1107,8 +1142,9 @@ struct Mapper
 
     // Does the constant grid of the stretch from `from` to the gap still fit the hits after the gap?
     // It does when, of its lines over the four bars after the gap (or up to the next gap), at least
-    // steadyCarry and at least a quarter have a hit on them, and no more than half as many have a
-    // hit off them. `nextGap` is the gap after that, if there is one.
+    // steadyCarry and at least a quarter have a hit on them, no more than half as many have a hit off
+    // them, and at least half of those with a hit near them (within steadyAround of a beat) have it
+    // on them. `nextGap` is the gap after that, if there is one.
     // `tied` is false when `from` is a pin the user placed.
     bool gridCarriesOn (double from, bool tied, const std::pair<double, double>& gap, double period,
                         const std::optional<std::pair<double, double>>& nextGap) const
@@ -1120,18 +1156,19 @@ struct Mapper
             return false;   // the grid stopped well before the gap
         const double k0 = std::ceil ((gap.second - pinTol - steady->a) / steady->P);
         const double until = nextGap ? nextGap->first : inf;
-        int on = 0, off = 0, count = 0;
+        int on = 0, off = 0, near = 0, count = 0;
         for (int n = 0; n < 4 * beatsPerBar; ++n)
         {
             const double line = steady->a + (k0 + n) * steady->P;
             if (line > until + pinTol)
                 break;
-            const auto hit = hitOnLine (line, pinTol, steadyWide (steady->P));
+            const auto hit = hitOnLine (line, pinTol, steadyWide (steady->P), steadyAround (steady->P));
             ++count;
             on += hit.kind == LineHit::on;
             off += hit.kind == LineHit::off;
+            near += hit.busy;
         }
-        return on >= c.steadyCarry && 4 * on >= count && on >= 2 * off;
+        return on >= c.steadyCarry && 4 * on >= count && on >= 2 * off && 2 * on >= near;
     }
 
     // Support for a grid of `lines` beats from t0 at period P: hit strength, less for hits off the line.
@@ -1367,6 +1404,7 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
     auto kind = Section::Kind::first;
     bool confirmed = true;
     double proposed = beat;
+    std::vector<std::pair<double, double>> carriedGaps;   // gaps of more than two bars that a section's grid was carried across
 
     for (int guard = 0; guard < 100000; ++guard)
     {
@@ -1394,6 +1432,8 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
             const auto nextGap = m.findGap (gap->second, period);
             if (! m.gridCarriesOn (from, startUser < 0 && from <= t, *gap, period, nextGap))
                 break;
+            if (gap->second - gap->first > 2.0 * m.beatsPerBar * period)
+                carriedGaps.push_back (*gap);
             gap = nextGap;
         }
         double tEnd = gap ? gap->first : durationSeconds;
@@ -1453,8 +1493,8 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
         {
             const double from = starts[p].first;
             double to = tEnd;
-            if (p + 1 < starts.size())
-                to = std::min (to, h.lastBefore (starts[p + 1].first, from));
+            if (p + 1 < starts.size())   // ends on the beat before the next user pin: a hit of the pin's own beat, when the pin was moved late off it, is left to the pin
+                to = std::min (to, h.lastBefore (starts[p + 1].first - 0.5 * partPeriod, from));
             to = std::max (to, from);
 
             Part part;
@@ -1600,7 +1640,8 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
     // with no such hit is passed over for the next. The hit has to be close enough to the grid that
     // the tempo either side of the new pin changes by no more than regularTempo, and within
     // regularNear of the tolerance: a strong hit if a bar has one, else any hit counted as a beat.
-    // When no bar within reach has one that close, a strong hit anywhere within the tolerance is taken.
+    // When no bar within reach has one that close, a bar with a strong hit anywhere within the
+    // tolerance gets a pin on the grid line, not on the hit, so the grid stays where it was.
     if (options.pinEveryBars > 0 && result.pins.size() >= 2)
     {
         const double bar = (double) m.beatsPerBar, every = (double) options.pinEveryBars * bar;
@@ -1625,34 +1666,41 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
                         best = j;
                 return best;
             };
+            // Beat 1 of a bar in this section: whole bars from the bar lines, shifted by the section's
+            // part of a beat (half a beat after a half-beat bridge).
+            const double shift = p.beat - std::floor (p.beat);
+            auto barAtOrBefore = [&] (double b) { return std::floor ((b - shift) / bar + 1.0e-9) * bar + shift; };
+            auto nearestBar = [&] (double b) { return std::round ((b - shift) / bar) * bar + shift; };
             double last = p.beat, lastTime = p.time;
-            double passedOver = 0.0;   // bars up to here, after the last pin, have been tried and have no hit to pin
+            double passedOver = -inf;   // bars up to here, after the last pin, have been tried and have no hit to pin
             while (q.beat - last > every + 1.0e-9)
             {
                 // The bar to try first: pinEveryBars on from the last pin, or half way to the next pin
-                // when that would leave less than a bar before it. Bars are tried from that one
-                // onwards, then back from it towards the last pin. When none of them has a hit to
-                // pin, the bars after them are tried.
-                double first = std::floor ((last + every) / bar + 1.0e-9) * bar;
+                // when that would leave less than two bars (or pinEveryBars, if less) before it. Bars are
+                // tried from that one onwards, then back from it to half way from the last pin. When none of them
+                // has a hit to pin, the bars after them are tried.
+                double first = barAtOrBefore (last + every);
                 std::vector<double> bars;
                 if (passedOver > last)
                     first = passedOver + bar;
-                else if (q.beat - first < bar)
-                    first = std::round (0.5 * (last + q.beat) / bar) * bar;
+                else if (q.beat - first < std::min (2.0 * bar, every) - 1.0e-9)
+                    first = nearestBar (0.5 * (last + q.beat));
                 for (double b = first; q.beat - b >= bar - 1.0e-9 && b - first < every; b += bar)
                     bars.push_back (b);
                 if (bars.empty())
                     break;
                 const double lastTried = bars.back();
                 if (passedOver <= last)
-                    for (double b = first - bar; b - last >= bar - 1.0e-9; b -= bar)
+                    for (double b = first - bar; b - last >= std::max (bar, 0.5 * every) - 1.0e-9; b -= bar)   // not closer than half the spacing
                         bars.push_back (b);
 
                 int hit = -1;
                 double at = 0.0;
+                bool fallback = false;
                 for (int pass = 0; pass < 3 && hit < 0; ++pass)
                     for (double b : bars)
                     {
+                        fallback = pass == 2;
                         if (b - last < bar - 1.0e-9)
                             continue;
                         const double shortest = std::min (timeAt (b) - lastTime, q.time - timeAt (b));
@@ -1674,7 +1722,7 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
                 }
                 Pin pin;
                 pin.beat = at;
-                pin.time = h.on[(size_t) hit];
+                pin.time = fallback ? timeAt (at) : h.on[(size_t) hit];   // a hit less close marks the bar but does not move the grid
                 out.push_back (pin);
                 last = at;
                 lastTime = pin.time;
@@ -1736,6 +1784,10 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
         if (onHitShare[s] < tuning.unsureOnHit)
             addCheck (Check::Kind::unsure, sec.startTime, sec.endTime, "Few beats land on a hit. Check the tempo");
     }
+
+    // A gap the grid was carried across: the beat count after it is worth a look.
+    for (const auto& [from, to] : carriedGaps)
+        addCheck (Check::Kind::noHits, from, to, seconds ("No hits for %.1f s", to - from));
 
     // Hits after the last beat followed.
     if (! result.sections.empty())

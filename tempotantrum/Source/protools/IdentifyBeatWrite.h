@@ -87,7 +87,7 @@ using Cancelled = std::function<bool()>;
 WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const Cancelled& cancelled,
                        const Progress& progress);
 
-// Brings the application forward and sends Cmd+Z `steps` times. What Pro Tools did with them
+// Brings the application forward and presses Edit > Undo `steps` times. What Pro Tools did with them
 // cannot be read from outside.
 UndoOutcome runUndo (const std::string& bundleIdentifier, int steps, const std::string& appVersion,
                      const LogLine& log, const Cancelled& cancelled, const Progress& progress);

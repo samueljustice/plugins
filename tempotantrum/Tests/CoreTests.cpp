@@ -929,6 +929,16 @@ std::string realDrift()
         expect (worst <= 5.0, text ("regular pins every %g bars: a mapped beat is %.2f ms out", (double) every, worst));
         expect (std::abs (grid.bpmAtTime (2.0) - 122.0) <= 0.1 && std::abs (grid.bpmAtTime (truth[120]) - 124.0) <= 0.1,
                 text ("%.3f BPM at the start, %.3f at the end", grid.bpmAtTime (2.0), grid.bpmAtTime (truth[120])));
+        tt::Options needed;
+        needed.pinEveryBars = 0;
+        const auto bare = tt::mapCue (onsets, seconds, hint, {}, needed);
+        for (const auto& pin : map.pins)   // each pin added for regularity is on beat 1 of a bar, within 3 ms of a hit
+        {
+            if (std::any_of (bare.pins.begin(), bare.pins.end(), [&] (const Pin& p) { return same (p.beat, pin.beat); }))
+                continue;
+            expect (same (std::fmod (pin.beat, 4.0), 0.0), text ("regular pins every %g bars: a pin is on beat %g", (double) every, pin.beat));
+            expect (nearestOnsetError (map.onsets, pin.time) <= 0.003, text ("regular pins every %g bars: the pin on beat %g is not on a hit", (double) every, pin.beat));
+        }
         detail += text ("pins every %g bars: %g pins, beats within %.2f ms  ", (double) every, (double) map.pins.size(), worst);
     }
     return detail;
@@ -964,6 +974,191 @@ std::string oneDisplacedHit()
     return detail;
 }
 
+//==============================================================================
+// Hits found in audio made from (time, level) pairs.
+std::vector<tt::Onset> onsetsOf (const std::vector<std::pair<double, double>>& hits, double seconds)
+{
+    const auto audio = makeCueWithLevels (hits, seconds, sr48);
+    return tt::findOnsets (audio.data(), audio.size(), sr48);
+}
+
+// Beats from `first` at bpm until `change`, then at bpm2 until `end`.
+std::vector<double> stepBeats (double first, double bpm, double change, double bpm2, double end)
+{
+    std::vector<double> out;
+    for (double t = first; t < end; t += (t < change - 1.0e-9 ? 60.0 / bpm : 60.0 / bpm2))
+        out.push_back (t);
+    return out;
+}
+
+std::string tempoStepWithNoGap()
+{
+    // 120 BPM to 30 s, then straight on at a faster tempo to 60 s: once with quieter hits on the
+    // eighth notes between, once plain. The grid follows the change or says where to look.
+    std::string detail;
+    for (const auto& [bpm2, eighths] : { std::pair<double, bool> { 123.0, true }, { 126.0, false } })
+    {
+        const auto truth = stepBeats (1.0, 120.0, 30.0, bpm2, 60.0);
+        std::vector<std::pair<double, double>> hits;
+        for (size_t k = 0; k < truth.size(); ++k)
+        {
+            hits.push_back ({ truth[k], 0.6 });
+            if (eighths && k + 1 < truth.size())
+                hits.push_back ({ 0.5 * (truth[k] + truth[k + 1]), 0.25 });
+        }
+        const auto onsets = onsetsOf (hits, 61.0);
+        for (double hinted : { 120.0, 0.0 })
+        {
+            tt::Hint hint;
+            hint.firstHitTime = 1.0;
+            hint.bpm = hinted;
+            const auto map = tt::mapCue (onsets, 61.0, hint);
+            expectPinsInOrder (map.pins);
+            const tt::BeatGrid grid (map.pins, map.bpm);
+            double worst = 0.0;
+            for (size_t k = 0; k < truth.size(); ++k)
+                if (truth[k] <= map.sections.back().endTime + 0.01)
+                    worst = std::max (worst, std::abs (grid.timeAtBeat ((double) k) - truth[k]));
+            const bool followed = map.sections.size() == 1 && map.sections.back().endTime >= truth.back() - 0.6;
+            expect (worst <= 0.003, text ("%g BPM after the change, hint %g: a mapped beat is %.2f ms out", bpm2, hinted, worst * 1000.0));
+            expect (followed || ! map.checks.empty(), text ("%g BPM after the change, hint %g: the beat stops at %.2f s with no check", bpm2, hinted, map.sections.back().endTime));
+            detail += text ("%g BPM, hint %g: beats within %.2f ms", bpm2, hinted, worst * 1000.0) + (followed ? ", followed  " : ", checked  ");
+        }
+    }
+    return detail;
+}
+
+std::string gapIntoOtherTempo()
+{
+    // 120 BPM from 1 s to 20.5 s, 4.5 s with nothing, then 90 BPM from 25 s. Every fourth beat at 120
+    // would land on a 90 BPM hit if the grid were carried across the gap: the gap is a restart.
+    std::vector<std::pair<double, double>> hits;
+    for (double t : steadyBeats (1.0, 120.0, 40))
+        hits.push_back ({ t, 0.6 });
+    for (double t : steadyBeats (25.0, 90.0, 42))
+        hits.push_back ({ t, 0.6 });
+    const auto onsets = onsetsOf (hits, 54.0);
+    tt::Hint hint;
+    hint.firstHitTime = 1.0;
+    hint.bpm = 120.0;
+    const auto map = tt::mapCue (onsets, 54.0, hint);
+    expect (map.sections.size() >= 2, text ("%g sections, ", (double) map.sections.size()) + allChecks (map));
+    expect (countChecks (map, tt::Check::Kind::restart) >= 1, "no restart check after the gap, " + allChecks (map));
+
+    // The same gap with the music going on at 120 on the same grid: one section, and the gap is still a place to check.
+    std::vector<std::pair<double, double>> same120;
+    const auto truth = steadyBeats (0.5, 120.0, 100);
+    for (size_t k = 0; k < truth.size(); ++k)
+        if (k < 48 || k >= 61)
+            same120.push_back ({ truth[k], 0.6 });
+    const auto carried = tt::mapCue (onsetsOf (same120, 51.0), 51.0, hintAt (120.0));
+    expect (carried.sections.size() == 1, text ("same grid after the gap: %g sections, ", (double) carried.sections.size()) + allChecks (carried));
+    expect (countChecks (carried, tt::Check::Kind::noHits, "No hits for 7.0 s") == 1, "same grid after the gap: " + allChecks (carried));
+    const double worst = worstBeatError (tt::BeatGrid (carried.pins, carried.bpm), 0.0, truth);
+    expect (worst <= 2.0, text ("same grid after the gap: a mapped beat is %.2f ms out", worst));
+    return text ("90 BPM after the gap: %g sections, ", (double) map.sections.size()) + allChecks (map)
+           + text ("; 120 after it: one section, beats within %.2f ms, \"No hits for 7.0 s\"", worst);
+}
+
+std::string regularPinOffItsHit()
+{
+    // 64 beats at 120 BPM with beat 1 of bars 2 to 15 played 7 ms late: no bar has a hit close enough
+    // to the grid for a regular pin on it. The pins that mark the bars sit on the grid, not the hits.
+    auto times = steadyBeats (0.5, 120.0, 64);
+    for (size_t k = 4; k < 60; k += 4)
+        times[k] += 0.007;
+    const auto onsets = onsetsOf ([&] { std::vector<std::pair<double, double>> h; for (double t : times) h.push_back ({ t, 0.6 }); return h; }(), 33.0);
+    tt::Options none;
+    none.pinEveryBars = 0;
+    const auto bare = tt::mapCue (onsets, 33.0, hintAt (120.0), {}, none);
+    const auto map = tt::mapCue (onsets, 33.0, hintAt (120.0));
+    expect (map.pins.size() > bare.pins.size(), text ("%g pins, %g with regular pins off", (double) map.pins.size(), (double) bare.pins.size()));
+    const tt::BeatGrid grid (map.pins, map.bpm), bareGrid (bare.pins, bare.bpm);
+    double moved = 0.0;
+    for (double b = 0.0; b < 64.0; b += 1.0)
+        moved = std::max (moved, std::abs (grid.timeAtBeat (b) - bareGrid.timeAtBeat (b)));
+    expect (moved <= 0.0005, text ("the regular pins move the grid by %.2f ms", moved * 1000.0));
+    return text ("%g pins (%g without regular pins), grid moved by %.3f ms", (double) map.pins.size(), (double) bare.pins.size(), moved * 1000.0);
+}
+
+std::string userPinMovedLate()
+{
+    // 96 beats at 122 BPM; the user moves the pin of beat 40 15 ms late. Only the beats next to it
+    // bend: the stretch before keeps the grid, and its regular pins.
+    const auto truth = steadyBeats (0.5, 122.0, 96);
+    std::vector<std::pair<double, double>> hits;
+    for (double t : truth)
+        hits.push_back ({ t, 0.6 });
+    const double seconds = truth.back() + 1.0;
+    const auto onsets = onsetsOf (hits, seconds);
+    Pin moved;
+    moved.beat = 40.0;
+    moved.time = truth[40] + 0.015;
+    const auto map = tt::mapCue (onsets, seconds, hintAt (122.0), { moved });
+    expect (hasPin (map.pins, moved), "the user's pin was not kept");
+    expectPinsInOrder (map.pins);
+    const tt::BeatGrid grid (map.pins, map.bpm);
+    double worst = 0.0;
+    for (size_t k = 0; k < truth.size(); ++k)
+        if (k < 39 || k > 41)
+            worst = std::max (worst, std::abs (grid.timeAtBeat ((double) k) - truth[k]));
+    expect (worst <= 0.002, text ("a beat away from the moved pin is %.2f ms out", worst * 1000.0));
+    int before = 0;
+    for (const auto& p : map.pins)
+        before += p.beat > 0.5 && p.beat < 39.5 && ! p.user;
+    expect (before >= 2, text ("%g pins between the start and the moved pin", (double) before));
+    return text ("beats away from the moved pin within %.2f ms, %g pins before it", worst * 1000.0, (double) before);
+}
+
+std::string regularPinsAfterHalfBeatBridge()
+{
+    // 120 BPM from 1 s to 20.5 s, then from 27.25 s, half a beat off the grid before the gap.
+    std::vector<std::pair<double, double>> hits;
+    for (double t : steadyBeats (1.0, 120.0, 40))
+        hits.push_back ({ t, 0.6 });
+    for (double t : steadyBeats (27.25, 120.0, 60))
+        hits.push_back ({ t, 0.6 });
+    const auto onsets = onsetsOf (hits, 58.0);
+    tt::Hint hint;
+    hint.firstHitTime = 1.0;
+    hint.bpm = 120.0;
+    tt::Options options;
+    options.bridge = tt::Options::Bridge::halfBeat;
+    const auto map = tt::mapCue (onsets, 58.0, hint, {}, options);
+    expect (map.sections.size() == 2 && same (std::fmod (map.sections[1].startBeat, 1.0), 0.5), text ("%g sections, ", (double) map.sections.size()) + allChecks (map));
+    std::vector<Pin> second;
+    for (const auto& p : map.pins)
+        if (p.time >= map.sections[1].startTime - 1.0e-6)
+            second.push_back (p);
+    expect (second.size() >= 4, text ("%g pins in the section after the gap", (double) second.size()));
+    for (size_t i = 1; i < second.size(); ++i)
+    {
+        if (i + 1 < second.size())
+            expect (same (std::fmod (second[i].beat - map.sections[1].startBeat, 4.0), 0.0), text ("a pin after the gap is on beat %g", second[i].beat));
+        expect (second[i].beat - second[i - 1].beat <= 16.0 + 4.0, text ("no pin from beat %g to %g", second[i - 1].beat, second[i].beat));
+    }
+    return text ("%g pins after the gap, every one on the section's beat 1", (double) second.size());
+}
+
+std::string regularPinsSpacing()
+{
+    // 200 beats at 120 BPM with no hit on beat 1 of bars 15 to 20: the bar after the pin of bar 13 is
+    // not used, which would leave two pins a bar apart; the pin after it goes on bar 21.
+    const auto truth = steadyBeats (0.5, 120.0, 200);
+    std::vector<std::pair<double, double>> hits;
+    for (size_t k = 0; k < truth.size(); ++k)
+        if (! (k % 4 == 0 && k >= 56 && k < 80))
+            hits.push_back ({ truth[k], 0.6 });
+    const auto map = tt::mapCue (onsetsOf (hits, 101.0), 101.0, hintAt (120.0));
+    expectPinsInOrder (map.pins);
+    for (size_t i = 1; i < map.pins.size(); ++i)
+        expect (map.pins[i].beat - map.pins[i - 1].beat > 4.0, text ("pins on beats %g and %g, a bar or less apart", map.pins[i - 1].beat, map.pins[i].beat));
+    std::string beats;
+    for (const auto& p : map.pins)
+        beats += text (" %g", p.beat);
+    return "pins on beats" + beats;
+}
+
 } // namespace
 
 int main()
@@ -995,6 +1190,12 @@ int main()
     test ("steady 122 BPM with syncopation and ghost notes", steadyWithSyncopation);
     test ("tempo drifting from 122 to 124 BPM", realDrift);
     test ("one hit played late", oneDisplacedHit);
+    test ("tempo change with no gap", tempoStepWithNoGap);
+    test ("gap into another tempo, and into the same grid", gapIntoOtherTempo);
+    test ("regular pin where beat 1 is off the grid", regularPinOffItsHit);
+    test ("user pin moved late off its hit", userPinMovedLate);
+    test ("regular pins after a half-beat bridge", regularPinsAfterHalfBeatBridge);
+    test ("regular pins not a bar apart", regularPinsSpacing);
     std::printf ("%d of %d tests passed\n", total - failed, total);
     return failed;
 }
