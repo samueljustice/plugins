@@ -858,9 +858,9 @@ int main()
                   << "%; Stereo at 192 kHz " << num(stereo192, 2) << "%, at 48 kHz " << num(stereo48, 2) << "%" << std::endl;
         std::cout << "         one bell in, 7.1.4 at 192 kHz: " << num(oneBand, 2) << "%; flat: " << num(flat, 3) << "% (the stopwatch itself included)" << std::endl;
         // (Under 0.5% on a desk machine; a shared build machine a third as fast measured 1.29%.)
-        check(wide192 <= 2.0 || !TestClock::countsOwnTime(), "7.1.4 at 192 kHz with every band in costs no more than 2% of a core");
+        check(wide192 <= 2.0 || !TestClock::holdsCostLimits(), "7.1.4 at 192 kHz with every band in costs no more than 2% of a core");
         // (Flat it is only the stopwatch: held to a tenth of every band in, since a slower machine pays more for both.)
-        check(flat < 0.1 * wide192 || !TestClock::countsOwnTime(), "flat costs nothing to speak of (under a tenth of every band in)");
+        check(flat < 0.1 * wide192 || !TestClock::holdsCostLimits(), "flat costs nothing to speak of (under a tenth of every band in)");
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : std::to_string(g_failures) + " FAILED") << std::endl;

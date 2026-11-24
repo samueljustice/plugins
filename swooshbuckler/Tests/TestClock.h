@@ -7,6 +7,7 @@
 // Where the system has no such clock it falls back to the time on the wall.
 
 #include <chrono>
+#include <cstdlib>
 
 #if defined(__APPLE__) || defined(__linux__)
  #include <time.h>
@@ -35,5 +36,14 @@ namespace TestClock
        #else
         return false;
        #endif
+    }
+
+    /** True where the tight cost limits are held: a clock that counts this thread's own time, on a machine that is not
+        a shared build runner (GitHub's runners are virtual machines whose cores are shared, so even the thread's own
+        time stretches with the neighbours' load: the same check read 1.5% at the desk and 6.9% there). Elsewhere the
+        numbers are printed and not held. */
+    inline bool holdsCostLimits()
+    {
+        return countsOwnTime() && std::getenv("GITHUB_ACTIONS") == nullptr;
     }
 }
