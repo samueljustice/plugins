@@ -27,6 +27,7 @@ constexpr int keypadStarKey = 67;
 constexpr int keypadEnterKey = 76;
 constexpr int escapeKey = 53;
 constexpr int periodKey = 47;
+constexpr int zKey = 6;
 constexpr int topRowDigitKeys[10] = { 29, 18, 19, 20, 21, 23, 22, 26, 28, 25 };
 
 using Clock = std::chrono::steady_clock;
@@ -627,6 +628,26 @@ struct Driver::State
     Windows baseline;           // the windows open when rememberWindows was called
     bool dialogDescribed = false;
 
+    // The quick pace (see Driver::setQuick).
+    bool quick = false;
+    int keyHoldMicroseconds = 30000;    // between a key going down and coming up, and after it
+    int keyGapMilliseconds = 50;        // after each key
+    bool counterFocusLogged = false;
+
+    // The parts of the Identify Beat dialog that is open, read once each time it opens.
+    struct Parts
+    {
+        Element dialog, field, ok, cancel;
+    };
+
+    Parts parts;
+
+    // How long a wait for something to change sleeps between two looks.
+    int poll() const
+    {
+        return quick ? 10 : 50;
+    }
+
     void say (const std::string& text) const
     {
         if (log)
@@ -648,7 +669,7 @@ struct Driver::State
             if (stopped())
                 return false;
 
-            usleep (10000);
+            usleep (quick ? 2000 : 10000);
         }
 
         return ! stopped();
@@ -792,7 +813,7 @@ struct Driver::State
 
             CGEventPost (kCGHIDEventTap, event);
             CFRelease (event);
-            usleep (30000);
+            usleep ((useconds_t) keyHoldMicroseconds);
         }
 
         if (source != nullptr)
@@ -804,7 +825,7 @@ struct Driver::State
         if (! name.empty())
             say ("Key: " + name + " (key code " + std::to_string (keyCode) + ")");
 
-        return wait (50) ? Result::good() : stoppedResult();
+        return wait (keyGapMilliseconds) ? Result::good() : stoppedResult();
     }
 
     // The digits on the top row of the keyboard, one key each. (The keypad's digits are transport
@@ -927,12 +948,78 @@ struct Driver::State
             if (last == Open::no)
                 return Closed::closed;
 
-            if (! wait (50))
+            if (! wait (poll()))
                 return Closed::stopped;
         }
         while (millisecondsSince (start) < milliseconds);
 
         return last == Open::unknown ? Closed::noAnswer : Closed::stillOpen;
+    }
+
+    // Reads the dialog once and keeps its location field and its OK and Cancel buttons. The
+    // location field is the text field whose value reads as bar|beat|ticks, or the one with
+    // the identifier LOCA.
+    Result readParts (const Element& dialog)
+    {
+        if (same (parts.dialog, dialog))
+            return Result::good();
+
+        parts = {};
+        auto limits = walk (4000);
+
+        for (const auto& [element, info] : readAll (dialog, 400, limits))
+        {
+            if (info.isText())
+            {
+                long long got[3] = {};
+
+                if (! parts.field && (parseBarBeat (info.value, got) || lower (trim (info.identifier)) == "loca"))
+                    parts.field = element;
+            }
+            else if (info.role == "AXButton")
+            {
+                const auto title = normalise (info.title);
+
+                if (title == "ok" && ! parts.ok)
+                    parts.ok = element;
+                else if (title == "cancel" && ! parts.cancel)
+                    parts.cancel = element;
+            }
+        }
+
+        if (stopped())
+            return stoppedResult();
+
+        if (limits.noAnswer)
+            return noAnswer ("while the Identify Beat dialog was read");
+
+        if (! parts.ok)
+            parts.ok = copyElement (ax (dialog), kAXDefaultButtonAttribute);
+
+        if (! parts.cancel)
+            parts.cancel = copyElement (ax (dialog), kAXCancelButtonAttribute);
+
+        parts.dialog = dialog;
+        return Result::good();
+    }
+
+    // What the location field shows, asked again for up to `milliseconds` until it reads as
+    // bar|beat|ticks. False when it never does.
+    bool readLocation (std::string& shown, long long got[3], int milliseconds) const
+    {
+        const auto start = Clock::now();
+
+        do
+        {
+            const auto info = readInfo (ax (parts.field));
+            shown = info.value;
+
+            if (parseBarBeat (shown, got))
+                return true;
+        }
+        while (wait (poll()) && millisecondsSince (start) < milliseconds);
+
+        return false;
     }
 };
 
@@ -1481,6 +1568,9 @@ Result Driver::goToSample (long long sample)
         if (sample < 0)
             return Result::bad ("the sample to go to is below zero");
 
+        if (s.quick)
+            return goToSampleQuick (sample);
+
         const auto wanted = std::to_string (sample);
         const auto before = s.windowsPatiently (2000);
 
@@ -1631,7 +1721,7 @@ Result Driver::openIdentifyBeat (const Element& menuItem, Element& dialog)
             if (dialog)
                 break;
 
-            if (! s.wait (50))
+            if (! s.wait (s.poll()))
                 return State::stoppedResult();
         }
         while (millisecondsSince (waitStart) < 3000);
@@ -1659,7 +1749,7 @@ Result Driver::openIdentifyBeat (const Element& menuItem, Element& dialog)
         s.say ("The dialog " + quoted (readInfo (ax (dialog)).title) + " appeared after "
                + std::to_string (millisecondsSince (start)) + " ms");
 
-        if (! s.dialogDescribed)
+        if (! s.dialogDescribed && ! s.quick)
         {
             s.dialogDescribed = true;
             s.say ("What the dialog contains:\n" + s.describe (dialog, 8));
@@ -1685,6 +1775,9 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
 
         if (wanted[0] < 1 || wanted[1] < 1)
             return Result::bad ("the location " + quoted (barBeat) + " is before bar 1 beat 1");
+
+        if (s.quick)
+            return enterLocationQuick (dialog, barBeat);
 
         // The dialog's text fields with their values as they are at the time of the call.
         const auto textFields = [&dialog, &s]
@@ -2005,9 +2098,16 @@ Result Driver::confirmIdentifyBeat (const Element& dialog, bool& okPressed)
         if (! dialog)
             return Result::bad ("there is no Identify Beat dialog to confirm");
 
-        auto button = findButton (dialog, "ok", s.walk (4000));
+        Element button;
 
-        if (button)
+        if (s.quick)
+        {
+            if (auto read = s.readParts (dialog); ! read.ok)
+                return read;
+
+            button = s.parts.ok;
+        }
+        else if (button = findButton (dialog, "ok", s.walk (4000)); button)
         {
             s.say ("Found the OK button by its title: " + oneLine (button));
         }
@@ -2058,10 +2158,13 @@ Result Driver::confirmIdentifyBeat (const Element& dialog, bool& okPressed)
             return s.noAnswer ("for 3 seconds after OK was pressed, so it is not known whether the dialog closed. Nothing more was pressed");
 
         // An alert can come up a moment after the dialog goes, so once the dialog has closed the
-        // windows are watched for half a second more.
+        // windows are watched for half a second more. At the quick pace it is a fifth of a
+        // second: the next move looks at the windows before its first key and again before its
+        // keypad Enter, which comes more than half a second after this OK.
         std::vector<Element> opened;
         bool answered = false;
         const auto watchStart = Clock::now();
+        const int watchMilliseconds = s.quick ? 200 : 500;
 
         do
         {
@@ -2077,10 +2180,10 @@ Result Driver::confirmIdentifyBeat (const Element& dialog, bool& okPressed)
             if (closed != State::Closed::closed)
                 break;
 
-            if (! s.wait (50))
+            if (! s.wait (s.poll()))
                 return State::stoppedResult();
         }
-        while (millisecondsSince (watchStart) < 500);
+        while (millisecondsSince (watchStart) < watchMilliseconds);
 
         if (! opened.empty())
         {
@@ -2099,7 +2202,8 @@ Result Driver::confirmIdentifyBeat (const Element& dialog, bool& okPressed)
         if (! answered)
             return s.noAnswer ("after the dialog closed, so it is not known whether another window appeared");
 
-        s.say ("The dialog closed and no other window appeared in the half second after");
+        s.say (s.quick ? "The dialog closed and no other window appeared in the 200 ms after"
+                       : "The dialog closed and no other window appeared in the half second after");
         return Result::good();
     }
 }
@@ -2135,7 +2239,12 @@ Result Driver::cancelDialog (const Element& dialog)
         if (open == State::Open::unknown)
             return s.noAnswer ("when asked for its windows, so it is not known whether the Identify Beat dialog is open. Nothing was pressed");
 
-        auto button = findButton (dialog, "cancel", s.walk (4000));
+        Element button;
+
+        if (s.quick && s.readParts (dialog).ok)
+            button = s.parts.cancel;
+        else
+            button = findButton (dialog, "cancel", s.walk (4000));
 
         if (! button)
             button = copyElement (ax (dialog), kAXCancelButtonAttribute);
@@ -2177,6 +2286,457 @@ Result Driver::cancelDialog (const Element& dialog)
 
         s.say ("The dialog was cancelled and has closed");
         return Result::good();
+    }
+}
+
+//==============================================================================
+void Driver::setQuick (bool quick, bool slowKeys)
+{
+    state->quick = quick;
+    state->keyHoldMicroseconds = (quick && ! slowKeys) ? 8000 : 30000;
+    state->keyGapMilliseconds = (quick && ! slowKeys) ? 8 : 50;
+}
+
+Result Driver::pause (int milliseconds)
+{
+    return state->wait (milliseconds) ? Result::good() : State::stoppedResult();
+}
+
+void Driver::keepInViewEverywhere (void* nativeView)
+{
+    @autoreleasepool
+    {
+        if (nativeView == nullptr)
+            return;
+
+        NSWindow* window = [(__bridge NSView*) nativeView window];
+
+        if (window != nil)
+        {
+            [window setCollectionBehavior: [window collectionBehavior] | NSWindowCollectionBehaviorCanJoinAllSpaces
+                                           | NSWindowCollectionBehaviorFullScreenAuxiliary];
+            [window setHidesOnDeactivate: NO];
+        }
+    }
+}
+
+Result Driver::checkWindowsAtStart()
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        const auto all = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! all)
+            return s.noAnswer ("when asked for its windows");
+
+        std::string list = s.appName + " has " + std::to_string (all->size()) + (all->size() == 1 ? " window" : " windows");
+        std::string editTitle, editDocument, modalTitle, identifyTitle;
+        bool editFound = false, modalFound = false, identifyFound = false;
+
+        for (const auto& w : *all)
+        {
+            const auto info = readInfo (ax (w));
+
+            if (! info.answered)
+                return s.noAnswer ("while its windows were read");
+
+            std::string document;
+            CFTypeRef value = nullptr;
+
+            if (AXUIElementCopyAttributeValue (ax (w), kAXDocumentAttribute, &value) == kAXErrorSuccess && value != nullptr)
+                document = valueText (value);
+
+            if (value != nullptr)
+                CFRelease (value);
+
+            bool modal = false;
+            value = nullptr;
+
+            if (AXUIElementCopyAttributeValue (ax (w), kAXModalAttribute, &value) == kAXErrorSuccess && value != nullptr
+                && CFGetTypeID (value) == CFBooleanGetTypeID())
+                modal = CFBooleanGetValue ((CFBooleanRef) value);
+
+            if (value != nullptr)
+                CFRelease (value);
+
+            list += "\n  " + oneLine (ax (w), info, false) + (modal ? " modal" : "")
+                    + (document.empty() ? std::string (" no AXDocument") : " AXDocument=" + quoted (document, 400));
+
+            const auto title = normalise (info.title);
+
+            if (! editFound && title.rfind ("edit:", 0) == 0)
+            {
+                editFound = true;
+                editTitle = info.title;
+                editDocument = document;
+            }
+
+            if (! identifyFound && contains (title, "bar") && contains (title, "beat"))
+            {
+                identifyFound = true;
+                identifyTitle = info.title;
+            }
+            else if (! modalFound && modal)
+            {
+                modalFound = true;
+                modalTitle = info.title;
+            }
+        }
+
+        s.say (list);
+
+        if (! editFound)
+            s.say ("Session document: no window has a title that starts with \"Edit:\"");
+        else if (! editDocument.empty())
+            s.say ("Session document: the Edit window gives it as " + quoted (editDocument, 400));
+        else
+            s.say ("Session document: the Edit window gives no AXDocument. Its title is " + quoted (editTitle, 200));
+
+        if (identifyFound)
+            return Result::bad ("a window titled " + quoted (identifyTitle) + " is already open in " + s.appName
+                                + ". Close it and try again");
+
+        if (modalFound)
+            return Result::bad ("a dialog titled " + quoted (modalTitle) + " is open in " + s.appName + ". Close it and try again");
+
+        return Result::good();
+    }
+}
+
+//==============================================================================
+Result Driver::goToSampleQuick (long long sample)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+
+        if (! s.counter)
+            return Result::bad ("the Main Counter has not been found, so the cursor cannot be moved");
+
+        const auto wanted = std::to_string (sample);
+        const auto start = Clock::now();
+        const auto before = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! before)
+            return s.noAnswer ("when asked for its windows, so no key was sent");
+
+        // A window that was not open when the run began would get the keys.
+        if (s.baseline)
+            if (const auto extra = notIn (*before, *s.baseline); ! extra.empty())
+            {
+                s.say ("A window is open that was not there at the start of the run. No key is sent:\n" + s.describe (extra.front(), 6));
+                return Result::bad ("a window titled " + quoted (readInfo (ax (extra.front())).title) + " saying "
+                                    + quoted (s.textIn (extra.front()), 300) + " is open in " + s.appName
+                                    + ", so the keys for sample " + wanted + " were not sent. Nothing was pressed in it");
+            }
+
+        if (auto r = s.pressKey (keypadStarKey, kCGEventFlagMaskNumericPad, 0, "keypad *"); ! r.ok)
+            return r;
+
+        // The counter takes the keyboard. It is given up to 120 ms to say so; the digits are
+        // typed either way, as they were when this wait was a fixed one.
+        bool counterHasKeys = false;
+
+        for (const auto asked = Clock::now(); millisecondsSince (asked) < 120;)
+        {
+            if (readInfo (ax (s.counter)).focused)
+            {
+                counterHasKeys = true;
+                break;
+            }
+
+            if (! s.wait (5))
+                return State::stoppedResult();
+        }
+
+        if (! s.counterFocusLogged)
+        {
+            s.counterFocusLogged = true;
+            s.say (counterHasKeys ? "After keypad * the Main Counter says it has the keyboard"
+                                  : "After keypad * the Main Counter does not say it has the keyboard. Waited 120 ms");
+        }
+
+        if (auto r = s.typeDigits (wanted); ! r.ok)
+            return r;
+
+        // Keypad Enter presses the default button of whatever window has the keyboard, so the
+        // windows are looked at once more before it is sent.
+        const auto beforeEnter = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! beforeEnter)
+            return s.noAnswer ("when asked for its windows after the digits of sample " + wanted + ", so keypad Enter was not sent");
+
+        if (const auto opened = notIn (*beforeEnter, *before); ! opened.empty())
+        {
+            s.say ("A window opened while the sample was typed. Keypad Enter is not sent:\n" + s.describe (opened.front(), 5));
+            return Result::bad ("a window titled " + quoted (readInfo (ax (opened.front())).title)
+                                + " opened while sample " + wanted + " was typed, so keypad Enter was not sent. "
+                                  "Nothing was pressed in it");
+        }
+
+        if (auto r = s.pressKey (keypadEnterKey, kCGEventFlagMaskNumericPad, 0, "keypad Enter"); ! r.ok)
+            return r;
+
+        // The counter must show the sample. It is asked until it does, for as long as the fixed
+        // waits it replaces.
+        std::string shown;
+        bool arrived = false, answered = true;
+        const auto entered = Clock::now();
+
+        do
+        {
+            const auto info = readInfo (ax (s.counter));
+            answered = info.answered && info.hasValue;
+            shown = info.value;
+
+            if (answered && counterDigits (shown) == wanted)
+            {
+                arrived = true;
+                break;
+            }
+        }
+        while (s.wait (s.poll()) && millisecondsSince (entered) < 1150);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        const auto after = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! after)
+            return s.noAnswer ("after the keys for sample " + wanted + " were sent, so it is not known whether a window opened");
+
+        if (const auto opened = notIn (*after, *before); ! opened.empty())
+        {
+            s.say ("A window opened after the keys:\n" + s.describe (opened.front(), 5));
+            return Result::bad ("a window titled " + quoted (readInfo (ax (opened.front())).title)
+                                + " opened when the sample was typed, so the keys did not go to the Main Counter. "
+                                  "Nothing was pressed in it");
+        }
+
+        if (! arrived)
+            return Result::bad (answered ? "the Main Counter shows " + quoted (shown) + " after going to sample " + wanted
+                                         : "the Main Counter could not be read after going to sample " + wanted);
+
+        s.say ("The Main Counter shows " + shown + ", " + std::to_string (millisecondsSince (start)) + " ms for the move");
+        return Result::good();
+    }
+}
+
+//==============================================================================
+Result Driver::readIdentifyBeatLocation (const Element& dialog, std::string& shown)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        shown.clear();
+
+        if (! dialog)
+            return Result::bad ("there is no Identify Beat dialog to read");
+
+        if (auto read = s.readParts (dialog); ! read.ok)
+            return read;
+
+        if (! s.parts.field)
+            return Result::bad ("the Identify Beat dialog shows no location field through Accessibility");
+
+        long long got[3] = {};
+
+        if (! s.readLocation (shown, got, 300))
+            return s.stopped() ? State::stoppedResult()
+                               : Result::bad ("the location field of the Identify Beat dialog shows " + quoted (shown)
+                                              + ", which is not bar|beat|ticks");
+
+        return Result::good();
+    }
+}
+
+Result Driver::enterLocationQuick (const Element& dialog, const std::string& barBeat)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        long long wanted[3] = {};
+
+        if (! parseBarBeat (barBeat, wanted))
+            return Result::bad ("the location " + quoted (barBeat) + " is not bar|beat|ticks");
+
+        const auto cancelledNote = [&]
+        {
+            const auto cancelled = cancelDialog (dialog);
+            return cancelled.ok ? std::string (". The dialog was cancelled")
+                                : ". The dialog could not be cancelled: " + cancelled.message;
+        };
+
+        if (auto read = s.readParts (dialog); ! read.ok)
+            return read;
+
+        if (! s.parts.field)
+        {
+            s.say ("No location field was found in the dialog:\n" + s.describe (dialog, 8));
+            return Result::bad ("the Identify Beat dialog shows no location field through Accessibility" + cancelledNote());
+        }
+
+        const auto& field = s.parts.field;
+        std::string suggested;
+        long long before[3] = {};
+
+        if (! s.readLocation (suggested, before, 300))
+        {
+            if (s.stopped())
+                return State::stoppedResult();
+
+            return Result::bad ("the location field of the Identify Beat dialog shows " + quoted (suggested)
+                                + " before anything is typed, which is not bar|beat|ticks" + cancelledNote());
+        }
+
+        s.say ("The dialog suggests " + quoted (suggested));
+
+        // Pro Tools opens the dialog with the keyboard already in the location field, and names
+        // its OK button as the application's focused element meanwhile, so the field's own
+        // focused state is what counts. The focus is only touched when it is somewhere else.
+        const auto keyboardInField = [&field]
+        {
+            return readInfo (ax (field)).focused;
+        };
+
+        const auto waitForKeyboard = [&] (int milliseconds)
+        {
+            const auto asked = Clock::now();
+
+            while (! keyboardInField() && millisecondsSince (asked) < milliseconds)
+                if (! s.wait (s.poll()))
+                    return false;
+
+            return true;
+        };
+
+        if (! keyboardInField())
+        {
+            if (auto guard = s.frontGuard(); ! guard.ok)
+                return guard;
+
+            AXError focusError = AXUIElementPerformAction (ax (field), kAXPressAction);
+            s.say ("The keyboard is not in the location field. Pressed the field (AXPress): " + errorName (focusError));
+
+            if (! waitForKeyboard (120))
+                return State::stoppedResult();
+
+            if (! keyboardInField())
+            {
+                focusError = AXUIElementSetAttributeValue (ax (field), kAXFocusedAttribute, kCFBooleanTrue);
+                s.say ("Still not there. Set AXFocused on the field: " + errorName (focusError));
+
+                if (! waitForKeyboard (120))
+                    return State::stoppedResult();
+            }
+        }
+
+        // In the Edit window digits and periods are commands, so nothing is typed unless the
+        // field says it has the keyboard and the dialog is the focused window.
+        Element focusedWindow;
+        const AXError windowError = copyElementChecked (ax (s.app), kAXFocusedWindowAttribute, focusedWindow);
+        const bool fieldHasKeys = keyboardInField();
+        const bool dialogHasKeys = same (focusedWindow, dialog);
+
+        if (! fieldHasKeys || ! dialogHasKeys)
+        {
+            s.say (std::string ("Nothing is typed: ")
+                   + (! dialogHasKeys ? "the Identify Beat dialog is not the focused window ("
+                                            + (focusedWindow ? oneLine (focusedWindow, false) : "not given, " + errorName (windowError)) + ")"
+                                      : std::string ("the location field does not say it has the keyboard"))
+                   + ". Cancelling the dialog.");
+            return Result::bad ("the keyboard was not in the location field of the Identify Beat dialog, so the location was not typed"
+                                + cancelledNote());
+        }
+
+        char ticks[16];
+        std::snprintf (ticks, sizeof (ticks), "%03lld", wanted[2]);
+
+        // The field opens with its bar part selected: digits replace the selected part and a
+        // period moves to the next one.
+        Result typed = s.typeDigits (std::to_string (wanted[0]));
+        if (typed.ok) typed = s.pressKey (periodKey, 0, (UniChar) '.', "period");
+        if (typed.ok) typed = s.typeDigits (std::to_string (wanted[1]));
+        if (typed.ok) typed = s.pressKey (periodKey, 0, (UniChar) '.', "period");
+        if (typed.ok) typed = s.typeDigits (ticks);
+
+        if (! typed.ok)
+            return typed;
+
+        // The field must show what was typed. It is asked until it does, for as long as the
+        // fixed waits it replaces.
+        std::string shown;
+        long long got[3] = {};
+        bool readable = false, matches = false;
+        const auto asked = Clock::now();
+
+        do
+        {
+            shown = readInfo (ax (field)).value;
+            readable = parseBarBeat (shown, got);
+            matches = readable && got[0] == wanted[0] && got[1] == wanted[1] && got[2] == wanted[2];
+        }
+        while (! matches && s.wait (s.poll()) && millisecondsSince (asked) < 300);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (matches)
+        {
+            s.say ("The dialog shows " + quoted (shown) + ", as typed");
+            return Result::good ("the location was typed and read back");
+        }
+
+        s.say ("The dialog shows " + quoted (shown) + " and " + quoted (barBeat) + " was wanted. Cancelling the dialog.");
+        return Result::bad ("the Identify Beat dialog showed " + quoted (shown) + " after " + barBeat + " was typed"
+                            + cancelledNote());
+    }
+}
+
+//==============================================================================
+Result Driver::sendUndo()
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        const auto now = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! now)
+            return s.noAnswer ("when asked for its windows, so Cmd+Z was not sent");
+
+        if (s.baseline)
+            if (const auto extra = notIn (*now, *s.baseline); ! extra.empty())
+            {
+                s.say ("A window is open that was not there at the start. Cmd+Z is not sent:\n" + s.describe (extra.front(), 5));
+                return Result::bad ("a window titled " + quoted (readInfo (ax (extra.front())).title) + " is open in " + s.appName
+                                    + ", so Cmd+Z was not sent. Nothing was pressed in it");
+            }
+
+        return s.pressKey (zKey, kCGEventFlagMaskCommand, 0, "Cmd+Z");
     }
 }
 

@@ -35,6 +35,9 @@ struct Theme
     // Width of one line of text in the given font.
     static float textWidth (const juce::Font& font, const juce::String& text);
 
+    // True when macOS is set to reduce motion (System Settings > Accessibility > Display).
+    static bool reduceMotion();
+
     // Sets the palette on every standard widget colour of a LookAndFeel.
     static void apply (juce::LookAndFeel_V4&);
 };

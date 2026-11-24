@@ -2,7 +2,9 @@
 
 #include "MainComponent.h"
 #include "ProToolsTestPanel.h"
+#include "ProToolsWrite.h"
 #include "protools/IdentifyBeatTest.h"
+#include "protools/IdentifyBeatWrite.h"
 #include "ui/Theme.h"
 
 #include <algorithm>
@@ -62,9 +64,15 @@ public:
 
         const auto args = getCommandLineParameterArray();
 
-        if (args.contains ("--snapshot") || args.contains ("--test-panel-snapshot"))
+        if (args.contains ("--snapshot") || args.contains ("--test-panel-snapshot") || args.contains ("--write-sheet-snapshot"))
         {
-            runSnapshot (args, args.contains ("--test-panel-snapshot"));
+            runSnapshot (args, args.contains ("--test-panel-snapshot"), args.contains ("--write-sheet-snapshot"));
+            return;
+        }
+
+        if (args.contains ("--write-test"))
+        {
+            runWriteTestHeadless();
             return;
         }
 
@@ -150,6 +158,7 @@ private:
 
     std::unique_ptr<MainComponent> snapshot;
     juce::File snapshotOut;
+    bool printView = false;
     std::thread headlessRun;
 
     bool openFile (const juce::String& path)
@@ -173,12 +182,26 @@ private:
     // Maps the file, lays the window's contents out at the given size and saves them as a PNG at
     // twice that size, then quits. No window is opened and no audio device is used.
     //
+    // What is in view can be set up first, in this order:
+    //   --view-start S --view-end S   the stretch in view, in seconds (0 and a large number: the whole file)
+    //   --select-pin N                selects a pin, counted from 0
+    //   --snap hits|grid|off          the Snap setting
+    //   --wave-height X               draws the waveform X times taller
+    //   --keys "t t opt+f shift+."    presses these keys, one after the other (see keyFromName)
+    //   --drag-pin N --drag-to S      shows pin N part-way through a drag to S seconds
+    //   --print-view                  prints the stretch in view, the selected pin and the playhead
+    //
     // --test-panel-snapshot takes the same arguments and has the Pro Tools test panel open, showing
     // the log of a Look only run that looked for an application that is not running. With
     // --permission yes or --permission no the panel shows the Accessibility permission that way.
-    void runSnapshot (const juce::StringArray& args, bool withTestPanel)
+    //
+    // --write-sheet-snapshot takes the same arguments and has the Write to Pro Tools sheet open:
+    //   --state ready|permission|notrunning|running|checking|finished|stopped   what the sheet shows (ready)
+    //   --more                        with More opened
+    //   --float <out.png>             also saves the floating panel of a run as a picture
+    void runSnapshot (const juce::StringArray& args, bool withTestPanel, bool withWriteSheet)
     {
-        const int at = args.indexOf (withTestPanel ? "--test-panel-snapshot" : "--snapshot");
+        const int at = args.indexOf (withTestPanel ? "--test-panel-snapshot" : withWriteSheet ? "--write-sheet-snapshot" : "--snapshot");
         const auto valueAfter = [&args] (const juce::String& flag) -> juce::String
         {
             const int i = args.indexOf (flag);
@@ -220,6 +243,7 @@ private:
 
         snapshot->setSize (width, height);
         snapshot->refresh();
+        setUpSnapshotView (args);
 
         if (withTestPanel)
         {
@@ -241,8 +265,155 @@ private:
             panel.showFinishedRun (log, outcome);
         }
 
+        if (withWriteSheet)
+            setUpWriteSheet (args, audioFile.getFileName());
+
         // A moment for anything the view prepares asynchronously, then the picture.
         juce::Timer::callAfterDelay (500, [this] { finishSnapshot(); });
+    }
+
+    // A key by name, for --keys: "t", "return", "tab", "left", "right", "space", "delete", "f2",
+    // "," and so on, with "cmd+", "opt+" and "shift+" before it in any order.
+    static juce::KeyPress keyFromName (const juce::String& name)
+    {
+        auto parts = juce::StringArray::fromTokens (name.toLowerCase(), "+", "");
+        parts.removeEmptyStrings();
+
+        if (parts.isEmpty())
+            return {};
+
+        const auto keyName = parts[parts.size() - 1];
+        parts.remove (parts.size() - 1);
+        int modifiers = 0;
+
+        for (const auto& part : parts)
+            modifiers |= part == "cmd" ? juce::ModifierKeys::commandModifier
+                       : part == "opt" ? juce::ModifierKeys::altModifier
+                       : part == "shift" ? juce::ModifierKeys::shiftModifier : 0;
+
+        const int code = keyName == "return" ? juce::KeyPress::returnKey
+                       : keyName == "tab" ? juce::KeyPress::tabKey
+                       : keyName == "left" ? juce::KeyPress::leftKey
+                       : keyName == "right" ? juce::KeyPress::rightKey
+                       : keyName == "space" ? juce::KeyPress::spaceKey
+                       : keyName == "delete" ? juce::KeyPress::deleteKey
+                       : keyName == "escape" ? juce::KeyPress::escapeKey
+                       : keyName == "f2" ? juce::KeyPress::F2Key
+                       : keyName == "f3" ? juce::KeyPress::F3Key
+                       : keyName == "f4" ? juce::KeyPress::F4Key
+                       : (int) juce::CharacterFunctions::toUpperCase (keyName[0]);
+
+        return juce::KeyPress (code, juce::ModifierKeys (modifiers), 0);
+    }
+
+    // The view options of --snapshot.
+    void setUpSnapshotView (const juce::StringArray& args)
+    {
+        auto& view = snapshot->getWaveform();
+
+        if (const auto start = valueAfterFlag (args, "--view-start"), end = valueAfterFlag (args, "--view-end");
+            start.isNotEmpty() && end.isNotEmpty())
+            view.showRange (start.getDoubleValue(), end.getDoubleValue());
+
+        if (const auto pin = valueAfterFlag (args, "--select-pin"); pin.isNotEmpty())
+            view.setSelectedPin (pin.getIntValue());
+
+        if (const auto snap = valueAfterFlag (args, "--snap"); snap.isNotEmpty())
+            snapshot->keyPressed (keyFromName (snap == "off" ? "f2" : snap == "grid" ? "f4" : "f3"));
+
+        if (const auto height = valueAfterFlag (args, "--wave-height"); height.isNotEmpty())
+            view.setWaveHeight (height.getDoubleValue());
+
+        for (const auto& name : juce::StringArray::fromTokens (valueAfterFlag (args, "--keys"), " ", ""))
+            if (name.isNotEmpty())
+                snapshot->keyPressed (keyFromName (name));
+
+        if (const auto pin = valueAfterFlag (args, "--drag-pin"), to = valueAfterFlag (args, "--drag-to");
+            pin.isNotEmpty() && to.isNotEmpty())
+            view.showDragForSnapshot (pin.getIntValue(), to.getDoubleValue());
+
+        printView = args.contains ("--print-view");
+    }
+
+    // The states of the Write to Pro Tools sheet, for --write-sheet-snapshot. Nothing is run and
+    // Pro Tools is not looked for: each state is made up from the pins of the open music.
+    void setUpWriteSheet (const juce::StringArray& args, const juce::String& musicName)
+    {
+        const auto state = valueAfterFlag (args, "--state");
+        const auto& pins = snapshot->getDocument().getMap().pins;
+        const int total = (int) pins.size();
+        auto& sheet = snapshot->getProToolsWrite();
+
+        sheet.showPermissionAs (state != "permission");
+        snapshot->showProToolsWrite();
+        sheet.showMoreOpen (args.contains ("--more"));
+
+        pt::CounterReading reading;
+        reading.running = state != "notrunning";
+        reading.read = reading.isSamples = reading.running;
+        reading.sample = 2880000;
+        reading.text = "2880000";
+        sheet.showCounterAs (reading);
+
+        const int seventh = std::min (6, std::max (0, total - 1));
+
+        if (state == "running" || state == "checking")
+            sheet.showRunning (state == "running" ? pt::Phase::writing : pt::Phase::checking, seventh, total);
+
+        if (state == "finished" || state == "stopped")
+        {
+            // The log of a run that found no application to drive stands in for a real one.
+            pt::WriteSettings settings;
+            settings.pins = pins;
+            settings.sessionSampleRate = snapshot->getDocument().getSampleRate();
+            settings.appVersion = JUCE_APPLICATION_VERSION_STRING;
+            settings.musicName = musicName.toStdString();
+            settings.bundleIdentifier = notRunningBundleIdentifier;
+
+            juce::String log;
+            auto outcome = pt::runWrite (settings,
+                                         [&log] (const std::string& line) { log << juce::String::fromUTF8 (line.c_str()) << "\n"; },
+                                         [] { return false; }, {});
+            outcome.hasMusicStart = true;
+            outcome.musicStart = reading.sample;
+
+            if (state == "finished")
+            {
+                outcome.ok = true;
+                outcome.written = total;
+                outcome.checked = true;
+                outcome.checkedPins = total;
+                outcome.summary = "Written: " + std::to_string (total) + (total == 1 ? " pin" : " pins");
+                outcome.checkSummary = total == 1 ? std::string ("The pin checks out")
+                                                  : "All " + std::to_string (total) + " pins check out";
+            }
+            else
+            {
+                outcome.failedPin = seventh + 1;
+                outcome.written = seventh;
+                outcome.reason = "Pro Tools stopped being the front application";
+                outcome.summary = "Stopped at pin " + std::to_string (outcome.failedPin) + " of " + std::to_string (total)
+                                  + ": " + outcome.reason;
+            }
+
+            sheet.showFinished (outcome, log);
+        }
+
+        if (const auto floatOut = valueAfterFlag (args, "--float"); floatOut.isNotEmpty())
+        {
+            const auto image = ProToolsWriteSheet::floatingPanelPicture (state == "checking" ? pt::Phase::checking : pt::Phase::writing,
+                                                                         seventh, total);
+            const auto file = juce::File::getCurrentWorkingDirectory().getChildFile (floatOut);
+            file.deleteFile();
+
+            if (auto stream = file.createOutputStream())
+            {
+                juce::PNGImageFormat png;
+
+                if (png.writeImageToStream (image, *stream))
+                    std::cout << "Wrote " << file.getFullPathName() << " (" << image.getWidth() << " x " << image.getHeight() << ")" << std::endl;
+            }
+        }
     }
 
     // --snapshot-empty <out.png> [--width W --height H]
@@ -373,6 +544,40 @@ private:
         });
     }
 
+    // --write-test
+    // Runs the write to Pro Tools without the window, against an application that is not running,
+    // and prints its log. It sends three made-up pins, so it never looks for Pro Tools itself.
+    void runWriteTestHeadless()
+    {
+        pt::WriteSettings settings;
+        settings.appVersion = JUCE_APPLICATION_VERSION_STRING;
+        settings.musicName = "made-up pins";
+        settings.sessionSampleRate = 48000.0;
+        settings.bundleIdentifier = notRunningBundleIdentifier;
+
+        // Bars 40, 44 and 48 at 120 bpm.
+        for (int i = 0; i < 3; ++i)
+            settings.pins.push_back ({ 156.0 + 16.0 * i, 1.0 + 8.0 * i, false, i == 0 });
+
+        headlessRun = std::thread ([this, settings]
+        {
+            const auto outcome = pt::runWrite (settings,
+                                               [] (const std::string& line) { std::cout << line << std::endl; },
+                                               [] { return false; },
+                                               [] (pt::Phase, int, int) {});
+
+            juce::MessageManager::callAsync ([this, outcome]
+            {
+                std::cout << "Outcome: ok=" << (outcome.ok ? "yes" : "no") << " written=" << outcome.written
+                          << " of " << outcome.total << " summary=\"" << outcome.summary << "\"" << std::endl;
+
+                // The run is meant to stop before it touches anything.
+                setApplicationReturnValue (! outcome.ok && outcome.written == 0 ? 0 : 1);
+                quit();
+            });
+        });
+    }
+
     //==============================================================================
     // --selftest <audio file>
     // Works on a copy of the file in a temporary folder: maps it, makes two edits, changes the first
@@ -426,6 +631,29 @@ private:
             check (doc.getInputs().userPins.size() >= 1, "edits made user pins: " + juce::String ((int) doc.getInputs().userPins.size()));
             check (doc.undo() && doc.redo(), "undo and redo");
             check (doc.hasUnsavedChanges(), "the edits count as unsaved changes");
+
+            // Three moves of one pin, the second and third joined to the first, are one undo step.
+            if (doc.getMap().pins.size() >= 2)
+            {
+                const auto before = doc.getInputs();
+                const int last = (int) doc.getMap().pins.size() - 1;
+                const double from = doc.getMap().pins[(size_t) last].time;
+
+                for (int i = 1; i <= 3; ++i)
+                    doc.movePin ((int) doc.getMap().pins.size() - 1, from + 0.001 * i, i > 1);
+
+                const bool moved = std::abs (doc.getMap().pins.back().time - (from + 0.003)) < 1.0e-9;
+                check (moved && doc.undo() && doc.getInputs() == before, "a run of joined moves is undone in one step");
+            }
+
+            // How often pins are placed is an edit like any other, and is saved with the map.
+            {
+                const auto before = doc.getInputs();
+                doc.setPinEveryBars (8);
+                const bool set = doc.getInputs().options.pinEveryBars == 8;
+                check (set && doc.undo() && doc.getInputs() == before && doc.redo() && doc.getInputs().options.pinEveryBars == 8,
+                       "Pin every 8 bars is set, undone and redone");
+            }
 
             // The first bar changed after the edits: every pin keeps its time and moves 39 bars.
             {
@@ -519,6 +747,27 @@ private:
     {
         if (snapshot == nullptr)
             return;
+
+        if (printView)
+        {
+            const auto& view = snapshot->getWaveform();
+            const auto& pins = snapshot->getDocument().getMap().pins;
+            const int selected = view.getSelectedPin();
+
+            std::cout << "View " << juce::String (view.getViewStart(), 4) << " to " << juce::String (view.getViewEnd(), 4) << " s"
+                      << ", playhead " << juce::String (view.getPlayhead(), 5) << " s"
+                      << ", " << (int) pins.size() << " pins";
+
+            if (selected >= 0 && selected < (int) pins.size())
+                std::cout << ", selected pin " << selected << " at " << juce::String (pins[(size_t) selected].time, 6) << " s";
+            else
+                std::cout << ", no pin selected";
+
+            std::cout << ", wave height " << juce::String (view.getWaveHeight(), 3)
+                      << ", snap " << (view.getSnap() == ui::WaveformView::Snap::hits ? "hits"
+                                       : view.getSnap() == ui::WaveformView::Snap::grid ? "grid" : "off")
+                      << ", status: " << snapshot->getDocument().getStatus() << std::endl;
+        }
 
         const auto image = snapshot->createComponentSnapshot (snapshot->getLocalBounds(), true, 2.0f);
 

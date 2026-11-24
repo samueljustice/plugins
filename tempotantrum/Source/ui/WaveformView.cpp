@@ -11,11 +11,23 @@ namespace tt::ui
 
 namespace
 {
-    constexpr int rulerHeight = 22;
-    constexpr int overviewHeight = 4;
-    constexpr float pinGrabPixels = 5.0f;
-    constexpr double shortestSpan = 0.2;        // seconds: the closest zoom
-    constexpr double pinSpacing = 0.005;        // seconds kept between a dragged pin and its neighbours
+    constexpr int rulerHeight = 38;             // bar numbers, the tempo between pins, the pin heads
+    constexpr int overviewHeight = 14;
+    constexpr float pinGrabPixels = 6.0f;       // either side of a pin
+    constexpr float snapPixels = 12.0f;         // how near a hit must be for a pin to snap to it
+    constexpr double shortestSpan = 0.05;       // seconds: the closest zoom
+    constexpr double pinSpacing = 0.005;        // seconds kept between a moved pin and its neighbours
+    constexpr double glideMs = 120.0;           // how long a zoom from the keyboard takes
+    constexpr double detailPixelsPerBeat = 60.0;  // from here in, the waveform is drawn as a shape and the hits as ticks
+    constexpr double lowestWaveHeight = 0.25, highestWaveHeight = 64.0;
+
+    // "1:23.456"
+    juce::String clockText (double seconds)
+    {
+        const auto ms = (juce::int64) std::llround (juce::jmax (0.0, seconds) * 1000.0);
+        return juce::String (ms / 60000) + ":" + juce::String ((ms / 1000) % 60).paddedLeft ('0', 2)
+             + "." + juce::String (ms % 1000).paddedLeft ('0', 3);
+    }
 
     juce::String ellipsised (const char* text)
     {
@@ -73,7 +85,7 @@ void WaveformView::PeakCache::build (const juce::AudioBuffer<float>& buffer)
     // The finest level, from the samples: channels are averaged to mono.
     const int base = 16;
     const size_t buckets = (size_t) ((n + base - 1) / base);
-    std::vector<float> lo (buckets), hi (buckets);
+    std::vector<float> lo (buckets), hi (buckets), rms (buckets);
     const float gain = 1.0f / (float) channels;
     float peak = 0.0f;
 
@@ -83,6 +95,7 @@ void WaveformView::PeakCache::build (const juce::AudioBuffer<float>& buffer)
         const int end = juce::jmin (n, start + base);
         float mn = std::numeric_limits<float>::max();
         float mx = std::numeric_limits<float>::lowest();
+        double squares = 0.0;
 
         for (int i = start; i < end; ++i)
         {
@@ -94,10 +107,12 @@ void WaveformView::PeakCache::build (const juce::AudioBuffer<float>& buffer)
             s *= gain;
             mn = juce::jmin (mn, s);
             mx = juce::jmax (mx, s);
+            squares += (double) s * (double) s;
         }
 
         lo[b] = mn;
         hi[b] = mx;
+        rms[b] = (float) std::sqrt (squares / (double) juce::jmax (1, end - start));
         peak = juce::jmax (peak, -mn, mx);
     }
 
@@ -108,11 +123,13 @@ void WaveformView::PeakCache::build (const juce::AudioBuffer<float>& buffer)
     first.samplesPerBucket = base;
     first.lo.resize (buckets);
     first.hi.resize (buckets);
+    first.rms.resize (buckets);
 
     for (size_t b = 0; b < buckets; ++b)
     {
         first.lo[b] = (std::int16_t) juce::jlimit (-32767.0f, 32767.0f, lo[b] * scale);
         first.hi[b] = (std::int16_t) juce::jlimit (-32767.0f, 32767.0f, hi[b] * scale);
+        first.rms[b] = (std::uint16_t) juce::jlimit (0.0f, 32767.0f, rms[b] * scale);
     }
 
     levels.push_back (std::move (first));
@@ -127,21 +144,25 @@ void WaveformView::PeakCache::build (const juce::AudioBuffer<float>& buffer)
         coarse.samplesPerBucket = fine.samplesPerBucket * 8;
         coarse.lo.resize (count);
         coarse.hi.resize (count);
+        coarse.rms.resize (count);
 
         for (size_t b = 0; b < count; ++b)
         {
             const size_t start = b * 8;
             const size_t end = juce::jmin (fine.lo.size(), start + 8);
             std::int16_t mn = fine.lo[start], mx = fine.hi[start];
+            double squares = (double) fine.rms[start] * (double) fine.rms[start];
 
             for (size_t i = start + 1; i < end; ++i)
             {
                 mn = juce::jmin (mn, fine.lo[i]);
                 mx = juce::jmax (mx, fine.hi[i]);
+                squares += (double) fine.rms[i] * (double) fine.rms[i];
             }
 
             coarse.lo[b] = mn;
             coarse.hi[b] = mx;
+            coarse.rms[b] = (std::uint16_t) std::sqrt (squares / (double) (end - start));
         }
 
         levels.push_back (std::move (coarse));
@@ -149,9 +170,12 @@ void WaveformView::PeakCache::build (const juce::AudioBuffer<float>& buffer)
 }
 
 void WaveformView::PeakCache::read (double firstSample, double lastSample, double samplesPerPixel,
-                                    float& lo, float& hi) const
+                                    float& lo, float& hi, float* rms) const
 {
     lo = hi = 0.0f;
+
+    if (rms != nullptr)
+        *rms = 0.0f;
 
     if (levels.empty() || lastSample <= 0.0 || firstSample >= (double) numSamples)
         return;
@@ -169,15 +193,20 @@ void WaveformView::PeakCache::read (double firstSample, double lastSample, doubl
     const auto b1 = juce::jlimit (b0 + 1, size, (juce::int64) std::ceil (lastSample / perBucket));
 
     std::int16_t mn = level->lo[(size_t) b0], mx = level->hi[(size_t) b0];
+    double squares = 0.0;
 
-    for (auto b = b0 + 1; b < b1; ++b)
+    for (auto b = b0; b < b1; ++b)
     {
         mn = juce::jmin (mn, level->lo[(size_t) b]);
         mx = juce::jmax (mx, level->hi[(size_t) b]);
+        squares += (double) level->rms[(size_t) b] * (double) level->rms[(size_t) b];
     }
 
     lo = (float) mn / 32767.0f;
     hi = (float) mx / 32767.0f;
+
+    if (rms != nullptr)
+        *rms = (float) (std::sqrt (squares / (double) (b1 - b0)) / 32767.0);
 }
 
 //==============================================================================
@@ -234,6 +263,11 @@ void WaveformView::setAudio (const juce::AudioBuffer<float>* mix, const juce::Au
     hideBarEditor (false);
     pressedPin = -1;
     dragging = false;
+    gesture = Gesture::none;
+    gliding = false;
+
+    if (std::abs (duration - oldDuration) > 1.0e-6)
+        zoomToggled = false;
 
     if (! hasAudio())
     {
@@ -276,6 +310,7 @@ void WaveformView::setMap (const tt::MapResult& newMap, int newBeatsPerBar)
     pressedPin = -1;
     dragging = false;
     keepSelectionNear = -1.0;
+    nudgedTo = -1.0;
 
     if (wanted >= 0.0)
     {
@@ -327,10 +362,14 @@ void WaveformView::setPlayhead (double seconds)
 
 void WaveformView::repaintPlayheadAt (double seconds)
 {
-    if (seconds < viewStart || seconds > viewEnd)
-        return;
+    const auto l = getLayout();
 
-    repaint ((int) std::floor (timeToX (seconds)) - 2, 0, 5, getHeight());
+    if (seconds >= viewStart && seconds <= viewEnd)
+        repaint ((int) std::floor (timeToX (seconds)) - 2, 0, 5, l.lanes.getBottom());
+
+    // Its mark in the overview, where the whole file is as wide as the view.
+    if (duration > 0.0)
+        repaint ((int) std::floor (seconds / duration * (double) getWidth()) - 2, l.overview.getY(), 5, l.overview.getHeight());
 }
 
 void WaveformView::setBusy (bool analysing)
@@ -370,6 +409,8 @@ int WaveformView::getSelectedPin() const
 void WaveformView::setSelectedPin (int pinIndex)
 {
     const int wanted = pinIndex >= 0 && pinIndex < (int) map.pins.size() ? pinIndex : -1;
+
+    nudgedTo = -1.0;
 
     if (wanted != selectedPin)
     {
@@ -423,13 +464,77 @@ void WaveformView::setView (double start, double end)
     if (duration <= 0.0)
         return;
 
+    gliding = false;
+
+    const double length = juce::jlimit (juce::jmin (shortestSpan, duration), duration, end - start);
+    start = juce::jlimit (0.0, duration - length, start);
+    applyView (start, start + length);
+}
+
+void WaveformView::applyView (double start, double end)
+{
+    viewStart = start;
+    viewEnd = end;
+    hideBarEditor (false);
+    repaint();
+}
+
+juce::Range<double> WaveformView::targetView() const
+{
+    return gliding ? juce::Range<double> (glideToStart, glideToEnd) : juce::Range<double> (viewStart, viewEnd);
+}
+
+void WaveformView::glideTo (double start, double end)
+{
+    if (duration <= 0.0)
+        return;
+
+    // With nothing on screen to glide, or with macOS set to reduce motion, the view just changes.
+    if (! isShowing() || Theme::reduceMotion() || span() <= 0.0)
+    {
+        setView (start, end);
+        return;
+    }
+
     const double length = juce::jlimit (juce::jmin (shortestSpan, duration), duration, end - start);
     start = juce::jlimit (0.0, duration - length, start);
 
-    viewStart = start;
-    viewEnd = start + length;
-    hideBarEditor (false);
-    repaint();
+    glideFromStart = viewStart;
+    glideFromEnd = viewEnd;
+    glideToStart = start;
+    glideToEnd = start + length;
+    glideBegan = juce::Time::getMillisecondCounterHiRes();
+    gliding = true;
+    startTimerHz (60);
+}
+
+void WaveformView::timerCallback()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+
+    if (gliding)
+    {
+        const double t = (now - glideBegan) / glideMs;
+
+        if (t >= 1.0)
+        {
+            gliding = false;
+            applyView (glideToStart, glideToEnd);
+        }
+        else
+        {
+            // Fast at first, slowing into place.
+            const double eased = 1.0 - std::pow (1.0 - juce::jmax (0.0, t), 3.0);
+            applyView (glideFromStart + (glideToStart - glideFromStart) * eased,
+                       glideFromEnd + (glideToEnd - glideFromEnd) * eased);
+        }
+    }
+
+    if (! gliding && now >= waveHeightShownUntil)
+    {
+        stopTimer();
+        repaint();   // takes the waveform height off the lane
+    }
 }
 
 void WaveformView::zoomAbout (float x, double factor)
@@ -449,6 +554,134 @@ void WaveformView::scrollBy (double seconds)
         setView (viewStart + seconds, viewEnd + seconds);
 }
 
+double WaveformView::anchorTime (bool mustBeInView, bool& found) const
+{
+    const auto view = targetView();
+    const auto usable = [&] (double t) { return ! mustBeInView || (t >= view.getStart() && t <= view.getEnd()); };
+    found = true;
+
+    if (selectedPin >= 0 && selectedPin < (int) map.pins.size() && usable (map.pins[(size_t) selectedPin].time))
+        return map.pins[(size_t) selectedPin].time;
+
+    if (usable (playhead))
+        return playhead;
+
+    found = false;
+    return 0.5 * (view.getStart() + view.getEnd());
+}
+
+void WaveformView::zoomBy (double factor)
+{
+    if (! hasAudio() || factor <= 0.0)
+        return;
+
+    bool found = false;
+    const double anchor = anchorTime (true, found);
+    const double length = juce::jlimit (juce::jmin (shortestSpan, duration), duration, targetView().getLength() / factor);
+    glideTo (anchor - length * 0.5, anchor + length * 0.5);
+}
+
+void WaveformView::showAllAnimated()
+{
+    if (hasAudio())
+        glideTo (0.0, duration);
+}
+
+void WaveformView::zoomToPinsAround()
+{
+    if (! hasAudio() || map.pins.empty())
+        return;
+
+    const auto& pins = map.pins;
+    const double bar = 60.0 / juce::jmax (1.0, grid.bpmAtTime (playhead)) * (double) beatsPerBar;
+    double start = 0.0, end = duration;
+
+    if (selectedPin >= 0 && selectedPin < (int) pins.size())
+    {
+        // The first and last pins have no pin on one side: a bar is shown there.
+        const auto i = (size_t) selectedPin;
+        start = i > 0 ? pins[i - 1].time : pins[i].time - bar;
+        end = i + 1 < pins.size() ? pins[i + 1].time : pins[i].time + bar;
+    }
+    else
+    {
+        // The pins either side of the playhead, or the start or end of the file.
+        for (const auto& pin : pins)
+        {
+            if (pin.time <= playhead)
+                start = pin.time;
+            else
+            {
+                end = pin.time;
+                break;
+            }
+        }
+    }
+
+    const double margin = (end - start) * 0.04;
+    glideTo (start - margin, end + margin);
+}
+
+void WaveformView::toggleZoom()
+{
+    if (! hasAudio())
+        return;
+
+    if (zoomToggled)
+    {
+        zoomToggled = false;
+        glideTo (beforeToggleStart, beforeToggleEnd);
+        return;
+    }
+
+    const auto before = targetView();
+    beforeToggleStart = before.getStart();
+    beforeToggleEnd = before.getEnd();
+    zoomToggled = true;
+
+    bool found = false;
+    const double anchor = anchorTime (false, found);
+
+    if (map.pins.empty())
+    {
+        glideTo (anchor - 2.0, anchor + 2.0);
+        return;
+    }
+
+    // One bar either side.
+    const double beat = grid.beatAtTime (anchor);
+    glideTo (grid.timeAtBeat (beat - (double) beatsPerBar), grid.timeAtBeat (beat + (double) beatsPerBar));
+}
+
+void WaveformView::reveal (double seconds)
+{
+    if (! hasAudio())
+        return;
+
+    const auto view = targetView();
+
+    if (seconds >= view.getStart() && seconds <= view.getEnd())
+        return;
+
+    glideTo (seconds - view.getLength() * 0.5, seconds + view.getLength() * 0.5);
+}
+
+void WaveformView::setWaveHeight (double factor)
+{
+    waveHeight = juce::jlimit (lowestWaveHeight, highestWaveHeight, factor);
+    repaint();
+}
+
+void WaveformView::stepWaveHeight (int steps)
+{
+    // Whole steps of the square root of two from 1, so two steps are exactly twice as tall.
+    const double step = std::round (std::log2 (waveHeight) * 2.0) + (double) steps;
+    waveHeight = juce::jlimit (lowestWaveHeight, highestWaveHeight, std::pow (2.0, step * 0.5));
+    waveHeightShownUntil = juce::Time::getMillisecondCounterHiRes() + 1200.0;
+    startTimerHz (60);
+    repaint();
+}
+
 //==============================================================================
 double WaveformView::pinTime (int index) const
 {
@@ -456,6 +689,62 @@ double WaveformView::pinTime (int index) const
         return dragTime;
 
     return map.pins[(size_t) index].time;
+}
+
+juce::Range<double> WaveformView::pinLimits (int index) const
+{
+    const auto i = (size_t) index;
+    const double lowest = i > 0 ? map.pins[i - 1].time + pinSpacing : 0.0;
+    const double highest = i + 1 < map.pins.size() ? map.pins[i + 1].time - pinSpacing : duration;
+    return { lowest, juce::jmax (lowest, highest) };
+}
+
+double WaveformView::bpmAfterPin (int index) const
+{
+    const auto i = (size_t) index;
+
+    if (index < 0 || i >= map.pins.size())
+        return 0.0;
+
+    // After the last pin the grid carries on at the tempo it arrived with.
+    if (i + 1 >= map.pins.size())
+        return grid.bpmAtTime (map.pins[i].time + 0.001);
+
+    const double seconds = pinTime (index + 1) - pinTime (index);
+    return seconds > 1.0e-6 ? 60.0 * (map.pins[i + 1].beat - map.pins[i].beat) / seconds : 0.0;
+}
+
+double WaveformView::pixelsPerBeatAt (double seconds) const
+{
+    if (map.pins.empty())
+        return 0.0;
+
+    const double bpm = grid.bpmAtTime (seconds);
+    return bpm > 1.0 && bpm < 2000.0 ? 60.0 / bpm * pixelsPerSecond() : 0.0;
+}
+
+bool WaveformView::nudgeSelectedPin (double seconds)
+{
+    if (busy || dragging || selectedPin < 0 || selectedPin >= (int) map.pins.size())
+        return false;
+
+    // Until the map comes back with the pin in its new place, the next nudge starts from where
+    // the last one put it.
+    const double from = nudgedTo >= 0.0 ? nudgedTo : map.pins[(size_t) selectedPin].time;
+    const auto limits = pinLimits (selectedPin);
+    const double to = limits.clipValue (from + seconds);
+
+    if (std::abs (to - from) < 1.0e-12)
+        return true;
+
+    const int pin = selectedPin;
+    nudgedTo = to;
+    keepSelectionNear = to;
+
+    if (onPinNudged)
+        onPinNudged (pin, to);
+
+    return true;
 }
 
 int WaveformView::pinAt (juce::Point<float> p, const Layout& l) const
@@ -515,6 +804,55 @@ bool WaveformView::snapToOnset (double& time, float withinPixels, double lowest,
 
     time = found;
     return true;
+}
+
+bool WaveformView::snapToGrid (double& time, double lowest, double highest) const
+{
+    if (map.pins.empty())
+        return false;
+
+    // Beats, and eighth notes once they are far enough apart to tell from one another.
+    const double step = pixelsPerBeatAt (time) * 0.5 > (double) snapPixels ? 0.5 : 1.0;
+    const double nearest = std::round (grid.beatAtTime (time) / step) * step;
+
+    // The nearest line that is still between the neighbouring pins.
+    for (const double beat : { nearest, nearest + step, nearest - step })
+    {
+        const double t = grid.timeAtBeat (beat);
+
+        if (std::isfinite (t) && t >= lowest && t <= highest)
+        {
+            time = t;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+WaveformView::SnapKind WaveformView::snapTime (double& time, bool free, double lowest, double highest) const
+{
+    if (free || snap == Snap::off)
+        return SnapKind::none;
+
+    if (snap == Snap::hits)
+        return snapToOnset (time, snapPixels, lowest, highest) ? SnapKind::hit : SnapKind::none;
+
+    return snapToGrid (time, lowest, highest) ? SnapKind::grid : SnapKind::none;
+}
+
+void WaveformView::showDragForSnapshot (int pinIndex, double time)
+{
+    if (pinIndex < 0 || pinIndex >= (int) map.pins.size())
+        return;
+
+    const auto limits = pinLimits (pinIndex);
+    time = limits.clipValue (time);
+    dragSnap = snapTime (time, false, limits.getStart(), limits.getEnd());
+    pressedPin = pinIndex;
+    dragging = true;
+    dragTime = time;
+    repaint();
 }
 
 juce::String WaveformView::pinLabel (double beat) const
@@ -593,9 +931,13 @@ void WaveformView::drawWave (juce::Graphics& g, const PeakCache& peaks, juce::Re
     const double samplesPerPixel = span() * sampleRate / (double) juce::jmax (1, getWidth());
     const float mid = (float) lane.getCentreY();
     const float half = (float) lane.getHeight() * 0.5f - 2.0f;
+    const float gain = (float) waveHeight;
 
-    juce::RectangleList<float> columns;
+    // Two tones: the peaks dimmer, and the RMS level over them at full strength, so the hits
+    // stand out of a loud, dense mix.
+    juce::RectangleList<float> columns, bodies;
     columns.ensureStorageAllocated (x1 - x0);
+    bodies.ensureStorageAllocated (x1 - x0);
 
     for (int x = x0; x < x1; ++x)
     {
@@ -605,11 +947,11 @@ void WaveformView::drawWave (juce::Graphics& g, const PeakCache& peaks, juce::Re
         if (last <= 0.0 || first >= (double) peaks.numSamples)
             continue;
 
-        float lo = 0.0f, hi = 0.0f;
-        peaks.read (first, last, samplesPerPixel, lo, hi);
+        float lo = 0.0f, hi = 0.0f, rms = 0.0f;
+        peaks.read (first, last, samplesPerPixel, lo, hi, &rms);
 
-        float top = mid - hi * half;
-        float bottom = mid - lo * half;
+        float top = juce::jmax (mid - half, mid - hi * gain * half);
+        float bottom = juce::jmin (mid + half, mid - lo * gain * half);
 
         if (bottom - top < 1.0f)
         {
@@ -618,10 +960,187 @@ void WaveformView::drawWave (juce::Graphics& g, const PeakCache& peaks, juce::Re
         }
 
         columns.addWithoutMerging ({ (float) x, top, 1.0f, bottom - top });
+
+        const float body = juce::jmin (half, rms * gain * half);
+        bodies.addWithoutMerging ({ (float) x, mid - juce::jmax (0.5f, body), 1.0f, juce::jmax (1.0f, body * 2.0f) });
     }
 
-    g.setColour (colour);
+    g.setColour (colour.withAlpha (0.45f));
     g.fillRectList (columns);
+    g.setColour (colour);
+    g.fillRectList (bodies);
+}
+
+// The waveform as one filled shape with its outline, for when the view is close enough to see
+// the shape of a single hit.
+void WaveformView::drawWaveShape (juce::Graphics& g, const PeakCache& peaks, juce::Rectangle<int> lane,
+                                  juce::Colour colour, juce::Rectangle<int> clip) const
+{
+    // A little beyond what is being repainted, so the outline joins up across repaints.
+    const int x0 = juce::jmax (lane.getX(), clip.getX()) - 3;
+    const int x1 = juce::jmin (lane.getRight(), clip.getRight()) + 3;
+
+    if (peaks.empty() || x1 <= x0 || lane.getHeight() < 4 || sampleRate <= 0.0)
+        return;
+
+    const double samplesPerPixel = span() * sampleRate / (double) juce::jmax (1, getWidth());
+    const float mid = (float) lane.getCentreY();
+    const float half = (float) lane.getHeight() * 0.5f - 2.0f;
+    const float gain = (float) waveHeight;
+
+    std::vector<juce::Point<float>> upper, lower;
+    const auto add = [&] (float x, float lo, float hi)
+    {
+        upper.emplace_back (x, juce::jmax (mid - half, mid - hi * gain * half));
+        lower.emplace_back (x, juce::jmin (mid + half, mid - lo * gain * half));
+    };
+
+    const auto& finest = peaks.levels.front();
+    const double perBucket = (double) finest.samplesPerBucket;
+
+    if (samplesPerPixel >= perBucket)
+    {
+        // One point for each pixel column.
+        for (int x = x0; x <= x1; ++x)
+        {
+            const double first = xToTime ((float) x) * sampleRate;
+            const double last = first + samplesPerPixel;
+
+            if (last <= 0.0 || first >= (double) peaks.numSamples)
+                continue;
+
+            float lo = 0.0f, hi = 0.0f;
+            peaks.read (first, last, samplesPerPixel, lo, hi);
+            add ((float) x + 0.5f, lo, hi);
+        }
+    }
+    else
+    {
+        // Closer than the finest peaks: one point for each of them, joined by straight lines.
+        const auto size = (juce::int64) finest.lo.size();
+        const auto b0 = juce::jlimit ((juce::int64) 0, size, (juce::int64) std::floor (xToTime ((float) x0) * sampleRate / perBucket));
+        const auto b1 = juce::jlimit ((juce::int64) 0, size, (juce::int64) std::ceil (xToTime ((float) x1) * sampleRate / perBucket) + 1);
+
+        for (auto b = b0; b < b1; ++b)
+            add (timeToX (((double) b + 0.5) * perBucket / sampleRate),
+                 (float) finest.lo[(size_t) b] / 32767.0f, (float) finest.hi[(size_t) b] / 32767.0f);
+    }
+
+    if (upper.size() < 2)
+        return;
+
+    juce::Path shape;
+    shape.startNewSubPath (upper.front());
+
+    for (size_t i = 1; i < upper.size(); ++i)
+        shape.lineTo (upper[i]);
+
+    for (size_t i = lower.size(); i-- > 0;)
+        shape.lineTo (lower[i]);
+
+    shape.closeSubPath();
+
+    juce::Graphics::ScopedSaveState state (g);
+    g.reduceClipRegion (lane);
+    g.setColour (colour.withAlpha (0.42f));
+    g.fillPath (shape);
+    g.setColour (colour);
+    g.strokePath (shape, juce::PathStrokeType (1.0f));
+}
+
+// The whole file in miniature along the bottom: its waveform, the pins, the playhead, and a box
+// round the part that is in view.
+void WaveformView::drawOverview (juce::Graphics& g, juce::Rectangle<int> strip) const
+{
+    if (strip.isEmpty() || duration <= 0.0)
+        return;
+
+    const auto clip = g.getClipBounds().getIntersection (strip);
+
+    if (clip.isEmpty())
+        return;
+
+    g.setColour (Theme::panel());
+    g.fillRect (clip);
+
+    const float width = (float) strip.getWidth();
+    const float mid = (float) strip.getCentreY();
+    const float half = (float) strip.getHeight() * 0.5f - 1.0f;
+    const double samplesPerPixel = (double) mixPeaks.numSamples / (double) juce::jmax (1, strip.getWidth());
+
+    juce::RectangleList<float> columns;
+
+    for (int x = clip.getX(); x < clip.getRight(); ++x)
+    {
+        float lo = 0.0f, hi = 0.0f;
+        const double first = (double) (x - strip.getX()) * samplesPerPixel;
+        mixPeaks.read (first, first + samplesPerPixel, samplesPerPixel, lo, hi);
+        const float top = mid - hi * half;
+        columns.addWithoutMerging ({ (float) x, top, 1.0f, juce::jmax (1.0f, mid - lo * half - top) });
+    }
+
+    g.setColour (Theme::wave().withAlpha (0.55f));
+    g.fillRectList (columns);
+
+    const auto xOf = [&] (double seconds) { return (float) strip.getX() + (float) (seconds / duration) * width; };
+
+    g.setColour (Theme::pin());
+
+    for (size_t i = 0; i < map.pins.size(); ++i)
+        g.fillRect (juce::Rectangle<float> (std::floor (xOf (pinTime ((int) i))), (float) strip.getY(), 1.0f, 4.0f));
+
+    g.setColour (Theme::text());
+    g.fillRect (juce::Rectangle<float> (std::floor (xOf (playhead)), (float) strip.getY(), 1.0f, (float) strip.getHeight()));
+
+    const float xa = xOf (viewStart);
+    const float w = juce::jmax (4.0f, xOf (viewEnd) - xa);
+    const juce::Rectangle<float> box (juce::jmin (xa, (float) strip.getRight() - w), (float) strip.getY(), w, (float) strip.getHeight());
+    g.setColour (Theme::text().withAlpha (0.12f));
+    g.fillRect (box);
+    g.setColour (Theme::text().withAlpha (0.8f));
+    g.drawRect (box, 1.0f);
+}
+
+// Beside a pin that is being dragged: where it is, and how far it has come. When it is sitting
+// on a hit or a grid line, a mark on that hit or line.
+void WaveformView::drawDragReadout (juce::Graphics& g, const Layout& l) const
+{
+    if (! dragging || pressedPin < 0 || pressedPin >= (int) map.pins.size())
+        return;
+
+    const float x = timeToX (dragTime);
+    const float width = (float) getWidth();
+
+    if (dragSnap != SnapKind::none)
+    {
+        // A hit is marked where the hits are drawn, a grid line just under the ruler.
+        const float y = dragSnap == SnapKind::hit ? (float) l.music.getBottom() - 9.0f : (float) l.ruler.getBottom() + 8.0f;
+        juce::Path mark;
+        mark.addQuadrilateral (x, y - 5.0f, x + 5.0f, y, x, y + 5.0f, x - 5.0f, y);
+        g.setColour (Theme::bg());
+        g.fillPath (mark);
+        g.setColour (Theme::pin().brighter (0.7f));
+        g.strokePath (mark, juce::PathStrokeType (1.5f));
+    }
+
+    const double movedMs = (dragTime - map.pins[(size_t) pressedPin].time) * 1000.0;
+    const auto text = clockText (dragTime) + "   " + (movedMs < 0.0 ? "-" : "+") + juce::String (std::abs (movedMs), 1) + " ms";
+    const auto font = Theme::mono (11.0f);
+    const float w = juce::jmin (width - 4.0f, std::ceil (Theme::textWidth (font, text)) + 14.0f);
+    float left = x + 10.0f;
+
+    if (left + w > width - 2.0f)
+        left = x - 10.0f - w;
+
+    const float y = (float) l.music.getY() + (float) juce::jlimit (4, 46, l.music.getHeight() - 26);
+    const juce::Rectangle<float> plate (juce::jmax (2.0f, left), y, w, 20.0f);
+    g.setColour (Theme::bg().withAlpha (0.92f));
+    g.fillRoundedRectangle (plate, 4.0f);
+    g.setColour (Theme::pin().withAlpha (0.7f));
+    g.drawRoundedRectangle (plate.reduced (0.5f), 4.0f, 1.0f);
+    g.setColour (Theme::text());
+    g.setFont (font);
+    g.drawText (text, plate, juce::Justification::centred, false);
 }
 
 void WaveformView::drawCentredMessage (juce::Graphics& g, const juce::String& message, juce::Rectangle<int> area) const
@@ -721,13 +1240,23 @@ void WaveformView::paint (juce::Graphics& g)
         }
     }
 
-    drawWave (g, mixPeaks, l.music, Theme::wave(), clip);
+    // Close in, the waveform is a shape with an outline and every hit is a tick.
+    const bool detail = pixelsPerBeatAt (0.5 * (viewStart + viewEnd)) >= detailPixelsPerBeat;
+    const auto wave = [&] (const PeakCache& peaks, juce::Rectangle<int> lane, juce::Colour colour)
+    {
+        if (detail)
+            drawWaveShape (g, peaks, lane, colour, clip);
+        else
+            drawWave (g, peaks, lane, colour, clip);
+    };
+
+    wave (mixPeaks, l.music, Theme::wave());
 
     if (! l.drums.isEmpty())
     {
         g.setColour (Theme::line());
         g.fillRect (0, l.drums.getY(), getWidth(), 1);
-        drawWave (g, drumPeaks, l.drums, Theme::drum(), clip);
+        wave (drumPeaks, l.drums, Theme::drum());
     }
 
     // The same grid again, faintly, so it can be read through a dense waveform.
@@ -745,18 +1274,34 @@ void WaveformView::paint (juce::Graphics& g)
                     juce::Justification::centredLeft, true);
     }
 
-    // What the engine heard: a tick for every hit along the bottom of the music lane.
+    // What the engine heard: a tick for every hit along the bottom of the music lane. Close in,
+    // a stronger hit has a taller tick, so it can be seen what a pin would snap to.
     {
-        const double from = xToTime ((float) clip.getX() - 1.0f);
-        const double to = xToTime ((float) clip.getRight() + 1.0f);
+        const double from = xToTime ((float) clip.getX() - 2.0f);
+        const double to = xToTime ((float) clip.getRight() + 2.0f);
         auto it = std::lower_bound (map.onsets.begin(), map.onsets.end(), from,
                                     [] (const tt::Onset& o, double t) { return o.time < t; });
-        const float y = (float) l.music.getBottom() - 3.0f;
+        const float bottom = (float) l.music.getBottom();
+        const float tallest = juce::jmin (30.0f, (float) l.music.getHeight() * 0.25f);
 
         for (; it != map.onsets.end() && it->time <= to; ++it)
         {
-            g.setColour (Theme::dim().withAlpha (0.4f + 0.6f * juce::jlimit (0.0f, 1.0f, it->strength)));
-            g.fillRect (juce::Rectangle<float> (std::round (timeToX (it->time)), y, 1.0f, 3.0f));
+            const float strength = juce::jlimit (0.0f, 1.0f, it->strength);
+            const float x = std::round (timeToX (it->time));
+
+            if (detail)
+            {
+                const float h = 5.0f + (tallest - 5.0f) * strength;
+                g.setColour (Theme::bg().withAlpha (0.6f));
+                g.fillRect (juce::Rectangle<float> (x - 2.0f, bottom - h - 1.0f, 4.0f, h + 1.0f));
+                g.setColour (Theme::text().withAlpha (0.6f + 0.4f * strength));
+                g.fillRect (juce::Rectangle<float> (x - 1.0f, bottom - h, 2.0f, h));
+            }
+            else
+            {
+                g.setColour (Theme::dim().withAlpha (0.4f + 0.6f * strength));
+                g.fillRect (juce::Rectangle<float> (x, bottom - 3.0f, 1.0f, 3.0f));
+            }
         }
     }
 
@@ -778,8 +1323,46 @@ void WaveformView::paint (juce::Graphics& g)
         }
     }
 
-    // Pins.
     const int shownSelected = dragging ? pressedPin : selectedPin;
+
+    // The tempo of each stretch between two pins, in the ruler beside the pin it starts at. It
+    // stays at the left edge while its pin is out of view to the left.
+    {
+        const auto font = Theme::mono (10.0f);
+        const float y = (float) l.ruler.getY() + 14.0f;
+        g.setFont (font);
+
+        for (size_t i = 0; i < map.pins.size(); ++i)
+        {
+            if ((int) i == shownSelected)
+                continue;   // on the selected pin's own label
+
+            const float xa = timeToX (pinTime ((int) i));
+            const float xb = i + 1 < map.pins.size() ? timeToX (pinTime ((int) i + 1)) : width + 100.0f;
+
+            if (xb < 0.0f || xa > width)
+                continue;
+
+            const double bpm = bpmAfterPin ((int) i);
+
+            if (! (bpm > 0.0 && bpm < 2000.0))
+                continue;
+
+            const auto text = juce::String (bpm, 2);
+            const float w = std::ceil (Theme::textWidth (font, text));
+            const float x = juce::jmax (xa + 8.0f, 4.0f);
+
+            if (x + w > xb - 7.0f || x + w > width - 2.0f)
+                continue;
+
+            g.setColour (Theme::bg());
+            g.fillRect (juce::Rectangle<float> (x - 2.0f, y, w + 4.0f, 12.0f));
+            g.setColour (Theme::dim());
+            g.drawText (text, juce::Rectangle<float> (x, y, w, 12.0f), juce::Justification::centredLeft, false);
+        }
+    }
+
+    // Pins.
 
     for (size_t i = 0; i < map.pins.size(); ++i)
     {
@@ -816,22 +1399,26 @@ void WaveformView::paint (juce::Graphics& g)
 
         if (x >= -12.0f && x <= width + 12.0f)
         {
+            // Its bar and beat, and under that the tempo from it to the next pin.
             const auto font = Theme::mono (11.0f);
             const auto label = pinLabel (map.pins[(size_t) shownSelected].beat);
-            const float w = std::ceil (Theme::textWidth (font, label)) + 8.0f;
-            float left = x + 8.0f;
+            const double bpm = bpmAfterPin (shownSelected);
+            const auto tempo = bpm > 0.0 && bpm < 2000.0 ? juce::String (bpm, 2) : juce::String();
+            const float w = std::ceil (juce::jmax (Theme::textWidth (font, label), Theme::textWidth (font, tempo))) + 10.0f;
+            float left = x + 4.0f;
 
             if (left + w > width)
-                left = x - 8.0f - w;
+                left = x - 4.0f - w;
 
-            // Covers the ruler's height, so a bar number behind it does not show around it.
-            const juce::Rectangle<float> box (juce::jmax (0.0f, left), (float) l.ruler.getY() + 1.0f, juce::jmin (w, width),
-                                              juce::jmax (0.0f, (float) l.ruler.getHeight() - 3.0f));
+            // Covers the ruler's two rows of text, so what is behind it does not show around it.
+            const juce::Rectangle<float> box (juce::jmax (0.0f, left), (float) l.ruler.getY() + 1.0f, juce::jmin (w, width), 26.0f);
             g.setColour (Theme::bg());
             g.fillRoundedRectangle (box, 3.0f);
-            g.setColour (Theme::pin().brighter (0.7f));
             g.setFont (font);
-            g.drawText (label, box, juce::Justification::centred, true);
+            g.setColour (Theme::pin().brighter (0.7f));
+            g.drawText (label, box.withHeight (13.0f), juce::Justification::centred, true);
+            g.setColour (Theme::text());
+            g.drawText (tempo, box.withTrimmedTop (13.0f), juce::Justification::centred, true);
         }
     }
 
@@ -907,11 +1494,28 @@ void WaveformView::paint (juce::Graphics& g)
         }
     }
 
+    drawDragReadout (g, l);
+
     // Playhead.
     if (playhead >= viewStart && playhead <= viewEnd)
     {
         g.setColour (Theme::text());
         g.fillRect (juce::Rectangle<float> (std::floor (timeToX (playhead)), 0.0f, 1.0f, lanesBottom));
+    }
+
+    // How much taller the waveform is drawn, for a moment after it is changed.
+    if (juce::Time::getMillisecondCounterHiRes() < waveHeightShownUntil && l.music.getHeight() >= 40)
+    {
+        const auto font = Theme::mono (11.0f);
+        const auto text = "Waveform height " + juce::String::fromUTF8 ("\xc3\x97")
+                        + juce::String (waveHeight, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".");
+        const float w = juce::jmin (width - 16.0f, std::ceil (Theme::textWidth (font, text)) + 16.0f);
+        const juce::Rectangle<float> plate (width - w - 8.0f, lanesBottom - 30.0f, w, 22.0f);
+        g.setColour (Theme::bg().withAlpha (0.92f));
+        g.fillRoundedRectangle (plate, 4.0f);
+        g.setColour (Theme::text());
+        g.setFont (font);
+        g.drawText (text, plate, juce::Justification::centred, true);
     }
 
     if (busy)
@@ -921,19 +1525,7 @@ void WaveformView::paint (juce::Graphics& g)
         drawCentredMessage (g, ellipsised ("Listening"), l.lanes);
     }
 
-    // The part of the file in view.
-    if (! l.overview.isEmpty())
-    {
-        const auto strip = l.overview.toFloat();
-        g.setColour (Theme::panel());
-        g.fillRect (strip);
-
-        const float xa = (float) (viewStart / duration) * strip.getWidth();
-        const float xb = (float) (viewEnd / duration) * strip.getWidth();
-        const float w = juce::jmax (3.0f, xb - xa);
-        g.setColour (Theme::wave());
-        g.fillRect (juce::Rectangle<float> (juce::jmin (xa, strip.getWidth() - w), strip.getY(), w, strip.getHeight()));
-    }
+    drawOverview (g, l.overview);
 }
 
 void WaveformView::resized()
@@ -962,16 +1554,41 @@ void WaveformView::mouseExit (const juce::MouseEvent&)
     }
 }
 
+void WaveformView::moveViewFromOverview (float x)
+{
+    const double at = (double) x / (double) juce::jmax (1, getWidth()) * duration;
+    const double length = span();
+    setView (at - overviewGrabOffset, at - overviewGrabOffset + length);
+}
+
 void WaveformView::mouseDown (const juce::MouseEvent& e)
 {
     hideBarEditor (false);
     pressedPin = -1;
     dragging = false;
+    dragSnap = SnapKind::none;
+    gesture = Gesture::none;
+    nudgedTo = -1.0;
 
     if (! hasAudio())
         return;
 
     const auto l = getLayout();
+
+    // In the overview: the box round the part in view is dragged from where it was taken hold
+    // of. A press outside the box first centres the view there.
+    if (e.position.y >= (float) l.overview.getY())
+    {
+        if (e.mods.isPopupMenu())
+            return;
+
+        const double at = (double) e.position.x / (double) juce::jmax (1, getWidth()) * duration;
+        overviewGrabOffset = at >= viewStart && at <= viewEnd ? at - viewStart : span() * 0.5;
+        gesture = Gesture::overview;
+        moveViewFromOverview (e.position.x);
+        return;
+    }
+
     const int hit = busy ? -1 : pinAt (e.position, l);
 
     if (e.mods.isPopupMenu())
@@ -991,9 +1608,20 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
         if (hit >= 0)
             time = map.pins[(size_t) hit].time;
         else
-            snapToOnset (time, 12.0f, 0.0, duration);
+            snapToOnset (time, snapPixels, 0.0, duration);
 
         showMenu (time, hit);
+        return;
+    }
+
+    // In the ruler, away from the pin heads: the playhead follows the pointer.
+    if (hit < 0 && l.ruler.contains (e.getPosition()))
+    {
+        gesture = Gesture::scrub;
+
+        if (onSeek)
+            onSeek (juce::jlimit (0.0, duration, xToTime (e.position.x)));
+
         return;
     }
 
@@ -1008,6 +1636,23 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 
 void WaveformView::mouseDrag (const juce::MouseEvent& e)
 {
+    if (! hasAudio())
+        return;
+
+    if (gesture == Gesture::overview)
+    {
+        moveViewFromOverview (e.position.x);
+        return;
+    }
+
+    if (gesture == Gesture::scrub)
+    {
+        if (onSeek)
+            onSeek (juce::jlimit (viewStart, viewEnd, xToTime (e.position.x)));
+
+        return;
+    }
+
     if (pressedPin < 0 || pressedPin >= (int) map.pins.size() || e.mods.isPopupMenu())
         return;
 
@@ -1022,10 +1667,10 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
     if (lowest > highest)
         return;
 
+    // Snapped as the Snap setting says, to the hits or to the grid as it stood when the drag
+    // began (the map does not change until the pin is let go). Cmd places it freely.
     double time = juce::jlimit (lowest, highest, xToTime (e.position.x));
-
-    if (! e.mods.isAltDown())
-        snapToOnset (time, 10.0f, lowest, highest);
+    dragSnap = snapTime (time, e.mods.isCommandDown(), lowest, highest);
 
     dragging = true;
     dragTime = time;
@@ -1036,10 +1681,12 @@ void WaveformView::mouseUp (const juce::MouseEvent& e)
 {
     const int pin = pressedPin;
     const bool wasDragging = dragging;
+    const auto finished = gesture;
     pressedPin = -1;
     dragging = false;
+    gesture = Gesture::none;
 
-    if (e.mods.isPopupMenu() || ! hasAudio())
+    if (e.mods.isPopupMenu() || ! hasAudio() || finished != Gesture::none)
         return;
 
     if (wasDragging)
@@ -1071,9 +1718,9 @@ void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
 
     const auto l = getLayout();
 
-    if (l.ruler.contains (e.getPosition()))
+    if (l.ruler.contains (e.getPosition()) && pinAt (e.position, l) < 0)
     {
-        showAll();
+        showAllAnimated();
         return;
     }
 
@@ -1081,7 +1728,7 @@ void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
         return;
 
     double time = juce::jlimit (0.0, duration, xToTime (e.position.x));
-    snapToOnset (time, 12.0f, 0.0, duration);
+    snapTime (time, e.mods.isCommandDown(), 0.0, duration);
     keepSelectionNear = time;
 
     if (onPinAdded)
@@ -1095,14 +1742,16 @@ void WaveformView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseW
 
     const float coarse = wheel.isSmooth ? 1.0f : 4.0f;   // a wheel with notches sends fewer, larger steps
 
-    if (e.mods.isCommandDown())
+    // Option, as in Pro Tools, or Cmd: zoom about the pointer.
+    if (e.mods.isAltDown() || e.mods.isCommandDown())
     {
         const float d = juce::exactlyEqual (wheel.deltaY, 0.0f) ? wheel.deltaX : wheel.deltaY;
         zoomAbout (e.position.x, std::exp ((double) (d * 2.0f * coarse)));
         return;
     }
 
-    // Either direction of the wheel or trackpad scrolls along the time axis. On a trackpad
+    // Either direction of the wheel or trackpad scrolls along the time axis (so a wheel that only
+    // turns one way does too, with or without Shift). On a trackpad
     // the content follows the fingers: JUCE scales a movement of 512 px to a delta of 1.
     const float d = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
     const double pps = pixelsPerSecond();
@@ -1122,6 +1771,7 @@ bool WaveformView::keyPressed (const juce::KeyPress& key)
     {
         dragging = false;
         pressedPin = -1;
+        dragSnap = SnapKind::none;
         repaint();
         return true;
     }
@@ -1136,7 +1786,8 @@ bool WaveformView::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
-    // Everything else (Space, Tab, letters, arrows) belongs to the window.
+    // Everything else (Space, Tab, letters, arrows) belongs to the window, which calls back
+    // here for the keys that move the view.
     return false;
 }
 

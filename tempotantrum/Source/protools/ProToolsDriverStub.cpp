@@ -68,7 +68,20 @@ Result Driver::confirmIdentifyBeat (const Element&, bool& okPressed)
     return onlyOnMac();
 }
 
-
 Result Driver::cancelDialog (const Element&)                           { return onlyOnMac(); }
+void Driver::setQuick (bool, bool)                                     {}
+Result Driver::checkWindowsAtStart()                                   { return onlyOnMac(); }
+
+Result Driver::readIdentifyBeatLocation (const Element&, std::string& shown)
+{
+    shown.clear();
+    return onlyOnMac();
+}
+
+Result Driver::sendUndo()                                              { return onlyOnMac(); }
+Result Driver::pause (int)                                             { return onlyOnMac(); }
+void Driver::keepInViewEverywhere (void*)                              {}
+Result Driver::goToSampleQuick (long long)                             { return onlyOnMac(); }
+Result Driver::enterLocationQuick (const Element&, const std::string&) { return onlyOnMac(); }
 
 } // namespace tt::pt

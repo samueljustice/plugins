@@ -23,6 +23,7 @@ bool MapInputs::operator== (const MapInputs& o) const
         && juce::exactlyEqual (hint.bpm, o.hint.bpm) && hint.beatsPerBar == o.hint.beatsPerBar
         && options.bridge == o.options.bridge && options.detectJumps == o.options.detectJumps
         && juce::exactlyEqual (options.pinToleranceMs, o.options.pinToleranceMs)
+        && options.pinEveryBars == o.options.pinEveryBars
         && samePins (userPins, o.userPins) && suppressed == o.suppressed && listenToDrums == o.listenToDrums;
 }
 
@@ -140,6 +141,7 @@ juce::Result save (const juce::File& file, const Contents& c)
     options->setProperty ("bridge", c.inputs.options.bridge == Options::Bridge::halfBeat ? "halfBeat" : "wholeBeat");
     options->setProperty ("detectJumps", c.inputs.options.detectJumps);
     options->setProperty ("pinToleranceMs", c.inputs.options.pinToleranceMs);
+    options->setProperty ("pinEveryBars", c.inputs.options.pinEveryBars);
     root->setProperty ("options", juce::var (options));
 
     root->setProperty ("userPins", pinsToVar (c.inputs.userPins, c.sampleRate));
@@ -201,6 +203,7 @@ juce::Result load (const juce::File& file, Contents& c)
                                                                                     : Options::Bridge::wholeBeat;
     in.options.detectJumps = (bool) options.getProperty ("detectJumps", true);
     in.options.pinToleranceMs = (double) options.getProperty ("pinToleranceMs", 10.0);
+    in.options.pinEveryBars = juce::jlimit (0, 64, (int) options.getProperty ("pinEveryBars", Options().pinEveryBars));
 
     in.userPins = pinsFromVar (root.getProperty ("userPins", {}));
     for (auto& p : in.userPins)

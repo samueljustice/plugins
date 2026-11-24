@@ -1,13 +1,16 @@
 // tt-cli: runs the listening engine on an audio file and prints the map as JSON.
 //
 //   tt-cli <audio file> [--first-hit seconds] [--bar N] [--beat N] [--bpm X] [--beats-per-bar N]
-//          [--bridge whole|half] [--no-jumps] [--tolerance ms] [--drums <file>]
+//          [--bridge whole|half] [--no-jumps] [--tolerance ms] [--pin-every N] [--drums <file>]
 //          [--confirm time:beat ...] [--restart time:beat ...]
-//          [--list-onsets] [--onsets-file <file>] [--no-refine]
+//          [--dump-onsets] [--onsets-file <file>] [--no-refine] [--no-steady]
 //
-// --confirm adds a user pin; --restart adds a user pin that starts a section. --list-onsets adds
-// every hit to the output. --onsets-file reads the hits ("time strength" per line) instead of
-// detecting them, and --no-refine leaves the hinted tempo as given; both are for checking the engine.
+// --confirm adds a user pin; --restart adds a user pin that starts a section. --pin-every N keeps a
+// pin on beat 1 of a bar at least every N bars where a hit is there (0 for only the pins the tempo
+// needs). --dump-onsets (or --list-onsets) adds every hit to the output as "onsetList", each a
+// [time, strength] pair. --onsets-file reads the hits ("time strength" per line) instead of
+// detecting them, --no-refine leaves the hinted tempo as given and --no-steady follows every
+// stretch hit by hit without trying a constant tempo first; these three are for checking the engine.
 
 #include "../Source/core/Internal.h"
 
@@ -89,8 +92,9 @@ const char* kindName (tt::Check::Kind k)
 int usage()
 {
     std::cerr << "usage: tt-cli <audio file> [--first-hit seconds] [--bar N] [--beat N] [--bpm X] [--beats-per-bar N]\n"
-                 "              [--bridge whole|half] [--no-jumps] [--tolerance ms] [--drums <file>]\n"
-                 "              [--confirm time:beat ...] [--restart time:beat ...] [--list-onsets]\n";
+                 "              [--bridge whole|half] [--no-jumps] [--tolerance ms] [--pin-every N] [--drums <file>]\n"
+                 "              [--confirm time:beat ...] [--restart time:beat ...] [--dump-onsets]\n"
+                 "              [--onsets-file <file>] [--no-refine] [--no-steady]\n";
     return 2;
 }
 
@@ -120,9 +124,9 @@ int main (int argc, char* argv[])
         else if (arg == "--drums")           drums = value();
         else if (arg == "--confirm")         { if (! parsePin (value(), false, userPins)) return usage(); }
         else if (arg == "--restart")         { if (! parsePin (value(), true, userPins)) return usage(); }
-        else if (arg == "--list-onsets")     listOnsets = true;
-        else if (arg == "--onsets-file")     onsetsFile = value();
-        else if (arg == "--no-refine")       tuning.refineTempo = false;
+        else if (arg == "--pin-every")       options.pinEveryBars = value().getIntValue();
+        else if (arg == "--list-onsets" || arg == "--dump-onsets")   listOnsets = true;
+        else if (arg == "--no-steady")       tuning.steady = false;
         else if (arg.startsWith ("--"))      return usage();
         else                                 file = arg;
     }

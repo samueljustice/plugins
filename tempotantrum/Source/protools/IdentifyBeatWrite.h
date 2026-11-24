@@ -1,0 +1,124 @@
+#pragma once
+
+#include "ProToolsDriver.h"
+#include "core/Types.h"
+
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+// Writes a map into Pro Tools: Event > Identify Beat once for each pin, left to right, at the
+// driver's quick pace. It stops at the first step that does not go as expected, and writes what
+// it does to a log in the same form as the test's. Plain C++; every function here blocks, so it
+// is run on a background thread.
+namespace tt::pt
+{
+
+struct WriteSettings
+{
+    std::vector<Pin> pins;              // sorted by time
+    int beatsPerBar = 4;
+    double sessionSampleRate = 0.0;     // converts pin times to samples; must match the session
+
+    // Where the music file starts in the session, in samples. Without it the Main Counter is read
+    // at the start of the run: the cursor is then expected to be at the start of the music clip.
+    bool hasMusicStart = false;
+    long long musicStartSample = 0;
+
+    bool checkAfterwards = true;        // read every pin's location back once all are written
+    bool slowKeys = false;              // hold each key as long as the test does
+
+    // The music start of the run before this one, to say so in the log when it is the same.
+    bool hasLastStart = false;
+    long long lastStartSample = 0;
+
+    std::string appVersion;
+    std::string musicName;
+
+    // The application to drive. Another identifier is for trying the first steps without Pro Tools.
+    std::string bundleIdentifier = Driver::defaultBundleIdentifier;
+};
+
+// A pin whose location in Pro Tools read differently from the pin's, or could not be read.
+struct PinCheck
+{
+    int pin = 0;                // counted from 1
+    std::string wanted;         // "46|1|000"
+    std::string found;          // as the dialog showed it
+    long long ticksOff = 0;     // found minus wanted, 960 ticks to the beat
+};
+
+struct WriteOutcome
+{
+    bool ok = false;            // every pin was written
+    int total = 0;
+    int written = 0;            // Identify Beat steps confirmed with OK, the dialog seen to close
+    int failedPin = 0;          // the pin the run stopped at, counted from 1. 0: before the first pin, or none
+    bool okPressedOnFailedPin = false;   // OK was pressed for failedPin before its step failed: maybe written
+    std::string reason;         // why it stopped, one sentence without a full stop
+    std::string summary;        // "Written: 24 pins" or "Stopped at pin 7 of 24: <reason>"
+
+    bool hasMusicStart = false; // the start of the music was known when the run ended
+    long long musicStart = 0;
+
+    bool checked = false;       // the check ran to the end
+    int checkedPins = 0;
+    std::vector<PinCheck> off;  // the pins more than 2 ticks from where they should be
+    std::string checkSummary;   // empty when no check was asked for or the run stopped before it
+};
+
+struct UndoOutcome
+{
+    bool ok = false;
+    int sent = 0;
+    std::string summary;        // "Sent 24 undos" or "Stopped after 7 of 24 undos: <reason>"
+};
+
+enum class Phase { starting, writing, checking, undoing };
+
+// `done` of `total` are finished; the one after is under way.
+using Progress = std::function<void (Phase, int done, int total)>;
+using LogLine = std::function<void (const std::string&)>;
+using Cancelled = std::function<bool()>;
+
+// `log` receives one line at a time, each starting with the time since the start of the run.
+// `cancelled` is asked between steps; once it returns true the run ends.
+WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const Cancelled& cancelled,
+                       const Progress& progress);
+
+// Brings the application forward and sends Cmd+Z `steps` times. What Pro Tools did with them
+// cannot be read from outside.
+UndoOutcome runUndo (const std::string& bundleIdentifier, int steps, const std::string& appVersion,
+                     const LogLine& log, const Cancelled& cancelled, const Progress& progress);
+
+// What the Main Counter shows, read without bringing the application forward or pressing anything.
+struct CounterReading
+{
+    bool running = false;
+    bool read = false;          // the counter was found and gave a value
+    bool isSamples = false;
+    long long sample = 0;
+    std::string text;           // the counter as shown
+};
+
+// Reads the Main Counter again and again with one driver, which keeps the counter once found.
+class CounterReader
+{
+public:
+    CounterReader (std::string bundleIdentifier, Cancelled cancelled);
+    ~CounterReader();
+
+    CounterReading read();
+
+private:
+    std::string bundleIdentifier;
+    Cancelled cancelled;
+    std::unique_ptr<Driver> driver;
+    int failures = 0;       // reads in a row that gave nothing
+};
+
+// The bar a pin is in, counted from 1.
+int barOf (const Pin& pin, int beatsPerBar);
+
+} // namespace tt::pt

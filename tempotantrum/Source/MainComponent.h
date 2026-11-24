@@ -16,6 +16,7 @@ namespace tt
 {
 
 class ProToolsTestPanel;
+class ProToolsWriteSheet;
 
 // The window's contents: a header with the file and the playhead, a row of fields for what the
 // user knows about the music, the waveform with the grid and pins, and a footer for playing,
@@ -47,6 +48,13 @@ public:
     void showProToolsTest();
     ProToolsTestPanel& getProToolsTest()                { return *proToolsTest; }
 
+    // Opens the sheet that writes the pins into Pro Tools, over the window's contents.
+    void showProToolsWrite();
+    ProToolsWriteSheet& getProToolsWrite()              { return *proToolsWrite; }
+
+    // The waveform, for --snapshot to set up what is in view.
+    ui::WaveformView& getWaveform()                     { return waveform; }
+
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;
     void resized() override;
@@ -75,6 +83,8 @@ private:
     ui::NumberBox beatBox { "Beat" };
     ui::NumberBox tempoBox { "Tempo" };
     ui::PillButton tapButton { "Tap" };
+    ui::ChoiceBox pinEveryBox { "Pin every" };
+    ui::SegmentedSwitch snapSwitch;     // in the status row, under the waveform
 
     ui::WaveformView waveform;
 
@@ -83,24 +93,25 @@ private:
     juce::Slider clickLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Slider musicLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     std::unique_ptr<CheckBadge> checkBadge;
-    ui::PillButton exportButton { juce::String::fromUTF8 ("Export click\xe2\x80\xa6") };
+    ui::PillButton moreButton { "More" };   // a menu: Export click, Test in Pro Tools
     ui::PillButton saveButton { "Save map" };
-    ui::PillButton testButton { juce::String::fromUTF8 ("Test in Pro Tools\xe2\x80\xa6") };
     ui::PillButton writeButton { "Write to Pro Tools", true };
 
     std::unique_ptr<DropChoice> dropChoice;
     std::unique_ptr<ProToolsTestPanel> proToolsTest;
+    std::unique_ptr<ProToolsWriteSheet> proToolsWrite;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::ScopedMessageBox saveQuestion;
 
     // Areas worked out in resized() for paint()
     juce::Rectangle<int> headerArea, fieldsArea, musicNameArea, tempoNoteArea, meterArea,
-                         waveArea, statusArea, footerArea, clickLabelArea, musicLabelArea;
+                         waveArea, statusArea, footerArea, clickLabelArea, musicLabelArea, snapLabelArea;
     juce::Rectangle<int> musicCaption, listenCaption, meterCaption;
 
     int shownAudioVersion = -1;
     int mapVersionShown = -1;
     bool needsPlayerMusic = true;
+    bool needsOpeningView = false;      // music has been opened and its first map has not been shown yet
     juce::Range<double> rangeToKeep;    // what was in view when a drum stem replaced the audio
     const std::vector<float>* shownClick = nullptr;
     Hint shownHint;
@@ -110,18 +121,28 @@ private:
     juce::String counterText, tempoText, refinedTempoText;
     std::vector<double> taps;
 
+    // A run of nudges less than a second apart, with no other edit between them, is one undo step.
+    int nudgeSerial = -1;               // the document's edit serial after the last nudge
+    double lastNudgeMs = 0.0;
+
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
 
     void chooseMusic();
     void chooseDrumStem();
     void exportClick();
+    void showMoreMenu();
     void saveMap();
 
     void togglePlay();
     void stopLooping();
     void jumpToCheck (int direction);
     void selectNeighbourPin (int direction);
+    void seekTo (double seconds);
+    void moveToHit (int direction);
+    void nudgeSelectedPin (double seconds);
+    void setSnap (ui::WaveformView::Snap);
+    void showOpeningView();
     void tap();
     void updatePlayButton();
     void updateCounter();

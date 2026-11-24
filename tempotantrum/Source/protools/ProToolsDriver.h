@@ -129,9 +129,40 @@ public:
     // Presses Cancel (or Escape when there is no Cancel button) and waits for the dialog to close.
     Result cancelDialog (const Element& dialog);
 
+    //==============================================================================
+    // The quick pace, for writing a whole map. Every wait becomes a short poll for the state that
+    // is expected, with the same longest wait as before; keys are held for less time (unless
+    // `slowKeys`); the dialog is read once each time it opens and is not written to the log in
+    // full; the location is always typed and must read back as typed. goToSample then needs the
+    // Main Counter to have been read once with readMainCounter, checks the windows again just
+    // before keypad Enter, and never gives an unconfirmed result. After OK the windows are
+    // watched for a fifth of a second in place of half a second.
+    void setQuick (bool quick, bool slowKeys = false);
+
+    // Writes every window to the log with the document it gives (the AXDocument attribute) and
+    // says whether the Edit window names its session. Fails when the Identify Beat dialog or a
+    // modal window is open.
+    Result checkWindowsAtStart();
+
+    // The bar|beat|ticks the open Identify Beat dialog shows, as it is written there.
+    Result readIdentifyBeatLocation (const Element& dialog, std::string& shown);
+
+    // Cmd+Z, once. Not sent while a window is open that was not there at rememberWindows.
+    Result sendUndo();
+
+    // Up to this long, in steps, asking `cancelled`. Fails when the run was stopped.
+    Result pause (int milliseconds);
+
+    // Lets a window of this application (given by its NSView) stay in view on every Space and
+    // beside a full-screen application while another application is in front.
+    static void keepInViewEverywhere (void* nativeView);
+
 private:
     struct State;
     std::unique_ptr<State> state;
+
+    Result goToSampleQuick (long long sample);
+    Result enterLocationQuick (const Element& dialog, const std::string& barBeat);
 };
 
 } // namespace tt::pt

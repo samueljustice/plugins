@@ -56,8 +56,8 @@ int run (const char* name, const std::function<std::string()>& test)
 }
 
 //==============================================================================
-// A cue: a quiet noise floor with a 50 ms decaying noise burst starting on each given time.
-std::vector<float> makeCue (const std::vector<double>& hitTimes, double seconds, double sampleRate)
+// A cue: a quiet noise floor with a 50 ms decaying noise burst starting on each given time, each at its own level.
+std::vector<float> makeCueWithLevels (const std::vector<std::pair<double, double>>& hits, double seconds, double sampleRate)
 {
     std::vector<float> out ((size_t) (seconds * sampleRate), 0.0f);
     std::uint32_t state = 12345u;
@@ -68,14 +68,23 @@ std::vector<float> makeCue (const std::vector<double>& hitTimes, double seconds,
     };
     for (auto& s : out)
         s = 0.0003f * noise();
-    for (double t : hitTimes)
+    for (const auto& [t, level] : hits)
     {
         const auto start = (long long) std::ceil (t * sampleRate);
         const auto length = (long long) (0.05 * sampleRate);
         for (long long i = 0; i < length && start + i < (long long) out.size(); ++i)
-            out[(size_t) (start + i)] += 0.6f * noise() * (float) std::exp (-(double) i / (0.012 * sampleRate));
+            out[(size_t) (start + i)] += (float) level * noise() * (float) std::exp (-(double) i / (0.012 * sampleRate));
     }
     return out;
+}
+
+// The same with every burst at one level.
+std::vector<float> makeCue (const std::vector<double>& hitTimes, double seconds, double sampleRate)
+{
+    std::vector<std::pair<double, double>> hits;
+    for (double t : hitTimes)
+        hits.push_back ({ t, 0.6 });
+    return makeCueWithLevels (hits, seconds, sampleRate);
 }
 
 std::vector<double> steadyBeats (double first, double bpm, int count)
@@ -770,6 +779,191 @@ std::string clickAcrossRestart()
     return text ("clicks follow the grid across a restart; %g clicks in 163 s after two close pins", clicks);
 }
 
+//==============================================================================
+// The largest difference between the tempo of a stretch between two pins and `bpm`, as a share of it.
+double worstSegmentTempo (const std::vector<Pin>& pins, double bpm)
+{
+    double worst = 0.0;
+    for (size_t i = 1; i < pins.size(); ++i)
+        if (! pins[i].restart)
+            worst = std::max (worst, std::abs (60.0 * (pins[i].beat - pins[i - 1].beat) / (pins[i].time - pins[i - 1].time) / bpm - 1.0));
+    return worst;
+}
+
+// A minute at a constant 122 BPM with a busy pattern, two bars long, starting half a second in.
+// Loud hits on the beat, except beat 2 of every second bar. Hits as loud on the "and" of beats 2
+// and 4, quieter ones a sixteenth before beats 1 and 3 and after beat 3, and quiet ghost notes off
+// the grid, one of them 40 ms after the beat that has no hit of its own.
+// From beat 40 there is a fill: ten beats with no hit on the beat and one hit each instead, every
+// one 24.6 ms later against the beat than the one before, so that the last is on the "and".
+// Followed from hit to hit, the fill leads the count half a beat off the grid.
+struct BusySteadyCue
+{
+    double bpm = 122.0, first = 0.5, seconds = 61.0;
+    int beats = 122;
+    std::vector<double> truth = steadyBeats (first, bpm, beats);
+    std::vector<tt::Onset> onsets;
+
+    BusySteadyCue()
+    {
+        const double beat = 60.0 / bpm;
+        std::vector<std::pair<double, double>> hits;
+        for (int k = 0; k < beats; ++k)
+        {
+            const double t = truth[(size_t) k];
+            const int inBar = k % 4, inPattern = k % 8;
+            if (k >= 40 && k < 50)
+            {
+                hits.push_back ({ t + 0.0246 * (k - 39), 0.5 });
+                continue;
+            }
+            if (inPattern != 5)
+                hits.push_back ({ t, inBar == 0 ? 0.6 : 0.5 });
+            else
+                hits.push_back ({ t + 0.040, 0.14 });
+            if (inBar == 1 || inBar == 3)
+                hits.push_back ({ t + 0.5 * beat, 0.6 });
+            if (inBar == 3 || inBar == 1)
+                hits.push_back ({ t + 0.75 * beat, 0.35 });
+            if (inBar == 2)
+                hits.push_back ({ t + 0.25 * beat, 0.4 });
+            if (inPattern == 2 || inPattern == 7)
+                hits.push_back ({ t + 0.5 * beat - 0.065, 0.12 });
+            if (inPattern == 0 || inPattern == 6)
+                hits.push_back ({ t + 0.62 * beat, 0.1 });
+        }
+        const auto audio = makeCueWithLevels (hits, seconds, sr48);
+        onsets = tt::findOnsets (audio.data(), audio.size(), sr48);
+    }
+};
+
+std::string steadyWithSyncopation()
+{
+    const BusySteadyCue cue;
+    tt::Hint hint;
+    hint.bpm = 122.0;
+    const auto map = tt::mapCue (cue.onsets, cue.seconds, hint);
+    expect (map.sections.size() == 1 && map.checks.empty(), text ("%g sections, ", (double) map.sections.size()) + allChecks (map));
+    expect (std::abs (map.bpm - cue.bpm) <= 0.02 && std::abs (map.sections.front().bpm - cue.bpm) <= 0.02, text ("tempo %.4f, section %.4f", map.bpm, map.sections.front().bpm));
+    expectPinsInOrder (map.pins);
+    const tt::BeatGrid grid (map.pins, map.bpm);
+    const double worst = worstBeatError (grid, 0.0, cue.truth);
+    expect (worst <= 2.0, text ("a mapped beat is %.2f ms out", worst));
+    const double tempoError = worstSegmentTempo (map.pins, cue.bpm);
+    expect (tempoError <= 0.001, text ("a stretch between two pins runs %.3f percent from 122", tempoError * 100.0));
+
+    // A pin about every four bars, each on a hit, each but the last on beat 1 of a bar, none placed by hand.
+    // A bar is passed over only where its beat 1 has no hit: bars 11 to 13, in the fill.
+    expect (map.pins.size() >= 8 && map.pins.size() <= 10, text ("%g pins", (double) map.pins.size()));
+    for (size_t i = 0; i < map.pins.size(); ++i)
+    {
+        const auto& pin = map.pins[i];
+        expect (! pin.user, text ("the pin at %g s is marked as placed by hand", pin.time));
+        expect (nearestOnsetError (map.onsets, pin.time) <= 1.0e-9, text ("the pin at %g s is not on a hit", pin.time));
+        if (i + 1 < map.pins.size())
+        {
+            expect (same (std::fmod (pin.beat, 4.0), 0.0), text ("the pin at beat %g is not on beat 1 of a bar", pin.beat));
+            for (double due = pin.beat + 16.0; due < map.pins[i + 1].beat; due += 4.0)
+                expect (due >= 40.0 && due < 50.0, text ("no pin on beat %g, %g beats after the pin before it", due, due - pin.beat));
+        }
+    }
+
+    // With no regular pins: only the pins the tempo needs, and the same grid within the tolerance.
+    tt::Options needed;
+    needed.pinEveryBars = 0;
+    const auto bare = tt::mapCue (cue.onsets, cue.seconds, hint, {}, needed);
+    expect (bare.pins.size() >= 2 && bare.pins.size() <= 3, text ("%g pins with regular pins off", (double) bare.pins.size()));
+    expect (std::abs (bare.bpm - cue.bpm) <= 0.02 && worstSegmentTempo (bare.pins, cue.bpm) <= 0.001, text ("regular pins off: tempo %.4f", bare.bpm));
+    const tt::BeatGrid bareGrid (bare.pins, bare.bpm);
+    double moved = 0.0;
+    for (double b = 0.0; b < (double) cue.beats; b += 1.0)
+        moved = std::max (moved, std::abs (grid.timeAtBeat (b) - bareGrid.timeAtBeat (b)));
+    expect (moved <= 0.010, text ("the regular pins move the grid by %.2f ms", moved * 1000.0));
+
+    // Regular pins every two bars.
+    tt::Options often;
+    often.pinEveryBars = 2;
+    const auto dense = tt::mapCue (cue.onsets, cue.seconds, hint, {}, often);
+    for (size_t i = 1; i < dense.pins.size(); ++i)
+        for (double due = dense.pins[i - 1].beat + 8.0; due < dense.pins[i].beat; due += 4.0)
+            expect (due >= 40.0 && due < 50.0, text ("every two bars: no pin on beat %g, %g beats after the pin before it", due, due - dense.pins[i - 1].beat));
+    expect (dense.pins.size() > map.pins.size(), text ("every two bars: %g pins", (double) dense.pins.size()));
+    return text ("%.4f BPM, %g pins (%g with regular pins off)", map.bpm, (double) map.pins.size(), (double) bare.pins.size())
+           + text (", beats within %.2f ms, stretches within %.3f percent of 122", worst, tempoError * 100.0);
+}
+
+std::string realDrift()
+{
+    // 8 bars at 122 BPM, 16 bars speeding up evenly to 124, 8 bars at 124. A hit on every beat and a quieter one between.
+    std::vector<double> truth;
+    double t = 0.5;
+    for (int k = 0; k < 128; ++k)
+    {
+        truth.push_back (t);
+        const double along = std::clamp ((k - 32) / 64.0, 0.0, 1.0);
+        t += 60.0 / 122.0 + along * (60.0 / 124.0 - 60.0 / 122.0);
+    }
+    std::vector<std::pair<double, double>> hits;
+    for (size_t k = 0; k + 1 < truth.size(); ++k)
+    {
+        hits.push_back ({ truth[k], 0.6 });
+        hits.push_back ({ 0.5 * (truth[k] + truth[k + 1]), 0.25 });
+    }
+    hits.push_back ({ truth.back(), 0.6 });
+    const double seconds = truth.back() + 1.0;
+    const auto audio = makeCueWithLevels (hits, seconds, sr48);
+    const auto onsets = tt::findOnsets (audio.data(), audio.size(), sr48);
+
+    std::string detail;
+    for (int every : { 4, 0 })
+    {
+        tt::Hint hint;
+        hint.bpm = 122.0;
+        tt::Options options;
+        options.pinEveryBars = every;
+        const auto map = tt::mapCue (onsets, seconds, hint, {}, options);
+        expect (map.sections.size() == 1, text ("%g sections, ", (double) map.sections.size()) + allChecks (map));
+        expectPinsInOrder (map.pins);
+        const tt::BeatGrid grid (map.pins, map.bpm);
+        const double worst = worstBeatError (grid, 0.0, truth);
+        expect (worst <= 5.0, text ("regular pins every %g bars: a mapped beat is %.2f ms out", (double) every, worst));
+        expect (std::abs (grid.bpmAtTime (2.0) - 122.0) <= 0.1 && std::abs (grid.bpmAtTime (truth[120]) - 124.0) <= 0.1,
+                text ("%.3f BPM at the start, %.3f at the end", grid.bpmAtTime (2.0), grid.bpmAtTime (truth[120])));
+        detail += text ("pins every %g bars: %g pins, beats within %.2f ms  ", (double) every, (double) map.pins.size(), worst);
+    }
+    return detail;
+}
+
+std::string oneDisplacedHit()
+{
+    // 64 beats at 122 BPM with the hit of beat 30 played 14 ms late: the grid stays where it was.
+    auto times = steadyBeats (0.5, 122.0, 64);
+    const auto truth = times;
+    times[30] += 0.014;
+    const auto audio = makeCue (times, truth.back() + 1.0, sr48);
+    const auto onsets = tt::findOnsets (audio.data(), audio.size(), sr48);
+    tt::Hint hint;
+    hint.bpm = 122.0;
+    std::string detail;
+    for (int every : { 4, 0 })
+    {
+        tt::Options options;
+        options.pinEveryBars = every;
+        const auto map = tt::mapCue (onsets, truth.back() + 1.0, hint, {}, options);
+        expect (map.sections.size() == 1 && map.checks.empty(), text ("%g sections, ", (double) map.sections.size()) + allChecks (map));
+        for (const auto& pin : map.pins)
+            expect (std::abs (pin.beat - 30.0) > 0.5, text ("a pin was placed on the late hit, at %g s", pin.time));
+        if (every == 0)
+            expect (map.pins.size() >= 2 && map.pins.size() <= 3, text ("%g pins with regular pins off", (double) map.pins.size()));
+        const tt::BeatGrid grid (map.pins, map.bpm);
+        const double worst = worstBeatError (grid, 0.0, truth);
+        expect (worst <= 2.0 && worstSegmentTempo (map.pins, 122.0) <= 0.001 && std::abs (map.bpm - 122.0) <= 0.02,
+                text ("a mapped beat is %.2f ms out, tempo %.4f", worst, map.bpm));
+        detail += text ("pins every %g bars: %g pins, beats within %.2f ms  ", (double) every, (double) map.pins.size(), worst);
+    }
+    return detail;
+}
+
 } // namespace
 
 int main()
@@ -798,6 +992,9 @@ int main()
     test ("user pins that conflict", conflictingUserPins);
     test ("user restart placed off its hit", userRestartOffHit);
     test ("findOnsets on audio with no hits, and on a stem", onsetsOnAwkwardAudio);
+    test ("steady 122 BPM with syncopation and ghost notes", steadyWithSyncopation);
+    test ("tempo drifting from 122 to 124 BPM", realDrift);
+    test ("one hit played late", oneDisplacedHit);
     std::printf ("%d of %d tests passed\n", total - failed, total);
     return failed;
 }

@@ -72,7 +72,8 @@ public:
     // Pin indices are indices into getMap().pins. Pins move forward in both time and bar: an edit
     // that would put a pin at or before the bar of the pin before it (or at or after the bar of a
     // hand-placed pin after it) is not made, and the status line says why.
-    void movePin (int pinIndex, double newTime);
+    // With joinPrevious the move is folded into the previous undo step (a run of nudges is one step).
+    void movePin (int pinIndex, double newTime, bool joinPrevious = false);
     void addPin (double time);
     void deletePin (int pinIndex);
     void restartHere (double time);
@@ -87,6 +88,13 @@ public:
     // the previous undo step (a run of taps is one step).
     void setTempo (double bpm, bool joinPrevious = false);
     void setListenToDrums (bool useDrums);
+
+    // How often a pin is kept on beat 1 where a hit is there: every this many bars, or 0 for
+    // pins only where the tempo needs them.
+    void setPinEveryBars (int bars);
+
+    // Goes up with every edit, undo and redo.
+    int getEditSerial() const                               { return editSerial; }
 
     bool undo();
     bool redo();
@@ -145,6 +153,7 @@ private:
     juce::int64 deliveredOnsetKey = -1;
     int generation = 0;
     int mapVersion = 0;
+    int editSerial = 0;
 
     juce::String status, statusToKeep;
     bool synchronous = false;

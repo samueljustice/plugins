@@ -503,6 +503,151 @@ void NumberBox::focusLost (FocusChangeType)    { repaint(); }
 void NumberBox::enablementChanged()            { repaint(); }
 
 //==============================================================================
+ChoiceBox::ChoiceBox (const juce::String& labelText)
+    : label (labelText)
+{
+    setTitle (labelText);
+    setDescription ("Click to choose. The up and down arrow keys and the mouse wheel step through the choices.");
+    setWantsKeyboardFocus (true);
+    setMouseClickGrabsKeyboardFocus (false);
+}
+
+void ChoiceBox::setItems (juce::StringArray newItems)
+{
+    items = std::move (newItems);
+    selected = items.isEmpty() ? -1 : juce::jlimit (0, items.size() - 1, selected);
+    repaint();
+}
+
+void ChoiceBox::setSelected (int index, juce::NotificationType notification)
+{
+    if (index < 0 || index >= items.size() || index == selected)
+        return;
+
+    selected = index;
+    repaint();
+
+    if (notification != juce::dontSendNotification && onChange)
+        onChange (selected);
+}
+
+int ChoiceBox::getBestWidth() const
+{
+    float widest = 0.0f;
+
+    for (const auto& item : items)
+        widest = juce::jmax (widest, Theme::textWidth (Theme::ui (13.0f), item));
+
+    // The text, 10 px either side of it, and the arrow.
+    return (int) std::ceil (widest) + 20 + 16;
+}
+
+juce::Rectangle<int> ChoiceBox::boxBounds() const
+{
+    auto area = getLocalBounds();
+
+    // With too little height for both, the label is left out and the box takes it all.
+    if (area.getHeight() >= 36)
+        area.removeFromTop (18);
+
+    return area;
+}
+
+void ChoiceBox::step (int direction)
+{
+    if (isEnabled())
+        setSelected (juce::jlimit (0, juce::jmax (0, items.size() - 1), selected + direction), juce::sendNotification);
+}
+
+void ChoiceBox::showMenu()
+{
+    if (! isEnabled() || items.isEmpty())
+        return;
+
+    juce::PopupMenu menu;
+
+    for (int i = 0; i < items.size(); ++i)
+        menu.addItem (i + 1, items[i], true, i == selected);
+
+    juce::Component::SafePointer<ChoiceBox> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (boxBounds()))
+                                                  .withMinimumWidth (boxBounds().getWidth()),
+                        [safe] (int chosen)
+                        {
+                            if (safe != nullptr && chosen > 0)
+                                safe->setSelected (chosen - 1, juce::sendNotification);
+                        });
+}
+
+void ChoiceBox::paint (juce::Graphics& g)
+{
+    const float alpha = isEnabled() ? 1.0f : 0.4f;
+    const auto box = boxBounds();
+
+    if (box.getY() > 0)
+    {
+        g.setColour (Theme::dim().withMultipliedAlpha (alpha));
+        g.setFont (Theme::fieldLabel());
+        g.drawText (label.toUpperCase(), getLocalBounds().removeFromTop (14),
+                    juce::Justification::centredLeft, true);
+    }
+
+    const auto r = box.toFloat().reduced (0.5f);
+    const float radius = juce::jmin (Theme::cornerRadius, r.getHeight() * 0.5f);
+
+    g.setColour (Theme::panel().withMultipliedAlpha (alpha));
+    g.fillRoundedRectangle (r, radius);
+    g.setColour ((hasKeyboardFocus (false) ? Theme::dim() : Theme::line()).withMultipliedAlpha (alpha));
+    g.drawRoundedRectangle (r, radius, 1.0f);
+
+    // A small arrow at the right says there is a menu.
+    auto textArea = box.reduced (juce::jmin (10, box.getWidth() / 6), 0);
+    const auto arrowArea = textArea.removeFromRight (juce::jmin (12, textArea.getWidth())).toFloat();
+    juce::Path arrow;
+    arrow.startNewSubPath (arrowArea.getCentreX() - 4.0f, arrowArea.getCentreY() - 2.0f);
+    arrow.lineTo (arrowArea.getCentreX(), arrowArea.getCentreY() + 2.0f);
+    arrow.lineTo (arrowArea.getCentreX() + 4.0f, arrowArea.getCentreY() - 2.0f);
+    g.setColour (Theme::dim().withMultipliedAlpha (alpha));
+    g.strokePath (arrow, juce::PathStrokeType (1.5f));
+
+    textArea.removeFromRight (juce::jmin (4, textArea.getWidth()));
+    g.setColour (Theme::text().withMultipliedAlpha (alpha));
+    g.setFont (Theme::ui (13.0f));
+    g.drawText (selected >= 0 ? items[selected] : juce::String(), textArea, juce::Justification::centredLeft, true);
+}
+
+void ChoiceBox::mouseUp (const juce::MouseEvent& e)
+{
+    if (e.mouseWasClicked() && ! e.mods.isPopupMenu() && boxBounds().contains (e.getPosition()))
+        showMenu();
+}
+
+void ChoiceBox::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    // Only a wheel with notches steps the choice: a trackpad swipe passing over it does not.
+    if (! isEnabled() || wheel.isSmooth || wheel.isInertial || juce::exactlyEqual (wheel.deltaY, 0.0f))
+    {
+        juce::Component::mouseWheelMove (e, wheel);
+        return;
+    }
+
+    step (wheel.deltaY > 0.0f ? -1 : 1);
+}
+
+bool ChoiceBox::keyPressed (const juce::KeyPress& key)
+{
+    if (key.isKeyCode (juce::KeyPress::upKey))      { step (-1);  return true; }
+    if (key.isKeyCode (juce::KeyPress::downKey))    { step (1);   return true; }
+    if (key.isKeyCode (juce::KeyPress::returnKey))  { showMenu(); return true; }
+
+    return false;
+}
+
+void ChoiceBox::focusGained (FocusChangeType)  { repaint(); }
+void ChoiceBox::focusLost (FocusChangeType)    { repaint(); }
+void ChoiceBox::enablementChanged()            { repaint(); }
+
+//==============================================================================
 CheckBadge::CheckBadge()
 {
     setTitle ("Places to check");

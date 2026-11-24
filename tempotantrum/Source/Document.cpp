@@ -479,6 +479,7 @@ void Document::applyInputs (const MapInputs& newInputs, bool listeningToo)
         inputs.listenToDrums = false;
 
     changedSinceSave = true;
+    ++editSerial;
 
     requestMap();
     sendSynchronousChangeMessage();
@@ -575,7 +576,7 @@ bool Document::placeUserPin (std::vector<Pin>& pins, Pin pin, double replaceWith
     return true;
 }
 
-void Document::movePin (int pinIndex, double newTime)
+void Document::movePin (int pinIndex, double newTime, bool joinPrevious)
 {
     if (pinIndex < 0 || pinIndex >= (int) map.pins.size())
         return;
@@ -595,7 +596,7 @@ void Document::movePin (int pinIndex, double newTime)
     if (! placeUserPin (next.userPins, { old.beat, newTime, true, old.restart }, replaceUserPinWithin, whyNot))
         return setStatus ("The pin was not moved: " + whyNot);
 
-    edit (std::move (next), "Move pin");
+    edit (std::move (next), "Move pin", joinPrevious);
 }
 
 void Document::addPin (double time)
@@ -722,6 +723,13 @@ void Document::setTempo (double bpm, bool joinPrevious)
     auto next = inputs;
     next.hint.bpm = std::max (0.0, bpm);
     edit (std::move (next), "Change the tempo", joinPrevious);
+}
+
+void Document::setPinEveryBars (int bars)
+{
+    auto next = inputs;
+    next.options.pinEveryBars = juce::jlimit (0, 64, bars);
+    edit (std::move (next), "Change how often pins are placed");
 }
 
 void Document::setListenToDrums (bool useDrums)

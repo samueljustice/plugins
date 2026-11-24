@@ -112,13 +112,13 @@ kbd { font: 500 0.85rem/1 var(--mono); background: var(--panel); border: 1px sol
         <figcaption>The whole cue mapped from bar 40. The pink notes and the shaded stretches are the places it wants you to check.</figcaption>
       </figure></li>
       <li>Press <strong>Play with click</strong> or the space bar and listen. The click is louder on beat 1 of each bar.</li>
-      <li>Press Tab to jump to the next <span class="check">place to check</span>. It zooms in and loops that stretch with the click. Where the beat comes back after a riser, it guesses the bar. If the guess is right, leave it. If not, right-click the pin and choose <strong>This hit is bar…</strong>, or right-click the hit and choose <strong>The beat restarts here</strong>.
+      <li>Press N to jump to the next <span class="check">place to check</span>. It zooms in and loops that stretch with the click. Where the beat comes back after a riser, it guesses the bar. If the guess is right, leave it. If not, right-click the pin and choose <strong>This hit is bar…</strong>, or right-click the hit and choose <strong>The beat restarts here</strong>.
       <figure>
         <img src="window-0.1.0-restart.png" width="800" height="475" alt="A closer view of a riser and the hit after it. The shaded stretch over the riser reads Beat restarts, bar 48 beat 2? and Beat not followed for 5.4 s; next to it, Few beats land on a hit. Check the tempo.">
         <figcaption>A riser and the hit where the beat comes back. It asks whether that hit is bar 48, beat 2.</figcaption>
       </figure></li>
-      <li>Drag a pin onto a hit. It snaps to the nearest hit; hold Alt to place it freely. Double-click near a hit to add a pin. The map is worked out again around your pins.</li>
-      <li>Press <strong>Save map</strong>, then <strong>Export click…</strong>. Lay the click WAV against the music in Pro Tools and listen for where it drifts.</li>
+      <li>Zoom in on a pin with T (R zooms out, Option A shows the whole file) and drag it onto a hit. <strong>Snap</strong>, under the waveform, says what it lands on: the hits, the grid, or nothing. Hold Cmd to place it freely. Comma and full stop move the selected pin 1 ms at a time. Double-click to add a pin. The map is worked out again around your pins.</li>
+      <li>Press <strong>Save map</strong>. Then write the map into Pro Tools, as below.</li>
     </ol>
     <figure style="margin-left: 0">
       <img src="window-0.1.0-stem.png" width="800" height="475" alt="The same cue with a drum stem added: Listen to is set to Drum stem, and the stem's waveform is drawn under the mix, labelled Drums.">
@@ -132,45 +132,65 @@ kbd { font: 500 0.85rem/1 var(--mono); background: var(--panel); border: 1px sol
       <thead><tr><th>Key</th><th>What it does</th></tr></thead>
       <tbody>
         <tr><td><kbd>Space</kbd></td><td>Play with the click, or stop. Stops a loop.</td></tr>
-        <tr><td><kbd>Tab</kbd></td><td>Jump to the next place to check and loop it. <kbd>Shift</kbd> <kbd>Tab</kbd> goes back.</td></tr>
-        <tr><td><kbd>Esc</kbd></td><td>Stop looping and keep playing.</td></tr>
-        <tr><td><kbd>T</kbd></td><td>Tap the tempo. Taps more than two seconds apart start a new count.</td></tr>
-        <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Move to the previous or next pin.</td></tr>
+        <tr><td><kbd>Return</kbd></td><td>Move the playhead to the start.</td></tr>
+        <tr><td><kbd>Tab</kbd> <kbd>⌥Tab</kbd></td><td>Move the playhead to the next hit, or the one before.</td></tr>
+        <tr><td><kbd>R</kbd> <kbd>T</kbd></td><td>Zoom out, zoom in, about the selected pin or the playhead. <kbd>⌘[</kbd> and <kbd>⌘]</kbd> do the same.</td></tr>
+        <tr><td><kbd>⌥A</kbd></td><td>Show the whole file.</td></tr>
+        <tr><td><kbd>⌥F</kbd></td><td>Fill the window with the stretch between the pins either side of the selected pin, or of the playhead.</td></tr>
+        <tr><td><kbd>E</kbd></td><td>Zoom to two bars around the selected pin or the playhead. Again goes back.</td></tr>
+        <tr><td><kbd>⌥⌘]</kbd> <kbd>⌥⌘[</kbd></td><td>Draw the waveform taller or shorter.</td></tr>
+        <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Select the previous or next pin and bring it into view.</td></tr>
+        <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>Move the selected pin 1 ms earlier or later. With <kbd>Shift</kbd> 10 ms, with <kbd>⌥</kbd> one sample.</td></tr>
         <tr><td><kbd>⌫</kbd> <kbd>Delete</kbd></td><td>Delete the selected pin.</td></tr>
+        <tr><td><kbd>F2</kbd> <kbd>F3</kbd> <kbd>F4</kbd></td><td>Snap: Off, Hits, Grid.</td></tr>
+        <tr><td><kbd>N</kbd> <kbd>⇧N</kbd></td><td>Jump to the next place to check, or the one before, and loop it.</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Stop looping and keep playing.</td></tr>
+        <tr><td><kbd>⇧T</kbd></td><td>Tap the tempo. Taps more than two seconds apart start a new count.</td></tr>
         <tr><td><kbd>⌘O</kbd></td><td>Open music.</td></tr>
         <tr><td><kbd>⌘S</kbd></td><td>Save the map.</td></tr>
         <tr><td><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></td><td>Undo, redo.</td></tr>
       </tbody>
     </table>
-    <p class="hint">While you are typing in a box, Tab moves to the next box and Esc goes back to the keys above.</p>
+    <p class="hint">While you are typing in a box, Tab moves to the next box and Esc goes back to the keys above. The scroll wheel or a two-finger swipe scrolls along the music; with Option or Cmd it zooms about the pointer, and so does a pinch. Drag in the ruler to move the playhead. The strip under the waveform is the whole file: drag the box on it to move the view.</p>
+  </section>
+
+  <section>
+    <h2>Write to Pro Tools</h2>
+    <p><strong>Write to Pro Tools</strong> puts a bar|beat marker on every pin, the way it is done by hand: it moves the Pro Tools cursor to the pin, opens Event &gt; Identify Beat, types the bar and beat and presses OK. A pin takes about a second. It types into Pro Tools, so leave the keyboard and mouse alone while it runs.</p>
+    <p>The first time, the sheet says macOS has not given permission. Press <strong>Ask macOS for permission</strong>, switch Tempo Tantrum on in System Settings &gt; Privacy &amp; Security &gt; Accessibility, and reopen the app.</p>
+    <div class="panel">
+      <p>In Pro Tools first:</p>
+      <ul>
+        <li>Use a copy of the session until we trust it.</li>
+        <li>Stop the transport and set the Main Counter to Samples.</li>
+        <li>Select the music clip, so the cursor is at its start.</li>
+      </ul>
+    </div>
+    <ol class="steps">
+      <li>Press <strong>Write to Pro Tools</strong>. The sheet says how many pins it will send, which bars they cover and the sample it takes as the start of the music. Read that line: it warns when the sample is 0 or is where the last run wrote.</li>
+      <li>Press <strong>Write</strong>. If places are still listed to check it reads <strong>Write (3 unchecked)</strong> and still works. Pro Tools comes to the front and a small panel stays on top with the count and a <strong>Stop</strong> button.</li>
+      <li>When it has finished Tempo Tantrum comes forward and says <strong>Written: 24 pins</strong>, or <strong>Stopped at pin 7 of 24</strong> and why. Then it says whether the pins check out: it goes to each pin again, opens Identify Beat, reads the location and cancels, which changes nothing.</li>
+      <li>Look at the session. Are the markers on the hits, with the right bar numbers? Play it with the Pro Tools click.</li>
+      <li>Press <strong>Copy log</strong> or <strong>Save log…</strong> and send the log to Sam, whether it worked or not.</li>
+    </ol>
+    <p class="hint">A run stops at the first thing that is not as expected: the Main Counter not showing the pin's sample, the dialog not showing the bar and beat that was typed, a window it did not expect, or Pro Tools no longer being in front. <strong>Undo in Pro Tools</strong> sends <kbd>⌘Z</kbd> once for each pin written, after a second click. It cannot see what Pro Tools did with them, so look at the session, and undo by hand if you have done anything else in Pro Tools since. <strong>More</strong> in the sheet has the sample where the music starts, the session sample rate, the check and <strong>Type slowly</strong>, to try if a run stops because a number did not arrive. The log holds the session name and the music file name.</p>
   </section>
 
   <section>
     <h2>Testing the Pro Tools link</h2>
-    <p><strong>Test in Pro Tools…</strong> in the footer tries one way of getting the pins into a session: it runs Pro Tools' own Event &gt; Identify Beat from outside, once for each pin. It has not been run against Pro Tools before, so the log is what we need. Send the log to Sam whether it worked or not.</p>
-    <p>The first time, press <strong>Ask macOS for permission</strong> in the panel, switch Tempo Tantrum on in System Settings &gt; Privacy &amp; Security &gt; Accessibility, and reopen the app.</p>
-    <div class="panel">
-      <p>Before a run:</p>
-      <ul>
-        <li>Use a scratch session or a copy, not a session in use.</li>
-        <li>Stop the transport and set the Main Counter to Samples.</li>
-        <li>Put the cursor at the start of the music clip, or type the sample where the music starts into <strong>Music starts at sample</strong>.</li>
-        <li>Check that <strong>Session sample rate</strong> matches the session.</li>
-        <li>Do not touch the keyboard or mouse during the run.</li>
-      </ul>
-    </div>
+    <p><strong>Test in Pro Tools…</strong>, under <strong>More</strong> in the footer, runs the same steps one stage at a time and writes down everything it sees. Use it when <strong>Write to Pro Tools</strong> stops and the reason is not clear, and send the log to Sam.</p>
     <ol class="steps">
-      <li>Press <strong>Look only</strong>. It brings Pro Tools to the front, finds the menu item, opens the Identify Beat dialog, writes down what it finds and cancels it. It presses no key and writes nothing to the session. Press <strong>Copy log</strong> or <strong>Save log…</strong> and send the log to Sam.</li>
-      <li>Press <strong>Send one pin</strong>. It moves the cursor to the first pin, opens Identify Beat, enters the bar and beat and presses OK. Look in Pro Tools for a bar|beat marker on the first hit with the right bar number. Send the log and say what you saw.</li>
-      <li>Press <strong>Send all pins</strong>, and press it again when it asks. It does the same for every pin, left to right, and stops at the first one that fails. Send the log.</li>
+      <li><strong>Look only</strong> brings Pro Tools to the front, finds the menu item, opens the Identify Beat dialog, writes down what it finds and cancels it. It presses no key and writes nothing to the session.</li>
+      <li><strong>Send one pin</strong> writes the first pin.</li>
+      <li><strong>Send all pins</strong>, pressed twice, writes every pin at about three seconds a pin and stops at the first one that fails.</li>
     </ol>
-    <p class="hint">The line at the top of the panel says how the run ended. <strong>Stop</strong>, or <kbd>Esc</kbd> in the Tempo Tantrum window, ends a run. <kbd>⌘Z</kbd> in Pro Tools should undo the steps one at a time. If the bar and beat do not arrive in the dialog, set <strong>Bar|beat entry</strong> to <strong>Type it</strong> and try again. The log holds the session name and the music file name.</p>
+    <p class="hint">The same things have to be done in Pro Tools first. <strong>Stop</strong>, or <kbd>Esc</kbd> in the Tempo Tantrum window, ends a run. <strong>Export click…</strong>, also under <strong>More</strong>, writes the click as a WAV file to lay against the music.</p>
   </section>
 
   <section>
     <h2>What it does not do yet</h2>
     <ul>
-      <li>It does not write the tempo map into Pro Tools. Use the exported click instead. The Pro Tools test above is only a test.</li>
+      <li>It does not look after the tempo maps of other trailers further down the session. Check them after a write.</li>
       <li>A tempo change inside a section is not followed. Between two pins the tempo is constant.</li>
       <li>Single hits placed to picture, away from any beat, are not followed.</li>
       <li>Mac only.</li>

@@ -122,13 +122,15 @@ target_sources(TempoTantrum
     Source/Player.cpp
     Source/MapFile.cpp
     Source/ProToolsTestPanel.cpp
+    Source/ProToolsWrite.cpp
     Source/protools/IdentifyBeatTest.cpp
+    Source/protools/IdentifyBeatWrite.cpp
     Source/ui/Theme.cpp
     Source/ui/WaveformView.cpp
     Source/ui/Controls.cpp
 )
 
-# The Pro Tools test drives Pro Tools through the macOS Accessibility API and keyboard events.
+# Writing to Pro Tools, and its test, drive Pro Tools through the macOS Accessibility API and keyboard events.
 # Elsewhere a stand-in is built whose every step fails and says so.
 if(APPLE)
     target_sources(TempoTantrum PRIVATE Source/protools/ProToolsDriver.mm)

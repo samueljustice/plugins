@@ -68,6 +68,7 @@ struct Options
     Bridge bridge = Bridge::wholeBeat;   // how the beat count across a gap is rounded
     bool detectJumps = true;             // look for restarts with no silence
     double pinToleranceMs = 10.0;        // add pins until every snapped beat is this close to the grid
+    int pinEveryBars = 4;                // also keep a pin on beat 1 at least this often where a hit is there; 0 = only where needed
 };
 
 struct MapResult

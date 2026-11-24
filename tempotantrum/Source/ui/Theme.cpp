@@ -1,5 +1,10 @@
 #include "Theme.h"
 
+#if JUCE_MAC
+ #include <objc/message.h>
+ #include <objc/runtime.h>
+#endif
+
 #include "TempoTantrumBinaryData.h"
 
 namespace tt::ui
@@ -87,6 +92,28 @@ juce::Font Theme::monoBold (float size)  { return monoFont (MonoWeight::bold, si
 juce::Font Theme::fieldLabel()
 {
     return mono (10.0f).withExtraKerningFactor (0.08f);
+}
+
+bool Theme::reduceMotion()
+{
+   #if JUCE_MAC
+    // [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion], asked through the
+    // Objective-C runtime so this file stays C++.
+    const auto workspaceClass = (id) objc_getClass ("NSWorkspace");
+
+    if (workspaceClass == nullptr)
+        return false;
+
+    const auto workspace = ((id (*) (id, SEL)) objc_msgSend) (workspaceClass, sel_registerName ("sharedWorkspace"));
+    const auto selector = sel_registerName ("accessibilityDisplayShouldReduceMotion");
+
+    if (workspace == nullptr || ! class_respondsToSelector (object_getClass (workspace), selector))
+        return false;
+
+    return ((BOOL (*) (id, SEL)) objc_msgSend) (workspace, selector) != 0;
+   #else
+    return false;
+   #endif
 }
 
 float Theme::textWidth (const juce::Font& font, const juce::String& text)

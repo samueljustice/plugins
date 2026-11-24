@@ -33,6 +33,19 @@ struct Tuning
     double refineKeepHint = 1.15; // another tempo replaces the hint only when its support is this much better
     double userSnapMs = 30.0;     // a user pin this close to a section start sets that start
     double unsureOnHit = 0.4;     // a section of two bars or more with a smaller share of its beats on a strong hit gets a check
+
+    // The constant-tempo test (steadyHead in SectionMapper.cpp) and the regular pins.
+    bool steady = true;           // try one constant tempo for a stretch before following it hit by hit
+    int steadyMinBeats = 8;       // a constant grid needs this many beats on a hit to be used
+    int steadyFirst = 16;         // beats fitted first; the fit is then carried on over twice as many, and so on
+    double steadyWideMs = 35.0;   // a hit this close to a line, but outside the pin tolerance, is a beat that is off the grid
+    int steadyRun = 4;            // this many beats in a row early, or late, end the constant grid
+    int steadyRunStrong = 3;      // or this many strong hits in a row
+    double steadyLimit = 0.6;     // early or late in that test: by more than this share of the pin tolerance
+    double steadyFloor = 0.25;    // or, where the hits sit very evenly, by as little as this share of it
+    int steadyCarry = 3;          // after a gap, this many beats on the grid carried across it keep the section going
+    double regularNear = 0.3;     // a regular pin goes on a hit within this share of the pin tolerance of the grid
+    double regularTempo = 0.0005; // and close enough that the tempo either side of it changes by no more than this share
 };
 
 MapResult mapCueWith (const std::vector<Onset>& onsets, double durationSeconds, const Hint& hint,

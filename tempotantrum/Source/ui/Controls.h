@@ -125,6 +125,42 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NumberBox)
 };
 
+// One of a few choices with a label above it. Click for a menu of them; the up and down arrow
+// keys and the mouse wheel step through them.
+class ChoiceBox : public juce::Component
+{
+public:
+    explicit ChoiceBox (const juce::String& label);
+
+    void setItems (juce::StringArray newItems);
+    void setSelected (int index, juce::NotificationType notification);
+    int getSelected() const                      { return selected; }
+
+    // The width that shows the longest item.
+    int getBestWidth() const;
+
+    std::function<void (int)> onChange;
+
+    void paint (juce::Graphics&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    bool keyPressed (const juce::KeyPress&) override;
+    void focusGained (FocusChangeType) override;
+    void focusLost (FocusChangeType) override;
+    void enablementChanged() override;
+
+private:
+    juce::Rectangle<int> boxBounds() const;
+    void step (int direction);
+    void showMenu();
+
+    juce::String label;
+    juce::StringArray items;
+    int selected = -1;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChoiceBox)
+};
+
 // One line saying how many places need a look: "2 places to check", or "Nothing to check".
 // Clicking it calls onClick.
 class CheckBadge : public juce::Component

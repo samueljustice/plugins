@@ -18,6 +18,11 @@
 // is one, and pins are added until the straight lines between pins pass within the tolerance of
 // every snapped beat.
 //
+// Before a stretch is followed hit by hit, one constant tempo is tried for it (steadyHead). Where a
+// constant grid has most of its beats on hits it is used as far as it holds, and the hits off it
+// are left alone as syncopation. It ends where several beats in a row are off it on the same side.
+// A section whose constant grid still fits the hits after a gap carries on across the gap.
+//
 // The constants are in detail::Tuning (Internal.h). Times are seconds throughout.
 namespace tt
 {
@@ -311,6 +316,7 @@ struct Track
     std::vector<char> conf;       // beat k sits on a hit
     std::vector<int> pins;        // the beats chosen as pins
     double period = 0.5;
+    double fitPeriod = 0.0;       // the beat length of the constant grid, when one grid covers the whole stretch
     int lead = 0;                 // beats from a start that is on no hit up to the first hit followed
 
     int numConf() const
@@ -613,7 +619,366 @@ struct Mapper
         return out;
     }
 
-    Track trackFrom (double tStart, double tEnd, double period, double beat0, bool exactStart) const
+    //==============================================================================
+    // The constant-tempo test.
+
+    // What a grid line has near it: nothing, a hit on it (within `near`), or only a hit off it (within `wide`).
+    struct LineHit
+    {
+        enum Kind { none, on, off };
+        Kind kind = none;
+        double offset = 0.0;     // hit time less line time
+        double strength = 0.0;
+        double time = 0.0;
+    };
+
+    LineHit hitOnLine (double line, double near, double wide) const
+    {
+        LineHit out;
+        for (int i = h.lowerBound (line - wide); i < h.size() && h.on[(size_t) i] <= line + wide; ++i)
+        {
+            if (h.st[(size_t) i] < c.thrOn)
+                continue;
+            const double d = h.on[(size_t) i] - line;
+            const auto kind = std::abs (d) <= near ? LineHit::on : LineHit::off;
+            if (out.kind == LineHit::none || (kind == LineHit::on && out.kind == LineHit::off)
+                || (kind == out.kind && h.st[(size_t) i] > out.strength))
+                out = { kind, d, h.st[(size_t) i], h.on[(size_t) i] };
+        }
+        return out;
+    }
+
+    double steadyWide (double P) const   { return std::max (pinTol, std::min (c.steadyWideMs / 1000.0, 0.2 * P)); }
+
+    // The lines 0..L of the grid a + k * P. With `tied`, line 0 is the start of the stretch itself,
+    // whatever is near it: the grid has to pass close to the start.
+    std::vector<LineHit> steadyLines (double tStart, double a, double P, int L, bool tied) const
+    {
+        std::vector<LineHit> lines ((size_t) L + 1);
+        if (tied)
+            lines[0] = { LineHit::on, tStart - a, 1.0, tStart };
+        for (int k = tied ? 1 : 0; k <= L; ++k)
+            lines[(size_t) k] = hitOnLine (a + k * P, pinTol, steadyWide (P));
+        return lines;
+    }
+
+    // Hit strength on lines 1..L of the grid, less for hits off the line.
+    double steadySupport (double a, double P, int L) const
+    {
+        double total = 0.0;
+        for (int k = 1; k <= L; ++k)
+        {
+            const double line = a + k * P;
+            double best = 0.0;
+            for (int i = h.lowerBound (line - pinTol); i < h.size() && h.on[(size_t) i] <= line + pinTol; ++i)
+            {
+                const double d = (h.on[(size_t) i] - line) / pinTol;
+                if (h.st[(size_t) i] >= c.thrOn)
+                    best = std::max (best, h.st[(size_t) i] * (1.0 - 0.5 * d * d));
+            }
+            total += best;
+        }
+        return total;
+    }
+
+    // The beat length within `range` (a share of P) whose grid from a is best supported over L lines.
+    // P itself is kept unless another is better by a twentieth.
+    double steadySearch (double a, double P, int L, double range, int steps) const
+    {
+        double best = P, bestScore = steadySupport (a, P, L) * 1.05;
+        for (int j = -steps; j <= steps; ++j)
+        {
+            const double cand = P * (1.0 + range * j / steps);
+            const double score = steadySupport (a, cand, L);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = cand;
+            }
+        }
+        return best;
+    }
+
+    // Least squares through the hits on lines 0..L (and the start, when tied), each weighted by its strength.
+    void steadyFit (double tStart, double& a, double& P, int L, bool tied) const
+    {
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            const auto lines = steadyLines (tStart, a, P, L, tied);
+            double sw = 0.0, sk = 0.0, st = 0.0, skk = 0.0, skt = 0.0;
+            for (int k = 0; k <= L; ++k)
+            {
+                const auto& line = lines[(size_t) k];
+                if (line.kind != LineHit::on)
+                    continue;
+                const double w = line.strength, t = line.time - tStart;
+                sw += w;
+                sk += w * k;
+                st += w * t;
+                skk += w * k * k;
+                skt += w * k * t;
+            }
+            const double den = sw * skk - sk * sk;
+            if (den <= 1.0e-12)
+                return;
+            P = (sw * skt - sk * st) / den;
+            a = tStart + (st - P * sk) / sw;
+        }
+    }
+
+    struct SteadyScan
+    {
+        int on = 0, off = 0;
+        int lastOn = 0;          // the last line with a hit on it
+        int firstBad = -1;       // the first line of a run of beats off the grid on one side, or -1
+    };
+
+    // Counts the lines with a hit on them and off them, and looks for the place where the hits leave the
+    // grid for good: steadyRun lines in a row that have a hit, or steadyRunStrong in a row that have a
+    // strong one, all early or all late by more than a limit. One hit out of place is never enough.
+    // The limit is steadyLimit of the pin tolerance. Where the hits on the grid sit very evenly (their
+    // offsets hardly change from one to the next) it is less, down to steadyFloor of the tolerance,
+    // so a slow drift in clean audio is seen early.
+    SteadyScan steadyScan (const std::vector<LineHit>& lines) const
+    {
+        SteadyScan scan;
+        std::vector<int> with;
+        std::vector<double> steps;
+        int prevOn = -1;
+        for (int k = 0; k < (int) lines.size(); ++k)
+        {
+            const auto& line = lines[(size_t) k];
+            if (line.kind == LineHit::none)
+                continue;
+            with.push_back (k);
+            if (line.kind == LineHit::off)
+            {
+                ++scan.off;
+                continue;
+            }
+            ++scan.on;
+            scan.lastOn = k;
+            if (prevOn >= 0 && k - prevOn <= 2)
+                steps.push_back (std::abs (line.offset - lines[(size_t) prevOn].offset));
+            prevOn = k;
+        }
+        double limit = c.steadyLimit * pinTol;
+        if (steps.size() >= 6)
+            limit = std::clamp (3.0 * 1.4826 * medianOf (steps) / std::sqrt (2.0), c.steadyFloor * pinTol, limit);
+
+        // A run among all the lines with a hit, or a shorter one among those with a strong hit.
+        std::vector<int> strong;
+        for (int k : with)
+            if (lines[(size_t) k].strength >= c.thrStrong)
+                strong.push_back (k);
+        auto firstRun = [&] (const std::vector<int>& set, int length)
+        {
+            const auto run = (size_t) std::max (1, length);
+            for (size_t i = 0; i + run <= set.size(); ++i)
+            {
+                if (set[i + run - 1] - set[i] > 3 * (int) run)
+                    continue;
+                size_t late = 0, early = 0;
+                for (size_t j = i; j < i + run; ++j)
+                {
+                    late += lines[(size_t) set[j]].offset > limit;
+                    early += lines[(size_t) set[j]].offset < -limit;
+                }
+                if (late == run || early == run)
+                    return set[i];
+            }
+            return -1;
+        };
+        const int inAll = firstRun (with, c.steadyRun), inStrong = firstRun (strong, c.steadyRunStrong);
+        scan.firstBad = inAll < 0 ? inStrong : (inStrong < 0 ? inAll : std::min (inAll, inStrong));
+        return scan;
+    }
+
+    // A grid tied to its start passes within the pin tolerance of it. One that is not tied (the start
+    // was placed by hand, or is where an earlier grid ended) still has the start as its beat 0, and
+    // passes within `reach` of it.
+    bool steadyHolds (const SteadyScan& scan, double tStart, double a, double reach) const
+    {
+        return scan.firstBad < 0 && scan.on >= 3 * scan.off && std::abs (a - tStart) <= reach;
+    }
+
+    bool startsOnHit (double t) const   { return h.strongestNear (t, c.regularNear * pinTol, c.thrOn) >= 0; }
+
+    // A constant grid from tStart, as far as it holds.
+    struct Steady
+    {
+        double a = 0.0, P = 0.0;
+        int last = 0;                    // the last line with a hit on it
+        int on = 0;
+        bool ended = false;              // the hits left the grid after `last`
+        std::vector<LineHit> lines;      // lines 0..last
+    };
+
+    // Fits a constant grid over the first beats, then over twice as many, and so on to tEnd. When a
+    // longer stretch does not hold, the last fit that did is carried forward and ends on the last hit
+    // on it before the hits leave it. Nothing is returned when no stretch of steadyMinBeats holds.
+    // A grid that is not tied to tStart may sit up to freeReach from it (35 ms, or a fifth of a beat
+    // if that is less, when freeReach is not given).
+    std::optional<Steady> steadyHead (double tStart, double tEnd, double period, bool tied, double freeReach = 0.0) const
+    {
+        if (! c.steady)
+            return std::nullopt;
+        auto linesTo = [&] (double a, double P) { return (int) std::floor ((tEnd + pinTol - a) / P); };
+        if (linesTo (tStart, period) < c.steadyMinBeats)
+            return std::nullopt;
+
+        double a = tStart, P = period;
+        const double reach = tied ? pinTol : (freeReach > 0.0 ? freeReach : steadyWide (P));
+        if (! tied)
+        {
+            // Where the grid sits against the start: the place within reach that the first beats support best.
+            const int L = std::min (c.steadyFirst, linesTo (a, P));
+            double bestScore = steadySupport (a, P, L) * 1.05;
+            for (double d = -reach; d <= reach; d += 0.001)
+            {
+                const double score = steadySupport (tStart + d, P, L);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    a = tStart + d;
+                }
+            }
+        }
+        double heldA = 0.0, heldP = 0.0;
+        int heldL = 0;
+        bool whole = false;
+        for (int L = std::min (c.steadyFirst, linesTo (a, P)); ;)
+        {
+            // Until a fit has held, the search is 3 percent either side of the tempo given. After that
+            // it goes as far as moves the last line by 25 ms, in steps of 1 ms.
+            double fa = a, fP = P;
+            if (heldL == 0)
+                fP = steadySearch (fa, fP, L, 0.03, std::max (1, (int) std::ceil (0.03 * L * fP / 0.001)));
+            else
+                fP = steadySearch (fa, fP, L, 0.025 / (L * fP), 25);
+            steadyFit (tStart, fa, fP, L, tied);
+            const bool holds = std::abs (fP / period - 1.0) < 0.08 && steadyHolds (steadyScan (steadyLines (tStart, fa, fP, L, tied)), tStart, fa, reach);
+            if (! holds)
+            {
+                if (heldL == 0 && L > c.steadyMinBeats)
+                {
+                    L = c.steadyMinBeats;   // one more try over fewer beats
+                    continue;
+                }
+                break;
+            }
+            heldA = a = fa;
+            heldP = P = fP;
+            heldL = L;
+            const int all = linesTo (a, P);
+            if (L >= all)
+            {
+                whole = true;
+                break;
+            }
+            L = std::min (all, 2 * L);
+        }
+        if (heldL == 0)
+            return std::nullopt;
+
+        Steady out;
+        out.a = heldA;
+        out.P = heldP;
+        int L = heldL;
+        if (! whole)
+        {
+            // Carry the grid that held on to the end and stop before the hits leave it.
+            L = linesTo (out.a, out.P);
+            const auto scan = steadyScan (steadyLines (tStart, out.a, out.P, L, tied));
+            L = scan.firstBad >= 0 ? std::max (heldL, scan.firstBad - 1) : heldL;
+            out.ended = true;
+            // The fit over the longer stretch is used if it holds there.
+            double fa = out.a, fP = out.P;
+            steadyFit (tStart, fa, fP, L, tied);
+            if (steadyHolds (steadyScan (steadyLines (tStart, fa, fP, L, tied)), tStart, fa, reach))
+            {
+                out.a = fa;
+                out.P = fP;
+            }
+        }
+        out.lines = steadyLines (tStart, out.a, out.P, L, tied);
+        const auto scan = steadyScan (out.lines);
+        out.last = scan.lastOn;
+        out.on = scan.on;
+        out.lines.resize ((size_t) out.last + 1);
+        if (out.on < c.steadyMinBeats || out.last < 1)
+            return std::nullopt;
+        return out;
+    }
+
+    // Track from tStart (beat 0) to tEnd: on a constant grid as far as one holds, then hit by hit.
+    // With exactStart, beat 0 stays on tStart, and when no hit is at tStart the grid after it is fitted
+    // to the hits alone. With freeReach, the grid may sit that far either side of tStart: used after a
+    // grid that ended with strong hits still to come, which a jump in the beat leaves behind.
+    Track trackFrom (double tStart, double tEnd, double period, double beat0, bool exactStart, double freeReach = 0.0) const
+    {
+        const auto steady = steadyHead (tStart, tEnd, period, freeReach <= 0.0 && (! exactStart || startsOnHit (tStart)), freeReach);
+        if (! steady)
+            return followHits (tStart, tEnd, period, beat0, exactStart);
+
+        Track tr;
+        tr.period = steady->P;
+        tr.fitPeriod = steady->P;
+        for (int k = 0; k <= steady->last; ++k)
+        {
+            tr.tt.push_back (k == 0 ? tStart : steady->a + k * steady->P);
+            tr.conf.push_back (k == 0 || steady->lines[(size_t) k].kind == LineHit::on ? 1 : 0);
+        }
+
+        // A pin on a line of the grid goes on the line's hit when that is a strong one sitting close
+        // to the line, and on the line itself otherwise, so a weak or loose hit does not tilt the grid.
+        auto pinTime = [&] (int k)
+        {
+            const auto& line = steady->lines[(size_t) k];
+            const bool onHit = line.kind == LineHit::on && line.strength >= c.thrStrong && std::abs (line.offset) <= c.regularNear * pinTol;
+            return onHit ? line.time : steady->a + k * steady->P;
+        };
+        // The start is a pin wherever it is. When it is not close to the grid, the next beat on a hit is a pin too.
+        tr.pins = { 0 };
+        if (std::abs (tStart - steady->a) > c.regularNear * pinTol)
+            for (int k = 1; k < steady->last; ++k)
+                if (steady->lines[(size_t) k].kind == LineHit::on)
+                {
+                    tr.tt[(size_t) k] = pinTime (k);
+                    tr.pins.push_back (k);
+                    for (int j = 1; j < k; ++j)   // the beats between lie on the straight line from the start
+                        tr.tt[(size_t) j] = tStart + (tr.tt[(size_t) k] - tStart) * j / (double) k;
+                    break;
+                }
+        const double lastTime = pinTime (steady->last);
+        tr.tt.back() = lastTime;
+
+        // Where the hits leave the grid, and where strong hits come after its end, the beat is followed on from its last beat.
+        int strongAfter = 0;
+        for (int i = h.upperBound (lastTime + 0.5 * steady->P); i < h.size() && h.on[(size_t) i] <= tEnd + eps; ++i)
+            strongAfter += h.st[(size_t) i] >= c.thrStrong;
+        if (steady->ended || strongAfter >= c.minSec)
+        {
+            auto rest = trackFrom (lastTime, tEnd, steady->P, beat0 + steady->last, true, steady->ended ? 0.0 : 0.5 * steady->P);
+            if (rest.tt.size() >= 2)
+            {
+                tr.tt.resize ((size_t) steady->last);
+                tr.conf.resize ((size_t) steady->last);
+                tr.tt.insert (tr.tt.end(), rest.tt.begin(), rest.tt.end());
+                tr.conf.insert (tr.conf.end(), rest.conf.begin(), rest.conf.end());
+                for (int p : rest.pins)
+                    tr.pins.push_back (p + steady->last);
+                tr.period = rest.period;
+                tr.fitPeriod = 0.0;
+                return tr;
+            }
+        }
+        tr.pins.push_back (steady->last);
+        return tr;
+    }
+
+    // The same, hit by hit all the way.
+    Track followHits (double tStart, double tEnd, double period, double beat0, bool exactStart) const
     {
         const int a = h.lowerBound (tStart - 0.03), b = h.upperBound (tEnd + 0.03);
         const std::vector<double> o (h.on.begin() + a, h.on.begin() + std::max (a, b));
@@ -738,6 +1103,35 @@ struct Mapper
             tr.period = period;
         }
         return tr;
+    }
+
+    // Does the constant grid of the stretch from `from` to the gap still fit the hits after the gap?
+    // It does when, of its lines over the four bars after the gap (or up to the next gap), at least
+    // steadyCarry and at least a quarter have a hit on them, and no more than half as many have a
+    // hit off them. `nextGap` is the gap after that, if there is one.
+    // `tied` is false when `from` is a pin the user placed.
+    bool gridCarriesOn (double from, bool tied, const std::pair<double, double>& gap, double period,
+                        const std::optional<std::pair<double, double>>& nextGap) const
+    {
+        const auto steady = steadyHead (from, gap.first, period, tied || startsOnHit (from));
+        if (! steady || steady->ended || steady->on < 2 * c.steadyMinBeats)
+            return false;
+        if (steady->lines.back().time < gap.first - 2.0 * steady->P)
+            return false;   // the grid stopped well before the gap
+        const double k0 = std::ceil ((gap.second - pinTol - steady->a) / steady->P);
+        const double until = nextGap ? nextGap->first : inf;
+        int on = 0, off = 0, count = 0;
+        for (int n = 0; n < 4 * beatsPerBar; ++n)
+        {
+            const double line = steady->a + (k0 + n) * steady->P;
+            if (line > until + pinTol)
+                break;
+            const auto hit = hitOnLine (line, pinTol, steadyWide (steady->P));
+            ++count;
+            on += hit.kind == LineHit::on;
+            off += hit.kind == LineHit::off;
+        }
+        return on >= c.steadyCarry && 4 * on >= count && on >= 2 * off;
     }
 
     // Support for a grid of `lines` beats from t0 at period P: hit strength, less for hits off the line.
@@ -978,7 +1372,6 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
     {
         // Where does this section end?
         auto gap = m.findGap (t, period);
-        double tEnd = gap ? gap->first : durationSeconds;
 
         int userRestart = -1;   // the next section start the user has placed
         for (int i = 0; i < (int) user.size(); ++i)
@@ -987,6 +1380,23 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
                 userRestart = i;
                 break;
             }
+
+        // A gap does not end the section when the section's constant grid, from its start or from the
+        // user's last pin before the gap, still fits the hits after it.
+        while (gap && tuning.steady)
+        {
+            if (userRestart >= 0 && user[(size_t) userRestart].time <= gap->second + snap)
+                break;
+            double from = t;
+            for (int i = 0; i < (int) user.size(); ++i)
+                if (! used[(size_t) i] && ! user[(size_t) i].restart && user[(size_t) i].time > from && user[(size_t) i].time < gap->first)
+                    from = user[(size_t) i].time;
+            const auto nextGap = m.findGap (gap->second, period);
+            if (! m.gridCarriesOn (from, startUser < 0 && from <= t, *gap, period, nextGap))
+                break;
+            gap = nextGap;
+        }
+        double tEnd = gap ? gap->first : durationSeconds;
         if (userRestart >= 0 && tEnd >= user[(size_t) userRestart].time - eps)
         {
             tEnd = std::max (t, h.lastBefore (user[(size_t) userRestart].time, t));
@@ -1116,6 +1526,21 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
             out.endTime = tr.tt.back();
         }
         out.bpm = (beats >= 2.0 && seconds > 0.0) ? 60.0 * beats / seconds : 60.0 / sec.period;
+        // Where every stretch is one constant grid, the tempo is that of the fits, by their lengths.
+        double fitBeats = 0.0, fitSeconds = 0.0;
+        bool allFitted = true;
+        for (const auto& part : sec.parts)
+        {
+            const auto& tr = part.track;
+            const double n = (double) ((int) tr.tt.size() - 1 - tr.lead);
+            if (n < 1.0)
+                continue;
+            allFitted = allFitted && tr.fitPeriod > 0.0;
+            fitBeats += n;
+            fitSeconds += n * tr.fitPeriod;
+        }
+        if (allFitted && fitBeats >= 2.0)
+            out.bpm = 60.0 * fitBeats / fitSeconds;
         result.sections.push_back (out);
         onHitShare.push_back (numBeats >= 2 * m.beatsPerBar ? (double) std::min (numOnHit, numOnStrongHit) / numBeats : 1.0);
 
@@ -1168,6 +1593,94 @@ MapResult detail::mapCueWith (const std::vector<Onset>& onsetsIn, double duratio
         if (! pin.user && ! result.pins.empty() && (pin.beat <= result.pins.back().beat || pin.time - result.pins.back().time < 1.0e-6))
             continue;
         result.pins.push_back (pin);
+    }
+
+    // Regular pins: where two neighbouring pins of a section are more than pinEveryBars apart, pins
+    // are added between them on beat 1 of a bar, each on a hit that sits on the grid there. A bar
+    // with no such hit is passed over for the next. The hit has to be close enough to the grid that
+    // the tempo either side of the new pin changes by no more than regularTempo, and within
+    // regularNear of the tolerance: a strong hit if a bar has one, else any hit counted as a beat.
+    // When no bar within reach has one that close, a strong hit anywhere within the tolerance is taken.
+    if (options.pinEveryBars > 0 && result.pins.size() >= 2)
+    {
+        const double bar = (double) m.beatsPerBar, every = (double) options.pinEveryBars * bar;
+        std::vector<Pin> out;
+        for (size_t i = 0; i < result.pins.size(); ++i)
+        {
+            const Pin p = result.pins[i];
+            out.push_back (p);
+            if (i + 1 == result.pins.size())
+                break;
+            const Pin q = result.pins[i + 1];
+            if (q.restart || q.time <= p.time || q.beat <= p.beat)
+                continue;
+            auto timeAt = [&] (double b) { return p.time + (q.time - p.time) * (b - p.beat) / (q.beat - p.beat); };
+            // The hit of at least `strength` nearest the grid at beat b, if one is within `within`.
+            auto hitAt = [&] (double b, double within, double strength)
+            {
+                const double line = timeAt (b);
+                int best = -1;
+                for (int j = h.lowerBound (line - within); j < h.size() && h.on[(size_t) j] <= line + within; ++j)
+                    if (h.st[(size_t) j] >= strength && (best < 0 || std::abs (h.on[(size_t) j] - line) < std::abs (h.on[(size_t) best] - line)))
+                        best = j;
+                return best;
+            };
+            double last = p.beat, lastTime = p.time;
+            double passedOver = 0.0;   // bars up to here, after the last pin, have been tried and have no hit to pin
+            while (q.beat - last > every + 1.0e-9)
+            {
+                // The bar to try first: pinEveryBars on from the last pin, or half way to the next pin
+                // when that would leave less than a bar before it. Bars are tried from that one
+                // onwards, then back from it towards the last pin. When none of them has a hit to
+                // pin, the bars after them are tried.
+                double first = std::floor ((last + every) / bar + 1.0e-9) * bar;
+                std::vector<double> bars;
+                if (passedOver > last)
+                    first = passedOver + bar;
+                else if (q.beat - first < bar)
+                    first = std::round (0.5 * (last + q.beat) / bar) * bar;
+                for (double b = first; q.beat - b >= bar - 1.0e-9 && b - first < every; b += bar)
+                    bars.push_back (b);
+                if (bars.empty())
+                    break;
+                const double lastTried = bars.back();
+                if (passedOver <= last)
+                    for (double b = first - bar; b - last >= bar - 1.0e-9; b -= bar)
+                        bars.push_back (b);
+
+                int hit = -1;
+                double at = 0.0;
+                for (int pass = 0; pass < 3 && hit < 0; ++pass)
+                    for (double b : bars)
+                    {
+                        if (b - last < bar - 1.0e-9)
+                            continue;
+                        const double shortest = std::min (timeAt (b) - lastTime, q.time - timeAt (b));
+                        const double close = std::min (tuning.regularNear * m.pinTol, tuning.regularTempo * shortest);
+                        if (pass == 2 && (b - last < 2.0 * bar || q.beat - b < 2.0 * bar))
+                            continue;   // a hit that is less close needs two bars either side of it
+                        hit = pass == 0 ? hitAt (b, close, tuning.thrStrong) : (pass == 1 ? hitAt (b, close, tuning.thrOn) : hitAt (b, m.pinTol, tuning.thrStrong));
+                        if (hit >= 0 && h.on[(size_t) hit] > lastTime + 1.0e-6 && h.on[(size_t) hit] < q.time - 1.0e-6)
+                        {
+                            at = b;
+                            break;
+                        }
+                        hit = -1;
+                    }
+                if (hit < 0)
+                {
+                    passedOver = lastTried;
+                    continue;
+                }
+                Pin pin;
+                pin.beat = at;
+                pin.time = h.on[(size_t) hit];
+                out.push_back (pin);
+                last = at;
+                lastTime = pin.time;
+            }
+        }
+        result.pins = std::move (out);
     }
 
     // What the user should look at.

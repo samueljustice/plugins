@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "ProToolsTestPanel.h"
+#include "ProToolsWrite.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +14,7 @@ namespace
 {
     constexpr int headerHeight = 48;
     constexpr int footerHeight = 60;
-    constexpr int statusHeight = 26;
+    constexpr int statusHeight = 32;
     constexpr int sidePad = 16;
     constexpr int fieldRowHeight = 50;
     constexpr int fieldCaptionHeight = 14;
@@ -54,6 +55,23 @@ namespace
             view.setSelectedPin (index);
     }
 
+    // The choices of "Pin every", as numbers of bars. Zero is pins only where the tempo needs them.
+    constexpr int pinEveryChoices[] = { 0, 8, 4, 2, 1 };
+
+    // True for this key with exactly these modifiers. Letters match in either case.
+    bool keyIs (const juce::KeyPress& key, int code, int modifiers)
+    {
+        const int held = key.getModifiers().getRawFlags()
+                       & (juce::ModifierKeys::shiftModifier | juce::ModifierKeys::ctrlModifier
+                          | juce::ModifierKeys::altModifier | juce::ModifierKeys::commandModifier);
+        const int pressed = key.getKeyCode();
+
+        return held == modifiers
+            && (pressed == code || (pressed < 256 && code < 256
+                                    && juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) pressed)
+                                           == juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) code)));
+    }
+
     bool isAudioFileName (juce::AudioFormatManager& formats, const juce::String& path)
     {
         const auto extension = juce::File (path).getFileExtension().toLowerCase();
@@ -85,7 +103,7 @@ public:
 
         checks = numChecks;
         hasMap = mapped;
-        setTooltip (checks > 0 ? "Tab jumps to the next one and loops two bars either side of it" : juce::String());
+        setTooltip (checks > 0 ? "N jumps to the next one and loops two bars either side of it" : juce::String());
         setMouseCursor (checks > 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
         repaint();
     }
@@ -207,7 +225,8 @@ MainComponent::MainComponent (bool withAudio)
     : audioEnabled (withAudio),
       checkBadge (std::make_unique<CheckBadge>()),
       dropChoice (std::make_unique<DropChoice>()),
-      proToolsTest (std::make_unique<ProToolsTestPanel>())
+      proToolsTest (std::make_unique<ProToolsTestPanel>()),
+      proToolsWrite (std::make_unique<ProToolsWriteSheet>())
 {
     setWantsKeyboardFocus (true);
     setOpaque (true);
@@ -229,7 +248,7 @@ MainComponent::MainComponent (bool withAudio)
     };
 
     // Buttons and sliders never take the keyboard focus, so the window's keys keep working.
-    for (auto* b : { &openButton, &addStemButton, &tapButton, &playButton, &exportButton, &saveButton, &testButton, &writeButton })
+    for (auto* b : { &openButton, &addStemButton, &tapButton, &playButton, &moreButton, &saveButton, &writeButton })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (*b);
@@ -239,14 +258,13 @@ MainComponent::MainComponent (bool withAudio)
     addStemButton.onClick = [this] { chooseDrumStem(); };
     tapButton.onClick = [this] { tap(); };
     playButton.onClick = [this] { togglePlay(); };
-    exportButton.onClick = [this] { exportClick(); };
+    moreButton.onClick = [this] { showMoreMenu(); };
     saveButton.onClick = [this] { saveMap(); };
-    testButton.onClick = [this] { showProToolsTest(); };
+    writeButton.onClick = [this] { showProToolsWrite(); };
 
-    tapButton.setTooltip ("Tap along with the beat (or press T) to give a rough tempo");
-    testButton.setTooltip ("Tests sending the pins to Pro Tools with Event > Identify Beat");
-    writeButton.setEnabled (false);
-    writeButton.setTooltip ("Writing the map into Pro Tools is not available");
+    tapButton.setTooltip ("Tap along with the beat (or press Shift+T) to give a rough tempo");
+    moreButton.setTooltip ("Export the click as a WAV file, or test the Pro Tools link step by step");
+    writeButton.setTooltip ("Writes the pins into the open Pro Tools session with Event > Identify Beat");
 
     listenSwitch.setItems ({ "Full mix", "Drum stem" });
     listenSwitch.setSelected (0, juce::dontSendNotification);
@@ -281,6 +299,25 @@ MainComponent::MainComponent (bool withAudio)
     };
     addAndMakeVisible (tempoBox);
 
+    pinEveryBox.setItems ({ "Only where needed", "8 bars", "4 bars", "2 bars", "1 bar" });
+    pinEveryBox.setSelected (2, juce::dontSendNotification);
+    pinEveryBox.onChange = [this] (int index)
+    {
+        if (index >= 0 && index < (int) std::size (pinEveryChoices))
+            document.setPinEveryBars (pinEveryChoices[index]);
+    };
+    addAndMakeVisible (pinEveryBox);
+
+    snapSwitch.setItems ({ "Hits", "Grid", "Off" });
+    snapSwitch.setSelected (0, juce::dontSendNotification);
+    snapSwitch.setTitle ("Snap");
+    snapSwitch.onChange = [this] (int index)
+    {
+        using Snap = ui::WaveformView::Snap;
+        waveform.setSnap (index == 0 ? Snap::hits : index == 1 ? Snap::grid : Snap::off);
+    };
+    addAndMakeVisible (snapSwitch);
+
     for (auto* s : { &clickLevel, &musicLevel })
     {
         s->setRange (0.0, 1.0, 0.0);
@@ -307,6 +344,25 @@ MainComponent::MainComponent (bool withAudio)
         waveform.setPlayhead (seconds);
     };
     waveform.onPinMoved = [this] (int index, double time) { document.movePin (index, time); };
+    waveform.onPinNudged = [this] (int index, double time)
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        const int before = document.getEditSerial();
+        document.movePin (index, time, before == nudgeSerial && now - lastNudgeMs < 1000.0);
+
+        // A nudge that was refused starts no run.
+        if (document.getEditSerial() != before)
+        {
+            nudgeSerial = document.getEditSerial();
+            lastNudgeMs = now;
+
+            if (! player.isPlaying())
+            {
+                player.setPosition (time);
+                waveform.setPlayhead (time);
+            }
+        }
+    };
     waveform.onPinAdded = [this] (double time) { document.addPin (time); };
     waveform.onPinDeleted = [this] (int index) { document.deletePin (index); };
     waveform.onRestartHere = [this] (double time) { document.restartHere (time); };
@@ -326,6 +382,8 @@ MainComponent::MainComponent (bool withAudio)
     // Back to the window's own keys when the panel closes.
     proToolsTest->onClose = [this] { grabKeyboardFocus(); };
     addChildComponent (*proToolsTest);
+    proToolsWrite->onClose = [this] { grabKeyboardFocus(); };
+    addChildComponent (*proToolsWrite);
 
     if (audioEnabled)
     {
@@ -369,6 +427,30 @@ void MainComponent::showProToolsTest()
     proToolsTest->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
                              document.hasMusic() ? document.getMusicFile().getFileName() : juce::String());
     proToolsTest->open();
+}
+
+void MainComponent::showProToolsWrite()
+{
+    if (! document.hasMap() || document.getMap().pins.empty())
+    {
+        document.setStatus ("There are no pins to write yet");
+        return;
+    }
+
+    player.stop();
+    updatePlayButton();
+    proToolsWrite->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
+                              document.getMusicFile().getFileName(), (int) document.getMap().checks.size());
+    proToolsWrite->open();
+}
+
+// The footer's More button: what is used less often than the buttons beside it.
+void MainComponent::showMoreMenu()
+{
+    juce::PopupMenu menu;
+    menu.addItem (juce::String::fromUTF8 ("Export click\xe2\x80\xa6"), document.hasMap(), false, [this] { exportClick(); });
+    menu.addItem (juce::String::fromUTF8 ("Test in Pro Tools\xe2\x80\xa6"), [this] { showProToolsTest(); });
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (moreButton).withParentComponent (this));
 }
 
 void MainComponent::askToSaveThen (std::function<void()> then)
@@ -572,12 +654,72 @@ void MainComponent::selectNeighbourPin (int direction)
     }
 
     selectPinInView (waveform, index);
+    waveform.reveal (pins[(size_t) index].time);
 
     if (! player.isPlaying())
     {
         player.setPosition (pins[(size_t) index].time);
         waveform.setPlayhead (pins[(size_t) index].time);
     }
+}
+
+void MainComponent::seekTo (double seconds)
+{
+    if (! document.hasMusic())
+        return;
+
+    player.setPosition (seconds);
+    waveform.setPlayhead (player.getPlayheadSeconds());
+    waveform.reveal (seconds);
+}
+
+// Moves the playhead to the next detected hit, or the one before.
+void MainComponent::moveToHit (int direction)
+{
+    if (! document.hasMusic())
+        return;
+
+    const double now = player.getPlayheadSeconds();
+    double found = -1.0;
+
+    for (const auto& hit : document.getMap().onsets)
+    {
+        if (direction > 0 ? (hit.time > now + 0.0005 && (found < 0.0 || hit.time < found))
+                          : (hit.time < now - 0.0005 && hit.time > found))
+            found = hit.time;
+    }
+
+    if (found >= 0.0)
+        seekTo (found);
+}
+
+void MainComponent::nudgeSelectedPin (double seconds)
+{
+    if (document.hasMap() && ! waveform.nudgeSelectedPin (seconds))
+        document.setStatus ("Select a pin to nudge it");
+}
+
+void MainComponent::setSnap (ui::WaveformView::Snap snap)
+{
+    using Snap = ui::WaveformView::Snap;
+    snapSwitch.setSelected (snap == Snap::hits ? 0 : snap == Snap::grid ? 1 : 2, juce::sendNotification);
+}
+
+// What is in view when music has just been mapped: from just before the first pin to 16 bars
+// after it.
+void MainComponent::showOpeningView()
+{
+    const auto& pins = document.getMap().pins;
+    const auto& grid = document.getGrid();
+
+    if (pins.empty() || grid.empty())
+        return;
+
+    const double first = pins.front().time;
+    const double end = grid.timeAtBeat (pins.front().beat + 16.0 * Document::beatsPerBar);
+
+    if (end > first)
+        waveform.showRange (first - (end - first) * 0.03, end);
 }
 
 void MainComponent::tap()
@@ -662,6 +804,7 @@ void MainComponent::refresh()
             {
                 player.setMusic (&document.getMix(), document.getSampleRate());
                 needsPlayerMusic = false;
+                needsOpeningView = true;
                 waveform.showAll();
                 waveform.setPlayhead (0.0);
             }
@@ -681,6 +824,12 @@ void MainComponent::refresh()
 
         if (checkIndex >= (int) document.getMap().checks.size())
             checkIndex = -1;
+
+        if (needsOpeningView && document.hasMap())
+        {
+            needsOpeningView = false;
+            showOpeningView();
+        }
     }
 
     waveform.setBusy (document.isListening());
@@ -689,6 +838,11 @@ void MainComponent::refresh()
     if (proToolsTest->isVisible())
         proToolsTest->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
                                  hasMusic ? document.getMusicFile().getFileName() : juce::String());
+
+    if (proToolsWrite->isVisible() && ! proToolsWrite->isRunning())
+        proToolsWrite->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
+                                  hasMusic ? document.getMusicFile().getFileName() : juce::String(),
+                                  (int) document.getMap().checks.size());
 
     const auto click = document.getClick();
     if (click.get() != shownClick)
@@ -719,14 +873,18 @@ void MainComponent::refresh()
     listenSwitch.setItemEnabled (1, document.hasDrums());
     listenSwitch.setSelected (in.listenToDrums && document.hasDrums() ? 1 : 0, juce::dontSendNotification);
 
+    for (int i = 0; i < (int) std::size (pinEveryChoices); ++i)
+        if (pinEveryChoices[i] == in.options.pinEveryBars)
+            pinEveryBox.setSelected (i, juce::dontSendNotification);
+
     for (juce::Component* c : { (juce::Component*) &listenSwitch, (juce::Component*) &addStemButton,
                                 (juce::Component*) &barBox, (juce::Component*) &beatBox, (juce::Component*) &tempoBox,
                                 (juce::Component*) &tapButton, (juce::Component*) &clickLevel, (juce::Component*) &musicLevel,
-                                (juce::Component*) &saveButton })
+                                (juce::Component*) &saveButton, (juce::Component*) &pinEveryBox, (juce::Component*) &snapSwitch })
         c->setEnabled (hasMusic);
 
     playButton.setEnabled (hasMusic && player.isDeviceOpen());
-    exportButton.setEnabled (document.hasMap());
+    writeButton.setEnabled (document.hasMap() && ! document.getMap().pins.empty());
     checkBadge->setState ((int) document.getMap().checks.size(), document.hasMap());
 
     const double refined = document.getMap().bpm;
@@ -756,6 +914,8 @@ void MainComponent::timerCallback()
     {
         if (proToolsTest->isVisible())
             proToolsTest->grabKeyboardFocus();
+        else if (proToolsWrite->isVisible())
+            proToolsWrite->grabKeyboardFocus();
         else
             grabKeyboardFocus();
     }
@@ -769,9 +929,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
 
     const int cmd = ModifierKeys::commandModifier;
     const int shift = ModifierKeys::shiftModifier;
+    const int alt = ModifierKeys::altModifier;
 
-    // While the Pro Tools test is up, the window's own keys are off.
-    if (proToolsTest->isVisible())
+    // While the Pro Tools test or the write sheet is up, the window's own keys are off.
+    if (proToolsTest->isVisible() || proToolsWrite->isVisible())
         return true;
 
     if (key == KeyPress ('o', cmd, 0))          { chooseMusic(); return true; }
@@ -812,12 +973,44 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
-    if (key == KeyPress (KeyPress::tabKey))         { jumpToCheck (1); return true; }
-    if (key == KeyPress (KeyPress::tabKey, shift, 0)) { jumpToCheck (-1); return true; }
     if (key == KeyPress (KeyPress::escapeKey))      { stopLooping(); return true; }
-    if (key == KeyPress ('t'))                      { tap(); return true; }
-    if (key == KeyPress (KeyPress::leftKey))        { selectNeighbourPin (-1); return true; }
-    if (key == KeyPress (KeyPress::rightKey))       { selectNeighbourPin (1); return true; }
+    if (keyIs (key, 'n', 0))                        { jumpToCheck (1); return true; }
+    if (keyIs (key, 'n', shift))                    { jumpToCheck (-1); return true; }
+    if (keyIs (key, 't', shift))                    { tap(); return true; }
+
+    // The view, with Pro Tools' keys.
+    if (keyIs (key, 't', 0) || keyIs (key, ']', cmd))   { waveform.zoomBy (2.0); return true; }
+    if (keyIs (key, 'r', 0) || keyIs (key, '[', cmd))   { waveform.zoomBy (0.5); return true; }
+    if (keyIs (key, 'a', alt))                      { waveform.showAllAnimated(); return true; }
+    if (keyIs (key, 'f', alt))                      { waveform.zoomToPinsAround(); return true; }
+    if (keyIs (key, 'e', 0))                        { waveform.toggleZoom(); return true; }
+    if (keyIs (key, ']', cmd | alt))                { waveform.stepWaveHeight (1); return true; }
+    if (keyIs (key, '[', cmd | alt))                { waveform.stepWaveHeight (-1); return true; }
+
+    // The playhead. Shift makes no difference to Tab: there is no selection to extend.
+    if (keyIs (key, KeyPress::tabKey, 0) || keyIs (key, KeyPress::tabKey, shift))              { moveToHit (1); return true; }
+    if (keyIs (key, KeyPress::tabKey, alt) || keyIs (key, KeyPress::tabKey, alt | shift))      { moveToHit (-1); return true; }
+    if (keyIs (key, KeyPress::returnKey, 0))        { seekTo (0.0); return true; }
+
+    // Pins. A full stop or comma with Shift arrives as its shifted character on some keyboards.
+    if (keyIs (key, KeyPress::leftKey, 0))          { selectNeighbourPin (-1); return true; }
+    if (keyIs (key, KeyPress::rightKey, 0))         { selectNeighbourPin (1); return true; }
+
+    {
+        const double oneSample = document.getSampleRate() > 0.0 ? 1.0 / document.getSampleRate() : 0.0;
+
+        if (keyIs (key, ',', 0))                                { nudgeSelectedPin (-0.001); return true; }
+        if (keyIs (key, '.', 0))                                { nudgeSelectedPin (0.001); return true; }
+        if (keyIs (key, ',', shift) || keyIs (key, '<', shift)) { nudgeSelectedPin (-0.010); return true; }
+        if (keyIs (key, '.', shift) || keyIs (key, '>', shift)) { nudgeSelectedPin (0.010); return true; }
+        if (keyIs (key, ',', alt))                              { nudgeSelectedPin (-oneSample); return true; }
+        if (keyIs (key, '.', alt))                              { nudgeSelectedPin (oneSample); return true; }
+    }
+
+    // Snap, on Pro Tools' Slip and Grid keys, with the hits between them.
+    if (keyIs (key, KeyPress::F2Key, 0))            { setSnap (ui::WaveformView::Snap::off); return true; }
+    if (keyIs (key, KeyPress::F3Key, 0))            { setSnap (ui::WaveformView::Snap::hits); return true; }
+    if (keyIs (key, KeyPress::F4Key, 0))            { setSnap (ui::WaveformView::Snap::grid); return true; }
 
     if (key == KeyPress (KeyPress::backspaceKey) || key == KeyPress (KeyPress::deleteKey))
     {
@@ -976,7 +1169,9 @@ void MainComponent::paint (juce::Graphics& g)
     // Status line
     g.setColour (Theme::dim());
     g.setFont (Theme::ui (13.0f));
-    g.drawText (document.getStatus(), statusArea.reduced (sidePad, 0), juce::Justification::centredLeft, true);
+    g.drawText (document.getStatus(), statusArea.reduced (sidePad, 0).withRight (snapLabelArea.getX() - 12),
+                juce::Justification::centredLeft, true);
+    drawCaption (g, "Snap", snapLabelArea);
 
     // Footer
     g.setColour (Theme::line());
@@ -1012,12 +1207,29 @@ void MainComponent::layoutFields (juce::Rectangle<int> area)
     const int controlTop = fieldCaptionHeight + captionGap;
     const int boxHeight = controlTop + controlHeight;   // a NumberBox: its label above its value
 
+    const int left = area.getX() + sidePad;
+    const int right = area.getRight() - sidePad;
+    const int pinEveryWidth = pinEveryBox.getBestWidth();
+
+    // The groups sit 22 px apart and the music's name has 200 px. When that is a little too wide
+    // for one row, the name gives up width (down to 96 px) and the gaps close (down to 14 px)
+    // before the row is broken in two.
+    const int numGaps = 5;
+    const int withoutName = (8 + 76) + (184 + 8 + 144) + (120 + 8 + 64) + (96 + 8 + 96 + 6 + 56) + 56 + pinEveryWidth;
+    int nameWidth = 200, groupGap = 22;
+
+    if (withoutName + 200 + numGaps * 22 > right - left && withoutName + 96 + numGaps * 14 <= right - left)
+    {
+        nameWidth = std::min (200, right - left - withoutName - numGaps * 14);
+        groupGap = std::min (22, (right - left - withoutName - nameWidth) / numGaps);
+    }
+
     const std::vector<Group> groups {
-        { 200 + 8 + 76, [&] (int x, int y)
+        { nameWidth + 8 + 76, [&] (int x, int y)
             {
-                musicCaption = { x, y, 200, fieldCaptionHeight };
-                musicNameArea = { x, y + controlTop, 200, controlHeight };
-                openButton.setBounds (x + 208, y + controlTop, 76, controlHeight);
+                musicCaption = { x, y, nameWidth, fieldCaptionHeight };
+                musicNameArea = { x, y + controlTop, nameWidth, controlHeight };
+                openButton.setBounds (x + nameWidth + 8, y + controlTop, 76, controlHeight);
             } },
         { 184 + 8 + 144, [&] (int x, int y)
             {
@@ -1041,11 +1253,12 @@ void MainComponent::layoutFields (juce::Rectangle<int> area)
                 meterCaption = { x, y, 56, fieldCaptionHeight };
                 meterArea = { x, y + controlTop, 56, controlHeight };
             } },
+        { pinEveryWidth, [&] (int x, int y)
+            {
+                pinEveryBox.setBounds (x, y, pinEveryWidth, boxHeight);
+            } },
     };
 
-    const int groupGap = 22;
-    const int left = area.getX() + sidePad;
-    const int right = area.getRight() - sidePad;
     int x = left, y = area.getY() + 10;
 
     for (const auto& group : groups)
@@ -1069,13 +1282,21 @@ void MainComponent::resized()
     // Lay the fields out once to see how many rows they need at this width, then for real.
     layoutFields ({ r.getX(), r.getY(), r.getWidth(), 1000 });
     const int fieldsBottom = std::max ({ meterArea.getBottom(), musicNameArea.getBottom(), tempoBox.getBottom(),
-                                         listenSwitch.getBottom(), barBox.getBottom() });
+                                         listenSwitch.getBottom(), barBox.getBottom(), pinEveryBox.getBottom() });
     fieldsArea = r.removeFromTop (fieldsBottom - r.getY() + 12);
 
     footerArea = r.removeFromBottom (footerHeight);
     statusArea = r.removeFromBottom (statusHeight);
     waveArea = r;
     waveform.setBounds (waveArea);
+
+    // The Snap switch at the right of the status row, with its label before it.
+    {
+        auto s = statusArea.reduced (sidePad, 4);
+        snapSwitch.setBounds (s.removeFromRight (std::min (snapSwitch.getBestWidth(), std::max (0, s.getWidth() - 44))));
+        s.removeFromRight (8);
+        snapLabelArea = s.removeFromRight (34);
+    }
 
     // Footer: play and levels at the left, the file buttons at the right, the check badge between.
     auto f = footerArea.reduced (sidePad, (footerHeight - 32) / 2);
@@ -1091,11 +1312,9 @@ void MainComponent::resized()
 
     writeButton.setBounds (f.removeFromRight (widthOf (writeButton, 156)));
     f.removeFromRight (gap);
-    testButton.setBounds (f.removeFromRight (widthOf (testButton, 158)));
-    f.removeFromRight (gap);
     saveButton.setBounds (f.removeFromRight (widthOf (saveButton, 96)));
     f.removeFromRight (gap);
-    exportButton.setBounds (f.removeFromRight (widthOf (exportButton, 118)));
+    moreButton.setBounds (f.removeFromRight (widthOf (moreButton, 72)));
     f.removeFromRight (narrow ? 8 : 16);
 
     playButton.setBounds (f.removeFromLeft (narrow ? 114 : 132));
@@ -1113,6 +1332,7 @@ void MainComponent::resized()
     dropChoice->setBounds (juce::Rectangle<int> (0, 0, std::min (560, waveArea.getWidth() - 2 * sidePad), 46)
                                .withCentre ({ waveArea.getCentreX(), waveArea.getY() + 40 }));
     proToolsTest->setBounds (getLocalBounds());
+    proToolsWrite->setBounds (getLocalBounds());
 }
 
 } // namespace tt
