@@ -27,7 +27,6 @@ constexpr int keypadStarKey = 67;
 constexpr int keypadEnterKey = 76;
 constexpr int escapeKey = 53;
 constexpr int periodKey = 47;
-constexpr int letterAKey = 0;
 constexpr int topRowDigitKeys[10] = { 29, 18, 19, 20, 21, 23, 22, 26, 28, 25 };
 
 using Clock = std::chrono::steady_clock;
@@ -1781,6 +1780,14 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
                 if (! parseBarBeat (f.info.value, current))
                     continue;
 
+                // Pro Tools reports its location field as not settable, and asking anyway can
+                // move the keyboard off the field. So a field that says no is left alone.
+                if (! isSettable (ax (f.element), kAXValueAttribute))
+                {
+                    s.say ("The location field (" + quoted (f.info.value) + ") does not allow its value to be set. Not trying.");
+                    break;
+                }
+
                 s.say ("Strategy a: one field holds bar|beat|ticks (" + quoted (f.info.value) + "). Setting its value.");
 
                 if (auto guard = s.frontGuard(); ! guard.ok)
@@ -1846,20 +1853,39 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
             if (auto guard = s.frontGuard(); ! guard.ok)
                 return guard;
 
-            AXError focusError = AXUIElementSetAttributeValue (ax (first), kAXFocusedAttribute, kCFBooleanTrue);
-            s.say ("Set AXFocused on the first field: " + errorName (focusError));
-
-            if (focusError != kAXErrorSuccess)
+            // Pro Tools opens the dialog with the keyboard already in the location field, so the
+            // focus is only touched when it is somewhere else: first by pressing the field,
+            // then by asking for the focus.
+            const auto keyboardInFirst = [&s, &first]
             {
-                focusError = AXUIElementPerformAction (ax (first), kAXPressAction);
-                s.say ("Pressed the first field instead (AXPress): " + errorName (focusError));
+                const auto now = s.focusedElement();
+                return now && same (now, first);
+            };
+
+            if (keyboardInFirst())
+            {
+                s.say ("The keyboard is already in the location field. Leaving the focus alone.");
+            }
+            else
+            {
+                AXError focusError = AXUIElementPerformAction (ax (first), kAXPressAction);
+                s.say ("The keyboard is not in the location field. Pressed the field (AXPress): " + errorName (focusError));
+
+                if (! s.wait (120))
+                    return State::stoppedResult();
+
+                if (! keyboardInFirst())
+                {
+                    focusError = AXUIElementSetAttributeValue (ax (first), kAXFocusedAttribute, kCFBooleanTrue);
+                    s.say ("Still not there. Set AXFocused on the field: " + errorName (focusError));
+
+                    if (! s.wait (120))
+                        return State::stoppedResult();
+                }
             }
 
-            if (! s.wait (80))
-                return State::stoppedResult();
-
-            // The keys go wherever the keyboard is, and in the Edit window Cmd+A, digits and
-            // periods are commands. So nothing is typed unless Accessibility shows the keyboard
+            // The keys go wherever the keyboard is, and in the Edit window digits and periods
+            // are commands. So nothing is typed unless Accessibility shows the keyboard
             // in a text field of this dialog and the dialog as the focused window.
             const auto focused = s.focusedElement();
             Element focusedWindow;
@@ -1887,13 +1913,22 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
             char ticks[16];
             std::snprintf (ticks, sizeof (ticks), "%03lld", wanted[2]);
 
-            Result typed = s.pressKey (letterAKey, kCGEventFlagMaskCommand, 0, "Cmd+A");
+            // The field opens with its bar part selected: digits replace the selected part and
+            // a period moves to the next one. What the field shows is logged after each part.
+            const auto showField = [&s, &first] (const char* after)
+            {
+                s.wait (60);
+                s.say (std::string ("After ") + after + " the field shows " + quoted (readInfo (ax (first)).value));
+            };
 
-            if (typed.ok) typed = s.typeDigits (std::to_string (wanted[0]));
+            Result typed = s.typeDigits (std::to_string (wanted[0]));
+            if (typed.ok) showField ("the bar");
             if (typed.ok) typed = s.pressKey (periodKey, 0, (UniChar) '.', "period");
             if (typed.ok) typed = s.typeDigits (std::to_string (wanted[1]));
+            if (typed.ok) showField ("the beat");
             if (typed.ok) typed = s.pressKey (periodKey, 0, (UniChar) '.', "period");
             if (typed.ok) typed = s.typeDigits (ticks);
+            if (typed.ok) showField ("the ticks");
 
             if (! typed.ok)
                 return typed;
