@@ -13,12 +13,16 @@ MANUAL_CACHE=<dir> keeps GitHub's rendering of each README between runs (for wor
 One manual on its own, for a plug-in whose source isn't in this repository (a private one's tester manual):
 
     manuals.py --single <manual .md> <out dir> --id <id> --name <name> [--home <url> --home-label <text>]
-               [--get <url> --get-label <text>] [--note <text>] [--noindex]
+               [--get <url> --get-label <text>] [--note <text>] [--noindex] [--inline-pictures]
 
 It writes <out dir>/index.html. Pictures keep their relative paths (copy them next to the page); links to
-other files of that repository are left as plain text, since the page can't reach them.
+other files of that repository are left as plain text, since the page can't reach them. With
+--inline-pictures each picture is read from beside the .md instead and put into the page itself, so the page
+is one file (for a page that is encrypted, where a picture beside it would be readable by anyone).
 """
+import base64
 import hashlib
+import mimetypes
 import html
 import json
 import os
@@ -39,6 +43,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "--single":
     ap.add_argument("--home-label", default="Sammy J's Plugins")
     ap.add_argument("--get", default=""); ap.add_argument("--get-label", default="Download")
     ap.add_argument("--note", default=""); ap.add_argument("--noindex", action="store_true")
+    ap.add_argument("--inline-pictures", action="store_true")
     SINGLE = ap.parse_args(sys.argv[2:])
     out, repo = SINGLE.out, "samueljustice/plugins"
 else:
@@ -133,6 +138,13 @@ def picture(folder: str, url: str) -> str:
     url = html.unescape(url)
     if re.match(r"^(?:[a-z][a-z0-9+.-]*:|//|data:)", url):
         return url
+    if SINGLE and SINGLE.inline_pictures:
+        base = pathlib.Path(SINGLE.markdown).resolve().parent
+        file = (base / url).resolve()
+        if base not in file.parents or not file.is_file():
+            sys.exit(f"manuals.py: picture not found beside {SINGLE.markdown}: {url}")
+        kind = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+        return f"data:{kind};base64," + base64.b64encode(file.read_bytes()).decode("ascii")
     if SINGLE:
         return url
     return RAW + resolve(folder, url)
@@ -346,6 +358,45 @@ THEMES = {
   .button.get-win { background: linear-gradient(#e8503c, #d22a1c 55%, #8a160c); color: #fff3d6; border-color: #ff9a80 #4a0804 #4a0804 #ff9a80; }
 """,
     },
+    # An internal app's manual, built with --single from its private repository's README and published only
+    # encrypted, on the password-protected Sweet Justice tools site (built from samueljustice/sweetjusticetools-src).
+    # The app's window: a dark console, the system font for words and
+    # Azeret Mono for numbers and keys, amber pins over a blue waveform on a bar grid.
+    "tempotantrum": {
+        "fonts": ["Azeret+Mono:wght@400;500;700"],
+        "strap": "Sammy J / Tempo maps for Pro Tools",
+        "vars": "--bg:#141a23; --panel:#1b232f; --ink:#e6ecf3; --dim:#8a98a9; --line:#2c3746; --a1:#f2b441; --a2:#5f86b3; --a3:#f2b441; --a4:#5f86b3; --link:#f2b441;"
+                " --wave:#5f86b3; --warn:#e2607a;"
+                " --display:-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; --body:-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;"
+                " --mono:'Azeret Mono', ui-monospace, Menlo, Consolas, monospace; --radius:6px; --size:17px;",
+        "css": """
+  .bar, .toc, .title .strap, .title .version, .foot { font: 500 11px/1.5 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .bar { background: color-mix(in srgb, var(--panel) 92%, transparent); }
+  .title .version { font: 400 14px/1.5 var(--body); letter-spacing: 0; text-transform: none; }
+  .mark { font: 700 17px/1 var(--body); letter-spacing: 0; text-transform: none; color: var(--ink) !important; }
+  .title h1 { font: 700 clamp(40px, 7vw, 80px)/1 var(--body); letter-spacing: -.01em; }
+  .title::after { content: ""; display: block; height: 56px; margin-top: 28px; max-width: 640px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    background: linear-gradient(var(--a1), var(--a1)) 0 0 / 2px 100% no-repeat, linear-gradient(var(--a1), var(--a1)) 50% 0 / 2px 100% no-repeat,
+      repeating-linear-gradient(90deg, rgba(95, 134, 179, .85) 0 2px, transparent 2px 10px) 0 50% / 100% 46% no-repeat,
+      repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 40px), var(--panel);
+    -webkit-mask: linear-gradient(90deg, #000 70%, transparent); mask: linear-gradient(90deg, #000 70%, transparent); }
+  .doc h2 { font: 700 26px/1.2 var(--body); padding-top: 22px; border-top: 1px solid var(--line); position: relative; }
+  .doc h2::before { content: ""; position: absolute; top: -1px; left: 0; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 10px solid var(--k); }
+  .doc h2::after { content: ""; position: absolute; top: -1px; left: 6px; width: 2px; height: 22px; background: var(--k); }
+  .k1, .k3, .k5 { --k: var(--a1); } .k2, .k4, .k6 { --k: var(--wave); }
+  .doc h3 { font: 500 13px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink); }
+  .doc h4 { font: 500 12px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .doc strong { color: #fff; font-weight: 600; }
+  .doc code, .doc kbd { font-size: .8em; color: var(--ink); }
+  .doc th { font: 500 11px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .doc td:first-child { font-family: var(--mono); font-size: .9em; white-space: nowrap; }
+  .doc li::marker { color: var(--a1); }
+  .doc img { border-color: var(--line); }
+  .toc a.on { color: var(--a1); border-color: var(--a1); }
+  .button { background: var(--a1); border-color: var(--a1); color: #1a1405; font: 700 15px/1 var(--body); border-radius: var(--radius); padding: 13px 20px; }
+  @media (max-width: 600px) { .doc td:first-child { white-space: normal; } }
+""",
+    },
     # A tester manual built with --single from the private body-language repository (its MANUAL.md).
     "body-language": {
         "fonts": ["Fraunces:opsz,wght@9..144,400;9..144,600", INTER],
@@ -472,7 +523,7 @@ SCRIPT = """
   var shots = [], at = 0, opener = null;
   function show(i) {
     at = (i + shots.length) % shots.length;
-    img.src = shots[at].href;
+    img.src = shots[at].getAttribute('href') === '#' ? shots[at].querySelector('img').src : shots[at].href;
     img.alt = shots[at].dataset.caption || '';
     caption.textContent = shots[at].dataset.caption || '';
     count.textContent = shots.length > 1 ? (at + 1) + ' / ' + shots.length : '';
@@ -568,6 +619,8 @@ def build(pid: str, name: str, folder: str) -> str:
         if "img.shields.io" in src:
             return f'<a href="{src}" target="_blank" rel="noopener">{img}</a>'
         alt = re.search(r'\balt="([^"]*)"', img)
+        if src.startswith("data:"):   # a picture in the page: the viewer takes it from the <img>, not a second copy
+            return f'<a class="shot" href="#" data-caption="{alt.group(1) if alt else ""}">{img}</a>'
         return f'<a class="shot" href="{src}" target="_blank" rel="noopener" data-caption="{alt.group(1) if alt else ""}">{img}</a>'
 
     doc = re.sub(r'<a\b[^>]*?href="[^"]*"[^>]*>\s*(<img\b[^>]*?\bsrc="([^"]*)"[^>]*>)\s*</a>', shot, doc)
