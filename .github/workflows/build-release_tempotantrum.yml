@@ -19,6 +19,11 @@ name: Build and Release Tempo Tantrum
 #   APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID   for notarisation
 # Without them (a pull request from a fork, say) the app is built and tested and an unsigned disk image is
 # uploaded as a build artifact.
+#
+#   PTSL_SDK_DEPLOY_KEY   read-only deploy key for the private samueljustice/ptsl-sdk repository, which holds
+#     Avid's Pro Tools Scripting SDK (confidential, never in this repository). The build reads it to make
+#     Write to Pro Tools' scripting link. Without it the app is built without the link and says so; a
+#     release tag without it fails, so a release never ships without the link.
 
 on:
   push:
@@ -29,6 +34,7 @@ on:
       - 'tempotantrum/**'
       - 'pitchflattener/Resources/Fonts/**'
       - '.github/workflows/build-release_tempotantrum.yml'
+      - '.github/actions/ptsl-sdk/**'
   workflow_dispatch:
 
 # A newer push to the same pull request replaces the run in progress.
@@ -88,13 +94,36 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    # Avid's Pro Tools Scripting SDK, unpacked outside the checkout. Empty without the deploy key.
+    - name: Fetch the Pro Tools Scripting SDK
+      id: ptsl
+      uses: ./.github/actions/ptsl-sdk
+      with:
+        deploy-key: ${{ secrets.PTSL_SDK_DEPLOY_KEY }}
+
+    - name: Check the Pro Tools Scripting SDK
+      env:
+        PTSL_SDK: ${{ steps.ptsl.outputs.path }}
+      run: |
+        if [[ -n "$PTSL_SDK" ]]; then
+          echo "Building with the Pro Tools Scripting link"
+        elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/* ]]; then
+          echo "::error::A release tag needs the PTSL_SDK_DEPLOY_KEY secret: a release is never built without the Pro Tools Scripting link"
+          exit 1
+        else
+          echo "::warning::No Pro Tools Scripting SDK: this build has no Pro Tools Scripting link, and Write to Pro Tools works through Accessibility only"
+        fi
+
     - name: Configure CMake
+      env:
+        PTSL_SDK: ${{ steps.ptsl.outputs.path }}
       run: |
         cd tempotantrum
         cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
-          -DTEMPOTANTRUM_TESTS=ON
+          -DTEMPOTANTRUM_TESTS=ON \
+          -DTEMPOTANTRUM_PTSL_SDK="$PTSL_SDK"
 
     - name: Build the app, the core tests and tt-cli
       run: |
@@ -108,6 +137,13 @@ jobs:
         cd tempotantrum
         exe=$(find build -name TempoTantrumCoreTests -type f -perm +111 | head -1)
         [ -n "$exe" ] || { echo "TempoTantrumCoreTests not found"; exit 1; }
+        "$exe"
+
+    - name: Run the Pro Tools Scripting client's wire tests
+      run: |
+        cd tempotantrum
+        exe=$(find build -name TempoTantrumPtslTests -type f -perm +111 | head -1)
+        [ -n "$exe" ] || { echo "TempoTantrumPtslTests not found"; exit 1; }
         "$exe"
 
     - name: Gather the app

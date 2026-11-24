@@ -1,0 +1,51 @@
+name: Pro Tools Scripting SDK
+description: >
+  Fetches Avid's Pro Tools Scripting (PTSL) SDK from the private samueljustice/ptsl-sdk repository
+  and unpacks it outside the checkout. Without the deploy key it outputs an empty path, and Tempo
+  Tantrum is built without its Pro Tools Scripting link. The SDK is confidential and is never
+  committed to this (public) repository: only the build reads it.
+
+inputs:
+  deploy-key:
+    description: Read-only deploy key for samueljustice/ptsl-sdk (secrets.PTSL_SDK_DEPLOY_KEY)
+    required: false
+    default: ''
+
+outputs:
+  path:
+    description: The unpacked SDK folder, or empty when there is no key
+    value: ${{ steps.unpack.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the Pro Tools Scripting SDK repository
+      if: inputs.deploy-key != ''
+      uses: actions/checkout@v5
+      with:
+        repository: samueljustice/ptsl-sdk
+        ssh-key: ${{ inputs.deploy-key }}
+        path: .ptsl-sdk-download
+        persist-credentials: false
+
+    - name: Unpack the Pro Tools Scripting SDK
+      id: unpack
+      shell: bash
+      env:
+        PTSL_SDK_ZIP: ptsl-sdk-2025.06.0.zip
+        HAVE_KEY: ${{ inputs.deploy-key != '' }}
+      run: |
+        if [[ "$HAVE_KEY" != "true" ]]; then
+          echo "No PTSL_SDK_DEPLOY_KEY secret: building without the Pro Tools Scripting link"
+          echo "path=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        dest="$RUNNER_TEMP/ptsl-sdk"
+        rm -rf "$dest" && mkdir -p "$dest"
+        (cd "$dest" && cmake -E tar xf "$GITHUB_WORKSPACE/.ptsl-sdk-download/$PTSL_SDK_ZIP")
+        rm -rf "$GITHUB_WORKSPACE/.ptsl-sdk-download"
+        proto=$(find "$dest" -maxdepth 4 -type f -path '*/Source/PTSL.proto' | head -1)
+        [[ -n "$proto" ]] || { echo "No Source/PTSL.proto found in $PTSL_SDK_ZIP"; exit 1; }
+        sdk=$(dirname "$(dirname "$proto")")
+        echo "Pro Tools Scripting SDK: $(basename "$sdk")"
+        echo "path=$sdk" >> "$GITHUB_OUTPUT"

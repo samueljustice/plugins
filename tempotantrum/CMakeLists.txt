@@ -23,6 +23,99 @@ option(TEMPOTANTRUM_TESTS "Build the core tests and the command-line tool" OFF)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
 # ---------------------------------------------------------------------------------------------
+# The Pro Tools Scripting link (PTSL): Write to Pro Tools reads the session and moves the cursor
+# through it. Avid's Pro Tools Scripting SDK is confidential and is never in this repository: give
+# its unpacked folder as TEMPOTANTRUM_PTSL_SDK. Left unset, a folder ../SDK/PTSL_SDK_CPP.* beside
+# the repository root is used if there is one. Set it empty to build without the link.
+#
+# With the SDK, Tools/ptsl_generate.py writes the numbers the client needs (field numbers,
+# command numbers, the call's path) into a header in the build folder, and the client talks
+# gRPC over HTTP/2 with nghttp2. Without it, a stand-in client says the build has no link, and
+# Write to Pro Tools works through Accessibility alone.
+if(NOT DEFINED TEMPOTANTRUM_PTSL_SDK)
+    file(GLOB _tt_ptsl_found LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/../SDK/PTSL_SDK_CPP.*")
+    list(SORT _tt_ptsl_found)
+    list(REVERSE _tt_ptsl_found)
+    set(_tt_ptsl_default "")
+
+    foreach(_dir IN LISTS _tt_ptsl_found)
+        if(IS_DIRECTORY "${_dir}" AND EXISTS "${_dir}/Source/PTSL.proto")
+            set(_tt_ptsl_default "${_dir}")
+            break()
+        endif()
+    endforeach()
+
+    set(TEMPOTANTRUM_PTSL_SDK "${_tt_ptsl_default}" CACHE PATH "The unpacked Pro Tools Scripting SDK folder (empty: build without the link)")
+endif()
+
+set(TEMPOTANTRUM_HAS_PTSL 0)
+
+if(TEMPOTANTRUM_PTSL_SDK)
+    get_filename_component(TEMPOTANTRUM_PTSL_SDK "${TEMPOTANTRUM_PTSL_SDK}" ABSOLUTE)
+
+    if(NOT EXISTS "${TEMPOTANTRUM_PTSL_SDK}/Source/PTSL.proto")
+        message(FATAL_ERROR "TEMPOTANTRUM_PTSL_SDK is set to ${TEMPOTANTRUM_PTSL_SDK}, which holds no Source/PTSL.proto")
+    endif()
+
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    set(TEMPOTANTRUM_PTSL_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/PtslGenerated)
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_SOURCE_DIR}/Tools/ptsl_generate.py"
+                "${TEMPOTANTRUM_PTSL_SDK}" "${TEMPOTANTRUM_PTSL_GENERATED_DIR}/PtslGenerated.h"
+        RESULT_VARIABLE _tt_ptsl_result)
+
+    if(NOT _tt_ptsl_result EQUAL 0)
+        message(FATAL_ERROR "Could not read the Pro Tools Scripting SDK in ${TEMPOTANTRUM_PTSL_SDK}")
+    endif()
+
+    # Generated again when the SDK's definitions or the script change.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${TEMPOTANTRUM_PTSL_SDK}/Source/PTSL.proto"
+        "${TEMPOTANTRUM_PTSL_SDK}/Source/PTSL_Versions.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Tools/ptsl_generate.py")
+
+    # nghttp2 (MIT), a plain C HTTP/2 library, from its release tarball. Only its library sources
+    # are compiled, as a static library here, so it builds for every architecture the app does.
+    include(FetchContent)
+    FetchContent_Declare(tt_nghttp2
+        URL https://github.com/nghttp2/nghttp2/releases/download/v1.64.0/nghttp2-1.64.0.tar.gz
+        URL_HASH SHA256=20e73f3cf9db3f05988996ac8b3a99ed529f4565ca91a49eb0550498e10621e8
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        SOURCE_SUBDIR no-cmake-here)
+    FetchContent_MakeAvailable(tt_nghttp2)
+
+    set(_tt_ng ${tt_nghttp2_SOURCE_DIR}/lib)
+    set(_tt_ng_version_dir ${CMAKE_CURRENT_BINARY_DIR}/nghttp2-includes)
+    set(PACKAGE_VERSION "1.64.0")
+    set(PACKAGE_VERSION_NUM "0x014000")
+    configure_file(${_tt_ng}/includes/nghttp2/nghttp2ver.h.in ${_tt_ng_version_dir}/nghttp2/nghttp2ver.h @ONLY)
+
+    add_library(TempoTantrumNghttp2 STATIC
+        ${_tt_ng}/nghttp2_pq.c ${_tt_ng}/nghttp2_map.c ${_tt_ng}/nghttp2_queue.c ${_tt_ng}/nghttp2_frame.c
+        ${_tt_ng}/nghttp2_buf.c ${_tt_ng}/nghttp2_stream.c ${_tt_ng}/nghttp2_outbound_item.c
+        ${_tt_ng}/nghttp2_session.c ${_tt_ng}/nghttp2_submit.c ${_tt_ng}/nghttp2_helper.c
+        ${_tt_ng}/nghttp2_alpn.c ${_tt_ng}/nghttp2_hd.c ${_tt_ng}/nghttp2_hd_huffman.c
+        ${_tt_ng}/nghttp2_hd_huffman_data.c ${_tt_ng}/nghttp2_version.c ${_tt_ng}/nghttp2_priority_spec.c
+        ${_tt_ng}/nghttp2_option.c ${_tt_ng}/nghttp2_callbacks.c ${_tt_ng}/nghttp2_mem.c
+        ${_tt_ng}/nghttp2_http.c ${_tt_ng}/nghttp2_rcbuf.c ${_tt_ng}/nghttp2_extpri.c
+        ${_tt_ng}/nghttp2_ratelim.c ${_tt_ng}/nghttp2_time.c ${_tt_ng}/nghttp2_debug.c ${_tt_ng}/sfparse.c)
+    target_include_directories(TempoTantrumNghttp2
+        PUBLIC ${_tt_ng}/includes ${_tt_ng_version_dir}
+        PRIVATE ${_tt_ng})
+    target_compile_definitions(TempoTantrumNghttp2
+        PUBLIC NGHTTP2_STATICLIB
+        PRIVATE BUILDING_NGHTTP2 HAVE_ARPA_INET_H=1 HAVE_NETINET_IN_H=1 HAVE_CLOCK_GETTIME=1 HAVE_DECL_CLOCK_MONOTONIC=1)
+    set_target_properties(TempoTantrumNghttp2 PROPERTIES C_VISIBILITY_PRESET hidden)
+
+    set(TEMPOTANTRUM_HAS_PTSL 1)
+    message(STATUS "Tempo Tantrum: Pro Tools Scripting link ON, built from the SDK in ${TEMPOTANTRUM_PTSL_SDK}")
+else()
+    message(STATUS "Tempo Tantrum: Pro Tools Scripting link OFF (no SDK given in TEMPOTANTRUM_PTSL_SDK). "
+                   "Write to Pro Tools works through Accessibility only")
+endif()
+
+# ---------------------------------------------------------------------------------------------
 # The listening engine: finding hits, mapping sections, the beat grid and the click.
 #
 # It is a static library of the engine's own code only. The JUCE module code it calls (juce_dsp
@@ -125,6 +218,9 @@ target_sources(TempoTantrum
     Source/ProToolsWrite.cpp
     Source/protools/IdentifyBeatTest.cpp
     Source/protools/IdentifyBeatWrite.cpp
+    Source/protools/PtslSession.cpp
+    Source/protools/PtslSessionMaths.cpp
+    Source/ptsl/PtslClient.cpp
     Source/ui/Theme.cpp
     Source/ui/WaveformView.cpp
     Source/ui/Controls.cpp
@@ -141,8 +237,15 @@ endif()
 
 target_include_directories(TempoTantrum PRIVATE Source)
 
+if(TEMPOTANTRUM_HAS_PTSL)
+    target_sources(TempoTantrum PRIVATE Source/ptsl/PtslWire.cpp)
+    target_include_directories(TempoTantrum PRIVATE ${TEMPOTANTRUM_PTSL_GENERATED_DIR})
+    target_link_libraries(TempoTantrum PRIVATE TempoTantrumNghttp2)
+endif()
+
 target_compile_definitions(TempoTantrum
     PRIVATE
+    TEMPOTANTRUM_HAS_PTSL=${TEMPOTANTRUM_HAS_PTSL}
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:TempoTantrum,JUCE_PRODUCT_NAME>"
@@ -190,4 +293,11 @@ if(TEMPOTANTRUM_TESTS)
             juce::juce_recommended_warning_flags
         )
     endforeach()
+
+    # The hand-written protocol buffer and gRPC code of the Pro Tools Scripting client, tested
+    # with byte sequences of its own, and the sums the write makes with what the link reads (the
+    # tempo comparison, multi-mono clips). It needs neither the SDK nor JUCE.
+    add_executable(TempoTantrumPtslTests Tests/PtslWireTests.cpp Source/ptsl/PtslWire.cpp Source/protools/PtslSessionMaths.cpp)
+    target_include_directories(TempoTantrumPtslTests PRIVATE Source)
+    target_compile_features(TempoTantrumPtslTests PRIVATE cxx_std_20)
 endif()

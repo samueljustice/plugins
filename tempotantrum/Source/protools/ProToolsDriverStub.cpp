@@ -69,6 +69,7 @@ Result Driver::confirmIdentifyBeat (const Element&, bool& okPressed)
 }
 
 Result Driver::cancelDialog (const Element&)                           { return onlyOnMac(); }
+Result Driver::closeIdentifyBeatIfOpen (int)                           { return onlyOnMac(); }
 void Driver::setQuick (bool, bool)                                     {}
 Result Driver::checkWindowsAtStart()                                   { return onlyOnMac(); }
 

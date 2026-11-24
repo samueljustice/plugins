@@ -5,9 +5,11 @@
 #include "ProToolsWrite.h"
 #include "protools/IdentifyBeatTest.h"
 #include "protools/IdentifyBeatWrite.h"
+#include "ptsl/PtslClient.h"
 #include "ui/Theme.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -73,6 +75,12 @@ public:
         if (args.contains ("--write-test"))
         {
             runWriteTestHeadless();
+            return;
+        }
+
+        if (args.contains ("--ptsl-probe"))
+        {
+            runPtslProbe();
             return;
         }
 
@@ -197,8 +205,10 @@ private:
     //
     // --write-sheet-snapshot takes the same arguments and has the Write to Pro Tools sheet open:
     //   --state ready|permission|notrunning|running|checking|finished|stopped   what the sheet shows (ready)
+    //   --link connected|multimono|nothing|mismatch|nosession|none   what the scripting link says about the session (none)
+    //   --rest-changed, --rest-partbeat, --restore-failed   with --state finished --link connected: how the run ended
     //   --more                        with More opened
-    //   --float <out.png>             also saves the floating panel of a run as a picture
+    //   --float <out.png>            also saves the floating panel of a run as a picture
     void runSnapshot (const juce::StringArray& args, bool withTestPanel, bool withWriteSheet)
     {
         const int at = args.indexOf (withTestPanel ? "--test-panel-snapshot" : withWriteSheet ? "--write-sheet-snapshot" : "--snapshot");
@@ -355,6 +365,60 @@ private:
         reading.text = "2880000";
         sheet.showCounterAs (reading);
 
+        // What the scripting link says, made up: --link connected|multimono|nothing|mismatch|nosession|none (none).
+        {
+            const auto linkState = valueAfterFlag (args, "--link");
+            const auto& doc = snapshot->getDocument();
+            pt::SessionReading link;
+
+            if (linkState.isEmpty() || linkState == "none" || state == "notrunning")
+            {
+                link.problem = ptsl::Client::hasLink() ? "Pro Tools did not answer on its scripting port. Is Pro Tools running, with a session open?"
+                                                       : ptsl::noLinkMessage;
+            }
+            else
+            {
+                link.linked = true;
+                link.sessionOpen = linkState != "nosession";
+                link.problem = link.sessionOpen ? std::string() : std::string ("No session is open in Pro Tools");
+                link.sessionName = "Trailer Session";
+                link.sampleRate = linkState == "mismatch" ? 44100.0 : doc.getSampleRate();
+                link.lengthSeconds = 600.0;
+                link.transport = linkState == "nothing" ? "TS_TransportPlaying" : "TS_TransportStopped";
+                link.stopped = linkState != "nothing";
+                link.counterType = linkState == "connected" ? "TLType_BarsBeats" : "TLType_Samples";
+                link.counterIsSamples = linkState != "connected";
+                link.hasSelection = link.hasMusicStart = true;
+                link.selectionIn = link.musicStart = linkState == "nothing" ? 1440000 : 2880000;
+                link.selectionOut = linkState == "nothing" ? link.selectionIn
+                                                           : link.selectionIn + (long long) std::llround ((double) doc.getLengthInSamples()
+                                                                                                         * link.sampleRate / doc.getSampleRate());
+
+                if (linkState == "connected")
+                {
+                    link.selectedFiles = { musicName.toStdString() };
+                    link.fileIsMusic = true;
+                    link.trim = pt::Trim::whole;
+                }
+                else if (linkState == "multimono")
+                {
+                    // A stereo clip made of two mono files.
+                    const auto base = juce::File::createFileWithoutCheckingPath (musicName).getFileNameWithoutExtension().toStdString();
+                    link.selectedFiles = { base + ".L.wav", base + ".R.wav" };
+                    link.fileIsMusic = true;
+                    link.trim = pt::Trim::whole;
+                }
+                else if (linkState == "mismatch")
+                {
+                    link.selectedFiles = { "Other Cue v2.wav" };
+                    link.trim = pt::Trim::unknown;
+                }
+            }
+
+            link.selectedClips = pt::clipsOf (link.selectedFiles);
+            sheet.showLinkAs (link);
+        }
+
         const int seventh = std::min (6, std::max (0, total - 1));
 
         if (state == "running" || state == "checking")
@@ -386,6 +450,27 @@ private:
                 outcome.summary = "Written: " + std::to_string (total) + (total == 1 ? " pin" : " pins");
                 outcome.checkSummary = total == 1 ? std::string ("The pin checks out")
                                                   : "All " + std::to_string (total) + " pins check out";
+
+                // A run through the scripting link, made up.
+                if (valueAfterFlag (args, "--link") == "connected")
+                {
+                    outcome.linked = outcome.movedWithLink = true;
+                    outcome.moveNote = "Identify Beat followed the cursor moves made through the scripting link";
+                    outcome.checkSummary += " (largest error 1 sample)";
+                    outcome.restChanged = args.contains ("--rest-changed") || args.contains ("--rest-partbeat");
+                    outcome.restSummary = args.contains ("--rest-changed")
+                                              ? "Rest of the session: the tempo after the music changed between 3:12 and 3:40. Check it, or Undo."
+                                          : args.contains ("--rest-partbeat")
+                                              ? "Rest of the session: the beats after the music moved 300 ticks (0.31 of a beat) later, so they no "
+                                                "longer sit on the same audio. Check it, or Undo."
+                                              : "Rest of the session: tempo unchanged. The bar numbers after the music moved 2 bars later";
+                    outcome.restoreFailed = args.contains ("--restore-failed");
+                    outcome.restoredNote = outcome.restoreFailed
+                                               ? "A Pro Tools dialog may still be open, so nothing was put back. Set the Main Counter back to "
+                                                 "Bars|Beats. Switch Link Timeline and Edit Selection off again."
+                                               : "The selection is as it was before the run. Link Timeline and Edit Selection is off again. "
+                                                 "The Main Counter shows Bars|Beats again.";
+                }
             }
             else
             {
@@ -452,6 +537,175 @@ private:
     {
         const int i = args.indexOf (flag);
         return i >= 0 && i + 1 < args.size() ? args[i + 1] : juce::String();
+    }
+
+    // --ptsl-probe [--raw]
+    // Connects to Pro Tools' scripting link, registers, and sends only commands that read: the
+    // session's name, rate, start and length, the transport, the Main Counter's format, the edit
+    // and timeline selections, the edit mode options, the files of the selected clips, a few time
+    // conversions and the number of tracks. Prints each command, what came back and how long it
+    // took. Changes nothing in Pro Tools. With --raw the JSON answers are printed too (file paths
+    // excepted).
+    void runPtslProbe()
+    {
+        const bool raw = getCommandLineParameterArray().contains ("--raw");
+
+        headlessRun = std::thread ([this, raw]
+        {
+            ptsl::Client client;
+            int failures = 0;
+
+            const auto show = [&] (const char* name, const ptsl::Reply& reply, const std::string& answer, bool printRaw = true)
+            {
+                char time[32];
+                std::snprintf (time, sizeof (time), "%7.1f ms", reply.seconds * 1000.0);
+                std::cout << time << "  " << name << ": ";
+
+                if (reply.ok)
+                    std::cout << answer << std::endl;
+                else
+                {
+                    ++failures;
+                    std::cout << "FAILED: " << reply.message << (reply.timedOut ? " (timed out)" : "") << std::endl;
+                }
+
+                if (raw && printRaw && ! reply.body.empty())
+                    std::cout << "            raw: " << reply.body << std::endl;
+
+                if (raw && ! reply.error.empty())
+                    std::cout << "            error: " << reply.error << std::endl;
+            };
+
+            std::cout << "Pro Tools Scripting link: " << (ptsl::Client::hasLink() ? "built in" : ptsl::noLinkMessage) << std::endl;
+            std::string problem;
+            const auto start = std::chrono::steady_clock::now();
+            const bool connected = client.connect (problem);
+            std::cout << "Connect: " << (connected ? "connected" : problem) << " ("
+                      << juce::String (std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - start).count(), 1)
+                      << " ms)" << std::endl;
+
+            if (connected)
+            {
+                const auto registered = client.registerConnection ("Sammy J", "Tempo Tantrum");
+                show ("RegisterConnection", registered, client.isRegistered() ? "registered, session id received" : "no session id", false);
+
+                const auto ready = client.hostReadyCheck();
+                show ("HostReadyCheck", ready, (bool) juce::JSON::parse (juce::String::fromUTF8 (ready.body.c_str())).getProperty ("is_host_ready", false)
+                                                   ? "ready" : "not ready");
+
+                const auto version = client.ptslVersion();
+                show ("GetPTSLVersion", version.reply, version.value);
+
+                const auto name = client.sessionName();
+                show ("GetSessionName", name.reply, "\"" + name.value + "\"");
+
+                const auto rate = client.sessionSampleRate();
+                show ("GetSessionSampleRate", rate.reply, juce::String (rate.value).toStdString());
+
+                const auto sessionStart = client.sessionStartTime();
+                show ("GetSessionStartTime", sessionStart.reply, "\"" + sessionStart.value + "\"");
+
+                const auto length = client.sessionLength();
+                show ("GetSessionLength", length.reply, "\"" + length.value + "\"");
+
+                const auto transport = client.transportState();
+                show ("GetTransportState", transport.reply, transport.value);
+
+                const auto counter = client.mainCounterFormat();
+                show ("GetMainCounterFormat", counter.reply, counter.value.type + " (" + counter.value.setting + ")");
+
+                const auto edit = client.editSelection ("TLType_Samples");
+                show ("GetEditSelection (samples)", edit.reply, "in " + edit.value.in + ", out " + edit.value.out);
+
+                const auto timeline = client.timelineSelection ("TLType_Samples");
+                show ("GetTimelineSelection (samples)", timeline.reply, "in " + timeline.value.in + ", out " + timeline.value.out);
+
+                const auto options = client.editModeOptions();
+                std::string optionText;
+
+                for (const auto& [key, on] : options.value.options)
+                    optionText += (optionText.empty() ? "" : ", ") + key + "=" + (on ? "on" : "off");
+
+                show ("GetEditModeOptions", options.reply, optionText);
+
+                const auto files = client.fileLocations ("SelectedClipsTimeline");
+                std::string fileText = std::to_string (files.value.size()) + (files.value.size() == 1 ? " file" : " files");
+
+                for (const auto& file : files.value)
+                    fileText += ", \"" + juce::File (juce::String::fromUTF8 (file.path.c_str())).getFileName().toStdString() + "\""
+                                + (file.online ? " online" : " offline") + " id " + file.fileId;
+
+                show ("GetFileLocation (selected clips on the timeline)", files.reply, fileText, false);
+
+                // Time conversions at the edit selection's start, and back.
+                const auto at = edit.ok() && ! edit.value.in.empty() ? edit.value.in : std::string ("0");
+                const auto bars = client.timeAsType (at, "TLType_Samples", "TLType_BarsBeats");
+                show ("GetTimeAsType (samples to bars|beats)", bars.reply, at + " -> \"" + bars.value + "\"");
+
+                const auto ticks = client.timeAsType (at, "TLType_Samples", "TLType_Ticks");
+                show ("GetTimeAsType (samples to ticks)", ticks.reply, at + " -> \"" + ticks.value + "\"");
+
+                if (bars.ok())
+                {
+                    const auto back = client.timeAsType (bars.value, "TLType_BarsBeats", "TLType_Samples");
+                    show ("GetTimeAsType (bars|beats to samples)", back.reply, "\"" + bars.value + "\" -> " + back.value);
+                }
+
+                for (const auto* location : { "1|1|000", "1|2|000", "2|1|000" })
+                {
+                    const auto converted = client.timeAsType (location, "TLType_BarsBeats", "TLType_Ticks");
+                    show ("GetTimeAsType (bars|beats to ticks)", converted.reply, std::string (location) + " -> \"" + converted.value + "\"");
+                }
+
+                const auto secondsAt = client.timeAsType (at, "TLType_Samples", "TLType_MinSecs");
+                show ("GetTimeAsType (samples to min:sec)", secondsAt.reply, at + " -> \"" + secondsAt.value + "\"");
+
+                const auto zero = client.timeAsType ("0", "TLType_Samples", "TLType_TimeCode");
+                show ("GetTimeAsType (sample 0 to timecode)", zero.reply, "0 -> \"" + zero.value + "\"");
+
+                if (sessionStart.ok())
+                    for (const auto* type : { "TLType_TimeCode", "TLType_MinSecs" })
+                    {
+                        const auto converted = client.timeAsType (sessionStart.value, type, "TLType_Samples");
+                        show ("GetTimeAsType (session start to samples)", converted.reply,
+                              "\"" + sessionStart.value + "\" as " + type + " -> " + converted.value);
+                    }
+
+                if (length.ok())
+                    for (const auto* type : { "TLType_TimeCode", "TLType_MinSecs" })
+                    {
+                        const auto converted = client.timeAsType (length.value, type, "TLType_Samples");
+                        show ("GetTimeAsType (session length to samples)", converted.reply,
+                              "\"" + length.value + "\" as " + type + " -> " + converted.value);
+                    }
+
+                // How long a run of conversions takes, as the tempo check before and after a write makes.
+                {
+                    const auto from = std::chrono::steady_clock::now();
+                    int good = 0;
+                    constexpr int count = 50;
+
+                    for (int i = 0; i < count; ++i)
+                        good += client.timeAsType (std::to_string (i * 96000), "TLType_Samples", "TLType_Ticks").ok() ? 1 : 0;
+
+                    const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - from).count();
+                    std::cout << juce::String (ms, 1) << " ms  " << count << " conversions (samples to ticks), " << good << " answered, "
+                              << juce::String (ms / count, 2) << " ms each" << std::endl;
+                }
+
+                const auto tracks = client.trackCount();
+                show ("GetTrackList", tracks.reply, std::to_string (tracks.value) + " tracks", false);
+            }
+
+            const bool ok = connected && failures == 0;
+            std::cout << (ok ? "Every command answered" : "Not every command answered") << std::endl;
+
+            juce::MessageManager::callAsync ([this, ok]
+            {
+                setApplicationReturnValue (ok ? 0 : 1);
+                quit();
+            });
+        });
     }
 
     // --ax-selfcheck

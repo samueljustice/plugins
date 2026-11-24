@@ -129,6 +129,12 @@ public:
     // Presses Cancel (or Escape when there is no Cancel button) and waits for the dialog to close.
     Result cancelDialog (const Element& dialog);
 
+    // For the end of a run, also after a stop: looks for an Identify Beat dialog for up to
+    // `waitForItMilliseconds` (at least once) and cancels it as cancelDialog does. Good when no
+    // Identify Beat dialog and no other modal window is open afterwards. Nothing is pressed in
+    // any other window: one that is open is the failure.
+    Result closeIdentifyBeatIfOpen (int waitForItMilliseconds);
+
     //==============================================================================
     // The quick pace, for writing a whole map. Every wait becomes a short poll for the state that
     // is expected, with the same longest wait as before; keys are held for less time (unless

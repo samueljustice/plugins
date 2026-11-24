@@ -440,7 +440,7 @@ void MainComponent::showProToolsWrite()
 
     player.stop();
     updatePlayButton();
-    proToolsWrite->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
+    proToolsWrite->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(), (long long) document.getLengthInSamples(),
                               document.getMusicFile().getFileName(), (int) document.getMap().checks.size());
     proToolsWrite->open();
 }
@@ -842,6 +842,7 @@ void MainComponent::refresh()
 
     if (proToolsWrite->isVisible() && ! proToolsWrite->isRunning())
         proToolsWrite->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
+                                  hasMusic ? (long long) document.getLengthInSamples() : 0LL,
                                   hasMusic ? document.getMusicFile().getFileName() : juce::String(),
                                   (int) document.getMap().checks.size());
 

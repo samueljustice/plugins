@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProToolsDriver.h"
+#include "PtslSession.h"
 #include "core/Types.h"
 
 #include <functional>
@@ -12,6 +13,13 @@
 // driver's quick pace. It stops at the first step that does not go as expected, and writes what
 // it does to a log in the same form as the test's. Plain C++; every function here blocks, so it
 // is run on a background thread.
+//
+// When Pro Tools' scripting link answers, the run reads the session through it, stops the
+// transport, sets the Main Counter to Samples and links the timeline and edit selections, moves
+// the cursor to each pin, checks the pins afterwards and reads the tempo of the rest of the
+// session before and after, and puts the counter and the edit options back at the end. Identify
+// Beat itself has no scripting command, so it is always run through Accessibility and keys.
+// Without the link every step is done with key presses.
 namespace tt::pt
 {
 
@@ -20,11 +28,16 @@ struct WriteSettings
     std::vector<Pin> pins;              // sorted by time
     int beatsPerBar = 4;
     double sessionSampleRate = 0.0;     // converts pin times to samples; must match the session
+    bool rateTyped = false;             // the rate was typed under More: the session's own rate is not used in its place
 
-    // Where the music file starts in the session, in samples. Without it the Main Counter is read
-    // at the start of the run: the cursor is then expected to be at the start of the music clip.
+    // Where the music file starts in the session, in samples. Without it the start is read through
+    // the scripting link (the selected clip), or else from the Main Counter at the start of the
+    // run: the cursor is then expected to be at the start of the music clip.
     bool hasMusicStart = false;
     long long musicStartSample = 0;
+
+    bool useScriptingLink = true;       // false: keys only, as without the link
+    MusicFacts music;                   // for the scripting link's reading of the selected clip
 
     bool checkAfterwards = true;        // read every pin's location back once all are written
     bool slowKeys = false;              // hold each key as long as the test does
@@ -45,8 +58,10 @@ struct PinCheck
 {
     int pin = 0;                // counted from 1
     std::string wanted;         // "46|1|000"
-    std::string found;          // as the dialog showed it
-    long long ticksOff = 0;     // found minus wanted, 960 ticks to the beat
+    std::string found;          // as the dialog showed it, or the sample the scripting link gave
+    long long ticksOff = 0;     // found minus wanted, 960 ticks to the beat (a check with the dialog)
+    bool inSamples = false;     // a check through the scripting link: samplesOff is used
+    long long samplesOff = 0;   // where the bar|beat is minus the pin's sample
 };
 
 struct WriteOutcome
@@ -64,8 +79,19 @@ struct WriteOutcome
 
     bool checked = false;       // the check ran to the end
     int checkedPins = 0;
-    std::vector<PinCheck> off;  // the pins more than 2 ticks from where they should be
+    std::vector<PinCheck> off;  // the pins more than 2 ticks (or 2 samples) from where they should be
     std::string checkSummary;   // empty when no check was asked for or the run stopped before it
+
+    // The scripting link.
+    bool linked = false;        // it was used for this run
+    std::string linkNote;       // why it was not used, or what it did not do
+    bool movedWithLink = false; // the cursor was moved to the pins through the link
+    std::string moveNote;       // "Identify Beat saw the cursor moves ...", or why the keys were used instead
+    std::string restSummary;    // "Rest of the session: tempo unchanged" ...
+    bool restChanged = false;
+    std::string beforeSummary;  // what happened to the tempo before the music, when it changed
+    std::string restoredNote;   // what was put back at the end, or what could not be
+    bool restoreFailed = false; // something could not be put back: restoredNote says what to set by hand
 };
 
 struct UndoOutcome
@@ -120,5 +146,8 @@ private:
 
 // The bar a pin is in, counted from 1.
 int barOf (const Pin& pin, int beatsPerBar);
+
+// "  46| 1| 000" into ticks from bar 1 beat 1, 960 ticks to the beat. False when it is not bar|beat|ticks.
+bool ticksOfLocation (const std::string& location, int beatsPerBar, long long& ticks);
 
 } // namespace tt::pt

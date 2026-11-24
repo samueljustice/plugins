@@ -18,6 +18,7 @@ namespace
 
     const char* const instruction = "In Pro Tools, select the music clip so the cursor is at its start, with the Main Counter set to "
                                     "Samples. Then press Write.";
+    const char* const linkedInstruction = "In Pro Tools, select the music clip. Then press Write.";
     const char* const permissionMissing = "macOS has not given Tempo Tantrum permission to control other apps.";
     const char* const permissionNote = "Then switch Tempo Tantrum on in System Settings > Privacy & Security > Accessibility, and reopen the app.";
     const char* const handsOff = "Leave the keyboard and mouse alone";
@@ -64,6 +65,22 @@ namespace
         return juce::String (count) + " " + (count == 1 ? one : many);
     }
 
+    juce::String utf8 (const std::string& text)
+    {
+        return juce::String::fromUTF8 (text.c_str());
+    }
+
+    // 44100 as "44.1 kHz", 48000 as "48 kHz".
+    juce::String kiloHertz (double rate)
+    {
+        auto text = juce::String (rate / 1000.0, 3);
+
+        while (text.containsChar ('.') && (text.endsWithChar ('0') || text.endsWithChar ('.')))
+            text = text.dropLastCharacters (1);
+
+        return text + " kHz";
+    }
+
     void drawProgressBar (juce::Graphics& g, juce::Rectangle<int> area, double fraction)
     {
         const auto r = area.toFloat();
@@ -94,7 +111,8 @@ public:
     ~Runner() override
     {
         // Every wait in a run is short and asks whether to stop, and no call to Pro Tools waits
-        // longer than two seconds, so a stopped run ends within a few calls.
+        // longer than three seconds, so a stopped run ends within a few calls, after putting
+        // back what it changed.
         stopThread (15000);
     }
 
@@ -146,6 +164,69 @@ public:
 
 private:
     juce::Component::SafePointer<ProToolsWriteSheet> safeSheet;
+};
+
+//==============================================================================
+// Reads the session through Pro Tools' scripting link about once a second while the sheet waits
+// for Write: the session, the selected clip, the counter and the transport. It only reads. It is
+// stopped before a run starts, so it never sends a command while the run has a dialog open.
+class ProToolsWriteSheet::LinkWatcher : public juce::Thread
+{
+public:
+    LinkWatcher (ProToolsWriteSheet& owner, pt::MusicFacts facts)
+        : juce::Thread ("Pro Tools session"), safeSheet (&owner), music (std::move (facts))
+    {
+    }
+
+    ~LinkWatcher() override
+    {
+        // A call waiting for Pro Tools asks whether to stop every tenth of a second, and a read
+        // asks between calls, so this returns at once.
+        stopThread (15000);
+    }
+
+    void setMusic (const pt::MusicFacts& facts)
+    {
+        const juce::ScopedLock lock (musicLock);
+        music = facts;
+    }
+
+    void run() override
+    {
+        ptsl::Client client;
+        client.setStopCheck ([this] { return threadShouldExit(); });
+        pt::SessionReader reader;
+
+        while (! threadShouldExit())
+        {
+            pt::MusicFacts facts;
+
+            {
+                const juce::ScopedLock lock (musicLock);
+                facts = music;
+            }
+
+            const auto reading = reader.read (client, facts, [this] { return threadShouldExit(); });
+
+            if (threadShouldExit())
+                break;
+
+            juce::MessageManager::callAsync ([safe = safeSheet, reading]
+            {
+                if (safe != nullptr)
+                    safe->setLink (reading);
+            });
+
+            // Pro Tools not answering in time usually has a dialog open. Every new connection
+            // sends a registration it would run later, so it is asked less often then.
+            wait (reading.timedOut ? 5000 : reading.linked ? 1000 : 2000);
+        }
+    }
+
+private:
+    juce::Component::SafePointer<ProToolsWriteSheet> safeSheet;
+    juce::CriticalSection musicLock;
+    pt::MusicFacts music;
 };
 
 //==============================================================================
@@ -354,6 +435,12 @@ ProToolsWriteSheet::ProToolsWriteSheet()
 
     rateBox.setRange (8000.0, 768000.0, 1.0, 0);
     rateBox.setValue (48000.0, juce::dontSendNotification);
+    rateBox.onChange = [this] (double)
+    {
+        rateTyped = true;
+        layout();
+        repaint();
+    };
     addChildComponent (rateBox);
 
     checkTick->setTicked (true);
@@ -378,26 +465,47 @@ ProToolsWriteSheet::~ProToolsWriteSheet()
 {
     stopTimer();
     watcher = nullptr;
+    linkWatcher = nullptr;
     runner = nullptr;
     floating = nullptr;
 }
 
 //==============================================================================
 void ProToolsWriteSheet::setSource (const std::vector<Pin>& newPins, int newBeatsPerBar, double musicSampleRate,
-                                    const juce::String& newMusicName, int newUnchecked)
+                                    long long musicLengthSamples, const juce::String& newMusicName, int newUnchecked)
 {
     pins = newPins;
     beatsPerBar = newBeatsPerBar;
     musicName = newMusicName;
+    musicLength = musicLengthSamples;
     unchecked = newUnchecked;
 
+    // Other music: the rate box follows it again, or the session's rate when that is known.
     if (musicSampleRate > 0.0 && ! juce::exactlyEqual (musicSampleRate, shownMusicRate))
     {
         shownMusicRate = musicSampleRate;
-        rateBox.setValue (musicSampleRate, juce::dontSendNotification);
+        rateTyped = false;
+        rateBox.setValue (linkInUse() && link.sampleRate > 0.0 ? link.sampleRate : musicSampleRate, juce::dontSendNotification);
     }
 
+    if (linkWatcher != nullptr)
+        linkWatcher->setMusic (musicFacts());
+
     updateControls();
+}
+
+pt::MusicFacts ProToolsWriteSheet::musicFacts() const
+{
+    pt::MusicFacts facts;
+    facts.fileName = musicName.toStdString();
+    facts.sampleRate = shownMusicRate;
+    facts.lengthSamples = musicLength;
+    return facts;
+}
+
+bool ProToolsWriteSheet::linkInUse() const
+{
+    return linkKnown && link.linked && link.sessionOpen;
 }
 
 void ProToolsWriteSheet::open()
@@ -460,6 +568,19 @@ void ProToolsWriteSheet::showCounterAs (const pt::CounterReading& reading)
     updateControls();
 }
 
+void ProToolsWriteSheet::showLinkAs (const pt::SessionReading& reading)
+{
+    forPicture = true;
+    stopWatching();
+    linkKnown = true;
+    link = reading;
+
+    if (! rateTyped && linkInUse() && link.sampleRate > 0.0)
+        rateBox.setValue (link.sampleRate, juce::dontSendNotification);
+
+    updateControls();
+}
+
 void ProToolsWriteSheet::showMoreOpen (bool shouldBeOpen)
 {
     moreOpen = shouldBeOpen;
@@ -500,7 +621,26 @@ juce::Image ProToolsWriteSheet::floatingPanelPicture (pt::Phase phase, int done,
 //==============================================================================
 void ProToolsWriteSheet::startWatching()
 {
-    if (forPicture || watcher != nullptr || ! permissionAllowed || ! isVisible())
+    if (forPicture || ! isVisible())
+        return;
+
+    if (linkWatcher == nullptr)
+    {
+        if (ptsl::Client::hasLink())
+        {
+            linkKnown = false;
+            linkWatcher = std::make_unique<LinkWatcher> (*this, musicFacts());
+            linkWatcher->startThread();
+        }
+        else
+        {
+            linkKnown = true;
+            link = {};
+            link.problem = ptsl::noLinkMessage;
+        }
+    }
+
+    if (watcher != nullptr || ! permissionAllowed)
         return;
 
     counterKnown = false;
@@ -510,7 +650,33 @@ void ProToolsWriteSheet::startWatching()
 
 void ProToolsWriteSheet::stopWatching()
 {
+    if (watcher != nullptr)
+        watcher->signalThreadShouldExit();
+
+    if (linkWatcher != nullptr)
+        linkWatcher->signalThreadShouldExit();
+
     watcher = nullptr;
+    linkWatcher = nullptr;
+}
+
+void ProToolsWriteSheet::setLink (const pt::SessionReading& reading)
+{
+    if (linkWatcher == nullptr)
+        return;
+
+    linkKnown = true;
+    link = reading;
+
+    // The session's rate fills the box, unless a rate has been typed there.
+    if (! rateTyped && linkInUse() && link.sampleRate > 0.0 && ! juce::exactlyEqual (rateBox.getValue(), link.sampleRate))
+        rateBox.setValue (link.sampleRate, juce::dontSendNotification);
+
+    if (stage == Stage::ready)
+    {
+        layout();
+        repaint();
+    }
 }
 
 void ProToolsWriteSheet::setCounter (const pt::CounterReading& reading)
@@ -541,6 +707,8 @@ void ProToolsWriteSheet::startWrite()
     settings.pins = pins;
     settings.beatsPerBar = beatsPerBar;
     settings.sessionSampleRate = rateBox.getValue();
+    settings.rateTyped = rateTyped;
+    settings.music = musicFacts();
     settings.hasMusicStart = startBox.hasValue();
     settings.musicStartSample = std::llround (startBox.getValue());
     settings.checkAfterwards = checkTick->isTicked();
@@ -915,23 +1083,121 @@ juce::String ProToolsWriteSheet::counterLine (bool& warning) const
         text = "The music starts at sample " + grouped (start) + ", where the cursor is.";
     }
 
-    if (hasLastStart && start == lastStart)
+    if (const auto note = lastRunNote (start, typed); note.isNotEmpty())
     {
         warning = true;
-        text << " The last run wrote from this same sample.";
-    }
-    else if (std::find (lastPinSamples.begin(), lastPinSamples.end(), start) != lastPinSamples.end())
-    {
-        warning = true;
-        text << " That is a pin of the last run, not the start of the music clip.";
-    }
-    else if (start == 0 && ! typed)
-    {
-        warning = true;
-        text << " That is the start of the session: check that the music clip starts there.";
+        text << " " << note;
     }
 
     return text;
+}
+
+// What to look out for about a music start: the same as the last run's, one of its pins, or 0.
+juce::String ProToolsWriteSheet::lastRunNote (long long start, bool typed) const
+{
+    if (hasLastStart && start == lastStart)
+        return "The last run wrote from this same sample.";
+
+    if (std::find (lastPinSamples.begin(), lastPinSamples.end(), start) != lastPinSamples.end())
+        return "That is a pin of the last run, not the start of the music clip.";
+
+    if (start == 0 && ! typed)
+        return "That is the start of the session: check that the music clip starts there.";
+
+    return {};
+}
+
+juce::String ProToolsWriteSheet::instructionText() const
+{
+    return linkInUse() ? linkedInstruction : instruction;
+}
+
+// The lines under the pins while the sheet waits for Write. With the scripting link: the session,
+// the selected clip and what the write will change. Without it: what the Main Counter shows.
+std::vector<ProToolsWriteSheet::Line> ProToolsWriteSheet::readyLines() const
+{
+    std::vector<Line> lines;
+    const bool typed = startBox.hasValue();
+
+    if (linkInUse())
+    {
+        lines.push_back ({ "Session: " + utf8 (link.sessionName), false, true });
+
+        long long start = link.musicStart;
+        const auto clipFile = link.selectedClips.size() == 1 ? utf8 (link.selectedClips.front()) : juce::String();
+
+        if (typed)
+        {
+            start = std::llround (startBox.getValue());
+            lines.push_back ({ "The music starts at sample " + grouped (start) + ", as typed under More." });
+        }
+        else if (link.selectedClips.size() == 1 && link.hasSelection)
+        {
+            auto text = "Music clip selected: " + clipFile + ", starting at sample " + grouped (link.selectionIn) + ".";
+
+            if (link.trim == pt::Trim::found && link.trimSamples != 0)
+                text << " It starts " << grouped (link.trimSamples) << " samples into its file, so the music starts at sample "
+                     << grouped (link.musicStart) << ".";
+
+            lines.push_back ({ text });
+
+            if (link.trim == pt::Trim::unknown)
+                lines.push_back ({ "If the clip has been trimmed at its start, the grid will be off by the trimmed amount.", true });
+        }
+        else if (link.selectedClips.size() > 1)
+        {
+            lines.push_back ({ "More than one clip is selected. Select only the music clip.", true });
+        }
+        else
+        {
+            lines.push_back ({ "Select the music clip in Pro Tools.", true });
+        }
+
+        if (clipFile.isNotEmpty() && ! link.fileIsMusic && musicName.isNotEmpty())
+            lines.push_back ({ "The selected clip's file is " + clipFile + ", but the music open here is " + musicName + ".", true });
+
+        if (link.sampleRate > 0.0 && shownMusicRate > 0.0 && std::abs (link.sampleRate - shownMusicRate) > 0.5)
+            lines.push_back ({ "The session runs at " + kiloHertz (link.sampleRate) + " and the music file at " + kiloHertz (shownMusicRate) + ".", true });
+
+        if (rateTyped && link.sampleRate > 0.0 && std::abs (rateBox.getValue() - link.sampleRate) > 0.5)
+            lines.push_back ({ "The rate typed under More is not the session's rate, " + kiloHertz (link.sampleRate) + ".", true });
+
+        if (! link.counterType.empty() && ! link.counterIsSamples)
+            lines.push_back ({ "The Main Counter will be switched to Samples for the write and put back afterwards." });
+
+        if (link.transport.find ("Recording") != std::string::npos)
+            lines.push_back ({ "Pro Tools is recording. Stop it before writing.", true });
+        else if (! link.transport.empty() && ! link.stopped)
+            lines.push_back ({ "Pro Tools is playing. It will be stopped for the write." });
+
+        if (link.hasMusicStart || typed)
+            if (const auto note = lastRunNote (start, typed); note.isNotEmpty())
+                lines.push_back ({ note, true });
+
+        return lines;
+    }
+
+    if (linkKnown && link.linked && ! link.sessionOpen)
+    {
+        const auto problem = link.problem.empty() ? std::string ("The session could not be read") : link.problem;
+        lines.push_back ({ utf8 (problem) + (problem.back() == '?' ? "" : "."), true });
+        return lines;
+    }
+
+    if (! linkKnown && ptsl::Client::hasLink())
+    {
+        lines.push_back ({ "Reading the session in Pro Tools." });
+        return lines;
+    }
+
+    bool warning = false;
+    auto text = counterLine (warning);
+    lines.push_back ({ text, warning });
+
+    if (linkKnown && ! link.linked && ! link.problem.empty() && ! (counterKnown && ! counter.running))
+        lines.push_back ({ "Scripting link: " + utf8 (link.problem) + (link.problem.back() == '?' ? "" : ".") });
+
+    return lines;
 }
 
 juce::String ProToolsWriteSheet::outcomeText() const
@@ -944,33 +1210,53 @@ juce::String ProToolsWriteSheet::outcomeText() const
     return text;
 }
 
-// What follows the outcome: how much was written before a stop, then the check.
-juce::String ProToolsWriteSheet::checkText() const
+// What follows the outcome: how much was written before a stop, how the cursor was moved, the
+// check, the rest of the session and what was put back.
+std::vector<ProToolsWriteSheet::Line> ProToolsWriteSheet::finishedLines() const
 {
-    juce::StringArray lines;
+    std::vector<Line> lines;
 
     if (! outcome.ok && outcome.total > 0 && outcome.failedPin > 0)
-        lines.add (juce::String (outcome.written) + " of " + countOf (outcome.total, "pin", "pins")
-                   + (outcome.written == 1 ? " was written." : " were written."));
+        lines.push_back ({ juce::String (outcome.written) + " of " + countOf (outcome.total, "pin", "pins")
+                           + (outcome.written == 1 ? " was written." : " were written.") });
 
-    if (outcome.checkSummary.empty())
-        return lines.joinIntoString ("\n");
+    if (! outcome.linkNote.empty())
+        lines.push_back ({ utf8 (outcome.linkNote) });
 
-    lines.add (juce::String::fromUTF8 (outcome.checkSummary.c_str()) + (outcome.off.empty() ? "." : ":"));
-    const int shown = std::min ((int) outcome.off.size(), 5);
+    if (! outcome.moveNote.empty())
+        lines.push_back ({ utf8 (outcome.moveNote) + "." });
 
-    for (int i = 0; i < shown; ++i)
+    if (! outcome.checkSummary.empty())
     {
-        const auto& off = outcome.off[(size_t) i];
-        const auto ticks = std::abs (off.ticksOff);
-        lines.add ("Pin " + juce::String (off.pin) + ", " + juce::String (off.wanted) + ": " + juce::String (ticks)
-                   + (ticks == 1 ? " tick " : " ticks ") + (off.ticksOff > 0 ? "late" : "early"));
+        const bool good = outcome.checked && outcome.off.empty();
+        juce::String text = utf8 (outcome.checkSummary) + (outcome.off.empty() ? "." : ":");
+        const int shown = std::min ((int) outcome.off.size(), 5);
+
+        for (int i = 0; i < shown; ++i)
+        {
+            const auto& off = outcome.off[(size_t) i];
+            const auto amount = std::abs (off.inSamples ? off.samplesOff : off.ticksOff);
+            const auto unit = off.inSamples ? (amount == 1 ? " sample " : " samples ") : (amount == 1 ? " tick " : " ticks ");
+            const bool late = (off.inSamples ? off.samplesOff : off.ticksOff) > 0;
+            text << "\nPin " << off.pin << ", " << utf8 (off.wanted) << ": " << amount << unit << (late ? "late" : "early");
+        }
+
+        if ((int) outcome.off.size() > shown)
+            text << "\nand " << ((int) outcome.off.size() - shown) << " more, in the log.";
+
+        lines.push_back ({ text, ! good, good });
     }
 
-    if ((int) outcome.off.size() > shown)
-        lines.add ("and " + juce::String ((int) outcome.off.size() - shown) + " more, in the log.");
+    if (! outcome.restSummary.empty())
+        lines.push_back ({ utf8 (outcome.restSummary) + (outcome.restChanged ? "" : "."), outcome.restChanged, ! outcome.restChanged });
 
-    return lines.joinIntoString ("\n");
+    if (! outcome.beforeSummary.empty())
+        lines.push_back ({ utf8 (outcome.beforeSummary) });
+
+    if (! outcome.restoredNote.empty())
+        lines.push_back ({ utf8 (outcome.restoredNote), outcome.restoreFailed });
+
+    return lines;
 }
 
 juce::String ProToolsWriteSheet::progressText (pt::Phase phase, int done, int total)
@@ -1044,20 +1330,32 @@ void ProToolsWriteSheet::layout()
         titleArea = row (26);
         y += 10;
 
-        instructionArea = pinsArea = counterArea = permissionArea = permissionNoteArea = {};
-        progressTextArea = progressBarArea = progressNoteArea = outcomeArea = checkArea = undoArea = {};
+        instructionArea = pinsArea = permissionArea = permissionNoteArea = {};
+        progressTextArea = progressBarArea = progressNoteArea = outcomeArea = undoArea = {};
+        lineAreas.clear();
+
+        // The lines of text under the pins or the outcome, 4 pixels apart.
+        const auto lines = [&] (const std::vector<Line>& toPlace)
+        {
+            for (size_t i = 0; i < toPlace.size(); ++i)
+            {
+                if (i > 0)
+                    y += 4;
+
+                lineAreas.push_back (row (std::max (17, heightOf (toPlace[i].text, bodyFont(), inner))));
+            }
+        };
 
         if (stage == Stage::ready)
         {
-            instructionArea = row (heightOf (instruction, bodyFont(), inner));
+            instructionArea = row (heightOf (instructionText(), bodyFont(), inner));
             y += 14;
             pinsArea = row (20);
             y += 6;
 
             if (permissionAllowed)
             {
-                bool warning = false;
-                counterArea = row (std::max (17, heightOf (counterLine (warning), bodyFont(), inner)));
+                lines (readyLines());
             }
             else
             {
@@ -1111,10 +1409,10 @@ void ProToolsWriteSheet::layout()
         {
             outcomeArea = row (heightOf (outcomeText(), strongFont(), inner));
 
-            if (const auto text = checkText(); text.isNotEmpty())
+            if (const auto more = finishedLines(); ! more.empty())
             {
                 y += 10;
-                checkArea = row (heightOf (text, bodyFont(), inner));
+                lines (more);
             }
 
             if (undoLine.isNotEmpty())
@@ -1167,9 +1465,20 @@ void ProToolsWriteSheet::paint (juce::Graphics& g)
     g.setFont (Theme::ui (17.0f, true));
     g.drawText ("Write to Pro Tools", titleArea, juce::Justification::centredLeft, true);
 
+    // The lines were laid out from the same list, so there is an area for each.
+    const auto drawLines = [&] (const std::vector<Line>& toDraw)
+    {
+        for (size_t i = 0; i < toDraw.size() && i < lineAreas.size(); ++i)
+        {
+            const auto& line = toDraw[i];
+            const auto colour = line.warning ? Theme::check() : line.strong ? Theme::text() : Theme::dim();
+            wrapped (line.text, bodyFont(), colour, lineAreas[i].getWidth()).draw (g, lineAreas[i].toFloat());
+        }
+    };
+
     if (stage == Stage::ready)
     {
-        wrapped (instruction, bodyFont(), Theme::text(), instructionArea.getWidth()).draw (g, instructionArea.toFloat());
+        wrapped (instructionText(), bodyFont(), Theme::text(), instructionArea.getWidth()).draw (g, instructionArea.toFloat());
 
         g.setColour (pins.empty() ? Theme::dim() : Theme::text());
         g.setFont (strongFont());
@@ -1177,9 +1486,7 @@ void ProToolsWriteSheet::paint (juce::Graphics& g)
 
         if (permissionAllowed)
         {
-            bool warning = false;
-            const auto text = counterLine (warning);
-            wrapped (text, bodyFont(), warning ? Theme::check() : Theme::dim(), counterArea.getWidth()).draw (g, counterArea.toFloat());
+            drawLines (readyLines());
         }
         else
         {
@@ -1213,12 +1520,7 @@ void ProToolsWriteSheet::paint (juce::Graphics& g)
         const bool good = outcome.ok && ! outcome.okPressedOnFailedPin;
         wrapped (outcomeText(), strongFont(), good ? Theme::ok() : Theme::check(), outcomeArea.getWidth()).draw (g, outcomeArea.toFloat());
 
-        if (! checkArea.isEmpty())
-        {
-            const bool checkGood = outcome.checked && outcome.off.empty();
-            wrapped (checkText(), bodyFont(), checkGood ? Theme::text() : (outcome.checkSummary.empty() ? Theme::dim() : Theme::check()),
-                     checkArea.getWidth()).draw (g, checkArea.toFloat());
-        }
+        drawLines (finishedLines());
 
         if (! undoArea.isEmpty())
             wrapped (undoLine, bodyFont(), undoLineBad ? Theme::check() : Theme::dim(), undoArea.getWidth()).draw (g, undoArea.toFloat());

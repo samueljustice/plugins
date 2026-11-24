@@ -605,6 +605,13 @@ bool isInside (const Element& element, const Element& window)
     return false;
 }
 
+// The Identify Beat dialog: a window with "Bar" and "Beat" in its title.
+bool isIdentifyBeatWindow (const Element& window)
+{
+    const auto title = normalise (readInfo (ax (window)).title);
+    return contains (title, "bar") && contains (title, "beat");
+}
+
 } // namespace
 
 //==============================================================================
@@ -1676,12 +1683,7 @@ Result Driver::openIdentifyBeat (const Element& menuItem, Element& dialog)
         if (! s.app || ! menuItem)
             return Result::bad ("the Identify Beat menu item has not been found");
 
-        const auto isIdentifyBeat = [] (const Element& window)
-        {
-            const auto title = normalise (readInfo (ax (window)).title);
-            return contains (title, "bar") && contains (title, "beat");
-        };
-
+        const auto isIdentifyBeat = isIdentifyBeatWindow;
         const auto before = s.windowsPatiently (2000);
 
         if (s.stopped())
@@ -1725,7 +1727,14 @@ Result Driver::openIdentifyBeat (const Element& menuItem, Element& dialog)
                 break;
 
             if (! s.wait (s.poll()))
+            {
+                // The menu item has been pressed, so the dialog may still open: it is cancelled
+                // rather than left up after the stop.
+                if (const auto closed = closeIdentifyBeatIfOpen (1500); ! closed.ok)
+                    return Result::bad ("the run was stopped while the Identify Beat dialog was opening, and " + closed.message);
+
                 return State::stoppedResult();
+            }
         }
         while (millisecondsSince (waitStart) < 3000);
 
@@ -2292,6 +2301,85 @@ Result Driver::cancelDialog (const Element& dialog)
         }
 
         s.say ("The dialog was cancelled and has closed");
+        return Result::good();
+    }
+}
+
+Result Driver::closeIdentifyBeatIfOpen (int waitForItMilliseconds)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        // Runs after a stop too, as cancelDialog does.
+        const bool wasCleaning = s.cleaningUp;
+        s.cleaningUp = true;
+        struct Restore { bool& flag; bool value; ~Restore() { flag = value; } } restore { s.cleaningUp, wasCleaning };
+
+        const auto findDialog = [] (const std::vector<Element>& windows)
+        {
+            for (const auto& w : windows)
+                if (isIdentifyBeatWindow (w))
+                    return w;
+
+            return Element {};
+        };
+
+        Element dialog;
+        auto now = s.windows();
+        const auto start = Clock::now();
+
+        while (! (now && (dialog = findDialog (*now))) && millisecondsSince (start) < waitForItMilliseconds)
+        {
+            s.wait (s.poll());
+            now = s.windows();
+        }
+
+        if (! now)
+            now = s.windowsPatiently (2000);
+
+        if (! now)
+            return s.noAnswer ("when asked for its windows, so it is not known whether a dialog is open");
+
+        if (! dialog)
+            dialog = findDialog (*now);
+
+        if (dialog)
+        {
+            s.say ("The Identify Beat dialog is open at the end of the run. Cancelling it.");
+
+            if (const auto r = cancelDialog (dialog); ! r.ok)
+                return r;
+
+            now = s.windowsPatiently (2000);
+
+            if (! now)
+                return s.noAnswer ("when asked for its windows after Cancel");
+        }
+
+        for (const auto& w : *now)
+        {
+            const auto info = readInfo (ax (w));
+            bool modal = false;
+            CFTypeRef value = nullptr;
+
+            if (AXUIElementCopyAttributeValue (ax (w), kAXModalAttribute, &value) == kAXErrorSuccess && value != nullptr
+                && CFGetTypeID (value) == CFBooleanGetTypeID())
+                modal = CFBooleanGetValue ((CFBooleanRef) value);
+
+            if (value != nullptr)
+                CFRelease (value);
+
+            if (modal || isIdentifyBeatWindow (w))
+            {
+                s.say ("A dialog is still open:\n" + s.describe (w, 3));
+                return Result::bad ("a dialog titled " + quoted (info.title) + " is open in " + s.appName + ", and nothing was pressed in it");
+            }
+        }
+
         return Result::good();
     }
 }

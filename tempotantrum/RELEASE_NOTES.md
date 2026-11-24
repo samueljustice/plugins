@@ -12,13 +12,13 @@ This is the first build for testing. How it works, the window and the saved map 
 - Play with a click, louder on beat 1. N jumps to the next place to check and loops it.
 - Drag, add and delete pins, start a new section where the beat restarts, and say which bar a hit is. Every change can be undone.
 - Save the map beside the music as `<music file name>.tempotantrum.json`. It opens again with the music.
-- Write to Pro Tools: puts a bar|beat marker on every pin by running Pro Tools' Event > Identify Beat from outside, at about a second a pin. Set the Main Counter to Samples and select the music clip first. It needs the macOS Accessibility permission and types into Pro Tools, so leave the keyboard and mouse alone while it runs. It can check every pin afterwards and send the undos. Use a copy of the session until you trust it.
+- Write to Pro Tools: puts a bar|beat marker on every pin by running Pro Tools' Event > Identify Beat, at about a second a pin. Select the music clip in Pro Tools and press Write: through Pro Tools' scripting link the app reads the session and the clip, stops the transport, sets the Main Counter to Samples, moves the cursor, checks every pin afterwards, says whether the tempo of the rest of the session changed, and puts the counter and edit settings back at the end. Identify Beat itself is typed into Pro Tools through the macOS Accessibility permission, so leave the keyboard and mouse alone while it runs. It can send the undos. Use a copy of the session until you trust it.
 - Export the click as a mono 24-bit WAV, as long as the music, under More in the footer.
 - Test in Pro Tools…, under More: the same steps one stage at a time, with a log of everything it sees.
 
 ### Not in this build
 
-- It does not look after the tempo maps of other trailers further down the session. Check them after a write.
+- It does not protect the tempo maps of other trailers further down the session. It reads them before and after a write and says when they changed, so they can be checked or undone.
 - A tempo change inside a section is not followed: between two pins the tempo is constant.
 - Single hits placed to picture, away from any beat, are not followed.
 - Mac only.

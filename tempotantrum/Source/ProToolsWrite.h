@@ -30,8 +30,9 @@ public:
 
     // The pins a run writes and where they come from. `unchecked` is how many places in the map
     // are still listed to check. The sample rate box is filled with the music's rate whenever
-    // that changes.
-    void setSource (const std::vector<Pin>& pins, int beatsPerBar, double musicSampleRate,
+    // that changes, and with the session's when Pro Tools' scripting link gives it, until a rate
+    // is typed in it.
+    void setSource (const std::vector<Pin>& pins, int beatsPerBar, double musicSampleRate, long long musicLengthSamples,
                     const juce::String& musicName, int unchecked);
 
     void open();
@@ -45,6 +46,7 @@ public:
     // from looking at Pro Tools by itself and from showing the floating panel.
     void showPermissionAs (bool allowed);
     void showCounterAs (const pt::CounterReading& reading);
+    void showLinkAs (const pt::SessionReading& reading);
     void showMoreOpen (bool open);
     void showRunning (pt::Phase phase, int done, int total);
     void showFinished (const pt::WriteOutcome& outcome, const juce::String& logText);
@@ -59,6 +61,7 @@ public:
 private:
     class Runner;
     class Watcher;
+    class LinkWatcher;
     class Tick;
     class Disclosure;
     class FloatingPanel;
@@ -69,7 +72,9 @@ private:
     int beatsPerBar = 4;
     int unchecked = 0;
     double shownMusicRate = 0.0;
+    long long musicLength = 0;
     juce::String musicName;
+    bool rateTyped = false;             // a rate was typed in the box: it is used whatever the session says
 
     ui::PillButton cancelButton { "Cancel" };
     ui::PillButton writeButton { "Write", true };
@@ -87,6 +92,7 @@ private:
 
     std::unique_ptr<Runner> runner;
     std::unique_ptr<Watcher> watcher;
+    std::unique_ptr<LinkWatcher> linkWatcher;
     std::unique_ptr<FloatingPanel> floating;
     std::unique_ptr<juce::FileChooser> chooser;
 
@@ -98,6 +104,10 @@ private:
     // What the Main Counter showed when last read, while the sheet is waiting for Write.
     bool counterKnown = false;
     pt::CounterReading counter;
+
+    // What Pro Tools' scripting link said about the session when last read.
+    bool linkKnown = false;
+    pt::SessionReading link;
 
     // The run under way, written by its thread and read by the timer.
     std::atomic<int> progressPhase { 0 }, progressDone { 0 }, progressTotal { 0 };
@@ -122,9 +132,10 @@ private:
     juce::String pendingLog;            // lines from the run's thread, not yet added to fullLog
     juce::String fullLog;
 
-    juce::Rectangle<int> card, titleArea, instructionArea, pinsArea, counterArea, permissionArea,
+    std::vector<juce::Rectangle<int>> lineAreas;   // one for each of readyLines() or finishedLines()
+    juce::Rectangle<int> card, titleArea, instructionArea, pinsArea, permissionArea,
                          permissionNoteArea, progressTextArea, progressBarArea, progressNoteArea,
-                         outcomeArea, checkArea, undoArea;
+                         outcomeArea, undoArea;
 
     void timerCallback() override;
 
@@ -145,15 +156,29 @@ private:
     void startWatching();
     void stopWatching();
     void setCounter (const pt::CounterReading&);
+    void setLink (const pt::SessionReading&);
+    pt::MusicFacts musicFacts() const;
+    bool linkInUse() const;
 
     void updateControls();
     void layout();
     void showFloatingPanel();
     void updateFloatingPanel();
 
+    // A line of text on the card: dim, in the text colour, or a warning.
+    struct Line
+    {
+        juce::String text;
+        bool warning = false;
+        bool strong = false;
+    };
+
     juce::String pinsLine() const;
+    juce::String instructionText() const;
     juce::String counterLine (bool& warning) const;
-    juce::String checkText() const;
+    std::vector<Line> readyLines() const;
+    juce::String lastRunNote (long long start, bool typed) const;
+    std::vector<Line> finishedLines() const;
     juce::String outcomeText() const;
     static juce::String progressText (pt::Phase phase, int done, int total);
 

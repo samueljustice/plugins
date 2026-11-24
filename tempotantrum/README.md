@@ -41,34 +41,47 @@ After every change the map is worked out again around your pins, which it always
 
 ## Writing to Pro Tools
 
-**Write to Pro Tools** puts a bar|beat marker on every pin, the way it is done by hand: it moves the Pro Tools cursor to the pin, opens Event > Identify Beat, types the pin's bar, beat and ticks, and presses OK. It does this from outside, with key presses and through the macOS Accessibility permission, so while it runs the keyboard and mouse must be left alone. A pin takes about a second.
+**Write to Pro Tools** puts a bar|beat marker on every pin, the way it is done by hand: it moves the Pro Tools cursor to the pin, opens Event > Identify Beat, types the pin's bar, beat and ticks, and presses OK. A pin takes about a second.
+
+It talks to Pro Tools in two ways. Through Pro Tools' scripting link (PTSL, on this Mac only) it reads the session, stops the transport, sets the Main Counter to Samples, moves the cursor to each pin, checks the pins afterwards, and puts the counter and the edit settings back at the end. Identify Beat has no scripting command, so that step is done from outside, with key presses and through the macOS Accessibility permission: Pro Tools has to stay in front, and the keyboard and mouse must be left alone while it runs.
 
 Use a copy of the session until you trust it.
 
 It needs the Accessibility permission, which you give once. The sheet says when it is missing: press **Ask macOS for permission**, switch Tempo Tantrum on in System Settings > Privacy & Security > Accessibility, and reopen the app.
 
-In Pro Tools first:
+In Pro Tools, select the music clip. Then press **Write to Pro Tools**. The sheet reads the session about once a second and shows:
 
-1. Stop the transport.
-2. Set the Main Counter to Samples.
-3. Select the music clip, so the cursor is at its start.
+- the session's name,
+- **Music clip selected: Cue 3.wav, starting at sample 2,880,000**, or **Select the music clip in Pro Tools** while nothing is selected. A stereo clip made of two mono files shows as one clip, **Cue 3 (L, R)**,
+- a warning when the selected clip's file is not the music open in Tempo Tantrum, and when the session's sample rate is not the music file's,
+- a warning when the clip may have been trimmed at its start and the app could not find by how much: the grid would then be off by the trimmed amount. When the clip holds the whole file, or the clip list says where in its file it starts, the music start is worked out from that,
+- that the Main Counter will be switched to Samples for the write and put back afterwards, and that Pro Tools will be stopped if it is playing.
 
-Then press **Write to Pro Tools**. The sheet says how many pins it will send and which bars they cover, and the sample the Main Counter is at, which it takes as the start of the music. It warns when that sample is 0, when it is where the last run wrote from, and when it is a pin of the last run. If places in the map are still listed to check, the button reads **Write (3 unchecked)** and still works. Press **Write**.
+It also says how many pins it will send and which bars they cover, and warns when the music start is where the last run wrote from or is a pin of the last run. If places in the map are still listed to check, the button reads **Write (3 unchecked)** and still works. Press **Write**.
 
-Pro Tools comes to the front and a small panel stays above it with the count, **Leave the keyboard and mouse alone** and a **Stop** button. For each pin the app checks that the Main Counter shows the pin's sample before it opens Identify Beat, and that the dialog shows the bar and beat it typed before it presses OK. If either is not so, it cancels the dialog and stops. It stops as well when Pro Tools is no longer the front application, so nothing is typed into another application, and when a window it did not expect is open. When it has finished it moves the cursor back to the start of the music and Tempo Tantrum comes forward with the result: **Written: 24 pins**, or **Stopped at pin 7 of 24** and why.
+Before the first pin, the app stops the transport if it is playing, sets the Main Counter to Samples, switches on Link Timeline and Edit Selection, and reads where the bars and beats fall across the rest of the session, after the music and before it. All of this goes through the scripting link while no Pro Tools dialog is open: Pro Tools holds scripting commands back while one of its dialogs is up, so none is sent while Identify Beat is open.
+
+Pro Tools comes to the front and a small panel stays above it with the count, **Leave the keyboard and mouse alone** and a **Stop** button. For each pin the app moves the cursor through the scripting link and reads it back, opens Identify Beat, types the bar and beat, checks that the dialog shows them, and presses OK. At the first pin it also compares the location Identify Beat suggests with where the scripting link says the cursor is. If they differ, it cancels that dialog, says so in the log and in the result, and moves the cursor by typing into the Main Counter for the rest of the run. It stops when anything is not as expected, when Pro Tools is no longer the front application, and when a window it did not expect is open.
+
+When it has finished, Tempo Tantrum comes forward with the result: **Written: 24 pins**, or **Stopped at pin 7 of 24** and why. Under it:
+
+- whether Identify Beat followed the cursor moves made through the scripting link,
+- **All 24 pins check out (largest error 1 sample)**: each pin's bar and beat is turned into a sample by Pro Tools and must be within 2 samples of the pin. This opens no dialog and changes nothing,
+- **Rest of the session: tempo unchanged**, or **Rest of the session: the tempo after the music changed between 3:12 and 3:40. Check it, or Undo.** The bars and beats after the music are read again; when the music is earlier on the timeline than another trailer, the bar numbers after it may move by whole bars or beats, which is fine and is said. If they all moved by part of a beat, the beats after the music no longer sit on the same audio, and the sheet says so as a change. A change before the music is reported too: Identify Beat can change the tempo before the first pin,
+- what was put back: the selection the run started with, the Main Counter and Link Timeline and Edit Selection. They are put back at the end of the run, also after **Stop** or a failure; an Identify Beat dialog left open by a stop is cancelled first. If another Pro Tools dialog is still open, nothing is sent and the sheet says what to set back by hand.
+
+Without the scripting link (an older Pro Tools, Pro Tools not answering on it, or a build without it) the sheet says so, and every step is done with keys. Then, in Pro Tools first: stop the transport, set the Main Counter to Samples, and select the music clip so the cursor is at its start. The sheet shows the sample the Main Counter is at, which it takes as the start of the music. The cursor is moved by typing each pin's sample into the Main Counter, and with **Check each pin afterwards** the app goes to each pin again, opens Identify Beat, reads the location Pro Tools suggests and cancels.
 
 **More** in the sheet holds:
 
-- **Music starts at sample**: type the sample where the music clip starts. Left empty, it is read from the Main Counter.
-- **Session sample rate**: filled in from the music file. It must match the session.
-- **Check each pin afterwards**: once every pin is written, the app goes to each one again, opens Identify Beat, reads the location Pro Tools suggests there and cancels. It presses no OK, so it changes nothing. A pin within 2 ticks of its bar and beat is good. The sheet says **All 24 pins check out**, or lists the pins that do not and how many ticks they are off.
+- **Music starts at sample**: filled in from the selected clip. Type a sample to use that instead.
+- **Session sample rate**: filled in from the session, or from the music file without the scripting link. A rate typed here is used whatever the session says.
+- **Check each pin afterwards**: on by default.
 - **Type slowly**: holds each key for longer. Try it if a run stops because a number did not arrive.
 
 **Undo in Pro Tools (24 steps)** brings Pro Tools forward and presses Edit > Undo once for each pin that was written. It asks for a second click first. The app cannot see what Pro Tools did with them, so it says **Sent 24 undos**: look at the session. If you have done anything else in Pro Tools since the run, undo by hand, because Undo undoes whatever came last.
 
-**Copy log** and **Save log…** give the log of every run since the app was opened. It holds the names of the Pro Tools windows, which include the session name, and the name of the music file.
-
-Identify Beat changes the tempo map from each marker onward. The app does not look after the tempo maps of other trailers further down the session: check them after a write.
+**Copy log** and **Save log…** give the log of every run since the app was opened. It holds the session name, the names of the Pro Tools windows and of the selected clips' files, and the name of the music file.
 
 ## Testing the Pro Tools link
 
@@ -139,6 +152,7 @@ The click is exported as a mono 24-bit WAV at the music's sample rate and exactl
 - Xcode Command Line Tools
 - JUCE 8.0.8 at `../SDK/JUCE`, relative to this folder
 - The UI font is read from `../pitchflattener/Resources/Fonts`
+- For the Pro Tools scripting link: Avid's Pro Tools Scripting SDK (2025.06), unpacked, and Python 3. It is confidential and is not in this repository. Give its folder with `-DTEMPOTANTRUM_PTSL_SDK=<folder>`; left unset, a folder `../SDK/PTSL_SDK_CPP.*` beside the repository root is used. `Tools/ptsl_generate.py` reads the numbers the client needs from the SDK into a header in the build folder, and [nghttp2](https://nghttp2.org) 1.64.0 is downloaded and built with the app. Without the SDK, or with `-DTEMPOTANTRUM_PTSL_SDK=` left empty, the app is built without the link and Write to Pro Tools uses keys only. CMake says which it is building.
 
 ### Build instructions
 
@@ -152,7 +166,7 @@ tempotantrum/build/TempoTantrumCoreTests_artefacts/Release/TempoTantrumCoreTests
 
 The app lands in `tempotantrum/build/TempoTantrum_artefacts/Release/Tempo Tantrum.app`. Leave out `-DTEMPOTANTRUM_TESTS=ON` to build only the app.
 
-`TempoTantrumCoreTests` checks the listening engine on made-up music with known answers. `tt-cli` maps a music file from the command line, without the window.
+`TempoTantrumCoreTests` checks the listening engine on made-up music with known answers. `TempoTantrumPtslTests` checks the scripting link's hand-written protocol buffer and gRPC code against byte sequences worked out by hand; it needs no SDK. `tt-cli` maps a music file from the command line, without the window.
 
 The app also takes a picture of its own window without opening one, which is how the look is checked:
 
@@ -162,7 +176,7 @@ The app also takes a picture of its own window without opening one, which is how
 
 It maps the file, lays the window out at 1280 by 760 (or `--width` and `--height`), saves it as a PNG at twice that size and quits. `--drums <file>` adds a drum stem. `--view-start` and `--view-end` (seconds) set the stretch in view, `--select-pin N` selects a pin, `--snap hits|grid|off` sets Snap, `--keys "right right t opt+f"` presses keys, `--drag-pin N --drag-to S` shows a pin part-way through a drag, and `--print-view` prints what is in view.
 
-`--test-panel-snapshot` takes the same arguments and has the Pro Tools test panel open. `--write-sheet-snapshot` has the Write to Pro Tools sheet open, in the state given by `--state ready|permission|notrunning|running|checking|finished|stopped`, with `--more` to open More and `--float panel.png` to save the floating panel as well. `--write-test` runs the write against an application that is not running and prints its log, which ends at "Pro Tools is not running". `--ax-selfcheck` prints whether macOS lets the app control other applications and whether Pro Tools is running, and touches nothing.
+`--test-panel-snapshot` takes the same arguments and has the Pro Tools test panel open. `--write-sheet-snapshot` has the Write to Pro Tools sheet open, in the state given by `--state ready|permission|notrunning|running|checking|finished|stopped`, with what the scripting link says given by `--link connected|nothing|mismatch|nosession|none`, `--more` to open More and `--float panel.png` to save the floating panel as well. `--write-test` runs the write against an application that is not running and prints its log, which ends at "Pro Tools is not running". `--ax-selfcheck` prints whether macOS lets the app control other applications and whether Pro Tools is running, and touches nothing. `--ptsl-probe` connects to the scripting link and sends only commands that read (the session's name, rate, start and length, the transport, the Main Counter, the selections, the edit options, the selected clips' files, time conversions and the track count), printing each one, its answer and how long it took; `--raw` adds the JSON.
 
 `--snapshot-empty window.png` does the same with no music open. `--selftest music.wav` copies the file to a temporary folder, maps it, edits the map, changes the first bar, adds the copy as its own drum stem, saves the map, opens it again and compares, exports the click and reads it back, then prints `PASS` or `FAIL`.
 
@@ -171,6 +185,7 @@ It maps the file, lays the window out at 1280 by 760 (or `--width` and `--height
 Created by Samuel Justice.
 
 - Application framework: [JUCE](https://juce.com).
+- HTTP/2 for the Pro Tools scripting link: [nghttp2](https://nghttp2.org), MIT License.
 - UI font: [Azeret Mono](https://github.com/displaay/Azeret), SIL Open Font License 1.1.
 
 ## License
