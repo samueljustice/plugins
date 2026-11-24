@@ -1856,10 +1856,11 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
             // Pro Tools opens the dialog with the keyboard already in the location field, so the
             // focus is only touched when it is somewhere else: first by pressing the field,
             // then by asking for the focus.
-            const auto keyboardInFirst = [&s, &first]
+            // Pro Tools names its OK button as the application's focused element while the
+            // keyboard is in the location field, so the field's own focused state is what counts.
+            const auto keyboardInFirst = [&first]
             {
-                const auto now = s.focusedElement();
-                return now && same (now, first);
+                return readInfo (ax (first)).focused;
             };
 
             if (keyboardInFirst())
@@ -1890,7 +1891,10 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
             const auto focused = s.focusedElement();
             Element focusedWindow;
             const AXError windowError = copyElementChecked (ax (s.app), kAXFocusedWindowAttribute, focusedWindow);
-            const bool inField = focused && readInfo (ax (focused)).isText() && isInside (focused, dialog);
+            const bool fieldSaysFocused = keyboardInFirst();
+            const bool inField = fieldSaysFocused
+                                 || (focused && readInfo (ax (focused)).isText() && isInside (focused, dialog));
+            s.say (std::string ("The location field says it ") + (fieldSaysFocused ? "has" : "does not have") + " the keyboard");
             const bool dialogHasKeys = same (focusedWindow, dialog);
 
             s.say ("Keyboard focus before typing: " + oneLine (focused));
@@ -1907,7 +1911,7 @@ Result Driver::setIdentifyBeatLocation (const Element& dialog, const std::string
                                     + cancelledNote());
             }
 
-            if (! same (focused, first))
+            if (! fieldSaysFocused)
                 s.say ("The keyboard is in a text field of the dialog other than the first one. Typing there.");
 
             char ticks[16];
