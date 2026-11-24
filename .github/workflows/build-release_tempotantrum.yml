@@ -1,0 +1,77 @@
+name: Build Tempo Tantrum
+
+# Builds and tests Tempo Tantrum, the macOS beat mapping app, on pull requests that touch it and
+# when run by hand (workflow_dispatch). The app is uploaded as an unsigned build artifact.
+# There is no signing, notarising, tag or release for it yet.
+#
+# Tempo Tantrum reads its UI font from pitchflattener/Resources/Fonts/, so that folder is a
+# trigger too, and the job uses a full checkout.
+
+on:
+  pull_request:
+    paths:
+      - 'tempotantrum/**'
+      - 'pitchflattener/Resources/Fonts/**'
+      - '.github/workflows/build-release_tempotantrum.yml'
+  workflow_dispatch:
+
+# A newer push to the same PR replaces the run in progress.
+concurrency:
+  group: tempotantrum-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  JUCE_VERSION: 8.0.8
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd tempotantrum
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DTEMPOTANTRUM_TESTS=ON
+
+    - name: Build the app, the core tests and tt-cli
+      run: |
+        cd tempotantrum
+        # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module at once
+        # and can run the 3-core runner out of memory. One job per core.
+        cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
+
+    - name: Run core tests
+      run: |
+        cd tempotantrum
+        exe=$(find build -name TempoTantrumCoreTests -type f -perm +111 | head -1)
+        [ -n "$exe" ] || { echo "TempoTantrumCoreTests not found"; exit 1; }
+        "$exe"
+
+    - name: Zip the unsigned app
+      run: |
+        cd tempotantrum
+        app=$(find build -name "Tempo Tantrum.app" -type d -prune | head -1)
+        [ -n "$app" ] || { echo "Tempo Tantrum.app not found"; exit 1; }
+        lipo -info "$app/Contents/MacOS/Tempo Tantrum"
+        ditto -c -k --keepParent "$app" TempoTantrum-macOS-unsigned.zip
+
+    - name: Upload the unsigned app
+      uses: actions/upload-artifact@v6
+      with:
+        name: TempoTantrum-macOS-unsigned
+        path: tempotantrum/TempoTantrum-macOS-unsigned.zip
+        if-no-files-found: error
