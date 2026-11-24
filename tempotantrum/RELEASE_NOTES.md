@@ -13,10 +13,11 @@ This is the first build for testing. How it works, the window and the saved map 
 - Drag, add and delete pins, start a new section where the beat restarts, and say which bar a hit is. Every change can be undone.
 - Save the map beside the music as `<music file name>.tempotantrum.json`. It opens again with the music.
 - Export the click as a mono 24-bit WAV, as long as the music, to line up in Pro Tools by hand.
+- Test in Pro Tools…: a test of sending the pins to a session with Pro Tools' Event > Identify Beat. It needs the macOS Accessibility permission, works step by step and keeps a log to send back. Use a scratch session.
 
 ### Not in this build
 
-- It does not write the tempo map into a Pro Tools session.
+- It does not write the tempo map into a Pro Tools session. The Pro Tools test is there to find out whether Identify Beat can be run from outside.
 - A tempo change inside a section is not followed: between two pins the tempo is constant.
 - Single hits placed to picture, away from any beat, are not followed.
 - Mac only.

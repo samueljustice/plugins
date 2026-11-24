@@ -1,12 +1,15 @@
 #include <JuceHeader.h>
 
 #include "MainComponent.h"
+#include "ProToolsTestPanel.h"
+#include "protools/IdentifyBeatTest.h"
 #include "ui/Theme.h"
 
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <thread>
 #include <vector>
 
 namespace tt
@@ -59,9 +62,27 @@ public:
 
         const auto args = getCommandLineParameterArray();
 
-        if (args.contains ("--snapshot"))
+        if (args.contains ("--snapshot") || args.contains ("--test-panel-snapshot"))
         {
-            runSnapshot (args);
+            runSnapshot (args, args.contains ("--test-panel-snapshot"));
+            return;
+        }
+
+        if (args.contains ("--ax-selfcheck"))
+        {
+            runAccessibilityCheck();
+            return;
+        }
+
+        if (args.contains ("--ax-menu-check"))
+        {
+            runMenuCheck (args);
+            return;
+        }
+
+        if (args.contains ("--identify-beat-test"))
+        {
+            runIdentifyBeatTestHeadless (args);
             return;
         }
 
@@ -91,6 +112,9 @@ public:
 
     void shutdown() override
     {
+        if (headlessRun.joinable())
+            headlessRun.join();
+
         mainWindow = nullptr;
         snapshot = nullptr;
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
@@ -126,6 +150,7 @@ private:
 
     std::unique_ptr<MainComponent> snapshot;
     juce::File snapshotOut;
+    std::thread headlessRun;
 
     bool openFile (const juce::String& path)
     {
@@ -147,9 +172,13 @@ private:
     // --snapshot <audio file> <out.png> [--drums <file>] [--bar N] [--bpm X] [--width W --height H]
     // Maps the file, lays the window's contents out at the given size and saves them as a PNG at
     // twice that size, then quits. No window is opened and no audio device is used.
-    void runSnapshot (const juce::StringArray& args)
+    //
+    // --test-panel-snapshot takes the same arguments and has the Pro Tools test panel open, showing
+    // the log of a Look only run that looked for an application that is not running. With
+    // --permission yes or --permission no the panel shows the Accessibility permission that way.
+    void runSnapshot (const juce::StringArray& args, bool withTestPanel)
     {
-        const int at = args.indexOf ("--snapshot");
+        const int at = args.indexOf (withTestPanel ? "--test-panel-snapshot" : "--snapshot");
         const auto valueAfter = [&args] (const juce::String& flag) -> juce::String
         {
             const int i = args.indexOf (flag);
@@ -192,6 +221,26 @@ private:
         snapshot->setSize (width, height);
         snapshot->refresh();
 
+        if (withTestPanel)
+        {
+            snapshot->showProToolsTest();
+            auto& panel = snapshot->getProToolsTest();
+
+            if (const auto permission = valueAfter ("--permission"); permission.isNotEmpty())
+                panel.showPermissionAs (permission == "yes");
+
+            pt::TestSettings settings;
+            settings.appVersion = JUCE_APPLICATION_VERSION_STRING;
+            settings.musicName = audioFile.getFileName().toStdString();
+            settings.bundleIdentifier = notRunningBundleIdentifier;
+
+            juce::String log;
+            const auto outcome = pt::runIdentifyBeatTest (settings,
+                                                          [&log] (const std::string& line) { log << juce::String::fromUTF8 (line.c_str()) << "\n"; },
+                                                          [] { return false; });
+            panel.showFinishedRun (log, outcome);
+        }
+
         // A moment for anything the view prepares asynchronously, then the picture.
         juce::Timer::callAfterDelay (500, [this] { finishSnapshot(); });
     }
@@ -222,6 +271,106 @@ private:
         snapshot->setSize (width, height);
         snapshot->refresh();
         juce::Timer::callAfterDelay (200, [this] { finishSnapshot(); });
+    }
+
+    //==============================================================================
+    // An identifier no application has, for runs that must find nothing to drive.
+    static constexpr const char* notRunningBundleIdentifier = "com.samueljustice.tempotantrum.nothing";
+
+    static juce::String valueAfterFlag (const juce::StringArray& args, const juce::String& flag)
+    {
+        const int i = args.indexOf (flag);
+        return i >= 0 && i + 1 < args.size() ? args[i + 1] : juce::String();
+    }
+
+    // --ax-selfcheck
+    // Prints whether macOS lets this program control other applications and whether Pro Tools is
+    // running, then quits. Touches no other application and shows no prompt.
+    void runAccessibilityCheck()
+    {
+        std::cout << "Accessibility permission: " << (pt::Driver::accessibilityAllowed() ? "allowed" : "missing") << std::endl;
+        std::cout << "Posting key events: " << (pt::Driver::keyEventsAllowed() ? "allowed" : "not allowed") << std::endl;
+        std::cout << "Pro Tools (" << pt::Driver::defaultBundleIdentifier << "): "
+                  << (pt::Driver::isRunning() ? "running" : "not running") << std::endl;
+        std::cout << "macOS " << pt::Driver::systemVersion() << std::endl;
+        quit();
+    }
+
+    // --ax-menu-check <bundle identifier> <menu> <item>
+    // Finds a menu item of a running application through Accessibility and prints what it is.
+    // Reads only: the application is not brought forward and nothing is pressed.
+    void runMenuCheck (const juce::StringArray& args)
+    {
+        const int at = args.indexOf ("--ax-menu-check");
+
+        if (at + 3 >= args.size())
+        {
+            std::cerr << "Usage: --ax-menu-check <bundle identifier> <menu> <item>" << std::endl;
+            setApplicationReturnValue (1);
+            quit();
+            return;
+        }
+
+        pt::Driver driver ([] (const std::string& line) { std::cout << line << std::endl; }, [] { return false; });
+        driver.setBundleIdentifier (args[at + 1].toStdString());
+        bool ok = false;
+
+        if (! pt::Driver::accessibilityAllowed())
+        {
+            std::cout << "Accessibility permission is missing, so the menus cannot be read" << std::endl;
+        }
+        else if (driver.findProTools().running)
+        {
+            pt::Element item;
+            bool enabled = false;
+            const auto result = driver.findMenuItem ({ args[at + 2].toStdString(), args[at + 3].toStdString() }, item, enabled);
+            ok = result.ok;
+
+            if (result.ok)
+                std::cout << driver.describe (item, 1) << std::endl;
+            else
+                std::cout << "Not found: " << result.message << std::endl;
+
+            driver.logWindows();
+        }
+
+        setApplicationReturnValue (ok ? 0 : 1);
+        quit();
+    }
+
+    // --identify-beat-test look [--app <bundle identifier>]
+    // Runs the Look only test without the window and prints its log. With Pro Tools running this
+    // brings Pro Tools forward and opens and cancels its Identify Beat dialog, as the button does.
+    // --app none looks for an application that is not running.
+    void runIdentifyBeatTestHeadless (const juce::StringArray& args)
+    {
+        if (valueAfterFlag (args, "--identify-beat-test") != "look")
+        {
+            std::cerr << "Usage: --identify-beat-test look [--app <bundle identifier>]" << std::endl;
+            setApplicationReturnValue (1);
+            quit();
+            return;
+        }
+
+        pt::TestSettings settings;
+        settings.appVersion = JUCE_APPLICATION_VERSION_STRING;
+
+        if (const auto app = valueAfterFlag (args, "--app"); app.isNotEmpty())
+            settings.bundleIdentifier = app == "none" ? std::string (notRunningBundleIdentifier) : app.toStdString();
+
+        // On its own thread, as in the window: the message thread keeps running meanwhile.
+        headlessRun = std::thread ([this, settings]
+        {
+            const auto outcome = pt::runIdentifyBeatTest (settings,
+                                                          [] (const std::string& line) { std::cout << line << std::endl; },
+                                                          [] { return false; });
+
+            juce::MessageManager::callAsync ([this, ok = outcome.ok]
+            {
+                setApplicationReturnValue (ok ? 0 : 1);
+                quit();
+            });
+        });
     }
 
     //==============================================================================

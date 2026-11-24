@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 
+#include "ProToolsTestPanel.h"
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -94,12 +96,19 @@ public:
             return;
 
         const auto colour = checks > 0 ? ui::Theme::check() : ui::Theme::ok();
-        const auto text = checks == 0 ? juce::String ("Nothing to check")
-                        : checks == 1 ? juce::String ("1 place to check")
-                                      : juce::String (checks) + " places to check";
+        auto text = checks == 0 ? juce::String ("Nothing to check")
+                  : checks == 1 ? juce::String ("1 place to check")
+                                : juce::String (checks) + " places to check";
 
         const auto font = ui::Theme::ui (13.0f, true);
-        const float textWidth = juce::GlyphArrangement::getStringWidth (font, text);
+        float textWidth = juce::GlyphArrangement::getStringWidth (font, text);
+
+        // Fewer words when the footer has no room for them all.
+        if (textWidth + 34.0f > (float) getWidth())
+        {
+            text = checks == 0 ? juce::String ("No checks") : juce::String (checks) + " to check";
+            textWidth = juce::GlyphArrangement::getStringWidth (font, text);
+        }
         auto r = getLocalBounds().toFloat().reduced (0.5f, 4.0f);
         r = r.withWidth (std::min (r.getWidth(), textWidth + 34.0f));
 
@@ -197,7 +206,8 @@ private:
 MainComponent::MainComponent (bool withAudio)
     : audioEnabled (withAudio),
       checkBadge (std::make_unique<CheckBadge>()),
-      dropChoice (std::make_unique<DropChoice>())
+      dropChoice (std::make_unique<DropChoice>()),
+      proToolsTest (std::make_unique<ProToolsTestPanel>())
 {
     setWantsKeyboardFocus (true);
     setOpaque (true);
@@ -219,7 +229,7 @@ MainComponent::MainComponent (bool withAudio)
     };
 
     // Buttons and sliders never take the keyboard focus, so the window's keys keep working.
-    for (auto* b : { &openButton, &addStemButton, &tapButton, &playButton, &exportButton, &saveButton, &writeButton })
+    for (auto* b : { &openButton, &addStemButton, &tapButton, &playButton, &exportButton, &saveButton, &testButton, &writeButton })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (*b);
@@ -231,8 +241,10 @@ MainComponent::MainComponent (bool withAudio)
     playButton.onClick = [this] { togglePlay(); };
     exportButton.onClick = [this] { exportClick(); };
     saveButton.onClick = [this] { saveMap(); };
+    testButton.onClick = [this] { showProToolsTest(); };
 
     tapButton.setTooltip ("Tap along with the beat (or press T) to give a rough tempo");
+    testButton.setTooltip ("Tests sending the pins to Pro Tools with Event > Identify Beat");
     writeButton.setEnabled (false);
     writeButton.setTooltip ("Writing the map into Pro Tools is not available");
 
@@ -311,6 +323,10 @@ MainComponent::MainComponent (bool withAudio)
     };
     addChildComponent (*dropChoice);
 
+    // Back to the window's own keys when the panel closes.
+    proToolsTest->onClose = [this] { grabKeyboardFocus(); };
+    addChildComponent (*proToolsTest);
+
     if (audioEnabled)
     {
         const auto error = player.openDevice();
@@ -346,6 +362,13 @@ void MainComponent::openMusic (const juce::File& file)
 
         updatePlayButton();
     });
+}
+
+void MainComponent::showProToolsTest()
+{
+    proToolsTest->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
+                             document.hasMusic() ? document.getMusicFile().getFileName() : juce::String());
+    proToolsTest->open();
 }
 
 void MainComponent::askToSaveThen (std::function<void()> then)
@@ -662,6 +685,11 @@ void MainComponent::refresh()
 
     waveform.setBusy (document.isListening());
 
+    // A run that has started keeps the pins it was given.
+    if (proToolsTest->isVisible())
+        proToolsTest->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(),
+                                 hasMusic ? document.getMusicFile().getFileName() : juce::String());
+
     const auto click = document.getClick();
     if (click.get() != shownClick)
     {
@@ -721,10 +749,16 @@ void MainComponent::timerCallback()
     updateCounter();
 
     // Keep the keys working: if nothing has the focus (a box finished editing, a menu closed),
-    // the window takes it back.
+    // the window takes it back. Only while this is the front application: during a test run
+    // Pro Tools is in front and keeps the keyboard.
     if (isShowing() && juce::Component::getCurrentlyFocusedComponent() == nullptr
         && juce::Process::isForegroundProcess())
-        grabKeyboardFocus();
+    {
+        if (proToolsTest->isVisible())
+            proToolsTest->grabKeyboardFocus();
+        else
+            grabKeyboardFocus();
+    }
 }
 
 //==============================================================================
@@ -735,6 +769,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
 
     const int cmd = ModifierKeys::commandModifier;
     const int shift = ModifierKeys::shiftModifier;
+
+    // While the Pro Tools test is up, the window's own keys are off.
+    if (proToolsTest->isVisible())
+        return true;
 
     if (key == KeyPress ('o', cmd, 0))          { chooseMusic(); return true; }
     if (key == KeyPress ('s', cmd, 0))          { saveMap(); return true; }
@@ -1042,32 +1080,39 @@ void MainComponent::resized()
     // Footer: play and levels at the left, the file buttons at the right, the check badge between.
     auto f = footerArea.reduced (sidePad, (footerHeight - 32) / 2);
 
-    // In a narrow window the buttons and level sliders give up some width, so the check badge keeps its words.
-    const bool narrow = getWidth() < 1040;
+    // In a narrow window the buttons and level sliders give up some width, and the check badge
+    // shortens its words when it has to.
+    const bool narrow = getWidth() < 1200;
     const int gap = narrow ? 6 : 8;
-    const int sliderWidth = narrow ? 44 : 70;
+    const int sliderWidth = narrow ? 32 : 70;
 
-    writeButton.setBounds (f.removeFromRight (narrow ? 148 : 156));
-    f.removeFromRight (gap);
-    saveButton.setBounds (f.removeFromRight (narrow ? 84 : 96));
-    f.removeFromRight (gap);
-    exportButton.setBounds (f.removeFromRight (narrow ? 110 : 118));
-    f.removeFromRight (narrow ? 10 : 16);
+    // A narrow button is its text and 10 px either side.
+    const auto widthOf = [narrow] (const ui::PillButton& b, int roomy) { return narrow ? b.getBestWidth() - 10 : roomy; };
 
-    playButton.setBounds (f.removeFromLeft (narrow ? 120 : 132));
-    f.removeFromLeft (narrow ? 10 : 14);
-    clickLabelArea = f.removeFromLeft (38);
+    writeButton.setBounds (f.removeFromRight (widthOf (writeButton, 156)));
+    f.removeFromRight (gap);
+    testButton.setBounds (f.removeFromRight (widthOf (testButton, 158)));
+    f.removeFromRight (gap);
+    saveButton.setBounds (f.removeFromRight (widthOf (saveButton, 96)));
+    f.removeFromRight (gap);
+    exportButton.setBounds (f.removeFromRight (widthOf (exportButton, 118)));
+    f.removeFromRight (narrow ? 8 : 16);
+
+    playButton.setBounds (f.removeFromLeft (narrow ? 114 : 132));
+    f.removeFromLeft (narrow ? 8 : 14);
+    clickLabelArea = f.removeFromLeft (narrow ? 34 : 38);
     f.removeFromLeft (narrow ? 4 : 6);
     clickLevel.setBounds (f.removeFromLeft (sliderWidth));
-    f.removeFromLeft (narrow ? 8 : 12);
-    musicLabelArea = f.removeFromLeft (40);
+    f.removeFromLeft (narrow ? 6 : 12);
+    musicLabelArea = f.removeFromLeft (narrow ? 34 : 40);
     f.removeFromLeft (narrow ? 4 : 6);
     musicLevel.setBounds (f.removeFromLeft (sliderWidth));
-    f.removeFromLeft (narrow ? 10 : 16);
+    f.removeFromLeft (narrow ? 8 : 16);
     checkBadge->setBounds (f.removeFromLeft (std::max (0, std::min (190, f.getWidth()))));
 
     dropChoice->setBounds (juce::Rectangle<int> (0, 0, std::min (560, waveArea.getWidth() - 2 * sidePad), 46)
                                .withCentre ({ waveArea.getCentreX(), waveArea.getY() + 40 }));
+    proToolsTest->setBounds (getLocalBounds());
 }
 
 } // namespace tt

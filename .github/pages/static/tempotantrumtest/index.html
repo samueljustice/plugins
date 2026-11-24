@@ -146,9 +146,31 @@ kbd { font: 500 0.85rem/1 var(--mono); background: var(--panel); border: 1px sol
   </section>
 
   <section>
+    <h2>Testing the Pro Tools link</h2>
+    <p><strong>Test in Pro Tools…</strong> in the footer tries one way of getting the pins into a session: it runs Pro Tools' own Event &gt; Identify Beat from outside, once for each pin. It has not been run against Pro Tools before, so the log is what we need. Send the log to Sam whether it worked or not.</p>
+    <p>The first time, press <strong>Ask macOS for permission</strong> in the panel, switch Tempo Tantrum on in System Settings &gt; Privacy &amp; Security &gt; Accessibility, and reopen the app.</p>
+    <div class="panel">
+      <p>Before a run:</p>
+      <ul>
+        <li>Use a scratch session or a copy, not a session in use.</li>
+        <li>Stop the transport and set the Main Counter to Samples.</li>
+        <li>Put the cursor at the start of the music clip, or type the sample where the music starts into <strong>Music starts at sample</strong>.</li>
+        <li>Check that <strong>Session sample rate</strong> matches the session.</li>
+        <li>Do not touch the keyboard or mouse during the run.</li>
+      </ul>
+    </div>
+    <ol class="steps">
+      <li>Press <strong>Look only</strong>. It brings Pro Tools to the front, finds the menu item, opens the Identify Beat dialog, writes down what it finds and cancels it. It presses no key and writes nothing to the session. Press <strong>Copy log</strong> or <strong>Save log…</strong> and send the log to Sam.</li>
+      <li>Press <strong>Send one pin</strong>. It moves the cursor to the first pin, opens Identify Beat, enters the bar and beat and presses OK. Look in Pro Tools for a bar|beat marker on the first hit with the right bar number. Send the log and say what you saw.</li>
+      <li>Press <strong>Send all pins</strong>, and press it again when it asks. It does the same for every pin, left to right, and stops at the first one that fails. Send the log.</li>
+    </ol>
+    <p class="hint">The line at the top of the panel says how the run ended. <strong>Stop</strong>, or <kbd>Esc</kbd> in the Tempo Tantrum window, ends a run. <kbd>⌘Z</kbd> in Pro Tools should undo the steps one at a time. If the bar and beat do not arrive in the dialog, set <strong>Bar|beat entry</strong> to <strong>Type it</strong> and try again. The log holds the session name and the music file name.</p>
+  </section>
+
+  <section>
     <h2>What it does not do yet</h2>
     <ul>
-      <li>It does not write the tempo map into Pro Tools. Use the exported click instead.</li>
+      <li>It does not write the tempo map into Pro Tools. Use the exported click instead. The Pro Tools test above is only a test.</li>
       <li>A tempo change inside a section is not followed. Between two pins the tempo is constant.</li>
       <li>Single hits placed to picture, away from any beat, are not followed.</li>
       <li>Mac only.</li>

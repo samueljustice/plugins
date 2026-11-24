@@ -15,6 +15,8 @@
 namespace tt
 {
 
+class ProToolsTestPanel;
+
 // The window's contents: a header with the file and the playhead, a row of fields for what the
 // user knows about the music, the waveform with the grid and pins, and a footer for playing,
 // checking, saving and exporting.
@@ -40,6 +42,10 @@ public:
 
     // Pulls everything shown from the document.
     void refresh();
+
+    // Opens the panel that tests sending pins to Pro Tools, over the window's contents.
+    void showProToolsTest();
+    ProToolsTestPanel& getProToolsTest()                { return *proToolsTest; }
 
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;
@@ -79,9 +85,11 @@ private:
     std::unique_ptr<CheckBadge> checkBadge;
     ui::PillButton exportButton { juce::String::fromUTF8 ("Export click\xe2\x80\xa6") };
     ui::PillButton saveButton { "Save map" };
+    ui::PillButton testButton { juce::String::fromUTF8 ("Test in Pro Tools\xe2\x80\xa6") };
     ui::PillButton writeButton { "Write to Pro Tools", true };
 
     std::unique_ptr<DropChoice> dropChoice;
+    std::unique_ptr<ProToolsTestPanel> proToolsTest;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::ScopedMessageBox saveQuestion;
 

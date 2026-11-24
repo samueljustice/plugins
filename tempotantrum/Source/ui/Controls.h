@@ -83,6 +83,11 @@ public:
     // An empty string shows the number again.
     void setText (const juce::String& placeholderText);
 
+    // Lets the box be left empty: when everything typed in it is deleted, this text is shown in
+    // place of a number and hasValue() is false.
+    void setEmptyText (const juce::String& textWhenEmpty);
+    bool hasValue() const                        { return placeholder.isEmpty(); }
+
     // While that text is shown there is no number to step from: the first step with the arrow
     // keys or the wheel goes to this value instead (zero: step from the range's lowest value).
     void setStepStart (double valueToStartFrom)   { stepStart = valueToStartFrom; }
@@ -108,6 +113,7 @@ private:
 
     juce::String label;
     juce::String placeholder;
+    juce::String emptyText;
     double value = 0.0;
     double rangeLo = 0.0, rangeHi = 1.0e9, rangeStep = 1.0;
     int rangeDecimals = 0;

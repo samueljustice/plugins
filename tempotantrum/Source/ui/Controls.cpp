@@ -361,6 +361,11 @@ void NumberBox::setText (const juce::String& placeholderText)
     }
 }
 
+void NumberBox::setEmptyText (const juce::String& textWhenEmpty)
+{
+    emptyText = textWhenEmpty;
+}
+
 void NumberBox::step (int direction)
 {
     if (! isEnabled())
@@ -403,6 +408,8 @@ void NumberBox::endEdit (bool commit)
 
     if (commit && typed.isNotEmpty() && typed.containsAnyOf ("0123456789"))
         setValue (constrain (typed.getDoubleValue()), juce::sendNotification);
+    else if (commit && typed.isEmpty() && emptyText.isNotEmpty())
+        setText (emptyText);
 }
 
 void NumberBox::paint (juce::Graphics& g)
