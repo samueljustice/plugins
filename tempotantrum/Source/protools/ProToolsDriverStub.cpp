@@ -81,6 +81,59 @@ Result Driver::readIdentifyBeatLocation (const Element&, std::string& shown)
 
 Result Driver::sendUndo()                                              { return onlyOnMac(); }
 Result Driver::pause (int)                                             { return onlyOnMac(); }
+
+Result Driver::findAudioSuiteItem (const std::string&, Element& item, bool& enabled, std::string& where)
+{
+    item = {};
+    enabled = false;
+    where.clear();
+    return onlyOnMac();
+}
+
+Result Driver::findWindow (const std::string&, Element& window)
+{
+    window = {};
+    return onlyOnMac();
+}
+
+Result Driver::openWindowFromMenu (const Element&, const std::string&, Element& window)
+{
+    window = {};
+    return onlyOnMac();
+}
+
+Result Driver::readAudioSuiteWindow (const Element&, const std::string&, Element& button)
+{
+    button = {};
+    return onlyOnMac();
+}
+
+Result Driver::pressButton (const Element&, const std::string&, bool& pressed)
+{
+    pressed = false;
+    return onlyOnMac();
+}
+
+Result Driver::readUndo (std::string& title, bool& enabled)
+{
+    title.clear();
+    enabled = false;
+    return onlyOnMac();
+}
+
+Result Driver::countNewWindows (const Element&, int& count)
+{
+    count = 0;
+    return onlyOnMac();
+}
+
+Result Driver::undoNaming (const std::string&, const Element&, std::string& pressedTitle)
+{
+    pressedTitle.clear();
+    return onlyOnMac();
+}
+
+Result Driver::closeWindow (const Element&)                            { return onlyOnMac(); }
 void Driver::keepInViewEverywhere (void*)                              {}
 Result Driver::goToSampleQuick (long long)                             { return onlyOnMac(); }
 Result Driver::enterLocationQuick (const Element&, const std::string&) { return onlyOnMac(); }

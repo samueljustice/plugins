@@ -86,26 +86,30 @@ kbd { font: 500 0.85rem/1 var(--mono); background: var(--panel); border: 1px sol
   <section>
     <h2>Download</h2>
     <div class="panel download">
-      <a class="button" href="https://github.com/samueljustice/plugins/releases/download/tempotantrum-v0.1.0/TempoTantrum-0.1.0-macOS.dmg">
+      <a class="button" href="https://github.com/samueljustice/plugins/releases/download/tempotantrum-v0.1.0/TempoTantrum-0.1.0-macOS-Installer.pkg">
         Download for Mac
-        <span class="v">TempoTantrum-0.1.0-macOS.dmg</span>
+        <span class="v">TempoTantrum-0.1.0-macOS-Installer.pkg</span>
       </a>
       <div class="req">
+        <span>Installs the app and Tempo Tantrum Capture, the AudioSuite plug-in for Pro Tools.</span>
         <span>Version 0.1.0. macOS 11 or later, Apple silicon and Intel.</span>
         <span><a href="https://github.com/samueljustice/plugins/releases/tag/tempotantrum-v0.1.0">Release page</a></span>
       </div>
     </div>
+    <p class="hint">The app on its own, without the plug-in: <a href="https://github.com/samueljustice/plugins/releases/download/tempotantrum-v0.1.0/TempoTantrum-0.1.0-macOS.dmg">TempoTantrum-0.1.0-macOS.dmg</a>. If the installer link does not work yet, the plug-in is still being signed: use the disk image for now, or try again later.</p>
   </section>
 
   <section>
     <h2>Install</h2>
-    <p>Open the disk image and drag Tempo Tantrum to Applications. Then open it from Applications.</p>
+    <p>Open the installer and follow it. It puts Tempo Tantrum in Applications and Tempo Tantrum Capture in <span class="mono">/Library/Application Support/Avid/Audio/Plug-Ins</span>, and asks for your Mac password. To leave one of them out, press <strong>Customize</strong>. Restart Pro Tools if it was open.</p>
+    <p>With the disk image instead: open it and drag Tempo Tantrum to Applications.</p>
+    <p>Then open Tempo Tantrum from Applications.</p>
   </section>
 
   <section>
     <h2>Try this</h2>
     <ol class="steps">
-      <li>Drop the trailer music on the window, or use <strong>Open…</strong>. It listens straight away and draws the grid and the pins (the amber lines) over the waveform.</li>
+      <li>Drop the trailer music on the window, use <strong>Open…</strong>, or select it in Pro Tools and press <strong>Get from Pro Tools</strong> (below). It listens straight away and draws the grid and the pins (the amber lines) over the waveform.</li>
       <li>Set <strong>First hit is bar</strong> and <strong>Beat</strong>. For a cue that starts on bar 40, set bar 40, beat 1. If it picked the wrong first hit, right-click the right one and choose <strong>This is the first hit</strong>.
       <figure>
         <img src="window-0.1.0-map.png" width="800" height="475" alt="The Tempo Tantrum window with a minute of generated music open, first hit set to bar 40. Bar numbers run along the top, amber pins mark where the grid is fixed to the hits, and two shaded stretches carry pink notes: Beat restarts, bar 48 beat 1?, and Beat restarts, bar 62 beat 3?. The footer reads 5 places to check.">
@@ -147,11 +151,23 @@ kbd { font: 500 0.85rem/1 var(--mono); background: var(--panel); border: 1px sol
         <tr><td><kbd>Esc</kbd></td><td>Stop looping and keep playing.</td></tr>
         <tr><td><kbd>⇧T</kbd></td><td>Tap the tempo. Taps more than two seconds apart start a new count.</td></tr>
         <tr><td><kbd>⌘O</kbd></td><td>Open music.</td></tr>
+        <tr><td><kbd>⇧⌘G</kbd></td><td>Get from Pro Tools.</td></tr>
         <tr><td><kbd>⌘S</kbd></td><td>Save the map.</td></tr>
         <tr><td><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></td><td>Undo, redo.</td></tr>
       </tbody>
     </table>
     <p class="hint">While you are typing in a box, Tab moves to the next box and Esc goes back to the keys above. The scroll wheel or a two-finger swipe scrolls along the music; with Option or Cmd it zooms about the pointer, and so does a pinch. Drag in the ruler to move the playhead. The strip under the waveform is the whole file: drag the box on it to move the view.</p>
+  </section>
+
+  <section>
+    <h2>Get from Pro Tools</h2>
+    <p>In Pro Tools, select the music on the timeline: its track or tracks, from where it starts to where it ends. Then press <strong>Get from Pro Tools</strong> in Tempo Tantrum.</p>
+    <p>Pro Tools renders the selection offline through its scripting link, and Tempo Tantrum opens it as the music. It gets the selection as it sounds: several clips, moved clips, fades and muted clips come out as you hear them. Nothing is imported and nothing in the session is changed. Pro Tools shows a small progress window while it works; 40 seconds of music takes about 15 seconds. The music starts where the selection starts, so <strong>Write to Pro Tools</strong> needs no clip selected for it.</p>
+    <p>This needs Pro Tools 2025.06 or later. When it cannot be used, Tempo Tantrum uses Tempo Tantrum Capture if it is installed. It asks once: <strong>Pro Tools will render the selection with Tempo Tantrum Capture and then undo it. Go ahead?</strong> Then it brings Pro Tools to the front, opens Tempo Tantrum Capture from the AudioSuite menu, presses Render, takes the audio, presses Edit &gt; Undo to take the rendered clip out again and closes the window. Select only the music track for this, and leave the AudioSuite window set to render the whole selection as one file. It needs the Accessibility permission (see Write to Pro Tools); leave the keyboard and mouse alone while it runs. If anything is not as expected it stops and says what to undo by hand.</p>
+    <div class="panel">
+      <p><strong>Tempo Tantrum Capture</strong> by hand: select the music on the timeline, choose AudioSuite &gt; Other &gt; Tempo Tantrum Capture (or wherever your AudioSuite menu lists it), set it to process the entire selection and press <strong>Render</strong>. Tempo Tantrum opens the audio as the music. If it was closed, it opens the audio the next time it starts, but without knowing where it starts on the timeline. The plug-in does not change the audio. Like any AudioSuite render it puts a rendered clip in the session: press <kbd>⌘Z</kbd> in Pro Tools to take it out.</p>
+    </div>
+    <p class="hint">Every Get from Pro Tools is written to <span class="mono">~/Library/Logs/Sammy J/Tempo Tantrum/Get from Pro Tools.log</span>. Send it to Sam if something goes wrong.</p>
   </section>
 
   <section>
@@ -203,6 +219,7 @@ kbd { font: 500 0.85rem/1 var(--mono); background: var(--panel); border: 1px sol
       <ul>
         <li>Where the grid was off the hits, with the bar or the time.</li>
         <li>Where it lost the beat, and whether it asked you to check that place.</li>
+        <li>Whether Get from Pro Tools gave you the music as you hear it in the session, and how long it took.</li>
         <li>Anything that was slow or confusing.</li>
       </ul>
       <p>The saved map helps a lot. It sits next to the music as <span class="mono">&lt;music file name&gt;.tempotantrum.json</span>. Send it to Sam.</p>

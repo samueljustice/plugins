@@ -354,6 +354,66 @@ std::vector<EdlEvent> edlEventsOf (const std::string& sessionInfo)
     return events;
 }
 
+bool isFadeEvent (const EdlEvent& event)
+{
+    const auto& n = event.clip;
+    return ! n.empty() && n.front() == '(' && n.back() == ')' && n.find ("fade") != std::string::npos;
+}
+
+ClipEdges clipEdges (const std::vector<EdlEvent>& events, const EdlEvent& event, long long clipLength)
+{
+    // The fades of the same channel of the same track that touch the clip.
+    const EdlEvent* before = nullptr;
+    const EdlEvent* after = nullptr;
+
+    for (const auto& e : events)
+    {
+        if (! isFadeEvent (e) || e.track != event.track || e.channel != event.channel)
+            continue;
+
+        if (e.end == event.start && e.start < e.end)
+            before = &e;
+
+        if (e.start == event.end && e.end > e.start)
+            after = &e;
+    }
+
+    const auto isCross = [] (const EdlEvent* fade) { return fade != nullptr && fade->clip.find ("cross") != std::string::npos; };
+
+    ClipEdges edges;
+
+    // A fade in or out lies inside the clip, at its start or its end.
+    edges.endKnown = ! isCross (after);
+    edges.end = after != nullptr && edges.endKnown ? after->end : event.end;
+
+    if (! isCross (before))
+    {
+        edges.startKnown = true;
+        edges.start = before != nullptr ? before->start : event.start;
+        edges.earliest = edges.latest = edges.start;
+        return edges;
+    }
+
+    // A crossfade before it: the clip starts somewhere under it. Its length places it, from an end
+    // that is known.
+    edges.earliest = before->start;
+    edges.latest = before->end;
+    edges.start = event.start;
+
+    if (edges.endKnown && clipLength > 0)
+    {
+        const auto start = edges.end - clipLength;
+
+        if (start >= edges.earliest && start <= edges.latest)
+        {
+            edges.startKnown = true;
+            edges.start = edges.earliest = edges.latest = start;
+        }
+    }
+
+    return edges;
+}
+
 MusicPlacement placeMusic (const std::vector<EdlEvent>& events, long long selectionIn, long long selectionOut,
                            const std::vector<ptsl::Clip>& clips, const std::vector<std::string>& fileIds)
 {
@@ -363,7 +423,7 @@ MusicPlacement placeMusic (const std::vector<EdlEvent>& events, long long select
     std::vector<const EdlEvent*> inside;
 
     for (const auto& event : events)
-        if (event.end > selectionIn && event.start < selectionEnd)
+        if (! isFadeEvent (event) && event.end > selectionIn && event.start < selectionEnd)
             inside.push_back (&event);
 
     std::stable_sort (inside.begin(), inside.end(), [] (const EdlEvent* a, const EdlEvent* b)
@@ -389,6 +449,17 @@ MusicPlacement placeMusic (const std::vector<EdlEvent>& events, long long select
         return true;
     };
 
+    // In the file's samples, which are the session's when the rates are the same: only used to
+    // find where a clip starts under a crossfade, and checked against the crossfade.
+    const auto lengthOf = [] (const ptsl::Clip& clip) -> long long
+    {
+        if (! clip.sourceStart.known || ! clip.sourceEnd.known || clip.sourceStart.type != "BTType_Samples"
+            || clip.sourceEnd.type != "BTType_Samples" || clip.sourceEnd.position <= clip.sourceStart.position)
+            return 0;
+
+        return clip.sourceEnd.position - clip.sourceStart.position;
+    };
+
     const EdlEvent* first = nullptr;
     long long fileStart = 0;
 
@@ -405,25 +476,31 @@ MusicPlacement placeMusic (const std::vector<EdlEvent>& events, long long select
         long long offset = 0;
         const bool known = offsetOf (*clip, offset);
 
+        // The session info text leaves a clip's fades out of its own times; they are put back.
+        const auto edges = clipEdges (events, *event, lengthOf (*clip));
+
         if (first == nullptr)
         {
             first = event;
             place.found = true;
             place.clipName = event->clip;
             place.fileId = clip->fileId;
-            place.clipStart = event->start;
+            place.clipStart = edges.start;
             place.offsetKnown = known;
             place.offset = offset;
-            fileStart = event->start - offset;
+            fileStart = edges.start - offset;
         }
 
         if (event->channel != first->channel || clip->fileId != place.fileId)
             continue;
 
         ++place.clips;
-        place.clipEnd = std::max (place.clipEnd, event->end);
+        place.clipEnd = std::max (place.clipEnd, edges.end);
 
-        if (known && place.offsetKnown && std::llabs ((event->start - offset) - fileStart) > 1)
+        // Where this clip puts the start of the file, against where the first one does. A clip
+        // whose start is somewhere under a crossfade is on line when the first one's could be there.
+        if (known && place.offsetKnown
+            && (fileStart + offset < edges.earliest - 1 || fileStart + offset > edges.latest + 1))
             ++place.clipsOffLine;
     }
 
@@ -551,6 +628,43 @@ TempoChange compareTempo (const TempoSurvey& before, const TempoSurvey& after)
     }
 
     return change;
+}
+
+MusicStart musicStartFor (bool typed, long long typedSample, bool captured, bool captureStartKnown, long long captureStart)
+{
+    MusicStart start;
+
+    if (typed)
+    {
+        start.from = StartFrom::typed;
+        start.known = true;
+        start.sample = typedSample;
+    }
+    else if (captured && captureStartKnown && captureStart >= 0)
+    {
+        start.from = StartFrom::capture;
+        start.known = true;
+        start.sample = captureStart;
+    }
+
+    return start;
+}
+
+std::string describeStart (StartFrom from)
+{
+    switch (from)
+    {
+        case StartFrom::typed:      return "typed in the sheet";
+        case StartFrom::capture:    return "the start of the selection the music was captured from";
+        case StartFrom::session:    break;
+    }
+
+    return "read from Pro Tools at the start of the run";
+}
+
+bool otherSession (const std::string& capturedIn, const std::string& openNow)
+{
+    return ! capturedIn.empty() && ! openNow.empty() && capturedIn != openNow;
 }
 
 std::string describeShift (long long beats, int beatsPerBar)

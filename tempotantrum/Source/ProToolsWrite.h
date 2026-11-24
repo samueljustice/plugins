@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include "MapFile.h"
 #include "core/Types.h"
 #include "protools/IdentifyBeatWrite.h"
 #include "ui/Controls.h"
@@ -34,6 +35,10 @@ public:
     // is typed in it.
     void setSource (const std::vector<Pin>& pins, int beatsPerBar, double musicSampleRate, long long musicLengthSamples,
                     const juce::String& musicName, int unchecked);
+
+    // Where the music came from when it was captured from Pro Tools: a write then places it at
+    // the start of the selection it was captured from, with no clip to select.
+    void setProToolsOrigin (const ProToolsOrigin& origin);
 
     void open();
     void close();
@@ -75,6 +80,7 @@ private:
     long long musicLength = 0;
     juce::String musicName;
     bool rateTyped = false;             // a rate was typed in the box: it is used whatever the session says
+    ProToolsOrigin origin;              // for music captured from Pro Tools
 
     ui::PillButton cancelButton { "Cancel" };
     ui::PillButton writeButton { "Write", true };
@@ -159,6 +165,8 @@ private:
     void setLink (const pt::SessionReading&);
     pt::MusicFacts musicFacts() const;
     bool linkInUse() const;
+    bool captured() const               { return origin.known && origin.startKnown; }
+    pt::MusicStart musicStart() const;
 
     void updateControls();
     void layout();

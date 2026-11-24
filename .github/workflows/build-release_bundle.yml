@@ -40,10 +40,11 @@ on:
   workflow_dispatch:
 
 # One at a time. A run waiting behind another is replaced by a newer one, which includes everything anyway.
-# The AAX signing of a 0.0.x test build (a pre-release, which the gate job skips) waits in a group of its
-# own, so it never replaces a waiting run that would rebuild the installer.
+# The AAX signing of a 0.0.x test build (a pre-release, which the gate job skips), or of Tempo Tantrum
+# (never in the installer), waits in a group of its own, so it never replaces a waiting run that would
+# rebuild the installer.
 concurrency:
-  group: sammyj-bundle-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'workflow_run' && contains(github.event.workflow_run.display_title, '-v0.0.') && 'test-build' || 'release') }}
+  group: sammyj-bundle-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'workflow_run' && (contains(github.event.workflow_run.display_title, '-v0.0.') || contains(github.event.workflow_run.display_title, ' tempotantrum-v')) && 'test-build' || 'release') }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

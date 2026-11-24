@@ -1,11 +1,13 @@
 // Tests for the hand-written protocol buffer and gRPC code of the Pro Tools Scripting client
 // (Source/ptsl/PtslWire.cpp), with byte sequences worked out by hand. The field numbers here are
 // made up for the test: the real ones come from the SDK at build time and are not needed. Also
-// the sums Write to Pro Tools makes with what the link reads (Source/protools/PtslSessionMaths.cpp).
+// the sums Write to Pro Tools makes with what the link reads (Source/protools/PtslSessionMaths.cpp),
+// and the parts of "Get from Pro Tools" that need no Pro Tools (Source/capture/CaptureMaths.h).
 // Prints one line per test; the exit code is the number of failed tests.
 
 #include "../Source/ptsl/PtslWire.h"
 #include "../Source/protools/PtslSession.h"
+#include "../Source/capture/CaptureMaths.h"
 
 #include <cmath>
 #include <cstdint>
@@ -523,7 +525,7 @@ int main()
 
         // The clip list's facts for those clips: one stereo file cut into three clips, the later
         // two moved, and the whole-file clip, which is not on the track.
-        const auto clip = [] (const char* name, const char* file, long long sourceStart)
+        const auto clip = [] (const char* name, const char* file, long long sourceStart, long long sourceEnd)
         {
             tt::ptsl::Clip c;
             c.fullName = name;
@@ -531,22 +533,79 @@ int main()
             c.sourceStart.known = true;
             c.sourceStart.type = "BTType_Samples";
             c.sourceStart.position = sourceStart;
+            c.sourceEnd.known = true;
+            c.sourceEnd.type = "BTType_Samples";
+            c.sourceEnd.position = sourceEnd;
             return c;
         };
 
         const std::vector<tt::ptsl::Clip> clips = {
-            clip ("Tone-01.L", "tone", 0),         clip ("Tone-01.R", "tone", 0),
-            clip ("Cue_01-02.L", "cue", 2766),      clip ("Cue_01-02.R", "cue", 2766),
-            clip ("Cue_01-03.L", "cue", 866356),    clip ("Cue_01-03.R", "cue", 866356),
-            clip ("Cue_01-04.L", "cue", 1138044),   clip ("Cue_01-04.R", "cue", 1138044),
-            clip ("Cue_01.L", "cue", 0),
+            clip ("Tone-01.L", "tone", 0, 1602),               clip ("Tone-01.R", "tone", 0, 1602),
+            clip ("Cue_01-02.L", "cue", 2766, 866356),         clip ("Cue_01-02.R", "cue", 2766, 866356),
+            clip ("Cue_01-03.L", "cue", 866356, 1138044),      clip ("Cue_01-03.R", "cue", 866356, 1138044),
+            clip ("Cue_01-04.L", "cue", 1138044, 1828590),     clip ("Cue_01-04.R", "cue", 1138044, 1828590),
+            clip ("Cue_01.L", "cue", 0, 1900000),
         };
 
+        // This text was asked for without its fades: the first clip seems to start where its fade
+        // in ends, so the file seems to start later, and the other clips seem moved against it.
         auto place = placeMusic (events, 2882880, 4708704, clips, { "cue" });
         expect (place.found && place.clipName == "Cue_01-02.L" && place.clipStart == 2920943 && place.offsetKnown && place.offset == 2766,
-                "the first clip of the selected file in the selection");
-        expect (place.clips == 3 && place.clipEnd == 4647843 && place.clipsOffLine == 2, "three clips, two moved: " + std::to_string (place.clipsOffLine));
-        expect (place.clipStart - place.offset == 2918177, "where the file starts on the timeline");
+                "without fades: the first clip of the selected file in the selection");
+        expect (place.clips == 3 && place.clipEnd == 4647843 && place.clipsOffLine == 2, "without fades: three clips, two seem moved: " + std::to_string (place.clipsOffLine));
+        expect (place.clipStart - place.offset == 2918177, "without fades: where the file seems to start");
+
+        // The same clips with their fades shown, as the session reader asks for them (measured in a real
+        // session: a capture of the selection lines up with the file starting at 2880114).
+        {
+            const std::string faded =
+                "TRACK NAME:\tMusic (Stereo)\n"
+                "CHANNEL \tEVENT   \tCLIP NAME                     \tSTART TIME    \tEND TIME      \tDURATION      \tSTATE\n"
+                "1       \t1       \tTone-01.L                     \t       2786784\t       2788386\t          1602\tUnmuted\n"
+                "1       \t2       \t(fade in)                     \t       2882880\t       2920943\t         38063\tUnmuted\n"
+                "1       \t3       \tCue_01-02.L                   \t       2920943\t       3746470\t        825527\tUnmuted\n"
+                "1       \t4       \tCue_01-03.L                   \t       3746470\t       4012925\t        266455\tMuted\n"
+                "1       \t5       \t(cross fade)                  \t       4012925\t       4021780\t          8855\tUnmuted\n"
+                "1       \t6       \tCue_01-04.L                   \t       4021780\t       4647843\t        626063\tUnmuted\n"
+                "1       \t7       \t(fade out)                    \t       4647843\t       4708704\t         60861\tUnmuted\n";
+
+            const auto withFades = edlEventsOf (faded);
+            expect (withFades.size() == 7 && isFadeEvent (withFades[1]) && isFadeEvent (withFades[4]) && ! isFadeEvent (withFades[2]),
+                    "fades are events of their own: " + std::to_string (withFades.size()));
+
+            if (withFades.size() == 7)
+            {
+                const auto in = clipEdges (withFades, withFades[2], 863590);
+                expect (in.startKnown && in.start == 2882880 && in.endKnown && in.end == 3746470, "a fade in is the start of its clip");
+
+                const auto under = clipEdges (withFades, withFades[3], 271688);
+                expect (under.startKnown && under.start == 3746470 && ! under.endKnown && under.end == 4012925, "a crossfade after: the end is not known");
+
+                const auto placed = clipEdges (withFades, withFades[5], 690546);
+                expect (placed.startKnown && placed.start == 4018158 && placed.endKnown && placed.end == 4708704,
+                        "a crossfade before and a fade out after: the start found from the clip's length, " + std::to_string (placed.start));
+
+                const auto noLength = clipEdges (withFades, withFades[5], 0);
+                expect (! noLength.startKnown && noLength.earliest == 4012925 && noLength.latest == 4021780,
+                        "without the length, only the range under the crossfade");
+            }
+
+            const auto fp = placeMusic (withFades, 2882880, 4708704, clips, { "cue" });
+            expect (fp.found && fp.clipName == "Cue_01-02.L" && fp.clipStart == 2882880 && fp.offset == 2766,
+                    "with fades: the first clip starts where its fade in starts");
+            expect (fp.clipStart - fp.offset == 2880114, "with fades: where the file starts, " + std::to_string (fp.clipStart - fp.offset));
+            expect (fp.clips == 3 && fp.clipsOffLine == 0 && fp.clipEnd == 4708704,
+                    "with fades: three clips, none moved, ending where the fade out ends (" + std::to_string (fp.clipsOffLine) + " moved)");
+
+            // A clip that really was moved is still counted.
+            auto moved = clips;
+
+            for (auto& c : moved)
+                if (c.fullName == "Cue_01-03.L")
+                    c.sourceStart.position += 48000;
+
+            expect (placeMusic (withFades, 2882880, 4708704, moved, { "cue" }).clipsOffLine == 1, "with fades: a moved clip is counted");
+        }
 
         place = placeMusic (events, 2700000, 4708704, clips, {});
         expect (place.found && place.clipName == "Tone-01.L", "with no file given, the first clip in the selection");
@@ -594,6 +653,147 @@ int main()
         expect (std::abs (samplesOffInTicks (1000141611150LL, 1000141611150LL + 110, perSample) - 2.0) < 1e-9, "110 ticks later is 2 samples");
         expect (samplesOffInTicks (1000141611150LL, 1000141611150LL - 165, perSample) < -2.0, "165 ticks earlier is past 2 samples");
         expect (samplesOffInTicks (1, 2, 0.0) == 0.0, "no rate");
+    });
+
+    failed += run ("the Track Bounce request", []
+    {
+        using namespace tt::capture;
+        const auto has = [] (const std::string& text, const std::string& part) { return text.find (part) != std::string::npos; };
+
+        BounceSpec spec;
+        spec.trackId = "{00000000-11111111-22222222-33333333}";
+        spec.in = 2882880;
+        spec.out = 4708704;
+        spec.directory = "/tmp/Captures/a \"quoted\" folder";
+        spec.sampleRate = 48000;
+        spec.bitDepth = bitDepthName ("Bit24");
+
+        const auto body = bounceTrackRequest (spec);
+        expect (has (body, "\"src_track_id\":\"{00000000-11111111-22222222-33333333}\""), "the track, by id");
+        expect (has (body, "\"in_location\":{\"location\":\"2882880\",\"time_type\":\"TLType_Samples\"}"), "in, in samples");
+        expect (has (body, "\"out_location\":{\"location\":\"4708704\",\"time_type\":\"TLType_Samples\"}"), "out, in samples");
+        expect (has (body, "\"offline_bounce\":\"TBool_True\""), "offline");
+        expect (has (body, "\"import_after_bounce\":\"TBool_False\""), "not imported");
+        expect (has (body, "\"file_destination\":\"EMFDestination_Directory\""), "to a folder");
+        expect (has (body, "\"directory\":\"/tmp/Captures/a \\\"quoted\\\" folder\""), "the folder, quoted");
+        expect (has (body, "\"file_type\":\"EMFType_WAV\""), "WAV");
+        expect (has (body, "\"export_format\":\"EFormat_Interleaved\""), "interleaved");
+        expect (has (body, "\"bit_depth\":\"BDepth_24\""), "the session's bit depth");
+        expect (has (body, "\"sample_rate\":\"SRate_48000\""), "the session's rate");
+        expect (has (body, "\"file_name_prefix\":\"Tempo Tantrum capture\""), "the prefix");
+        expect (has (body, "\"audio_encoding_options\":{}"), "no encoding window");
+
+        int depth = 0, least = 0;
+
+        for (const char c : body)
+        {
+            depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+            least = std::min (least, depth);
+        }
+
+        expect (depth == 0 && least == 0 && body.front() == '{' && body.back() == '}', "braces balanced");
+
+        spec.sampleRate = 47952;
+        expect (has (bounceTrackRequest (spec), "\"sample_rate\":\"SRate_None\",\"sample_rate_custom\":47952"), "a custom rate");
+
+        expect (bitDepthName ("Bit16") == "BDepth_16" && bitDepthName ("BDepth_32Float") == "BDepth_32Float"
+                && bitDepthName ("Bit24") == "BDepth_24" && bitDepthName ("") == "BDepth_24", "bit depths");
+        expect (hasTrackBounce ("2025.6.0") && hasTrackBounce ("2026.11.0") && ! hasTrackBounce ("2025.3.0")
+                && ! hasTrackBounce ("2024.10.2") && ! hasTrackBounce (""), "Track Bounce from 2025.06");
+        expect (canBounce ("TT_Audio") && canBounce ("TType_Audio") && canBounce ("TType_Aux") && canBounce ("TType_Instrument")
+                && ! canBounce ("TType_Midi") && ! canBounce ("TT_Video") && ! canBounce ("TType_BasicFolder"), "track types");
+        expect (jsonQuoted ("a\\b\n\x01") == "\"a\\\\b\\n\\u0001\"", "JSON escapes");
+    });
+
+    failed += run ("summing track bounces", []
+    {
+        using namespace tt::capture;
+
+        // Two mono tracks: one mono sum, padded to the selection's length.
+        auto sum = sumTracks ({ Channels { { 1.0f, 2.0f, 3.0f } }, Channels { { 0.5f, 0.5f } } }, 4);
+        expect (sum.size() == 1 && sum[0] == std::vector<float> ({ 1.5f, 2.5f, 3.0f, 0.0f }), "mono plus mono");
+
+        // A mono track with a stereo one: stereo, the mono on both sides; longer channels are cut.
+        sum = sumTracks ({ Channels { { 1.0f, 1.0f, 1.0f } }, Channels { { 0.25f, 0.25f, 0.25f, 9.0f }, { -0.25f, -0.25f, -0.25f, 9.0f } } }, 3);
+        expect (sum.size() == 2, "stereo");
+        expect (sum[0] == std::vector<float> ({ 1.25f, 1.25f, 1.25f }) && sum[1] == std::vector<float> ({ 0.75f, 0.75f, 0.75f }), "each side");
+
+        // Wider tracks go left, right, left, right.
+        sum = sumTracks ({ Channels { { 1.0f }, { 2.0f }, { 4.0f }, { 8.0f } } }, 1);
+        expect (sum.size() == 2 && sum[0][0] == 5.0f && sum[1][0] == 10.0f, "four channels folded");
+
+        expect (sumTracks ({}, 3).size() == 1 && sumTracks ({}, 3)[0].size() == 3, "nothing: silence");
+        expect (summedChannelCount ({ Channels { { 0.0f } } }) == 1 && summedChannelCount ({ Channels (12) }) == 2, "channel counts");
+
+        // One output of a track routed to several.
+        expect (filesToUse ({ 12, 2 }) == std::vector<std::size_t> ({ 1 }), "a 7.1.4 bed and a stereo path: the stereo one");
+        expect (filesToUse ({ 6, 1 }) == std::vector<std::size_t> ({ 1 }), "else a mono one");
+        expect (filesToUse ({ 12, 6 }) == std::vector<std::size_t> ({ 1 }), "else the narrowest");
+        expect (filesToUse ({ 1, 1 }) == std::vector<std::size_t> ({ 0, 1 }), "multi-mono: all");
+        expect (filesToUse ({ 2 }) == std::vector<std::size_t> ({ 0 }) && filesToUse ({}).empty(), "one file, or none");
+    });
+
+    failed += run ("capture folder pruning", []
+    {
+        using namespace tt::capture;
+        std::vector<StoredCapture> stored;
+
+        for (int i = 0; i < 25; ++i)
+            stored.push_back ({ "Tempo Tantrum capture " + std::to_string (100 + i), 1000LL * i });
+
+        auto gone = capturesToRemove (stored);
+        expect (gone.size() == 5, "the last 20 stay");
+
+        for (int i = 0; i < 5; ++i)
+            expect (std::find (gone.begin(), gone.end(), "Tempo Tantrum capture " + std::to_string (100 + i)) != gone.end(), "the oldest go");
+
+        expect (capturesToRemove ({ stored.begin(), stored.begin() + 20 }).empty(), "20 or fewer: none go");
+        expect (capturesToRemove (stored, 0).size() == 25, "keep none");
+
+        // The same time: the later name stays.
+        gone = capturesToRemove ({ { "b", 5 }, { "a", 5 }, { "c", 1 } }, 1);
+        expect (gone.size() == 2 && gone[0] == "a" && gone[1] == "c", "ties");
+    });
+
+    failed += run ("capture names", []
+    {
+        using namespace tt::capture;
+        expect (startLabel ("TLType_BarsBeats", "   20| 4| 491", "") == "20|4|491", "bar|beat");
+        expect (startLabel ("TLType_TimeCode", "", "00:59:00:01.12") == "00:59:00:01", "timecode without sub-frames");
+        expect (startLabel ("TLType_TimeCode", "", "00:59:00;01") == "00:59:00;01", "drop-frame timecode");
+        expect (startLabel ("TLType_Samples", "", "") == "", "not read");
+        expect (captureName ({ "Music" }, "20|4|491") == "Music 20|4|491", "one track");
+        expect (captureName ({ "Music A", "Music B", "Music C" }, "00:59:00:01") == "Music A + 2 more 00:59:00:01", "several tracks");
+        expect (captureName ({}, "") == "Pro Tools", "no track");
+        expect (safeFileName ("a/b:c|d") == "a b c d", "file names");
+    });
+
+    failed += run ("the time-0 model in Write", []
+    {
+        using namespace tt::pt;
+
+        // Music captured from Pro Tools starts where the selection did: no clip is matched.
+        auto start = musicStartFor (false, 0, true, true, 2882880);
+        expect (start.known && start.sample == 2882880 && start.from == StartFrom::capture, "a capture starts at its selection");
+
+        // A pin at 1.5 s of the capture lands 1.5 s after the selection's start.
+        expect (start.sample + std::llround (1.5 * 48000.0) == 2954880, "pins from the selection's start");
+
+        start = musicStartFor (true, 1000, true, true, 2882880);
+        expect (start.known && start.sample == 1000 && start.from == StartFrom::typed, "a typed start wins");
+
+        start = musicStartFor (false, 0, false, false, 0);
+        expect (! start.known && start.from == StartFrom::session, "music from a file: read from the session during the run");
+
+        start = musicStartFor (false, 0, true, false, 2882880);
+        expect (! start.known && start.from == StartFrom::session, "a capture whose start is not known: as a file");
+
+        start = musicStartFor (false, 0, true, true, -1);
+        expect (! start.known, "a negative start is not used");
+
+        expect (describeStart (StartFrom::capture) != describeStart (StartFrom::typed), "said apart in the log");
+        expect (otherSession ("Trailer v3", "Trailer v4") && ! otherSession ("Trailer v3", "Trailer v3")
+                && ! otherSession ("", "Trailer v4") && ! otherSession ("Trailer v3", ""), "another session");
     });
 
     std::printf ("\n%s: %d failed\n", failed == 0 ? "All passed" : "FAILED", failed);

@@ -2,6 +2,8 @@
 
 #include "ProToolsTestPanel.h"
 #include "ProToolsWrite.h"
+#include "capture/AudioSuiteRoute.h"
+#include "capture/ProToolsCapture.h"
 
 #include <algorithm>
 #include <cmath>
@@ -248,13 +250,15 @@ MainComponent::MainComponent (bool withAudio)
     };
 
     // Buttons and sliders never take the keyboard focus, so the window's keys keep working.
-    for (auto* b : { &openButton, &addStemButton, &tapButton, &playButton, &moreButton, &saveButton, &writeButton })
+    for (auto* b : { &openButton, &getButton, &addStemButton, &tapButton, &playButton, &moreButton, &saveButton, &writeButton })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (*b);
     }
 
     openButton.onClick = [this] { chooseMusic(); };
+    getButton.onClick = [this] { getFromProTools(); };
+    getButton.setTooltip ("Renders the selection on the selected track in Pro Tools offline and opens it as the music (Cmd+Shift+G)");
     addStemButton.onClick = [this] { chooseDrumStem(); };
     tapButton.onClick = [this] { tap(); };
     playButton.onClick = [this] { togglePlay(); };
@@ -393,6 +397,13 @@ MainComponent::MainComponent (bool withAudio)
             document.setStatus ("No audio output: " + error);
     }
 
+    // Captures from Pro Tools (this window's own, and the AudioSuite capture's) open here.
+    capture::setReceiver ([safe = juce::Component::SafePointer<MainComponent> (this)] (const capture::Capture& captured)
+    {
+        if (safe != nullptr)
+            safe->openCapture (captured);
+    });
+
     setSize (1280, 760);
     refresh();
     startTimerHz (30);
@@ -400,6 +411,9 @@ MainComponent::MainComponent (bool withAudio)
 
 MainComponent::~MainComponent()
 {
+    capture::setReceiver (nullptr);
+    captureJob = nullptr;
+    audioSuiteJob = nullptr;
     stopTimer();
     document.removeChangeListener (this);
     document.onAudioAboutToChange = nullptr;
@@ -415,6 +429,140 @@ void MainComponent::openMusic (const juce::File& file)
     {
         player.stop();
         const auto result = document.loadMusic (file);
+
+        if (result.failed())
+            document.setStatus (result.getErrorMessage());
+
+        updatePlayButton();
+    });
+}
+
+void MainComponent::getFromProTools()
+{
+    if (captureJob == nullptr)
+        captureJob = std::make_unique<capture::CaptureJob>();
+
+    if (captureJob->isBusy() || (audioSuiteJob != nullptr && audioSuiteJob->isBusy()))
+        return;
+
+    getButton.setEnabled (false);
+    document.setStatus (capture::renderingText);
+
+    captureJob->start ([this] (const juce::String& line) { document.setStatus (line); },
+                       [this] (const capture::Outcome& outcome) { captureFinished (outcome); });
+}
+
+void MainComponent::captureFinished (const capture::Outcome& outcome)
+{
+    {
+        std::vector<std::string> lines { "Get from Pro Tools: offline Track Bounce" };
+        lines.insert (lines.end(), outcome.log.begin(), outcome.log.end());
+        lines.push_back (outcome.ok ? std::string ("Bounce: made") : "Bounce: " + outcome.error.toStdString());
+        capture::appendToLog (lines);
+    }
+
+    if (outcome.ok)
+    {
+        getButton.setEnabled (true);
+        openCapture (outcome.capture);
+        return;
+    }
+
+    if (! outcome.useAudioSuite)
+    {
+        getButton.setEnabled (true);
+        document.setStatus (outcome.error);
+        return;
+    }
+
+    // The bounce cannot be used: Tempo Tantrum Capture, if Pro Tools has it.
+    if (audioSuiteJob == nullptr)
+        audioSuiteJob = std::make_unique<capture::AudioSuiteJob>();
+
+    document.setStatus (juce::String::fromUTF8 ("Looking for Tempo Tantrum Capture in Pro Tools\xe2\x80\xa6"));
+
+    const auto bounceError = outcome.error;
+    audioSuiteJob->start (capture::AudioSuiteJob::Task::look, {},
+                          [this, bounceError] (const capture::AudioSuiteOutcome& look) { audioSuiteLookFinished (look, bounceError); });
+}
+
+void MainComponent::audioSuiteLookFinished (const capture::AudioSuiteOutcome& outcome, const juce::String& bounceError)
+{
+    if (! outcome.found)
+    {
+        getButton.setEnabled (true);
+
+        if (outcome.noAccessibility || outcome.error == "Pro Tools is not open")
+            document.setStatus (bounceError + ". " + outcome.error);
+        else
+            document.setStatus (bounceError + ". To get the music another way, install Tempo Tantrum Capture (AAX), restart Pro Tools, "
+                                "and press Get from Pro Tools again, or open the music from a file");
+        return;
+    }
+
+    if (audioSuiteAgreed)
+    {
+        renderWithAudioSuite();
+        return;
+    }
+
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle ("Get from Pro Tools")
+                             .withMessage (capture::audioSuiteQuestion)
+                             .withButton ("Go ahead")
+                             .withButton ("Cancel")
+                             .withAssociatedComponent (this);
+
+    // 1 is Go ahead, 0 is Cancel (or Escape).
+    audioSuiteQuestion = juce::AlertWindow::showScopedAsync (options, [this] (int choice)
+    {
+        if (choice != 1)
+        {
+            getButton.setEnabled (true);
+            document.setStatus ("Nothing was sent to Pro Tools");
+            return;
+        }
+
+        audioSuiteAgreed = true;
+        renderWithAudioSuite();
+    });
+}
+
+void MainComponent::renderWithAudioSuite()
+{
+    if (audioSuiteJob == nullptr)
+        audioSuiteJob = std::make_unique<capture::AudioSuiteJob>();
+
+    getButton.setEnabled (false);
+    document.setStatus (juce::String::fromUTF8 ("Rendering the selection with Tempo Tantrum Capture\xe2\x80\xa6"));
+
+    if (! audioSuiteJob->start (capture::AudioSuiteJob::Task::render, [this] (const juce::String& line) { document.setStatus (line); },
+                                [this] (const capture::AudioSuiteOutcome& outcome) { audioSuiteRenderFinished (outcome); }))
+        getButton.setEnabled (true);
+}
+
+void MainComponent::audioSuiteRenderFinished (const capture::AudioSuiteOutcome& outcome)
+{
+    getButton.setEnabled (true);
+
+    // Back from Pro Tools, which was brought to the front for the render.
+    juce::Process::makeForegroundProcess();
+
+    if (auto* top = getTopLevelComponent())
+        top->toFront (true);
+
+    // On success the capture has opened through the inbox, with its own status line.
+    if (! outcome.ok)
+        document.setStatus (outcome.error);
+}
+
+void MainComponent::openCapture (const capture::Capture& captured)
+{
+    askToSaveThen ([this, captured]
+    {
+        player.stop();
+        const auto result = document.loadCapture (captured);
 
         if (result.failed())
             document.setStatus (result.getErrorMessage());
@@ -442,6 +590,7 @@ void MainComponent::showProToolsWrite()
     updatePlayButton();
     proToolsWrite->setSource (document.getMap().pins, Document::beatsPerBar, document.getSampleRate(), (long long) document.getLengthInSamples(),
                               document.getMusicFile().getFileName(), (int) document.getMap().checks.size());
+    proToolsWrite->setProToolsOrigin (document.getProToolsOrigin());
     proToolsWrite->open();
 }
 
@@ -465,7 +614,7 @@ void MainComponent::askToSaveThen (std::function<void()> then)
     const auto options = juce::MessageBoxOptions()
                              .withIconType (juce::MessageBoxIconType::QuestionIcon)
                              .withTitle ("Save the map?")
-                             .withMessage ("The map for " + document.getMusicFile().getFileName() + " has changes that are not saved.")
+                             .withMessage ("The map for " + document.getMusicName() + " has changes that are not saved.")
                              .withButton ("Save")
                              .withButton ("Don't save")
                              .withButton ("Cancel")
@@ -846,6 +995,9 @@ void MainComponent::refresh()
                                   hasMusic ? document.getMusicFile().getFileName() : juce::String(),
                                   (int) document.getMap().checks.size());
 
+    if (proToolsWrite->isVisible() && ! proToolsWrite->isRunning())
+        proToolsWrite->setProToolsOrigin (document.getProToolsOrigin());
+
     const auto click = document.getClick();
     if (click.get() != shownClick)
     {
@@ -938,6 +1090,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
         return true;
 
     if (key == KeyPress ('o', cmd, 0))          { chooseMusic(); return true; }
+    if (key == KeyPress ('g', cmd | shift, 0))  { getFromProTools(); return true; }
     if (key == KeyPress ('s', cmd, 0))          { saveMap(); return true; }
 
     // While a value is being typed, the other keys belong to the box. Tab is left unused there
@@ -1125,7 +1278,7 @@ void MainComponent::paint (juce::Graphics& g)
         if (document.hasMusic())
         {
             const auto nameFont = Theme::ui (13.0f, true);
-            const auto name = document.getMusicFile().getFileName();
+            const auto name = document.getMusicName();
             const int w = std::min (r.getWidth(), (int) std::ceil (juce::GlyphArrangement::getStringWidth (nameFont, name)) + 2);
             g.setColour (Theme::text());
             g.setFont (nameFont);
@@ -1144,7 +1297,7 @@ void MainComponent::paint (juce::Graphics& g)
     // Fields
     drawCaption (g, "Music", musicCaption);
     drawValueBox (g, musicNameArea,
-                  document.hasMusic() ? document.getMusicFile().getFileName() : juce::String ("No music open"),
+                  document.hasMusic() ? document.getMusicName() : juce::String ("No music open"),
                   Theme::ui (13.0f), document.hasMusic() ? Theme::text() : Theme::dim());
 
     drawCaption (g, "Listen to", listenCaption);
@@ -1219,7 +1372,8 @@ void MainComponent::layoutFields (juce::Rectangle<int> area)
     // for one row, the name gives up width (down to 96 px) and the gaps close (down to 14 px)
     // before the row is broken in two.
     const int numGaps = 5;
-    const int withoutName = (8 + 76) + (184 + 8 + 144) + (120 + 8 + 64) + (96 + 8 + 96 + 6 + 56) + 56 + pinEveryWidth;
+    const int getWidth = getButton.getBestWidth();
+    const int withoutName = (8 + 76 + 8 + getWidth) + (184 + 8 + 144) + (120 + 8 + 64) + (96 + 8 + 96 + 6 + 56) + 56 + pinEveryWidth;
     int nameWidth = 200, groupGap = 22;
 
     if (withoutName + 200 + numGaps * 22 > right - left && withoutName + 96 + numGaps * 14 <= right - left)
@@ -1229,11 +1383,12 @@ void MainComponent::layoutFields (juce::Rectangle<int> area)
     }
 
     const std::vector<Group> groups {
-        { nameWidth + 8 + 76, [&] (int x, int y)
+        { nameWidth + 8 + 76 + 8 + getWidth, [&] (int x, int y)
             {
                 musicCaption = { x, y, nameWidth, fieldCaptionHeight };
                 musicNameArea = { x, y + controlTop, nameWidth, controlHeight };
                 openButton.setBounds (x + nameWidth + 8, y + controlTop, 76, controlHeight);
+                getButton.setBounds (x + nameWidth + 8 + 76 + 8, y + controlTop, getWidth, controlHeight);
             } },
         { 184 + 8 + 144, [&] (int x, int y)
             {

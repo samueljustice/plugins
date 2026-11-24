@@ -1,0 +1,151 @@
+name: Tempo Tantrum test installers
+run-name: Tempo Tantrum test installers · ${{ inputs.tag || github.event.workflow_run.display_title }}
+
+# A Tempo Tantrum release is published with the app only, in TempoTantrum-<version>-macOS.dmg, because
+# its AAX, Tempo Tantrum Capture, is signed afterwards (PACE signing needs Samuel's iLok, by hand; see
+# aax-signing.yml). When the "AAX signing" run for a tempotantrum-v* tag has finished and the signed AAX
+# (TempoTantrumCapture-<version>-macOS-AAX.zip) is on the release, this builds one installer with both and
+# attaches it to the release:
+#   TempoTantrum-<version>-macOS-Installer.pkg   the app and the AAX; signed and notarised
+# The disk image stays on the release beside it. Until the AAX is signed, the release has the disk image only.
+# It repackages the files on the release; it doesn't build the app again. Tempo Tantrum is Mac only.
+#
+# Run it by hand with a tag to build it again, for example after signing again.
+# Secrets: the same Apple ones as build-release_tempotantrum.yml, plus a "Developer ID Installer" identity
+# in the .p12.
+
+on:
+  workflow_run:
+    # Must match aax-signing.yml's "name:" line. Its runs are titled "AAX signing · <tag>".
+    workflows: [AAX signing]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tempo Tantrum release tag, e.g. tempotantrum-v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tempotantrum-test-installers-${{ inputs.tag || github.event.workflow_run.display_title }}
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  release:
+    name: Release
+    # After any finished signing run for a Tempo Tantrum tag, or by hand. Whether the signed AAX is on the
+    # release decides if the installer is built. (The workflow_run trigger can't be limited to Tempo
+    # Tantrum's tags, so after other plug-ins' signing runs this starts and is skipped.)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.workflow_run.display_title, ' tempotantrum-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.find.outputs.tag }}
+      version: ${{ steps.find.outputs.version }}
+      mac: ${{ steps.find.outputs.mac }}
+    steps:
+    - name: Find the release and its signed AAX
+      id: find
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        TITLE: ${{ github.event.workflow_run.display_title }}
+      run: |
+        tag="${INPUT_TAG:-${TITLE##* }}"
+        [[ "$tag" =~ ^tempotantrum-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Not a Tempo Tantrum release tag: '$tag'"; exit 1; }
+        version="${tag#tempotantrum-v}"
+        assets=$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name') \
+          || { echo "::error::No release $tag"; exit 1; }
+        mac=false
+        if grep -qx "TempoTantrumCapture-$version-macOS-AAX.zip" <<< "$assets"; then
+          grep -qx "TempoTantrum-$version-macOS.dmg" <<< "$assets" \
+            || { echo "::error::$tag has the signed AAX but not TempoTantrum-$version-macOS.dmg"; exit 1; }
+          mac=true
+        fi
+        {
+          echo "tag=$tag"
+          echo "version=$version"
+          echo "mac=$mac"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "## Tempo Tantrum test installers · \`$tag\`"
+          echo
+          if [[ "$mac" == "true" ]]; then
+            echo "- macOS: building the installer with the app and the signed AAX."
+          else
+            echo "- macOS: no signed AAX on the release yet; the release keeps the disk image only."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  macos:
+    name: macOS installer
+    needs: release
+    if: needs.release.outputs.mac == 'true'
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+    # The scripts from the branch this run started on (main, after a signing run), not from the tag.
+    - uses: actions/checkout@v5
+
+    - name: Download and unpack the release's app and AAX
+      run: |
+        mkdir dl
+        gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D dl \
+          -p "TempoTantrum-$VERSION-macOS.dmg" -p "TempoTantrumCapture-$VERSION-macOS-AAX.zip"
+        mkdir -p staging/app staging/aax
+        mnt=$(mktemp -d)
+        hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "dl/TempoTantrum-$VERSION-macOS.dmg"
+        ditto "$mnt/Tempo Tantrum.app" "staging/app/Tempo Tantrum.app"
+        hdiutil detach "$mnt"
+        ditto -x -k "dl/TempoTantrumCapture-$VERSION-macOS-AAX.zip" staging/aax
+        # Each signed (the AAX by PACE as well as Apple) and carrying its notarisation ticket.
+        for b in "staging/app/Tempo Tantrum.app" "staging/aax/Tempo Tantrum Capture.aaxplugin"; do
+          [[ -d "$b" ]] || { echo "::error::$b is not on the release"; exit 1; }
+          codesign --verify --deep --strict "$b"
+          xcrun stapler validate "$b"
+        done
+        [[ -d "staging/aax/Tempo Tantrum Capture.aaxplugin/Contents/__Pace_Eden.bundle" ]] || echo "::warning::no PACE signature resources in the AAX"
+        app_version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "staging/app/Tempo Tantrum.app/Contents/Info.plist")
+        [[ "$app_version" == "$VERSION" ]] || { echo "::error::The app on the release is $app_version, not $VERSION"; exit 1; }
+
+    - name: Import certificates
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Build installer package
+      run: tempotantrum/make-installer-macos.sh staging "$VERSION" TempoTantrum_Installer.pkg
+
+    - name: Sign installer package
+      run: |
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        [[ -n "$INSTALLER_IDENTITY" ]] || { echo "Developer ID Installer certificate not found"; exit 1; }
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp TempoTantrum_Installer.pkg TempoTantrum_Installer_Signed.pkg
+        mv TempoTantrum_Installer_Signed.pkg TempoTantrum_Installer.pkg
+        pkgutil --check-signature TempoTantrum_Installer.pkg
+
+    - name: Notarise installer package
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        bundle/notarise.sh TempoTantrum_Installer.pkg
+        spctl --assess --type install -vv TempoTantrum_Installer.pkg
+
+    - name: Attach the installer to the release
+      run: |
+        final="TempoTantrum-$VERSION-macOS-Installer.pkg"
+        mv TempoTantrum_Installer.pkg "$final"
+        gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "$final" --clobber
+        echo "- macOS: \`$final\` has the app and Tempo Tantrum Capture." >> "$GITHUB_STEP_SUMMARY"

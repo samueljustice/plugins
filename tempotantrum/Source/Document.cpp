@@ -328,6 +328,47 @@ void Document::clearResults()
 
 juce::Result Document::loadMusic (const juce::File& file)
 {
+    return loadAudio (file, nullptr);
+}
+
+juce::Result Document::loadCapture (const capture::Capture& captured)
+{
+    ProToolsOrigin origin;
+    origin.known = true;
+    origin.startKnown = captured.startKnown && captured.startSample >= 0;
+    origin.startSample = origin.startKnown ? captured.startSample : 0;
+    origin.endSample = captured.endSample;
+    origin.sessionRate = captured.sessionRate;
+    origin.sessionName = captured.sessionName;
+    origin.name = captured.name;
+    origin.source = captured.source;
+    const auto result = loadAudio (captured.audio, &origin);
+
+    if (result.wasOk())
+    {
+        // Kept in front of what the analysis finds.
+        auto text = "Opened " + captured.name + " from Pro Tools";
+
+        if (captured.source.isNotEmpty())
+            text << ", " << captured.source;
+
+        if (captured.note.isNotEmpty())
+            text << ". " << captured.note;
+
+        statusToKeep = text;
+        setStatus (text);
+    }
+
+    return result;
+}
+
+juce::String Document::getMusicName() const
+{
+    return proTools.known && proTools.name.isNotEmpty() ? proTools.name : musicFile.getFileName();
+}
+
+juce::Result Document::loadAudio (const juce::File& file, const ProToolsOrigin* origin)
+{
     juce::AudioBuffer<float> newMix;
     double newRate = 0.0;
     const auto read = readAudio (file, newMix, newRate);
@@ -343,6 +384,7 @@ juce::Result Document::loadMusic (const juce::File& file)
     sampleRate = newRate;
     musicFile = file;
     drumFile = juce::File();
+    proTools = ProToolsOrigin();
 
     inputs = MapInputs();
     undoManager.clearUndoHistory();
@@ -372,6 +414,7 @@ juce::Result Document::loadMusic (const juce::File& file)
         else
         {
             inputs = contents.inputs;
+            proTools = contents.proTools;
             status = "Opened the saved map beside the music";
 
             if (contents.drumStem.isNotEmpty())
@@ -404,6 +447,26 @@ juce::Result Document::loadMusic (const juce::File& file)
         }
 
         statusToKeep = status;
+    }
+
+    // Music captured from Pro Tools: where it came from is kept in a map beside it at once, so
+    // the capture opened again later (from the captures folder) still knows.
+    if (origin != nullptr)
+    {
+        proTools = *origin;
+
+        if (! saved.existsAsFile())
+        {
+            mapfile::Contents c;
+            c.appVersion = ProjectInfo::versionString;
+            c.musicFileName = musicFile.getFileName();
+            c.lengthInSamples = mix.getNumSamples();
+            c.sampleRate = sampleRate;
+            c.fingerprint = mapfile::fingerprint (mix);
+            c.inputs = inputs;
+            c.proTools = proTools;
+            mapfile::save (saved, c);
+        }
     }
 
     rebuildAnalysisAudio();
@@ -834,6 +897,7 @@ juce::Result Document::saveMap()
     c.drumStem = drumFile == juce::File() ? juce::String() : drumFile.getRelativePathFrom (musicFile.getParentDirectory());
     c.inputs = inputs;
     c.pins = map.pins;
+    c.proTools = proTools;
 
     const auto file = getMapFile();
     const auto result = mapfile::save (file, c);

@@ -3,6 +3,9 @@
 #include "MainComponent.h"
 #include "ProToolsTestPanel.h"
 #include "ProToolsWrite.h"
+#include "capture/AudioSuiteRoute.h"
+#include "capture/ProToolsCapture.h"
+#include "plugin/AppCaptureListener.h"
 #include "protools/IdentifyBeatTest.h"
 #include "protools/IdentifyBeatWrite.h"
 #include "ptsl/PtslClient.h"
@@ -84,6 +87,12 @@ public:
             return;
         }
 
+        if (args.contains ("--ptsl-capture"))
+        {
+            runPtslCapture (args);
+            return;
+        }
+
         if (args.contains ("--ptsl-probe"))
         {
             runPtslProbe();
@@ -93,6 +102,12 @@ public:
         if (args.contains ("--ax-selfcheck"))
         {
             runAccessibilityCheck();
+            return;
+        }
+
+        if (args.contains ("--audiosuite-find"))
+        {
+            runAudioSuiteFind();
             return;
         }
 
@@ -127,6 +142,10 @@ public:
 
         mainWindow = std::make_unique<MainWindow>();
 
+        // AudioSuite captures (Tempo Tantrum Capture in Pro Tools): listens for the plug-in's
+        // notification and takes the newest unread capture now. Source/plugin/AppCaptureListener.h.
+        audioSuiteCaptures = std::make_unique<audiosuite::AppCaptureListener>();
+
         // A file path as the only argument opens that file.
         if (args.size() == 1)
             openFile (args[0]);
@@ -137,6 +156,7 @@ public:
         if (headlessRun.joinable())
             headlessRun.join();
 
+        audioSuiteCaptures = nullptr;   // AudioSuite captures: before the window goes
         mainWindow = nullptr;
         snapshot = nullptr;
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
@@ -169,6 +189,7 @@ public:
 private:
     std::unique_ptr<ui::TantrumLookAndFeel> lookAndFeel;
     std::unique_ptr<MainWindow> mainWindow;
+    std::unique_ptr<audiosuite::AppCaptureListener> audioSuiteCaptures;     // AudioSuite captures
 
     std::unique_ptr<MainComponent> snapshot;
     juce::File snapshotOut;
@@ -193,6 +214,7 @@ private:
 
     //==============================================================================
     // --snapshot <audio file> <out.png> [--drums <file>] [--bar N] [--bpm X] [--width W --height H]
+    //            [--capture-start N [--capture-name T] [--capture-session T]]
     // Maps the file, lays the window's contents out at the given size and saves them as a PNG at
     // twice that size, then quits. No window is opened and no audio device is used.
     //
@@ -241,8 +263,24 @@ private:
         auto& doc = snapshot->getDocument();
         doc.setSynchronous (true);
 
-        if (doc.loadMusic (audioFile).failed() || ! doc.hasMusic())
+        // --capture-start N [--capture-name T] [--capture-session T]: the file is opened as music
+        // captured from Pro Tools whose first sample was at sample N of the session.
+        if (const auto captureStart = valueAfter ("--capture-start"); captureStart.isNotEmpty())
+        {
+            capture::Capture captured;
+            captured.audio = audioFile;
+            captured.startSample = captureStart.getLargeIntValue();
+            captured.name = valueAfter ("--capture-name").isNotEmpty() ? valueAfter ("--capture-name") : juce::String ("Music 20|4|491");
+            captured.sessionName = valueAfter ("--capture-session");
+            captured.source = "an offline Track Bounce of Music";
+
+            if (doc.loadCapture (captured).failed() || ! doc.hasMusic())
+                return failSnapshot ("Could not open " + audioFile.getFullPathName());
+        }
+        else if (doc.loadMusic (audioFile).failed() || ! doc.hasMusic())
+        {
             return failSnapshot ("Could not open " + audioFile.getFullPathName());
+        }
 
         if (const auto drums = valueAfter ("--drums"); drums.isNotEmpty())
         {
@@ -616,6 +654,89 @@ private:
         });
     }
 
+    // --ptsl-capture [--keep-renders]
+    // Does what "Get from Pro Tools" does, without the window: renders the edit selection of the
+    // selected track(s) with an offline Track Bounce into the captures folder, not imported, and
+    // makes the capture WAV. Before and after, reads what must not change (the edit selection, the
+    // tracks, the selected tracks and how they are selected, the clip count, the Main Counter and
+    // the transport) and says if any of it did. With --keep-renders Pro Tools' own files are kept.
+    void runPtslCapture (const juce::StringArray& args)
+    {
+        const bool keep = args.contains ("--keep-renders");
+
+        headlessRun = std::thread ([this, keep]
+        {
+            ptsl::Client client;
+            std::string problem;
+            bool ok = false;
+
+            const auto state = [&client]
+            {
+                std::string s;
+                const auto edit = client.editSelection ("TLType_Samples");
+                s += "edit selection " + (edit.ok() ? edit.value.in + " to " + edit.value.out : "not read: " + edit.reply.message) + "\n";
+                const auto timeline = client.timelineSelection ("TLType_Samples");
+                s += "timeline selection " + (timeline.ok() ? timeline.value.in + " to " + timeline.value.out : "not read: " + timeline.reply.message) + "\n";
+                const auto tracks = client.trackList();
+                s += "tracks " + (tracks.ok() ? std::to_string (tracks.value.size()) : "not read: " + tracks.reply.message) + "\n";
+
+                for (const auto& track : tracks.value)
+                    if (track.selected)
+                        s += "selected track \"" + track.name + "\" " + track.type + " " + track.selectionState + "\n";
+
+                const auto clips = client.clipList();
+                s += "clips " + (clips.ok() ? std::to_string (clips.value.size()) : "not read: " + clips.reply.message) + "\n";
+                const auto counter = client.mainCounterFormat();
+                s += "main counter " + (counter.ok() ? counter.value.type + " (" + counter.value.setting + ")" : "not read: " + counter.reply.message) + "\n";
+                const auto transport = client.transportState();
+                s += "transport " + (transport.ok() ? transport.value : "not read: " + transport.reply.message) + "\n";
+                return s;
+            };
+
+            if (! pt::openLink (client, problem))
+            {
+                std::cout << "No link: " << problem << std::endl;
+            }
+            else
+            {
+                const auto before = state();
+                std::cout << "Before:\n" << before;
+
+                capture::Options options;
+                options.keepRenders = keep;
+                const auto outcome = capture::captureSelection (client, [] (const juce::String& line)
+                {
+                    std::cout << "[progress] " << line << std::endl;
+                }, {}, options);
+
+                for (const auto& line : outcome.log)
+                    std::cout << line << std::endl;
+
+                std::cout << "Capture: " << (outcome.ok ? juce::String ("made") : "FAILED: " + outcome.error) << " in "
+                          << juce::String (outcome.seconds, 2) << " s" << std::endl;
+
+                if (outcome.ok)
+                {
+                    const auto& c = outcome.capture;
+                    std::cout << "  file " << c.audio.getFullPathName() << "\n  name \"" << c.name << "\"\n  starts at sample " << c.startSample
+                              << ", ends at " << c.endSample << ", session \"" << c.sessionName << "\" at " << c.sessionRate << " Hz\n  source "
+                              << c.source << (c.note.isNotEmpty() ? "\n  note " + c.note : juce::String()) << std::endl;
+                }
+
+                const auto after = state();
+                std::cout << "After:\n" << after;
+                std::cout << (before == after ? "Nothing read changed." : "CHANGED: the session reads differently after the capture.") << std::endl;
+                ok = outcome.ok && before == after;
+            }
+
+            juce::MessageManager::callAsync ([this, ok]
+            {
+                setApplicationReturnValue (ok ? 0 : 1);
+                quit();
+            });
+        });
+    }
+
     // --ptsl-probe [--raw]
     // Connects to Pro Tools' scripting link, registers, and sends only commands that read: the
     // session's name, rate, start and length, the transport, the Main Counter's format, the edit
@@ -873,6 +994,18 @@ private:
     // --ax-menu-check <bundle identifier> <menu> <item>
     // Finds a menu item of a running application through Accessibility and prints what it is.
     // Reads only: the application is not brought forward and nothing is pressed.
+    // --audiosuite-find
+    // Reads Pro Tools' AudioSuite menu through Accessibility, writes it out and says whether
+    // Tempo Tantrum Capture is in it, as "Get from Pro Tools" does before it offers the AudioSuite
+    // route. Presses nothing and brings nothing to the front.
+    void runAudioSuiteFind()
+    {
+        const auto outcome = capture::findCapturePlugIn ([] (const std::string& line) { std::cout << line << std::endl; }, [] { return false; });
+        std::cout << (outcome.found ? "Found: " + outcome.menuPath : "Not found: " + outcome.error.toStdString()) << std::endl;
+        setApplicationReturnValue (outcome.found ? 0 : 1);
+        quit();
+    }
+
     void runMenuCheck (const juce::StringArray& args)
     {
         const int at = args.indexOf ("--ax-menu-check");

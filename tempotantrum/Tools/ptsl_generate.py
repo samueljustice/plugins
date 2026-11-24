@@ -24,6 +24,7 @@ COMMANDS = [
     "GetPTSLVersion",
     "GetSessionName",
     "GetSessionSampleRate",
+    "GetSessionBitDepth",
     "GetSessionStartTime",
     "GetSessionLength",
     "GetTransportState",
@@ -42,6 +43,7 @@ COMMANDS = [
     "SetMainCounterFormat",
     "SetEditModeOptions",
     "SetTimelineSelection",
+    "BounceTrack",
 ]
 
 # (C++ name, message, field)

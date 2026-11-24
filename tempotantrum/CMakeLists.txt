@@ -224,13 +224,25 @@ target_sources(TempoTantrum
     Source/ui/Theme.cpp
     Source/ui/WaveformView.cpp
     Source/ui/Controls.cpp
+    # The app's side of the AudioSuite capture: it listens for the plug-in's captures.
+    Source/plugin/CaptureHandOff.cpp
+    Source/plugin/AppCaptureListener.cpp
 )
+
+# Music captured from Pro Tools (Source/capture): every source file there is built into the app.
+file(GLOB TEMPOTANTRUM_CAPTURE_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/capture/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/capture/*.mm)
+
+if(TEMPOTANTRUM_CAPTURE_SOURCES)
+    target_sources(TempoTantrum PRIVATE ${TEMPOTANTRUM_CAPTURE_SOURCES})
+endif()
 
 # Writing to Pro Tools, and its test, drive Pro Tools through the macOS Accessibility API and keyboard events.
 # Elsewhere a stand-in is built whose every step fails and says so.
 if(APPLE)
     target_sources(TempoTantrum PRIVATE Source/protools/ProToolsDriver.mm)
-    target_link_libraries(TempoTantrum PRIVATE "-framework AppKit" "-framework ApplicationServices")
+    target_link_libraries(TempoTantrum PRIVATE "-framework AppKit" "-framework ApplicationServices" "-framework CoreFoundation")
 else()
     target_sources(TempoTantrum PRIVATE Source/protools/ProToolsDriverStub.cpp)
 endif()
@@ -269,6 +281,87 @@ target_link_libraries(TempoTantrum
 )
 
 # ---------------------------------------------------------------------------------------------
+# Tempo Tantrum Capture: an AudioSuite plug-in for Pro Tools that sends the selected audio to the
+# app (Source/plugin). It passes the audio through unchanged and records what an AudioSuite Render
+# streams through it. Pro Tools is its only host, so it is built as AAX only: AAX is on by default
+# here (macOS and Windows; -DSAMMYJ_AAX=OFF leaves the plug-in out). With no AAX_SDK_PATH it builds
+# with the AAX SDK bundled with JUCE. Unsigned, it loads only in Pro Tools Developer; releases are
+# PACE-signed by hand (bundle/sign-aax.sh).
+#
+# The plug-in code and bundle ID must never change: Pro Tools finds the plug-in by them.
+if((APPLE OR WIN32) AND NOT DEFINED CACHE{SAMMYJ_AAX})
+    set(SAMMYJ_AAX ON CACHE BOOL "Build the AAX format")
+endif()
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
+set(TEMPOTANTRUM_CAPTURE_FORMATS "")
+sammyj_enable_aax(TEMPOTANTRUM_CAPTURE_FORMATS)
+
+if(TEMPOTANTRUM_CAPTURE_FORMATS)
+    juce_add_plugin(TempoTantrumCapture
+        VERSION ${PROJECT_VERSION}
+        PRODUCT_NAME "Tempo Tantrum Capture"
+        COMPANY_NAME "Sammy J"
+        COMPANY_COPYRIGHT "Copyright ${COPYRIGHT_YEAR} Samuel Justice"
+        BUNDLE_ID "com.samueljustice.tempotantrumcapture"
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+        COPY_PLUGIN_AFTER_BUILD FALSE
+        PLUGIN_MANUFACTURER_CODE SJus
+        PLUGIN_CODE Ttcp
+        FORMATS ${TEMPOTANTRUM_CAPTURE_FORMATS}
+        AAX_IDENTIFIER com.samueljustice.tempotantrumcapture
+        # "Other" in Pro Tools' AudioSuite menu.
+        AAX_CATEGORY AAX_ePlugInCategory_Effect
+    )
+
+    if(APPLE)
+        set_target_properties(TempoTantrumCapture PROPERTIES
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ""
+            XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Developer ID Application"
+            XCODE_ATTRIBUTE_HARDENED_RUNTIME_ENABLED YES
+            XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Manual"
+        )
+        target_link_libraries(TempoTantrumCapture PRIVATE "-framework CoreFoundation")
+    endif()
+
+    target_sources(TempoTantrumCapture
+        PRIVATE
+        Source/plugin/CaptureHandOff.cpp
+        Source/plugin/CaptureRecorder.cpp
+        Source/plugin/CaptureProcessor.cpp
+        Source/plugin/CaptureEditor.cpp
+        Source/ui/Theme.cpp
+    )
+
+    target_include_directories(TempoTantrumCapture PRIVATE Source)
+
+    target_compile_definitions(TempoTantrumCapture
+        PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+    )
+
+    juce_generate_juce_header(TempoTantrumCapture)
+
+    target_link_libraries(TempoTantrumCapture
+        PRIVATE
+        TempoTantrumBinaryData
+        juce::juce_audio_utils
+        PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+    )
+else()
+    message(STATUS "Tempo Tantrum Capture (AudioSuite) is not built: it is AAX only, and AAX is off or not available here")
+endif()
+
+# ---------------------------------------------------------------------------------------------
 # The engine's tests (Tests/CoreTests.cpp: main() returns non-zero on a failure) and tt-cli, a
 # command-line tool that maps a music file without the window. Both are console programs that
 # link the engine library and compile the JUCE module code it needs.
@@ -300,4 +393,38 @@ if(TEMPOTANTRUM_TESTS)
     add_executable(TempoTantrumPtslTests Tests/PtslWireTests.cpp Source/ptsl/PtslWire.cpp Source/protools/PtslSessionMaths.cpp)
     target_include_directories(TempoTantrumPtslTests PRIVATE Source)
     target_compile_features(TempoTantrumPtslTests PRIVATE cxx_std_20)
+
+    # The AudioSuite capture plug-in's processor driven directly, as a Render would drive it
+    # (Tests/CaptureHostTests.cpp): odd block sizes offline, then the end of the Render; the WAV it
+    # writes and its output must both equal the input exactly. Also the placing of a capture on the
+    # timeline. It links the plug-in's shared code library, so it tests the code that ships; that
+    # library links the JUCE modules privately, so their headers are added here by hand.
+    if(TARGET TempoTantrumCapture)
+        add_executable(TempoTantrumCaptureTests Tests/CaptureHostTests.cpp)
+        target_include_directories(TempoTantrumCaptureTests
+            PRIVATE
+            Source
+            "$<TARGET_PROPERTY:TempoTantrumCapture,JUCE_GENERATED_SOURCES_DIRECTORY>"
+            "$<TARGET_PROPERTY:juce::juce_core,INTERFACE_INCLUDE_DIRECTORIES>"
+        )
+        # The shared code target exports only the JucePlugin_* values; the test is none of the formats.
+        target_compile_definitions(TempoTantrumCaptureTests
+            PRIVATE
+            JucePlugin_Build_VST=0
+            JucePlugin_Build_VST3=0
+            JucePlugin_Build_AU=0
+            JucePlugin_Build_AUv3=0
+            JucePlugin_Build_AAX=0
+            JucePlugin_Build_Standalone=0
+            JucePlugin_Build_Unity=0
+            JucePlugin_Build_LV2=0
+        )
+        add_dependencies(TempoTantrumCaptureTests TempoTantrumCapture)
+        target_link_libraries(TempoTantrumCaptureTests
+            PRIVATE
+            TempoTantrumCapture
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+        )
+    endif()
 endif()

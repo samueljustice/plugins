@@ -93,6 +93,7 @@ struct Track
     std::string name, id, type;
     int index = 0;
     bool selected = false;      // explicitly or implicitly
+    std::string selectionState; // the selection as Pro Tools wrote it ("SetExplicitly", ...)
     bool hasClips = false;
 };
 
@@ -136,6 +137,7 @@ public:
     Answer<std::string> ptslVersion();                       // "2025.6.0"
     Answer<std::string> sessionName();
     Answer<double> sessionSampleRate();
+    Answer<std::string> sessionBitDepth();                  // "BDepth_24", "Bit24", ...
     Answer<std::string> sessionStartTime();
     Answer<std::string> sessionLength();
     Answer<std::string> transportState();                    // "TS_TransportStopped", ...
@@ -159,6 +161,12 @@ public:
     Reply setMainCounterFormat (const std::string& locationType);
     Reply setEditModeOptions (const EditModeOptions& options);
     Reply setTimelineSelection (const std::string& in, const std::string& out, const std::string& locationType);
+
+    // Renders one track to files with Pro Tools' Track Bounce (Pro Tools 2025.06 and later). The
+    // request is the whole JSON body (capture/CaptureMaths.h writes it); the answer is the path of
+    // every file written. It writes files but leaves the session as it was when the request asks
+    // for no import. Waits up to `timeoutMs`; the stop check ends the wait.
+    Answer<std::vector<std::string>> bounceTrack (const std::string& requestJson, int timeoutMs);
 
     static bool isStopped (const std::string& transportState);
 

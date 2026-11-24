@@ -27,6 +27,7 @@ on:
       - Build and Release Tonal Recall
       - Build and Release De-Honk
       - Build and Release DOOM EQ
+      - Build and Release Tempo Tantrum
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -71,6 +72,8 @@ jobs:
                 --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
         artifacts=""
         [[ -n "$run" ]] && artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '.artifacts[].name')
+        # Each stage runs only if the build uploaded that system's unsigned AAX, so a Mac-only release
+        # (Tempo Tantrum, whose build makes no Windows AAX) has no "Sign on the PC" stage.
         mac=false; windows=false
         grep -q -- '-macOS-AAX-unsigned$' <<< "$artifacts" && mac=true
         grep -q -- '-Windows-AAX-unsigned$' <<< "$artifacts" && [[ "${{ vars.AAX_WINDOWS_SIGNING }}" == "true" ]] && windows=true

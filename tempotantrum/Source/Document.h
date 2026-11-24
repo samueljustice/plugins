@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "MapFile.h"
+#include "capture/CaptureInbox.h"
 #include "core/Engine.h"
 
 #include <functional>
@@ -48,6 +49,16 @@ public:
     // Opens the music: clears the drum stem, the user's inputs and the undo history, then opens
     // the map saved beside the file if there is one for the same audio.
     juce::Result loadMusic (const juce::File& file);
+
+    // Opens a capture from Pro Tools as the music, as loadMusic() does, and keeps where it came
+    // from: its time 0 is the capture's start sample on the session's timeline.
+    juce::Result loadCapture (const capture::Capture& captured);
+
+    // Where the music came from when it was captured from Pro Tools (known is false otherwise).
+    const ProToolsOrigin& getProToolsOrigin() const         { return proTools; }
+
+    // The name shown for the music: the capture's name, or the file's.
+    juce::String getMusicName() const;
 
     // Same sample rate as the music and at most 0.5 s longer or shorter. A shorter stem is
     // padded with silence, a longer one is cut to the music's length.
@@ -136,6 +147,7 @@ private:
     juce::AudioFormatManager formats;
 
     juce::File musicFile, drumFile;
+    ProToolsOrigin proTools;
     juce::AudioBuffer<float> mix, drums;
     double sampleRate = 0.0;
     int audioVersion = 0;
@@ -161,6 +173,7 @@ private:
     std::unique_ptr<detail::OnsetCache> syncCache;
     std::unique_ptr<detail::AnalysisWorker> worker;
 
+    juce::Result loadAudio (const juce::File& file, const ProToolsOrigin* origin);
     juce::Result readAudio (const juce::File& file, juce::AudioBuffer<float>& out, double& rate);
     void rebuildAnalysisAudio();
     void clearResults();

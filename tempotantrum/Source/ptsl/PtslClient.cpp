@@ -732,6 +732,17 @@ Answer<double> Client::sessionSampleRate()
     return a;
 }
 
+Answer<std::string> Client::sessionBitDepth()
+{
+    Answer<std::string> a;
+    a.reply = send ("GetSessionBitDepth", {});
+
+    if (a.ok())
+        a.value = str (parse (a.reply.body).getProperty ("current_setting", juce::var()));
+
+    return a;
+}
+
 Answer<std::string> Client::sessionStartTime()
 {
     Answer<std::string> a;
@@ -917,9 +928,24 @@ Answer<std::vector<Track>> Client::trackList()
         t.type = str (track.getProperty ("type", juce::var()));
         t.index = (int) int64Of (track.getProperty ("index", 0));
         t.selected = selected.isNotEmpty() && ! selected.endsWith ("None") && ! selected.endsWith ("Unknown");
+        t.selectionState = selected.toStdString();
         t.hasClips = (bool) attributes.getProperty ("contains_clips", false);
         a.value.push_back (std::move (t));
     });
+
+    return a;
+}
+
+Answer<std::vector<std::string>> Client::bounceTrack (const std::string& requestJson, int timeoutMs)
+{
+    Answer<std::vector<std::string>> a;
+    a.reply = send ("BounceTrack", requestJson, timeoutMs);
+
+    if (a.ok())
+        if (const auto* paths = parse (a.reply.body).getProperty ("file_paths", juce::var()).getArray())
+            for (const auto& path : *paths)
+                if (const auto text = str (path); ! text.empty())
+                    a.value.push_back (text);
 
     return a;
 }
@@ -936,14 +962,15 @@ Answer<int> Client::trackCount()
 Answer<std::string> Client::sessionInfoText (bool selectedTracksOnly)
 {
     // A string answer only: nothing is written to a file. Clip and file lists, markers and
-    // plug-ins are left out; the track EDLs are given in samples.
+    // plug-ins are left out; the track EDLs are given in samples, with fades and crossfades as
+    // events of their own (otherwise a clip's times leave its fades out).
     Answer<std::string> a;
     a.reply = send ("ExportSessionInfoAsText",
                     std::string ("{\"include_file_list\":false,\"include_clip_list\":false,\"include_markers\":false,"
                                  "\"include_plugin_list\":false,\"include_track_edls\":true,\"show_sub_frames\":false,"
                                  "\"include_user_timestamps\":false,\"track_list_type\":")
                         + (selectedTracksOnly ? "\"SelectedTracksOnly\"" : "\"AllTracks\"")
-                        + ",\"fade_handling_type\":\"DontShowCrossfades\",\"text_as_file_format\":\"UTF8\",\"output_type\":\"ESI_String\","
+                        + ",\"fade_handling_type\":\"ShowCrossfades\",\"text_as_file_format\":\"UTF8\",\"output_type\":\"ESI_String\","
                           "\"location_type\":\"TLType_Samples\"}",
                     20000);
 

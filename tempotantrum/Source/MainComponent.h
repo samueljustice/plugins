@@ -4,6 +4,7 @@
 
 #include "Document.h"
 #include "Player.h"
+#include "capture/CaptureInbox.h"
 #include "ui/Controls.h"
 #include "ui/Theme.h"
 #include "ui/WaveformView.h"
@@ -17,6 +18,8 @@ namespace tt
 
 class ProToolsTestPanel;
 class ProToolsWriteSheet;
+
+namespace capture { class CaptureJob; struct Outcome; class AudioSuiteJob; struct AudioSuiteOutcome; }
 
 // The window's contents: a header with the file and the playhead, a row of fields for what the
 // user knows about the music, the waveform with the grid and pins, and a footer for playing,
@@ -36,6 +39,15 @@ public:
     // Asks first whether to save the map when the open one has changes that are not saved.
     void openMusic (const juce::File& file);
     void openDrumStem (const juce::File& file);
+
+    // "Get from Pro Tools": renders the edit selection of the selected track(s) in Pro Tools,
+    // silently, and opens it as the music. When the offline Track Bounce cannot be used, has Pro
+    // Tools render it with Tempo Tantrum Capture in AudioSuite and undo that (capture/AudioSuiteRoute.h),
+    // after asking once in a run of the app.
+    void getFromProTools();
+
+    // Opens music captured from Pro Tools (asks first whether to save the map, as openMusic does).
+    void openCapture (const capture::Capture& captured);
 
     // Calls `then` straight away when no changes would be lost. Otherwise asks whether to save
     // the map: `then` is called after Save (if the save worked) or Don't save, and not after Cancel.
@@ -77,6 +89,7 @@ private:
 
     // Fields
     ui::PillButton openButton { juce::String::fromUTF8 ("Open\xe2\x80\xa6") };
+    ui::PillButton getButton { "Get from Pro Tools" };
     ui::SegmentedSwitch listenSwitch;
     ui::PillButton addStemButton { juce::String::fromUTF8 ("Add drum stem\xe2\x80\xa6") };
     ui::NumberBox barBox { "First hit is bar" };
@@ -101,7 +114,10 @@ private:
     std::unique_ptr<ProToolsTestPanel> proToolsTest;
     std::unique_ptr<ProToolsWriteSheet> proToolsWrite;
     std::unique_ptr<juce::FileChooser> chooser;
-    juce::ScopedMessageBox saveQuestion;
+    std::unique_ptr<capture::CaptureJob> captureJob;
+    std::unique_ptr<capture::AudioSuiteJob> audioSuiteJob;
+    bool audioSuiteAgreed = false;      // the AudioSuite question was answered yes in this run
+    juce::ScopedMessageBox saveQuestion, audioSuiteQuestion;
 
     // Areas worked out in resized() for paint()
     juce::Rectangle<int> headerArea, fieldsArea, musicNameArea, tempoNoteArea, meterArea,
@@ -130,6 +146,10 @@ private:
     void timerCallback() override;
 
     void chooseMusic();
+    void captureFinished (const capture::Outcome& outcome);
+    void audioSuiteLookFinished (const capture::AudioSuiteOutcome& outcome, const juce::String& bounceError);
+    void renderWithAudioSuite();
+    void audioSuiteRenderFinished (const capture::AudioSuiteOutcome& outcome);
     void chooseDrumStem();
     void exportClick();
     void showMoreMenu();

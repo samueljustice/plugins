@@ -7,6 +7,8 @@ This is the first build for testing. How it works, the window and the saved map 
 ### In this build
 
 - Open WAV, AIFF or anything else macOS can decode, with Open… or by dropping the file on the window.
+- Get from Pro Tools: select the music in Pro Tools and press the button. Pro Tools renders the selection offline through its scripting link (Pro Tools 2025.06 and later), as it sounds on the selected tracks, and Tempo Tantrum opens it as the music, starting where the selection starts. Nothing in the session is changed. When that cannot be used, it has Pro Tools render the selection with Tempo Tantrum Capture and undoes the render, after asking once.
+- Tempo Tantrum Capture, an AudioSuite plug-in for Pro Tools: Render sends the selection to Tempo Tantrum without changing the audio. Cmd+Z in Pro Tools takes the rendered clip out.
 - Set which bar and beat the first hit is. The tempo is found by itself, or typed in or tapped as a hint.
 - An optional drum or percussion stem to find the hits on, placed on the attacks in the mix.
 - Play with a click, louder on beat 1. N jumps to the next place to check and loops it.
@@ -27,6 +29,8 @@ This is the first build for testing. How it works, the window and the saved map 
 
 | File | Contents |
 |---|---|
+| `TempoTantrum-0.1.0-macOS-Installer.pkg` | The app and Tempo Tantrum Capture in one installer. It is added to this page once the plug-in is signed. |
 | `TempoTantrum-0.1.0-macOS.dmg` | The app. Open the disk image and drag Tempo Tantrum to Applications. |
+| `TempoTantrumCapture-0.1.0-macOS-AAX.zip` | Tempo Tantrum Capture, the AudioSuite plug-in. Copy `Tempo Tantrum Capture.aaxplugin` to `/Library/Application Support/Avid/Audio/Plug-Ins` and restart Pro Tools. |
 
 Signed and notarised. Universal (Apple silicon and Intel), macOS 11 or later.

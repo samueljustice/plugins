@@ -1,7 +1,14 @@
 name: Build and Release Tempo Tantrum
 
-# Tempo Tantrum is a macOS app, not a plug-in: there is no VST3, AU or AAX, so nothing here needs PACE
-# signing, and there is no Windows build. It is not in bundle/plugins.txt or the combined installer.
+# Tempo Tantrum is a macOS app, with one small AAX plug-in beside it: Tempo Tantrum Capture, the AudioSuite
+# plug-in that sends the selected audio in Pro Tools to the app. There is no Windows build. It is not in the
+# combined installer.
+#
+# The AAX is built unsigned and uploaded as a build artifact only (TempoTantrumCapture-macOS-AAX-unsigned),
+# the way the plug-ins do it: bundle/sign-aax.sh PACE-signs it by hand, notarize-aax.yml notarises it and
+# attaches TempoTantrumCapture-<version>-macOS-AAX.zip to the release. The unsigned AAX is never attached.
+# Then tempotantrum-test-installers.yml attaches TempoTantrum-<version>-macOS-Installer.pkg, with the app and
+# the signed AAX. bundle/plugins.txt has Tempo Tantrum on a "#test" line for sign-aax.
 #
 # Push a tag like tempotantrum-v0.1.0 to build, test, sign, notarise and publish a release with the app in a
 # disk image, TempoTantrum-<version>-macOS.dmg. The version lives in tempotantrum/CMakeLists.txt
@@ -24,6 +31,9 @@ name: Build and Release Tempo Tantrum
 #     Avid's Pro Tools Scripting SDK (confidential, never in this repository). The build reads it to make
 #     Write to Pro Tools' scripting link. Without it the app is built without the link and says so; a
 #     release tag without it fails, so a release never ships without the link.
+#
+# Optional, for the AAX build (.github/actions/aax-sdk):
+#   AAX_SDK_DEPLOY_KEY   read-only deploy key for the private AAX SDK repository
 
 on:
   push:
@@ -35,6 +45,8 @@ on:
       - 'pitchflattener/Resources/Fonts/**'
       - '.github/workflows/build-release_tempotantrum.yml'
       - '.github/actions/ptsl-sdk/**'
+      - '.github/actions/aax-sdk/**'
+      - 'cmake/**'
   workflow_dispatch:
 
 # A newer push to the same pull request replaces the run in progress.
@@ -114,6 +126,14 @@ jobs:
           echo "::warning::No Pro Tools Scripting SDK: this build has no Pro Tools Scripting link, and Write to Pro Tools works through Accessibility only"
         fi
 
+    # Avid's AAX SDK, for Tempo Tantrum Capture. Without the deploy key the AAX is built with the SDK
+    # bundled with JUCE.
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       env:
         PTSL_SDK: ${{ steps.ptsl.outputs.path }}
@@ -123,9 +143,10 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DTEMPOTANTRUM_TESTS=ON \
-          -DTEMPOTANTRUM_PTSL_SDK="$PTSL_SDK"
+          -DTEMPOTANTRUM_PTSL_SDK="$PTSL_SDK" \
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
 
-    - name: Build the app, the core tests and tt-cli
+    - name: Build the app, the AAX, the tests and tt-cli
       run: |
         cd tempotantrum
         # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module at once
@@ -145,6 +166,32 @@ jobs:
         exe=$(find build -name TempoTantrumPtslTests -type f -perm +111 | head -1)
         [ -n "$exe" ] || { echo "TempoTantrumPtslTests not found"; exit 1; }
         "$exe"
+
+    # Tempo Tantrum Capture's processor driven as an AudioSuite Render drives it: the WAV it writes and
+    # the audio it passes on must equal the input exactly.
+    - name: Run the AudioSuite capture tests
+      run: |
+        cd tempotantrum
+        exe=$(find build -name TempoTantrumCaptureTests -type f -perm +111 | head -1)
+        [ -n "$exe" ] || { echo "TempoTantrumCaptureTests not found"; exit 1; }
+        "$exe"
+
+    # Unsigned AAX, for testing in Pro Tools Developer only. The AAX signing workflow has it PACE-signed
+    # by hand (bundle/sign-aax.sh), notarised (notarize-aax.yml) and attached to the release.
+    - name: Zip unsigned macOS AAX
+      run: |
+        cd tempotantrum
+        aax="build/TempoTantrumCapture_artefacts/Release/AAX/Tempo Tantrum Capture.aaxplugin"
+        [ -d "$aax" ] || { echo "Tempo Tantrum Capture.aaxplugin not found"; exit 1; }
+        lipo -info "$aax/Contents/MacOS/Tempo Tantrum Capture"
+        ditto -c -k --keepParent "$aax" TempoTantrumCapture-macOS-AAX-unsigned.zip
+
+    - name: Upload unsigned macOS AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: TempoTantrumCapture-macOS-AAX-unsigned
+        path: tempotantrum/TempoTantrumCapture-macOS-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Gather the app
       run: |

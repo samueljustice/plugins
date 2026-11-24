@@ -4,6 +4,7 @@
 #import <ApplicationServices/ApplicationServices.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -2892,6 +2893,532 @@ Result Driver::sendUndo()
             return Result::bad (quoted (undoInfo.title) + " could not be pressed in the Edit menu (" + errorName (error) + ")");
 
         return s.wait (s.keyGapMilliseconds) ? Result::good() : State::stoppedResult();
+    }
+}
+
+//==============================================================================
+// AudioSuite
+namespace
+{
+    // Once per run of the app: the AudioSuite menu and the AudioSuite window in full.
+    std::atomic<bool> audioSuiteMenuLogged { false };
+    std::atomic<bool> audioSuiteWindowLogged { false };
+
+    // The items of a menu bar item or of a menu item with a submenu sit inside one AXMenu.
+    std::vector<Element> menuItemsOf (const Element& parent)
+    {
+        auto children = childrenOf (parent);
+
+        if (children.size() == 1 && readInfo (ax (children[0])).role == "AXMenu")
+            return childrenOf (children[0]);
+
+        return children;
+    }
+
+    bool startsWith (const std::string& text, const std::string& start)
+    {
+        return text.rfind (start, 0) == 0;
+    }
+}
+
+Result Driver::findAudioSuiteItem (const std::string& name, Element& item, bool& enabled, std::string& where)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        item = {};
+        enabled = false;
+        where.clear();
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        const auto menuBar = copyElement (ax (s.app), kAXMenuBarAttribute);
+
+        if (! menuBar)
+            return Result::bad ("the menu bar of " + s.appName + " could not be read");
+
+        Element audioSuite;
+        std::string topTitles;
+
+        for (const auto& m : childrenOf (menuBar))
+        {
+            const auto info = readInfo (ax (m));
+
+            if (! info.answered)
+                return s.noAnswer ("while its menus were read");
+
+            if (! info.title.empty())
+                topTitles += "\n  " + quoted (info.title, 80);
+
+            if (! audioSuite && normalise (info.title) == "audiosuite")
+                audioSuite = m;
+        }
+
+        if (! audioSuite)
+        {
+            s.say ("There is no AudioSuite menu. The top-level menus are:" + (topTitles.empty() ? std::string ("\n  (none)") : topTitles));
+            return Result::bad ("the AudioSuite menu was not found in " + s.appName);
+        }
+
+        const auto wanted = normalise (name);
+        const bool logAll = ! audioSuiteMenuLogged.exchange (true);
+        std::string menuLog;
+        int seen = 0;
+        auto limits = s.walk (10000);
+
+        // Depth first, so the log reads as the menu does. Submenus up to three levels down.
+        std::function<void (const Element&, int, const std::string&)> walkMenu;
+        walkMenu = [&] (const Element& parent, int level, const std::string& path)
+        {
+            for (const auto& entry : menuItemsOf (parent))
+            {
+                if (limits.over() || seen >= 3000)
+                    return;
+
+                ++seen;
+                const auto info = readInfo (ax (entry));
+
+                if (! info.answered)
+                {
+                    limits.noAnswer = true;
+                    return;
+                }
+
+                if (info.title.empty())
+                    continue;       // separators
+
+                const auto here = path + " > " + info.title;
+                const auto inside = menuItemsOf (entry);
+                const bool off = info.hasEnabled && ! info.enabled;
+
+                if (logAll)
+                    menuLog += "\n" + std::string ((size_t) level * 2 + 2, ' ') + quoted (info.title, 80)
+                               + (off ? " (switched off)" : "") + (inside.empty() ? "" : " >");
+
+                if (! item && inside.empty() && startsWith (normalise (info.title), wanted))
+                {
+                    item = entry;
+                    enabled = ! off;
+                    where = here;
+                }
+
+                if (! inside.empty() && level < 3)
+                    walkMenu (entry, level + 1, here);
+            }
+        };
+
+        walkMenu (audioSuite, 0, "AudioSuite");
+
+        if (logAll)
+            s.say ("The AudioSuite menu (" + std::to_string (seen) + " entries read):" + (menuLog.empty() ? std::string ("\n  (empty)") : menuLog));
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (limits.noAnswer)
+            return s.noAnswer ("while its AudioSuite menu was read");
+
+        if (! item)
+        {
+            if (! logAll)
+                s.say ("Read " + std::to_string (seen) + " entries of the AudioSuite menu; none starts with " + quoted (name)
+                       + ". The whole menu is in the log of the first look in this run of the app.");
+
+            return Result::bad (name + " is not in the AudioSuite menu of " + s.appName);
+        }
+
+        s.say ("Found " + where + ": " + oneLine (item) + (enabled ? "" : " (switched off)"));
+        return Result::good();
+    }
+}
+
+Result Driver::findWindow (const std::string& titlePart, Element& window)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        window = {};
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        const auto open = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! open)
+            return s.noAnswer ("when asked for its windows");
+
+        const auto wanted = normalise (titlePart);
+
+        for (const auto& w : *open)
+            if (contains (normalise (readInfo (ax (w)).title), wanted.c_str()))
+            {
+                window = w;
+                break;
+            }
+
+        return Result::good();
+    }
+}
+
+Result Driver::openWindowFromMenu (const Element& menuItem, const std::string& titlePart, Element& window)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        window = {};
+
+        if (! s.app || ! menuItem)
+            return Result::bad ("the menu item has not been found");
+
+        const auto before = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! before)
+            return s.noAnswer ("when asked for its windows, so the menu item was not pressed");
+
+        if (auto guard = s.frontGuard(); ! guard.ok)
+            return guard;
+
+        const auto start = Clock::now();
+        const AXError error = AXUIElementPerformAction (ax (menuItem), kAXPressAction);
+        s.say ("Pressed the menu item (AXPress): " + errorName (error) + ", " + std::to_string (millisecondsSince (start)) + " ms");
+
+        if (error != kAXErrorSuccess && error != kAXErrorCannotComplete)
+            return Result::bad ("the menu item could not be pressed (" + errorName (error) + ")");
+
+        const auto wanted = normalise (titlePart);
+        std::vector<Element> opened;
+
+        do
+        {
+            if (const auto now = s.windows())
+            {
+                opened = notIn (*now, *before);
+
+                for (const auto& w : opened)
+                    if (contains (normalise (readInfo (ax (w)).title), wanted.c_str()))
+                    {
+                        window = w;
+                        break;
+                    }
+            }
+
+            if (window)
+                break;
+
+            if (! s.wait (s.poll()))
+                return State::stoppedResult();
+        }
+        while (millisecondsSince (start) < 5000);
+
+        if (! window)
+        {
+            s.say ("No window with " + quoted (titlePart) + " in its title appeared in 5 seconds. " + s.appName + " has " + s.windowList());
+
+            for (const auto& w : opened)
+                s.say ("This window was not there before:\n" + s.describe (w, 5));
+
+            if (! opened.empty())
+                return Result::bad ("a window titled " + quoted (readInfo (ax (opened.front())).title) + " appeared in place of the "
+                                    + titlePart + " window. Nothing was pressed in it");
+
+            return Result::bad ("the " + titlePart + " window did not appear");
+        }
+
+        s.say ("The window " + quoted (readInfo (ax (window)).title) + " appeared after " + std::to_string (millisecondsSince (start)) + " ms");
+        return Result::good();
+    }
+}
+
+Result Driver::readAudioSuiteWindow (const Element& window, const std::string& buttonTitle, Element& button)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        button = {};
+
+        if (! window)
+            return Result::bad ("there is no AudioSuite window to read");
+
+        const bool describedNow = ! audioSuiteWindowLogged.exchange (true);
+
+        if (describedNow)
+            s.say ("What the AudioSuite window contains:\n" + s.describe (window, 10));
+
+        auto limits = s.walk (6000);
+        const auto all = readAll (window, 800, limits);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (limits.noAnswer)
+            return s.noAnswer ("while the AudioSuite window was read");
+
+        // Read only, for the log: what these controls show is what the Render will use.
+        static const char* const words[] = { "playlist", "clip list", "handle", "mode", "clip by clip", "entire selection",
+                                             "continuous", "individual", "whole file", "use in", "reverse", "preview",
+                                             "bypass", "multi", "mono" };
+        std::string controls;
+        const auto wanted = normalise (buttonTitle);
+        std::vector<Element> candidates;
+
+        for (const auto& [element, info] : all)
+        {
+            const auto text = lower (info.title + " | " + info.description + " | " + info.value + " | " + info.help + " | " + info.identifier);
+
+            for (const auto* w : words)
+                if (contains (text, w))
+                {
+                    controls += "\n  " + oneLine (ax (element), info, false);
+                    break;
+                }
+
+            if (info.role == "AXButton" && (normalise (info.title) == wanted || normalise (info.description) == wanted))
+                candidates.push_back (element);
+        }
+
+        s.say ("AudioSuite settings as the window shows them (none is changed):"
+               + (controls.empty() ? std::string ("\n  (no control named by these words; see the full window above)") : controls));
+
+        if (candidates.empty())
+        {
+            if (! describedNow)
+                s.say ("No button titled " + quoted (buttonTitle) + ". The window:\n" + s.describe (window, 10));
+
+            return Result::bad ("the AudioSuite window has no " + buttonTitle + " button that can be found. Nothing was pressed");
+        }
+
+        if (candidates.size() > 1)
+        {
+            for (const auto& c : candidates)
+                s.say ("Button: " + oneLine (c));
+
+            return Result::bad ("the AudioSuite window has " + std::to_string (candidates.size()) + " buttons titled " + buttonTitle
+                                + ". Nothing was pressed");
+        }
+
+        button = candidates.front();
+        const auto info = readInfo (ax (button));
+        s.say ("The " + buttonTitle + " button: " + oneLine (button));
+
+        if (info.hasEnabled && ! info.enabled)
+            return Result::bad ("the " + buttonTitle + " button is switched off. Is the music selected on the timeline?");
+
+        return Result::good();
+    }
+}
+
+Result Driver::pressButton (const Element& button, const std::string& name, bool& pressed)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        pressed = false;
+
+        if (! button)
+            return Result::bad ("there is no " + name + " button to press");
+
+        if (auto guard = s.frontGuard(); ! guard.ok)
+            return guard;
+
+        // The press may not answer until the work it starts is done, so no answer in time still
+        // counts as pressed.
+        const auto start = Clock::now();
+        const AXError error = AXUIElementPerformAction (ax (button), kAXPressAction);
+        s.say ("Pressed " + name + " (AXPress): " + errorName (error) + ", " + std::to_string (millisecondsSince (start)) + " ms");
+
+        if (error != kAXErrorSuccess && error != kAXErrorCannotComplete)
+            return Result::bad (name + " could not be pressed (" + errorName (error) + ")");
+
+        pressed = true;
+        return Result::good();
+    }
+}
+
+Result Driver::readUndo (std::string& title, bool& enabled)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        title.clear();
+        enabled = false;
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        const auto menuBar = copyElement (ax (s.app), kAXMenuBarAttribute);
+
+        if (! menuBar)
+            return Result::bad ("the menu bar of " + s.appName + " could not be read");
+
+        for (const auto& m : childrenOf (menuBar))
+        {
+            if (normalise (readInfo (ax (m)).title) != "edit")
+                continue;
+
+            for (const auto& i : menuItemsOf (m))
+            {
+                const auto info = readInfo (ax (i));
+
+                if (startsWith (normalise (info.title), "undo"))
+                {
+                    title = info.title;
+                    enabled = ! info.hasEnabled || info.enabled;
+                    return Result::good();
+                }
+            }
+
+            return Result::bad ("the Edit menu of " + s.appName + " has no Undo item");
+        }
+
+        return Result::bad ("the Edit menu of " + s.appName + " was not found");
+    }
+}
+
+Result Driver::countNewWindows (const Element& allowed, int& count)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        count = 0;
+
+        if (! s.baseline)
+            return Result::bad ("the windows open at the start were not noted");
+
+        const auto now = s.windows();
+
+        if (! now)
+            return s.noAnswer ("when asked for its windows");
+
+        for (const auto& w : notIn (*now, *s.baseline))
+            if (! same (w, allowed))
+                ++count;
+
+        return Result::good();
+    }
+}
+
+Result Driver::undoNaming (const std::string& mustName, const Element& allowed, std::string& pressedTitle)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+        pressedTitle.clear();
+
+        if (! s.app)
+            return Result::bad (s.appName + " has not been found");
+
+        if (! s.baseline)
+            return Result::bad ("the windows open at the start were not noted, so Undo was not pressed");
+
+        const auto now = s.windowsPatiently (2000);
+
+        if (s.stopped())
+            return State::stoppedResult();
+
+        if (! now)
+            return s.noAnswer ("when asked for its windows, so Undo was not pressed");
+
+        for (const auto& w : notIn (*now, *s.baseline))
+            if (! same (w, allowed))
+            {
+                s.say ("A window is open that was not there at the start. Undo is not pressed:\n" + s.describe (w, 5));
+                return Result::bad ("a window titled " + quoted (readInfo (ax (w)).title) + " is open in " + s.appName
+                                    + ", so Undo was not pressed. Nothing was pressed in it");
+            }
+
+        std::string title;
+        bool enabled = false;
+
+        if (auto read = readUndo (title, enabled); ! read.ok)
+            return Result::bad (read.message + ", so Undo was not pressed");
+
+        if (! contains (normalise (title), normalise (mustName).c_str()))
+        {
+            s.say ("The Undo item reads " + quoted (title) + ", which does not name " + mustName + ". Undo is not pressed.");
+            return Result::bad ("the Undo item in the Edit menu reads " + quoted (title) + ", not an " + mustName + " step, so Undo was not pressed");
+        }
+
+        if (! enabled)
+            return Result::bad (quoted (title) + " is switched off in the Edit menu, so Undo was not pressed");
+
+        // The item is found again by its title just before the press.
+        Element undo;
+
+        if (const auto menuBar = copyElement (ax (s.app), kAXMenuBarAttribute))
+            for (const auto& m : childrenOf (menuBar))
+                if (normalise (readInfo (ax (m)).title) == "edit")
+                    for (const auto& i : menuItemsOf (m))
+                        if (readInfo (ax (i)).title == title)
+                        {
+                            undo = i;
+                            break;
+                        }
+
+        if (! undo)
+            return Result::bad ("the Undo item changed while it was read, so Undo was not pressed");
+
+        if (auto guard = s.frontGuard(); ! guard.ok)
+            return guard;
+
+        const AXError error = AXUIElementPerformAction (ax (undo), kAXPressAction);
+        s.say ("Pressed " + quoted (title) + " in the Edit menu (AXPress): " + errorName (error));
+
+        if (error != kAXErrorSuccess && error != kAXErrorCannotComplete)
+            return Result::bad (quoted (title) + " could not be pressed in the Edit menu (" + errorName (error) + ")");
+
+        pressedTitle = title;
+        return s.wait (200) ? Result::good() : State::stoppedResult();
+    }
+}
+
+Result Driver::closeWindow (const Element& window)
+{
+    @autoreleasepool
+    {
+        auto& s = *state;
+
+        if (! window)
+            return Result::good();
+
+        if (s.windowIsOpen (window) == State::Open::no)
+        {
+            s.say ("The window is already closed");
+            return Result::good();
+        }
+
+        const auto close = copyElement (ax (window), kAXCloseButtonAttribute);
+
+        if (! close)
+        {
+            s.say ("The window has no close button:\n" + s.describe (window, 2));
+            return Result::bad ("the window has no close button that can be found. It was left open");
+        }
+
+        if (auto guard = s.frontGuard(); ! guard.ok)
+            return guard;
+
+        const AXError error = AXUIElementPerformAction (ax (close), kAXPressAction);
+        s.say ("Pressed the window's close button (AXPress): " + errorName (error));
+
+        if (error != kAXErrorSuccess && error != kAXErrorCannotComplete)
+            return Result::bad ("the window's close button could not be pressed (" + errorName (error) + ")");
+
+        switch (s.waitUntilClosed (window, 3000))
+        {
+            case State::Closed::closed:     s.say ("The window has closed"); return Result::good();
+            case State::Closed::stopped:    return State::stoppedResult();
+            case State::Closed::noAnswer:   return s.noAnswer ("for 3 seconds after its window was closed");
+            case State::Closed::stillOpen:  break;
+        }
+
+        return Result::bad ("the window was still open 3 seconds after its close button was pressed");
     }
 }
 

@@ -35,6 +35,7 @@ struct WriteSettings
     // run: the cursor is then expected to be at the start of the music clip.
     bool hasMusicStart = false;
     long long musicStartSample = 0;
+    std::string musicStartSource = "typed in the sheet";   // where it came from, for the log
 
     bool useScriptingLink = true;       // false: keys only, as without the link
     MusicFacts music;                   // for the scripting link's reading of the selected clip

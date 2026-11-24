@@ -160,6 +160,47 @@ public:
     // Up to this long, in steps, asking `cancelled`. Fails when the run was stopped.
     Result pause (int milliseconds);
 
+    //==============================================================================
+    // AudioSuite, for running Tempo Tantrum Capture (see capture/AudioSuiteRoute.h).
+
+    // Walks the AudioSuite menu and its submenus for an item whose title starts with `name` (any
+    // case). Presses nothing. The first walk in a run of the app writes the whole menu to the log.
+    // `where` gets the path to the item, such as "AudioSuite > Other > Tempo Tantrum Capture".
+    Result findAudioSuiteItem (const std::string& name, Element& item, bool& enabled, std::string& where);
+
+    // An open window whose title contains `titlePart` (any case), or an empty element.
+    Result findWindow (const std::string& titlePart, Element& window);
+
+    // Presses the menu item and waits up to five seconds for a window whose title contains
+    // `titlePart` that was not open before. A different window that opens instead is written to
+    // the log and is the failure; nothing is pressed in it.
+    Result openWindowFromMenu (const Element& menuItem, const std::string& titlePart, Element& window);
+
+    // Writes what the AudioSuite window holds to the log (in full the first time in a run of the
+    // app), names the controls that look like the selection reference, "Use in playlist", the
+    // handle length and the processing mode, and finds the button titled `buttonTitle`. Changes
+    // nothing. Fails when there is no such button or it is switched off.
+    Result readAudioSuiteWindow (const Element& window, const std::string& buttonTitle, Element& button);
+
+    // Presses one button through Accessibility, once, after checking that Pro Tools is in front.
+    // `pressed` says whether the press was sent.
+    Result pressButton (const Element& button, const std::string& name, bool& pressed);
+
+    // The first item of the Edit menu whose title starts with "Undo", and whether it is switched on.
+    Result readUndo (std::string& title, bool& enabled);
+
+    // The windows open now that were not open at rememberWindows, leaving out `allowed`. Fails
+    // when Pro Tools does not answer.
+    Result countNewWindows (const Element& allowed, int& count);
+
+    // Presses Edit > Undo once, only when its title contains `mustName` (any case) and no window is
+    // open that was not there at rememberWindows other than `allowed`. Anything else: nothing is
+    // pressed and the title it had is the failure.
+    Result undoNaming (const std::string& mustName, const Element& allowed, std::string& pressedTitle);
+
+    // Presses the window's close button and waits up to three seconds for it to close.
+    Result closeWindow (const Element& window);
+
     // Lets a window of this application (given by its NSView) stay in view on every Space and
     // beside a full-screen application while another application is in front.
     static void keepInViewEverywhere (void* nativeView);

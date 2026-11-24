@@ -104,8 +104,28 @@ struct EdlEvent
 // (the text was not asked for in samples) are left out.
 std::vector<EdlEvent> edlEventsOf (const std::string& sessionInfo);
 
+// Whether an event is a fade, "(fade in)", "(fade out)" or "(cross fade)": the session info text
+// lists them as events of their own between the clips when asked to show crossfades.
+bool isFadeEvent (const EdlEvent& event);
+
+// Where a clip really starts and ends. The session info text gives a clip's times without its
+// fades: a fade in or out is inside the clip, so the clip starts where its fade in starts and ends
+// where its fade out ends. Under a crossfade the clip's edge is somewhere inside the crossfade; it
+// is found from the clip's length (`clipLength`, 0 when not known) when its other end is known,
+// and otherwise only the range is known.
+struct ClipEdges
+{
+    bool startKnown = false;
+    long long start = 0;                    // the start when known, otherwise the start the text gives
+    long long earliest = 0, latest = 0;     // the range the start is in
+    bool endKnown = false;
+    long long end = 0;                      // the end when known, otherwise the end the text gives
+};
+
+ClipEdges clipEdges (const std::vector<EdlEvent>& events, const EdlEvent& clip, long long clipLength);
+
 // The music on the timeline, from the clips (EDL events) inside an edit selection and the clip
-// list: the first clip, in time, that is in the list with a file (one of `fileIds`, when any
+// list, with their fades put back (clipEdges): the first clip, in time, that is in the list with a file (one of `fileIds`, when any
 // are given). Its offset into its file is the clip list's source start, in the file's samples.
 // The other clips of the same file on the same channel are counted, with how many of them put
 // the start of the file somewhere else (they were moved after the file was cut up).
@@ -167,6 +187,33 @@ std::string clipNameOf (const std::string& fileName);
 // The files behind the selected clips, as clips: the mono files of one multi-mono clip ("Cue.L.wav",
 // "Cue.R.wav") become one entry, "Cue (L, R)". Other names are kept as they are, in order.
 std::vector<std::string> clipsOf (const std::vector<std::string>& fileNames);
+
+//==============================================================================
+// Where a write places the music. Music captured from Pro Tools ("Get from Pro Tools", or the
+// AudioSuite capture) starts at the selection it was captured from: its time 0 is that sample on
+// the timeline, whatever clips made it up, so no clip is matched. Music opened from a file is
+// placed by its clip in the session, read when the run starts.
+enum class StartFrom
+{
+    typed,          // a sample typed under More, which always wins
+    capture,        // the start of the selection the music was captured from
+    session         // read from Pro Tools during the run (the selected clip, or else the cursor)
+};
+
+struct MusicStart
+{
+    StartFrom from = StartFrom::session;
+    bool known = false;             // a sample is given before the run (typed or captured)
+    long long sample = 0;
+};
+
+MusicStart musicStartFor (bool typed, long long typedSample, bool captured, bool captureStartKnown, long long captureStart);
+
+// What the write log says about where the start came from.
+std::string describeStart (StartFrom from);
+
+// Whether a capture's session is not the one open now: both names known and different.
+bool otherSession (const std::string& capturedIn, const std::string& openNow);
 
 //==============================================================================
 // The tempo of the rest of the session.

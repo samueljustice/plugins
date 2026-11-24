@@ -153,6 +153,19 @@ juce::Result save (const juce::File& file, const Contents& c)
 
     root->setProperty ("pins", pinsToVar (c.pins, c.sampleRate));
 
+    if (c.proTools.known)
+    {
+        auto* origin = new juce::DynamicObject();
+        origin->setProperty ("startKnown", c.proTools.startKnown);
+        origin->setProperty ("selectionStart", c.proTools.startSample);
+        origin->setProperty ("selectionEnd", c.proTools.endSample);
+        origin->setProperty ("sessionRate", c.proTools.sessionRate);
+        origin->setProperty ("session", c.proTools.sessionName);
+        origin->setProperty ("name", c.proTools.name);
+        origin->setProperty ("source", c.proTools.source);
+        root->setProperty ("proTools", juce::var (origin));
+    }
+
     // 15 decimal places, so every time and beat reads back as the same number.
     const auto text = juce::JSON::toString (juce::var (root), false, 15);
 
@@ -215,6 +228,19 @@ juce::Result load (const juce::File& file, Contents& c)
 
     c.inputs = std::move (in);
     c.pins = pinsFromVar (root.getProperty ("pins", {}));
+
+    if (const auto origin = root.getProperty ("proTools", {}); origin.isObject())
+    {
+        c.proTools.known = true;
+        c.proTools.startKnown = (bool) origin.getProperty ("startKnown", true);
+        c.proTools.startSample = (juce::int64) origin.getProperty ("selectionStart", 0);
+        c.proTools.endSample = (juce::int64) origin.getProperty ("selectionEnd", 0);
+        c.proTools.sessionRate = (double) origin.getProperty ("sessionRate", 0.0);
+        c.proTools.sessionName = origin.getProperty ("session", {}).toString();
+        c.proTools.name = origin.getProperty ("name", {}).toString();
+        c.proTools.source = origin.getProperty ("source", {}).toString();
+    }
+
     return juce::Result::ok();
 }
 

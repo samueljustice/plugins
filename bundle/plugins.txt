@@ -20,3 +20,6 @@ tonalrecall|tonalrecall-v|Tonal Recall|SammyJs Tonal Recall|
 #test dehonk|dehonk-v|De-Honk|SammyJs De-Honk|SammyJs De-Honk
 #test doomeq|doomeq-v|DOOM EQ|SammyJs DOOM EQ|SammyJs DOOM EQ
 #test body-language|body-language-v|Body Language|Body Language||samueljustice/body-language
+# Tempo Tantrum is an app with one Mac-only AAX beside it (Tempo Tantrum Capture, the bundle name below).
+# It is never in the combined installer, so its line stays a "#test" line after its first full release too.
+#test tempotantrum|tempotantrum-v|Tempo Tantrum|Tempo Tantrum Capture|Tempo Tantrum

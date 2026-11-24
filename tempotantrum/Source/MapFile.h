@@ -22,6 +22,25 @@ struct MapInputs
     bool operator== (const MapInputs&) const;
 };
 
+// Where music captured from Pro Tools came from: its time 0 is `startSample` on the session's
+// timeline. Saved in the map, so the capture reopened later still knows.
+struct ProToolsOrigin
+{
+    bool known = false;                 // the music came from Pro Tools
+    bool startKnown = false;            // and where it starts on the timeline is known
+    juce::int64 startSample = 0, endSample = 0;
+    double sessionRate = 0.0;
+    juce::String sessionName;           // the session it was captured in
+    juce::String name;                  // shown in the header: "<track name> <start>"
+    juce::String source;                // how it was made
+
+    bool operator== (const ProToolsOrigin& o) const
+    {
+        return known == o.known && startKnown == o.startKnown && startSample == o.startSample && endSample == o.endSample
+            && juce::exactlyEqual (sessionRate, o.sessionRate) && sessionName == o.sessionName && name == o.name && source == o.source;
+    }
+};
+
 // The map saved beside the music file as "<music file name>.tempotantrum.json".
 namespace mapfile
 {
@@ -36,6 +55,7 @@ namespace mapfile
         juce::String drumStem;          // path of the drum stem relative to the music's folder, or empty
         MapInputs inputs;
         std::vector<Pin> pins;          // the final map
+        ProToolsOrigin proTools;        // for music captured from Pro Tools
     };
 
     constexpr int currentFormatVersion = 1;

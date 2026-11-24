@@ -12,7 +12,7 @@ Within a section it follows the beat from hit to hit and places pins: points whe
 
 ## How to use it
 
-Open the music with **Open…** or by dropping the file on the window. WAV and AIFF files open, and so does anything else macOS can decode. Tempo Tantrum listens to it straight away and draws the grid and the pins over the waveform.
+Open the music with **Open…** or by dropping the file on the window. WAV and AIFF files open, and so does anything else macOS can decode. Or select the music in Pro Tools and press **Get from Pro Tools** (see below). Tempo Tantrum listens to it straight away and draws the grid and the pins over the waveform.
 
 Tell it the one thing it cannot hear: which bar the first hit is. Set **First hit is bar** and **Beat** (for a trailer cue that starts on bar 40, set bar 40, beat 1). If the first hit it picked is the wrong one, right-click the hit that should be first and choose **This is the first hit**. It estimates the tempo by itself; if it settles on the wrong one (half or double speed, say), type a rough tempo into **Tempo** or tap along with **Tap** or Shift-T. It refines whatever you give it from the audio, and shows the tempo it found beside the box. Clear the box to let it estimate again.
 
@@ -39,6 +39,26 @@ After every change the map is worked out again around your pins, which it always
 
 **Save map** writes the map beside the music. Quitting, or opening other music, with changes that are not saved asks whether to save them. **More** in the footer holds **Export click…**, which writes the click as a WAV file to lay against the music in Pro Tools, and **Test in Pro Tools…**.
 
+## Getting the music from Pro Tools
+
+In Pro Tools, select the music on the timeline: the track or tracks it is on, from where it starts to where it ends. Then press **Get from Pro Tools** (or Cmd+Shift+G) in Tempo Tantrum.
+
+Tempo Tantrum has Pro Tools render the selection offline, through Pro Tools' scripting link, into a folder of its own, and opens the result as the music. What it gets is the selection as it sounds on those tracks: several clips, clips moved against each other, fades and muted clips all come out as you hear them, not as the file behind one clip. Several selected tracks are mixed into one file. Nothing is imported, and nothing in the session is changed: the selection, the tracks and the settings are only read. Pro Tools shows a small progress window while it renders; 40 seconds of music takes about 15 seconds.
+
+The music then starts where the selection starts. The header shows the track name and where the selection starts, and **Write to Pro Tools** writes from there, with no clip to select. The last 20 captures are kept, each with its map, in `~/Library/Caches/Sammy J/Tempo Tantrum/Captures`.
+
+The offline render through the scripting link needs Pro Tools 2025.06 or later. When it cannot be used, or it fails, Tempo Tantrum uses Tempo Tantrum Capture instead if it is installed. The first time in each run of the app it asks: "Pro Tools will render the selection with Tempo Tantrum Capture and then undo it. Go ahead?" This route takes one track: select only the music track, and leave the AudioSuite window set to render the whole selection as one file (not clip by clip or multi-mono). It then brings Pro Tools to the front, opens Tempo Tantrum Capture from the AudioSuite menu, presses **Render**, takes the audio, presses Edit > Undo to take the rendered clip out of the session again, and closes the AudioSuite window. No setting in the AudioSuite window is changed. This needs the Accessibility permission (see Writing to Pro Tools), and the keyboard and mouse must be left alone while it runs. It presses Undo only after the render has happened and only when the Undo item names AudioSuite, and then checks through the scripting link that the clips and the edit selection are as they were. When anything is not as expected it stops and says what to undo by hand, if anything. If Pro Tools still shows a progress window or a dialog long after Render, it stops without pressing anything more: check the session once Pro Tools has finished, and press Cmd+Z there if a rendered clip is in it. Without Tempo Tantrum Capture it says how to install it.
+
+Every Get from Pro Tools is written to `~/Library/Logs/Sammy J/Tempo Tantrum/Get from Pro Tools.log`.
+
+### Tempo Tantrum Capture
+
+Tempo Tantrum Capture is a small AudioSuite plug-in (AAX, Pro Tools on a Mac) that comes with Tempo Tantrum. It sends the audio Pro Tools renders through it to Tempo Tantrum, which opens it as the music. It does not change the audio: what it renders back into the session is what went in.
+
+To install it, copy `Tempo Tantrum Capture.aaxplugin` to `/Library/Application Support/Avid/Audio/Plug-Ins` and restart Pro Tools.
+
+To use it by hand, select the music on the timeline, choose AudioSuite > Other > Tempo Tantrum Capture (or wherever your AudioSuite menu lists it: under Sammy J when it is sorted by manufacturer), set it to process the entire selection, and press **Render**. Tempo Tantrum opens the audio as the music. Like any AudioSuite render, Render puts a rendered clip in the session: press Cmd+Z in Pro Tools to take it out. Tempo Tantrum trims off the AudioSuite handles and reads where the selection starts through the scripting link as the audio arrives. If it cannot, or the audio is not as long as the selection, the status line says so, and Write to Pro Tools needs the music start typed in. If Tempo Tantrum is not open, it opens the newest capture the next time it starts, but it cannot know where that one starts, as the selection may have moved in the meantime. A render of several files at once (several tracks, multi-mono or clip by clip) opens only the first, with its start not known.
+
 ## Writing to Pro Tools
 
 **Write to Pro Tools** puts a bar|beat marker on every pin, the way it is done by hand: it moves the Pro Tools cursor to the pin, opens Event > Identify Beat, types the pin's bar, beat and ticks, and presses OK. A pin takes about a second.
@@ -49,7 +69,7 @@ Use a copy of the session until you trust it.
 
 It needs the Accessibility permission, which you give once. The sheet says when it is missing: press **Ask macOS for permission**, switch Tempo Tantrum on in System Settings > Privacy & Security > Accessibility, and reopen the app.
 
-In Pro Tools, select the music clip. Then press **Write to Pro Tools**. The sheet reads the session about once a second and shows:
+In Pro Tools, select the music clip. Then press **Write to Pro Tools**. For music that came from **Get from Pro Tools** no clip needs selecting: the sheet says the music starts where the selection it came from starts, and warns when the open session is not the one it came from. The sheet reads the session about once a second and shows:
 
 - the session's name,
 - **Music clip selected: Cue 3.wav, starting at sample 2,880,000**, or **Select the music clip in Pro Tools** while nothing is selected. A stereo clip made of two mono files shows as one clip, **Cue 3 (L, R)**,
@@ -126,6 +146,7 @@ The line at the top of the panel says how the run ended. **Stop**, or Escape in 
 | Escape | Stop looping and keep playing. |
 | Shift-T | Tap the tempo. Taps more than two seconds apart start a new count. |
 | Cmd-O | Open music. |
+| Cmd-Shift-G | Get from Pro Tools. |
 | Cmd-S | Save the map. |
 | Cmd-Z, Shift-Cmd-Z | Undo, redo. |
 

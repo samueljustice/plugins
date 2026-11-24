@@ -19,6 +19,8 @@ namespace
     const char* const instruction = "In Pro Tools, select the music clip so the cursor is at its start, with the Main Counter set to "
                                     "Samples. Then press Write.";
     const char* const linkedInstruction = "In Pro Tools, select the music clip. Then press Write.";
+    const char* const capturedInstruction = "In Pro Tools, set the Main Counter to Samples. Then press Write.";
+    const char* const capturedLinkedInstruction = "The music came from Pro Tools, so the pins go back where it was captured. Press Write.";
     const char* const permissionMissing = "macOS has not given Tempo Tantrum permission to control other apps.";
     const char* const permissionNote = "Then switch Tempo Tantrum on in System Settings > Privacy & Security > Accessibility, and reopen the app.";
     const char* const handsOff = "Leave the keyboard and mouse alone";
@@ -494,6 +496,21 @@ void ProToolsWriteSheet::setSource (const std::vector<Pin>& newPins, int newBeat
     updateControls();
 }
 
+void ProToolsWriteSheet::setProToolsOrigin (const ProToolsOrigin& newOrigin)
+{
+    if (newOrigin == origin)
+        return;
+
+    origin = newOrigin;
+    updateControls();
+}
+
+pt::MusicStart ProToolsWriteSheet::musicStart() const
+{
+    return pt::musicStartFor (startBox.hasValue(), std::llround (startBox.getValue()), origin.known, origin.startKnown,
+                              (long long) origin.startSample);
+}
+
 pt::MusicFacts ProToolsWriteSheet::musicFacts() const
 {
     pt::MusicFacts facts;
@@ -709,8 +726,10 @@ void ProToolsWriteSheet::startWrite()
     settings.sessionSampleRate = rateBox.getValue();
     settings.rateTyped = rateTyped;
     settings.music = musicFacts();
-    settings.hasMusicStart = startBox.hasValue();
-    settings.musicStartSample = std::llround (startBox.getValue());
+    const auto start = musicStart();
+    settings.hasMusicStart = start.known;
+    settings.musicStartSample = start.sample;
+    settings.musicStartSource = pt::describeStart (start.from);
     settings.checkAfterwards = checkTick->isTicked();
     settings.slowKeys = slowTick->isTicked();
     settings.hasLastStart = hasLastStart;
@@ -1063,6 +1082,19 @@ juce::String ProToolsWriteSheet::counterLine (bool& warning) const
         start = std::llround (startBox.getValue());
         text = "The music starts at sample " + grouped (start) + ", as typed under More.";
     }
+    else if (captured())
+    {
+        start = (long long) origin.startSample;
+        text = "The music starts at sample " + grouped (start) + ", where the selection it was captured from starts.";
+
+        if (counterKnown && counter.read && ! counter.isSamples)
+        {
+            warning = true;
+            text << " The Main Counter shows " << juce::String::fromUTF8 (counter.text.c_str()).trim() << ". Set it to Samples.";
+        }
+
+        return text;
+    }
     else if (! counterKnown)
     {
         return "Reading the Main Counter in Pro Tools.";
@@ -1109,6 +1141,9 @@ juce::String ProToolsWriteSheet::lastRunNote (long long start, bool typed) const
 
 juce::String ProToolsWriteSheet::instructionText() const
 {
+    if (captured() && ! startBox.hasValue())
+        return linkInUse() ? capturedLinkedInstruction : capturedInstruction;
+
     return linkInUse() ? linkedInstruction : instruction;
 }
 
@@ -1130,6 +1165,12 @@ std::vector<ProToolsWriteSheet::Line> ProToolsWriteSheet::readyLines() const
         {
             start = std::llround (startBox.getValue());
             lines.push_back ({ "The music starts at sample " + grouped (start) + ", as typed under More." });
+        }
+        else if (captured())
+        {
+            start = (long long) origin.startSample;
+            lines.push_back ({ "The music came from Pro Tools: it starts at sample " + grouped (start)
+                               + ", where the selection it was captured from starts." });
         }
         else if (link.selectedClips.size() == 1 && link.hasSelection)
         {
@@ -1153,10 +1194,13 @@ std::vector<ProToolsWriteSheet::Line> ProToolsWriteSheet::readyLines() const
             lines.push_back ({ "Select the music clip in Pro Tools.", true });
         }
 
-        if (clipFile.isNotEmpty() && ! link.fileIsMusic && musicName.isNotEmpty())
+        if (captured() && pt::otherSession (origin.sessionName.toStdString(), link.sessionName))
+            lines.push_back ({ "The music was captured in the session " + origin.sessionName + ", not this one.", true });
+
+        if (! captured() && clipFile.isNotEmpty() && ! link.fileIsMusic && musicName.isNotEmpty())
             lines.push_back ({ "The selected clip's file is " + clipFile + ", but the music open here is " + musicName + ".", true });
 
-        if (link.sampleRate > 0.0 && shownMusicRate > 0.0 && std::abs (link.sampleRate - shownMusicRate) > 0.5)
+        if (! captured() && link.sampleRate > 0.0 && shownMusicRate > 0.0 && std::abs (link.sampleRate - shownMusicRate) > 0.5)
             lines.push_back ({ "The session runs at " + kiloHertz (link.sampleRate) + " and the music file at " + kiloHertz (shownMusicRate) + ".", true });
 
         if (rateTyped && link.sampleRate > 0.0 && std::abs (rateBox.getValue() - link.sampleRate) > 0.5)
@@ -1170,8 +1214,8 @@ std::vector<ProToolsWriteSheet::Line> ProToolsWriteSheet::readyLines() const
         else if (! link.transport.empty() && ! link.stopped)
             lines.push_back ({ "Pro Tools is playing. It will be stopped for the write." });
 
-        if (link.hasMusicStart || typed)
-            if (const auto note = lastRunNote (start, typed); note.isNotEmpty())
+        if (link.hasMusicStart || typed || captured())
+            if (const auto note = lastRunNote (start, typed || captured()); note.isNotEmpty())
                 lines.push_back ({ note, true });
 
         return lines;

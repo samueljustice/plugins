@@ -376,7 +376,7 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
         char text[48];
         std::snprintf (text, sizeof (text), "%.10g", settings.sessionSampleRate);
         say (std::string ("Session sample rate given for the pins: ") + text + (settings.rateTyped ? " (typed in the sheet)" : ""));
-        say (settings.hasMusicStart ? "Music starts at sample " + std::to_string (settings.musicStartSample) + " (typed in the sheet)"
+        say (settings.hasMusicStart ? "Music starts at sample " + std::to_string (settings.musicStartSample) + " (" + settings.musicStartSource + ")"
                                     : std::string ("Music start: read from Pro Tools at the start of the run"));
         say (std::string ("Keys: ") + (settings.slowKeys ? "typed slowly" : "typed at the quick pace"));
         say (std::string ("Check each pin afterwards: ") + (settings.checkAfterwards ? "yes" : "no"));
