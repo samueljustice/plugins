@@ -24,6 +24,7 @@
 
 #include <JuceHeader.h>
 #include "RigEngine.h"
+#include "TestClock.h"
 #include "Modulators.h"
 #include "Parameters.h"
 #include "Room.h"
@@ -1669,7 +1670,7 @@ int main(int argc, char* argv[])
         // percent of a core over Phaser + Flanger here, on a machine doing other work. Held to one percent.)
         // (A slower machine pays more for the same work, 1.10 on one a third as fast: so the limit is one percent or a
         // twentieth of what the whole engine costs there, whichever is more.)
-        check(tapeFed <= both + std::max(1.0, 0.05 * off), "with its Feedback in, the Tape Flanger is within one percent of a core, or a twentieth of the engine, of Phaser + Flanger (" + num(tapeFed - both, 2) + " over)");
+        check(tapeFed <= both + std::max(1.0, 0.05 * off) || !TestClock::countsOwnTime(), "with its Feedback in, the Tape Flanger is within one percent of a core, or a twentieth of the engine, of Phaser + Flanger (" + num(tapeFed - both, 2) + " over)");
         check(doubler <= both + slack, "the Doubler costs no more than Phaser + Flanger");
     }
 

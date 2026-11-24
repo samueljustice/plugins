@@ -24,4 +24,16 @@ namespace TestClock
        #endif
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
     }
+
+    /** True where cpuMs() counts this thread's own processor time. Where it falls back to the wall (Windows), a shared
+        build machine's other work lands in the reading: the tight cost limits are then reported but not held. */
+    inline bool countsOwnTime()
+    {
+       #if defined(__APPLE__) || defined(__linux__)
+        timespec t {};
+        return clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t) == 0;
+       #else
+        return false;
+       #endif
+    }
 }
