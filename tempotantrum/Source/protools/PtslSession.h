@@ -54,7 +54,20 @@ struct SessionReading
     std::vector<std::string> selectedFiles;     // the file name behind each selected clip
     std::vector<std::string> selectedClips;     // the same, with the mono files of one multi-mono clip as one
     std::string selectedFileId;     // the (first) file of the one selected clip
+    std::string selectedFilePath;   // and its path
     bool fileIsMusic = false;       // the one selected clip's file has the music's name
+
+    // "selected clips" when Pro Tools listed the clips selected on the timeline, "selected tracks"
+    // when the file was found from the clips on the selected tracks instead. Empty for neither.
+    std::string clipFoundBy;
+
+    // The clips of the selected tracks inside the edit selection, with the clip list, placed the
+    // music: the first clip's name, where it starts and where the last clip of its file ends.
+    bool placedFromClips = false;
+    std::string clipName;
+    long long clipStart = 0, clipEnd = 0;
+    int clipsInSelection = 0;       // clips of the file in the selection, on one channel
+    int clipsOffLine = 0;           // of those, how many put the file's start somewhere else (the clips were moved)
 
     Trim trim = Trim::none;
     long long trimSamples = 0;      // how far into its file the clip starts, in session samples
@@ -63,12 +76,58 @@ struct SessionReading
     long long musicStart = 0;
 };
 
+// "2880000" or "2,880,000" as a number. False when it is not one. Also reads ticks, which
+// Pro Tools gives as a large whole number ("1000141611150").
+bool samplesOf (const std::string& text, long long& samples);
+
+// "SR_48000" or "SRate_48000" as 48000. 0 when the name does not end in a rate.
+double sampleRateOfName (const std::string& name);
+
+// "TS_TransportStopped" (or "TState_TransportStopped").
+bool isStoppedState (const std::string& state);
+
+// "   20| 4| 491" (bars|beats, padded with spaces) into 20, 4 and 491. False when it is not bar|beat|tick.
+bool barsBeatsOf (const std::string& text, long long& bar, long long& beat, long long& tick);
+
+// "   1:00.060" (min:sec, padded with spaces) as 60.06 seconds.
+bool secondsOfMinSecs (const std::string& text, double& seconds);
+
+// One clip on a track, from the session info text with the track EDLs in samples.
+struct EdlEvent
+{
+    std::string track, clip;
+    int channel = 0;                // 1, 2, ... for the channels of a stereo or wider track
+    long long start = 0, end = 0;   // in samples from the session start
+};
+
+// Every clip of every track in a session info text. Lines whose times are not whole samples
+// (the text was not asked for in samples) are left out.
+std::vector<EdlEvent> edlEventsOf (const std::string& sessionInfo);
+
+// The music on the timeline, from the clips (EDL events) inside an edit selection and the clip
+// list: the first clip, in time, that is in the list with a file (one of `fileIds`, when any
+// are given). Its offset into its file is the clip list's source start, in the file's samples.
+// The other clips of the same file on the same channel are counted, with how many of them put
+// the start of the file somewhere else (they were moved after the file was cut up).
+struct MusicPlacement
+{
+    bool found = false;
+    std::string clipName, fileId;
+    long long clipStart = 0, clipEnd = 0;   // the first clip's start, the last clip's end (samples)
+    bool offsetKnown = false;
+    long long offset = 0;                   // how far into its file the first clip starts (file samples)
+    int clips = 0, clipsOffLine = 0;
+};
+
+MusicPlacement placeMusic (const std::vector<EdlEvent>& events, long long selectionIn, long long selectionOut,
+                           const std::vector<ptsl::Clip>& clips, const std::vector<std::string>& fileIds);
+
 // Connects and registers ("Sammy J", "Tempo Tantrum") when the client is not connected. False,
 // with a sentence, when the link cannot be used.
 bool openLink (ptsl::Client& client, std::string& problem);
 
-// Reads everything above. The clip list is read only when the selected clip is shorter than the
-// music, and is kept for as long as the same clip stays selected.
+// Reads everything above. The clips of the selected tracks and the clip list are read only when
+// the edit selection or the selected files change, and kept while they stay the same.
 // A read ends at the first command Pro Tools does not answer in time, with timedOut set and the
 // session not counted as open, and when `stop` returns true (it is asked between commands).
 class SessionReader
@@ -77,13 +136,23 @@ public:
     SessionReading read (ptsl::Client& client, const MusicFacts& music, const std::function<bool()>& stop = {});
 
 private:
-    std::string cachedKey;
-    Trim cachedTrim = Trim::unknown;
-    long long cachedTrimSamples = 0;
+    struct Placed
+    {
+        bool found = false;
+        MusicPlacement place;
+        ptsl::FileLocation file;    // the file's path, when no clip was in the list of selected clips
+    };
+
+    std::string placedKey;
+    Placed placed;
+
+    static Placed placeOnSelectedTracks (ptsl::Client& client, long long selectionIn, long long selectionOut,
+                                         const std::vector<std::string>& fileIds, const std::function<bool (const ptsl::Reply&)>& ended);
 };
 
-// "2880000" or "2,880,000" as a number. False when it is not one.
-bool samplesOf (const std::string& text, long long& samples);
+// The end of the last clip on any track, in samples, from the session info text of every track.
+// False when the text could not be read or has no clips in it.
+bool readMaterialEnd (ptsl::Client& client, long long& end, std::string& problem);
 
 // A duration like "24:00:00:00" or "00:03:00:00.00" in whole seconds (frames are left out).
 double secondsOfTimecode (const std::string& text);
@@ -102,8 +171,44 @@ std::vector<std::string> clipsOf (const std::vector<std::string>& fileNames);
 //==============================================================================
 // The tempo of the rest of the session.
 
-// About one point every two seconds from `from` to `to` (samples), at most 300, both ends included.
+// About one point every two seconds from `from` to `to` (samples), at most maxProbePoints, both
+// ends included. At about 13 ms a conversion, 400 points take about 5 s.
+inline constexpr int maxProbePoints = 400;
 std::vector<long long> probePoints (long long from, long long to, double sampleRate);
+
+// Where the session's material is, for the surveys before and after the music. The session
+// length Pro Tools gives is a default duration (24 hours), not where the material ends, so it
+// is not used.
+enum class AfterEnd
+{
+    lastClip,               // the end of the last clip on any track
+    cappedAtTwoHours,       // the clips go on past two hours from the session start
+    halfHourAfterMusic      // the clips could not be read: 30 minutes after the music
+};
+
+struct SurveySpan
+{
+    bool use = false;
+    long long from = 0, to = 0;
+};
+
+struct SurveyPlan
+{
+    SurveySpan before, after;
+    long long afterEnd = 0;
+    AfterEnd afterSource = AfterEnd::halfHourAfterMusic;
+};
+
+// Before: the session start (sample 0) to the music start, when the music starts later.
+// After: the end of the music's clip to the end of the last clip (at most two hours from the
+// session start), or to 30 minutes after the music when that end is not known.
+SurveyPlan planSurvey (long long musicStart, long long clipEnd, bool materialEndKnown, long long materialEnd, double sampleRate);
+std::string describeAfterEnd (AfterEnd source);
+
+// The check after a write, in the session's own ticks: the pin's sample and the pin's bar|beat
+// are both turned into ticks (exact, unlike bar|beat to samples, which rounds to the display's
+// ticks), and the difference is given in samples with the local ticks per sample.
+double samplesOffInTicks (long long sampleTicks, long long barBeatTicks, double ticksPerSample);
 
 struct TempoSurvey
 {

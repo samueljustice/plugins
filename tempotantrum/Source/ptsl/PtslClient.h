@@ -15,6 +15,8 @@
 // A build without the Pro Tools Scripting SDK has a stand-in whose every call fails with
 // noLinkMessage, so the app and its tests build without the SDK.
 //
+namespace juce { class var; }
+
 // Pro Tools queues commands while one of its modal dialogs is open, so a call made then waits
 // until the dialog closes, and here runs out of time. Callers must not send anything while they
 // have a dialog open in Pro Tools.
@@ -86,6 +88,14 @@ struct Clip
     Position start, end, sourceStart, sourceEnd;
 };
 
+struct Track
+{
+    std::string name, id, type;
+    int index = 0;
+    bool selected = false;      // explicitly or implicitly
+    bool hasClips = false;
+};
+
 class Client
 {
 public:
@@ -133,10 +143,16 @@ public:
     Answer<Selection> editSelection (const std::string& locationType);
     Answer<Selection> timelineSelection (const std::string& locationType);
     Answer<EditModeOptions> editModeOptions();
-    Answer<std::vector<FileLocation>> fileLocations (const std::string& filter);
+    // The lists are read a page at a time until all are in.
+    Answer<std::vector<FileLocation>> fileLocations (const std::string& filter);    // "SelectedClipsTimeline", "All_Files", ...
     Answer<std::string> timeAsType (const std::string& location, const std::string& fromType, const std::string& toType);
+    Answer<std::vector<Track>> trackList();
     Answer<int> trackCount();
     Answer<std::vector<Clip>> clipList();
+
+    // The session info text with each track's clips (its EDL) in samples, as a string: no file
+    // is written. Every track, or only the selected ones.
+    Answer<std::string> sessionInfoText (bool selectedTracksOnly);
 
     // These change Pro Tools.
     Reply togglePlayState();
@@ -155,6 +171,11 @@ private:
     mutable std::recursive_mutex lock;
 
     void dropConnection();
+
+    // Sends a list command page by page with `fields` (JSON members, without braces) and calls
+    // `each` with every item of the list `listKey`. The reply is the last page's, with the time of all.
+    Reply sendPaged (const std::string& command, const std::string& fields, const char* listKey,
+                     const std::function<void (const juce::var&)>& each, int timeoutMs = defaultTimeoutMs);
 };
 
 } // namespace tt::ptsl

@@ -78,6 +78,12 @@ public:
             return;
         }
 
+        if (args.contains ("--ptsl-read"))
+        {
+            runPtslRead (args);
+            return;
+        }
+
         if (args.contains ("--ptsl-probe"))
         {
             runPtslProbe();
@@ -539,12 +545,85 @@ private:
         return i >= 0 && i + 1 < args.size() ? args[i + 1] : juce::String();
     }
 
+    // --ptsl-read <command> [<json body>]
+    // Sends one command that only reads, with the body given, and prints the raw answer. Commands
+    // that could change Pro Tools are refused before anything is sent, and ExportSessionInfoAsText
+    // is sent only when it asks for a string answer (never a file).
+    void runPtslRead (const juce::StringArray& args)
+    {
+        const auto command = valueAfterFlag (args, "--ptsl-read").toStdString();
+        const int at = args.indexOf ("--ptsl-read");
+        const auto body = at + 2 < args.size() ? args[at + 2].toStdString() : std::string();
+
+        static const char* const readers[] = { "HostReadyCheck", "GetPTSLVersion", "GetSessionName", "GetSessionSampleRate",
+                                               "GetSessionStartTime", "GetSessionLength", "GetSessionTimeCodeRate",
+                                               "GetSessionBitDepth", "GetSessionAudioFormat", "GetSessionFeetFramesRate",
+                                               "GetSessionAudioRatePullSettings", "GetSessionVideoRatePullSettings",
+                                               "GetSessionInterleavedState", "GetSessionPath", "GetSessionIDs",
+                                               "GetSessionSystemDelayInfo", "GetTransportState", "GetMainCounterFormat",
+                                               "GetEditSelection", "GetTimelineSelection", "GetEditModeOptions", "GetFileLocation",
+                                               "GetTimeAsType", "GetTrackList", "GetClipList", "GetMediaFileInfo",
+                                               "GetMemoryLocations", "ExportSessionInfoAsText" };
+
+        bool allowed = std::find_if (std::begin (readers), std::end (readers), [&] (const char* n) { return command == n; }) != std::end (readers);
+        std::string refusal = allowed ? std::string() : "only commands that read are sent";
+
+        if (allowed && command == "ExportSessionInfoAsText")
+        {
+            const auto parsed = juce::JSON::parse (juce::String::fromUTF8 (body.c_str()));
+            const auto type = parsed.getProperty ("output_type", juce::var()).toString();
+            allowed = (type == "ESI_String" || type == "ESIOType_String") && parsed.getProperty ("output_path", juce::var()).toString().isEmpty();
+            refusal = "ExportSessionInfoAsText is sent only with a string output and no output path";
+        }
+
+        headlessRun = std::thread ([this, command, body, allowed, refusal]
+        {
+            bool ok = false;
+
+            if (! allowed)
+            {
+                std::cout << "Refused: " << refusal << std::endl;
+            }
+            else
+            {
+                ptsl::Client client;
+                std::string problem;
+
+                if (! pt::openLink (client, problem))
+                {
+                    std::cout << "No link: " << problem << std::endl;
+                }
+                else
+                {
+                    const auto reply = client.send (command, body, 20000);
+                    ok = reply.ok;
+                    std::cout << juce::String (reply.seconds * 1000.0, 1) << " ms  " << command << ": "
+                              << (reply.ok ? std::string ("ok") : "FAILED: " + reply.message) << std::endl;
+
+                    if (! reply.body.empty())
+                        std::cout << reply.body << std::endl;
+
+                    if (! reply.error.empty())
+                        std::cout << "error: " << reply.error << std::endl;
+                }
+            }
+
+            juce::MessageManager::callAsync ([this, ok]
+            {
+                setApplicationReturnValue (ok ? 0 : 1);
+                quit();
+            });
+        });
+    }
+
     // --ptsl-probe [--raw]
     // Connects to Pro Tools' scripting link, registers, and sends only commands that read: the
     // session's name, rate, start and length, the transport, the Main Counter's format, the edit
     // and timeline selections, the edit mode options, the files of the selected clips, a few time
-    // conversions and the number of tracks. Prints each command, what came back and how long it
-    // took. Changes nothing in Pro Tools. With --raw the JSON answers are printed too (file paths
+    // conversions, the tracks, the selected clip as Write to Pro Tools finds it (with its file and
+    // its offset into it), where the session's clips end and the tempo surveys a write would make
+    // before and after the music. Prints each command, what came back and how long it took.
+    // Changes nothing in Pro Tools. With --raw the JSON answers are printed too (file paths
     // excepted).
     void runPtslProbe()
     {
@@ -649,6 +728,14 @@ private:
                 {
                     const auto back = client.timeAsType (bars.value, "TLType_BarsBeats", "TLType_Samples");
                     show ("GetTimeAsType (bars|beats to samples)", back.reply, "\"" + bars.value + "\" -> " + back.value);
+
+                    // The same bar|beat in ticks, against the sample's own ticks: the bar|beat is
+                    // rounded to the display's ticks, so the two differ by under one display tick.
+                    const auto barTicks = client.timeAsType (bars.value, "TLType_BarsBeats", "TLType_Ticks");
+                    long long a = 0, b = 0;
+                    const bool both = ticks.ok() && barTicks.ok() && pt::samplesOf (ticks.value, a) && pt::samplesOf (barTicks.value, b);
+                    show ("GetTimeAsType (bars|beats to ticks)", barTicks.reply, "\"" + bars.value + "\" -> \"" + barTicks.value + "\""
+                          + (both ? ", " + std::to_string (b - a) + " ticks from the sample's" : std::string()));
                 }
 
                 for (const auto* location : { "1|1|000", "1|2|000", "2|1|000" })
@@ -660,24 +747,11 @@ private:
                 const auto secondsAt = client.timeAsType (at, "TLType_Samples", "TLType_MinSecs");
                 show ("GetTimeAsType (samples to min:sec)", secondsAt.reply, at + " -> \"" + secondsAt.value + "\"");
 
+                // The session start is sample 0: sample 0 converts to the session's start time.
+                // The session length is a duration, not a location, so it is not converted.
                 const auto zero = client.timeAsType ("0", "TLType_Samples", "TLType_TimeCode");
-                show ("GetTimeAsType (sample 0 to timecode)", zero.reply, "0 -> \"" + zero.value + "\"");
-
-                if (sessionStart.ok())
-                    for (const auto* type : { "TLType_TimeCode", "TLType_MinSecs" })
-                    {
-                        const auto converted = client.timeAsType (sessionStart.value, type, "TLType_Samples");
-                        show ("GetTimeAsType (session start to samples)", converted.reply,
-                              "\"" + sessionStart.value + "\" as " + type + " -> " + converted.value);
-                    }
-
-                if (length.ok())
-                    for (const auto* type : { "TLType_TimeCode", "TLType_MinSecs" })
-                    {
-                        const auto converted = client.timeAsType (length.value, type, "TLType_Samples");
-                        show ("GetTimeAsType (session length to samples)", converted.reply,
-                              "\"" + length.value + "\" as " + type + " -> " + converted.value);
-                    }
+                show ("GetTimeAsType (sample 0 to timecode)", zero.reply, "0 -> \"" + zero.value + "\""
+                      + (sessionStart.ok() ? (zero.value == sessionStart.value ? ", the session start" : ", not the session start \"" + sessionStart.value + "\"") : std::string()));
 
                 // How long a run of conversions takes, as the tempo check before and after a write makes.
                 {
@@ -693,8 +767,83 @@ private:
                               << juce::String (ms / count, 2) << " ms each" << std::endl;
                 }
 
-                const auto tracks = client.trackCount();
-                show ("GetTrackList", tracks.reply, std::to_string (tracks.value) + " tracks", false);
+                const auto tracks = client.trackList();
+                int selectedTracks = 0;
+
+                for (const auto& track : tracks.value)
+                    selectedTracks += track.selected ? 1 : 0;
+
+                show ("GetTrackList", tracks.reply, std::to_string (tracks.value.size()) + " tracks, " + std::to_string (selectedTracks) + " selected", false);
+
+                // The selected clip as Write to Pro Tools finds it, with its file and where it starts.
+                {
+                    pt::SessionReader reader;
+                    const auto readStart = std::chrono::steady_clock::now();
+                    const auto reading = reader.read (client, {});
+                    std::cout << juce::String (std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - readStart).count(), 1)
+                              << " ms  Selected clip (a whole session reading): ";
+
+                    if (reading.selectedClips.empty())
+                        std::cout << "none found";
+                    else
+                        std::cout << "file found by " << reading.clipFoundBy << ", \"" << reading.selectedFiles.front() << "\" in \""
+                                  << juce::File (juce::String::fromUTF8 (reading.selectedFilePath.c_str())).getParentDirectory().getFullPathName()
+                                  << "\", id " << reading.selectedFileId;
+
+                    std::cout << ". Edit selection " << reading.selectionIn << " to " << reading.selectionOut << "." << std::endl;
+
+                    if (reading.placedFromClips)
+                        std::cout << "Clips of that file in the selection (selected tracks, session info and clip list): " << reading.clipsInSelection
+                                  << ", the first \"" << reading.clipName << "\" from " << reading.clipStart << ", the last ending at " << reading.clipEnd
+                                  << ", " << reading.clipsOffLine << " moved against the first." << std::endl;
+                    else
+                        std::cout << "The clips of the selected tracks did not place the music." << std::endl;
+
+                    std::cout << "Offset into its file: "
+                              << (reading.trim == pt::Trim::found ? std::to_string (reading.trimSamples) + " samples"
+                                  : reading.trim == pt::Trim::whole ? std::string ("0 (the clip starts at the start of the file)")
+                                  : reading.trim == pt::Trim::unknown ? std::string ("not known") : std::string ("no single clip"))
+                              << ". Music start: " << (reading.hasMusicStart ? std::to_string (reading.musicStart) : std::string ("not known")) << std::endl;
+
+                    // The survey a write would make before and after this clip, and how long it takes.
+                    if (reading.hasMusicStart && reading.sampleRate > 0.0)
+                    {
+                        const auto clipEnd = reading.placedFromClips ? reading.clipEnd
+                                           : reading.selectionOut > reading.selectionIn ? reading.selectionOut : reading.musicStart;
+                        long long materialEnd = 0;
+                        std::string why;
+                        const auto from = std::chrono::steady_clock::now();
+                        const bool known = pt::readMaterialEnd (client, materialEnd, why);
+                        const double readMs = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - from).count();
+                        const auto plan = pt::planSurvey (reading.musicStart, clipEnd, known, materialEnd, reading.sampleRate);
+
+                        std::cout << juce::String (readMs, 1) << " ms  Last clip end (session info, every track): "
+                                  << (known ? std::to_string (materialEnd) : "not read: " + why) << std::endl;
+                        std::cout << "Survey after the music: " << (plan.after.use ? std::to_string (plan.after.from) + " to " + std::to_string (plan.after.to)
+                                                                                 : std::string ("none"))
+                                  << ", to " << pt::describeAfterEnd (plan.afterSource) << std::endl;
+                        std::cout << "Survey before the music: " << (plan.before.use ? std::to_string (plan.before.from) + " to " + std::to_string (plan.before.to)
+                                                                                   : std::string ("none")) << std::endl;
+
+                        for (const auto& [label, span] : { std::pair<const char*, pt::SurveySpan> { "after", plan.after }, { "before", plan.before } })
+                        {
+                            if (! span.use)
+                                continue;
+
+                            const auto points = pt::probePoints (span.from, span.to, reading.sampleRate);
+                            const auto t0 = std::chrono::steady_clock::now();
+                            const auto survey = pt::surveyTempo (client, points, 4, {});
+                            const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
+                            std::cout << juce::String (ms, 1) << " ms  Survey " << label << ": " << points.size() << " points, one every "
+                                      << juce::String ((double) (span.to - span.from) / reading.sampleRate / (double) std::max<size_t> (1, points.size() - 1), 2) << " s, "
+                                      << (survey.ok ? "read" : "not read: " + survey.problem)
+                                      << (survey.inTickUnits ? ", in ticks, " + std::to_string (survey.ticksPerBeat) + " to the beat" : std::string()) << std::endl;
+
+                            if (! survey.ok)
+                                ++failures;
+                        }
+                    }
+                }
             }
 
             const bool ok = connected && failures == 0;

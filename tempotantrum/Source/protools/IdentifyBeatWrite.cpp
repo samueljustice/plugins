@@ -62,27 +62,12 @@ namespace
     // "  46| 1| 000" into ticks from bar 1 beat 1. False when it is not bar|beat|ticks.
     bool ticksOf (const std::string& location, int beatsPerBar, long long& ticks)
     {
-        long long parts[3] = {};
-        size_t start = 0;
+        long long bar = 0, beat = 0, tick = 0;
 
-        for (int part = 0; part < 3; ++part)
-        {
-            const size_t bar = location.find ('|', start);
+        if (! barsBeatsOf (location, bar, beat, tick))
+            return false;
 
-            if ((part < 2) == (bar == std::string::npos))
-                return false;
-
-            auto piece = location.substr (start, bar == std::string::npos ? std::string::npos : bar - start);
-            piece.erase (std::remove_if (piece.begin(), piece.end(), [] (char c) { return c == ' ' || c == '\t'; }), piece.end());
-
-            if (! allDigits (piece) || piece.size() > 9)
-                return false;
-
-            parts[part] = std::stoll (piece);
-            start = bar + 1;
-        }
-
-        ticks = ((parts[0] - 1) * std::max (1, beatsPerBar) + (parts[1] - 1)) * ticksPerBeat + parts[2];
+        ticks = ((bar - 1) * std::max (1, beatsPerBar) + (beat - 1)) * ticksPerBeat + tick;
         return true;
     }
 
@@ -459,8 +444,8 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
     bool haveStart = settings.hasMusicStart;
     long long musicStart = settings.musicStartSample;
     bool movesByLink = false;
-    long long sessionStartSample = 0, sessionEndSample = 0, clipEndSample = 0;
-    bool sessionEndKnown = false;
+    const long long sessionStartSample = 0;     // the session's start time is sample 0
+    long long clipEndSample = 0;
     TempoSurvey restBefore, earlyBefore;
 
     const auto keysOnly = [&] (const std::string& why)
@@ -524,9 +509,20 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
             haveStart = true;
             musicStart = reading.musicStart;
 
+            if (reading.placedFromClips)
+            {
+                say ("The music's first clip in the edit selection, \"" + reading.clipName + "\", starts at sample " + std::to_string (reading.clipStart)
+                     + "; " + std::to_string (reading.clipsInSelection) + (reading.clipsInSelection == 1 ? " clip" : " clips")
+                     + " of the file are in the selection, up to sample " + std::to_string (reading.clipEnd) + ".");
+
+                if (reading.clipsOffLine > 0)
+                    say ("Note: " + std::to_string (reading.clipsOffLine) + " of those clips were moved against the first, so the music "
+                         "start fits only the first clip.");
+            }
+
             switch (reading.trim)
             {
-                case Trim::whole:   say ("The selected clip holds the whole music file."); break;
+                case Trim::whole:   say ("The selected clip starts at the start of its file."); break;
                 case Trim::found:   say ("The selected clip starts " + std::to_string (reading.trimSamples)
                                          + " samples into its file, read from the clip list."); break;
                 case Trim::unknown: say ("Note: if the clip has been trimmed at its start, the grid will be off by the trimmed amount."); break;
@@ -644,33 +640,41 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
         // The tempo of the rest of the session, read before the write and again after it.
         if (haveStart)
         {
-            if (const auto start = c->sessionStartTime(); start.ok())
-                if (const auto asSamples = c->timeAsType (start.value, "TLType_TimeCode", samplesType); asSamples.ok())
-                    samplesOf (asSamples.value, sessionStartSample);
-
+            // The session starts at sample 0 (Pro Tools turns sample 0 into the session's start
+            // time). Its length is a default duration, not where its material ends, so the end
+            // of the last clip on any track is read instead.
             const double fileToSession = settings.music.sampleRate > 0.0 ? rate / settings.music.sampleRate : 1.0;
-            clipEndSample = reading.selectedClips.size() == 1 && reading.hasSelection && reading.selectionOut > reading.selectionIn
+            clipEndSample = reading.placedFromClips && reading.clipEnd > musicStart ? reading.clipEnd
+                          : reading.selectedClips.size() == 1 && reading.hasSelection && reading.selectionOut > reading.selectionIn
                                 ? reading.selectionOut
                                 : musicStart + (long long) std::llround ((double) settings.music.lengthSamples * fileToSession);
 
-            sessionEndKnown = reading.lengthSeconds > 0.0;
-            sessionEndSample = sessionStartSample + (long long) std::llround (reading.lengthSeconds * rate);
-
-            const auto allowed = [&] { return ! isCancelled() && ! gate.dialogMayBeOpen(); };
+            long long materialEnd = 0;
+            std::string materialProblem;
+            const bool materialKnown = readMaterialEnd (*c, materialEnd, materialProblem);
+            const auto plan = planSurvey (musicStart, clipEndSample, materialKnown, materialEnd, rate);
 
             say ("Step: read the bars and beats of the session before and after the music");
+            say ("The survey after the music runs to sample " + std::to_string (plan.afterEnd) + ", " + describeAfterEnd (plan.afterSource)
+                 + (materialKnown ? std::string() : " (" + materialProblem + ")") + ".");
 
-            if (sessionEndKnown && sessionEndSample > clipEndSample)
-                restBefore = surveyTempo (*c, probePoints (clipEndSample, sessionEndSample, rate), settings.beatsPerBar, allowed);
+            const auto allowed = [&] { return ! isCancelled() && ! gate.dialogMayBeOpen(); };
+            const auto surveyStart = std::chrono::steady_clock::now();
 
-            if (musicStart > sessionStartSample)
-                earlyBefore = surveyTempo (*c, probePoints (sessionStartSample, musicStart, rate), settings.beatsPerBar, allowed);
+            if (plan.after.use)
+                restBefore = surveyTempo (*c, probePoints (plan.after.from, plan.after.to, rate), settings.beatsPerBar, allowed);
+
+            if (plan.before.use)
+                earlyBefore = surveyTempo (*c, probePoints (plan.before.from, plan.before.to, rate), settings.beatsPerBar, allowed);
+
+            const double surveySeconds = std::chrono::duration<double> (std::chrono::steady_clock::now() - surveyStart).count();
 
             say ("After the music: " + std::to_string (restBefore.samples.size()) + " points"
                  + (restBefore.ok || restBefore.samples.empty() ? std::string() : ", not read: " + restBefore.problem)
                  + ". Before it: " + std::to_string (earlyBefore.samples.size()) + " points"
                  + (earlyBefore.ok || earlyBefore.samples.empty() ? std::string() : ", not read: " + earlyBefore.problem)
-                 + (restBefore.inTickUnits ? ". Read in ticks, " + std::to_string (restBefore.ticksPerBeat) + " to the beat" : std::string()));
+                 + (restBefore.inTickUnits ? ". Read in ticks, " + std::to_string (restBefore.ticksPerBeat) + " to the beat" : std::string())
+                 + ". " + seconds (surveySeconds, 1) + " s.");
         }
     }
 
@@ -917,20 +921,38 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
     }
 
     //==============================================================================
-    // The check. Through the link: each pin's bar|beat is turned into a sample, which must be
-    // within 2 samples of the pin's. Opens no dialog. Without the link: at each pin the Identify
-    // Beat dialog is opened, the location it suggests is read, and the dialog is cancelled.
-    // Either way nothing is changed.
+    // The check. Through the link: the pin's sample and the pin's bar|beat are both turned into
+    // the session's ticks, and the two must be within 2 samples' worth of ticks. Ticks are used
+    // because bar|beat to samples rounds through the display's 960 ticks to the beat (a few
+    // samples at most tempos: 2882880 read as bar|beat came back as 2882877), while Pro Tools'
+    // own ticks (960000 to the beat, counted from a large fixed offset) give both positions
+    // exactly. Opens no dialog. Without the link: at each pin the Identify Beat dialog is opened,
+    // the location it suggests is read, and the dialog is cancelled. Either way nothing is changed.
     bool checkedWithLink = false;
 
     if (settings.checkAfterwards && gate.linked() && ! gate.dialogMayBeOpen())
     {
         say ("");
-        say ("Check: turn each pin's bar|beat into a sample through the scripting link");
+        say ("Check: turn each pin's sample and its bar|beat into ticks through the scripting link");
         auto* c = gate.get();
-        long long worst = 0;
+        constexpr double samplesAllowed = 2.0;
+        double worst = 0.0;
         std::vector<PinCheck> off;
         std::string failed;
+
+        struct Read { long long sample = 0, sampleTicks = 0, barBeatTicks = 0; };
+        std::vector<Read> reads;
+
+        const auto ticksAt = [&] (const std::string& location, const char* type, long long& ticks, std::string& why)
+        {
+            const auto converted = c->timeAsType (location, type, "TLType_Ticks");
+
+            if (converted.ok() && samplesOf (converted.value, ticks))
+                return true;
+
+            why = converted.ok() ? "\"" + converted.value + "\" is not a number of ticks" : converted.reply.message;
+            return false;
+        };
 
         for (int i = 0; i < total && failed.empty(); ++i)
         {
@@ -943,31 +965,62 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
             }
 
             const auto& pin = settings.pins[(size_t) i];
-            const auto barBeat = barBeatOf (pin);
-            const long long wanted = musicStart + offsetOf (pin);
-            const auto converted = c->timeAsType (barBeat, barsBeatsType, samplesType);
-            long long found = 0;
+            Read read;
+            read.sample = musicStart + offsetOf (pin);
+            std::string why;
 
-            if (! converted.ok() || ! samplesOf (converted.value, found))
+            if (! ticksAt (std::to_string (read.sample), samplesType, read.sampleTicks, why)
+                || ! ticksAt (barBeatOf (pin), barsBeatsType, read.barBeatTicks, why))
+                failed = "pin " + std::to_string (i + 1) + ": " + why;
+
+            reads.push_back (read);
+        }
+
+        // Ticks per sample near each pin, from its neighbours; for one pin, a second later.
+        long long lone = 0;
+        std::string why;
+
+        if (failed.empty() && total == 1 && ! ticksAt (std::to_string (reads[0].sample + (long long) std::llround (rate)), samplesType, lone, why))
+            failed = "the ticks a second after the pin: " + why;
+
+        for (int i = 0; i < total && failed.empty(); ++i)
+        {
+            const auto& read = reads[(size_t) i];
+            double perSample = 0.0;
+
+            if (total == 1)
+                perSample = (double) (lone - read.sampleTicks) / rate;
+            else
             {
-                failed = "pin " + std::to_string (i + 1) + ": " + (converted.ok() ? "\"" + converted.value + "\" is not a sample" : converted.reply.message);
+                const auto& a = reads[(size_t) (i + 1 < total ? i : i - 1)];
+                const auto& b = reads[(size_t) (i + 1 < total ? i + 1 : i)];
+                perSample = b.sample != a.sample ? (double) (b.sampleTicks - a.sampleTicks) / (double) (b.sample - a.sample) : 0.0;
+            }
+
+            if (! (perSample > 0.0))
+            {
+                failed = "pin " + std::to_string (i + 1) + ": the ticks do not rise with the samples";
                 break;
             }
 
-            const long long diff = found - wanted;
-            worst = std::max (worst, std::llabs (diff));
-            say ("Check pin " + std::to_string (i + 1) + ": " + barBeat + " is at sample " + std::to_string (found) + ", the pin at "
-                 + std::to_string (wanted) + (diff == 0 ? std::string() : ", " + std::to_string (std::llabs (diff)) + " off")
-                 + (std::llabs (diff) <= 2 ? "" : "  NOT WITHIN 2 SAMPLES"));
+            const auto& pin = settings.pins[(size_t) i];
+            const auto barBeat = barBeatOf (pin);
+            const double diff = samplesOffInTicks (read.sampleTicks, read.barBeatTicks, perSample);
+            const bool within = std::abs (diff) <= samplesAllowed;
+            worst = std::max (worst, std::abs (diff));
+            say ("Check pin " + std::to_string (i + 1) + ": " + barBeat + " is at " + std::to_string (read.barBeatTicks) + " ticks, sample "
+                 + std::to_string (read.sample) + " at " + std::to_string (read.sampleTicks) + " ticks"
+                 + (read.barBeatTicks == read.sampleTicks ? std::string() : ", " + seconds (std::abs (diff), 2) + " samples " + (diff > 0 ? "later" : "earlier"))
+                 + (within ? "" : "  NOT WITHIN 2 SAMPLES"));
 
-            if (std::llabs (diff) > 2)
+            if (! within)
             {
                 PinCheck check;
                 check.pin = i + 1;
                 check.wanted = barBeat;
-                check.found = std::to_string (found);
+                check.found = std::to_string (read.sample + (long long) std::llround (diff));
                 check.inSamples = true;
-                check.samplesOff = diff;
+                check.samplesOff = std::llround (diff);
                 off.push_back (check);
             }
         }
@@ -979,7 +1032,7 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
             outcome.checked = true;
             outcome.checkedPins = total;
             outcome.off = off;
-            const auto largest = " (largest error " + std::to_string (worst) + (worst == 1 ? " sample)" : " samples)");
+            const auto largest = " (largest error " + seconds (worst, 2) + " samples)";
 
             if (off.empty())
                 outcome.checkSummary = (total == 1 ? std::string ("The pin checks out") : "All " + pins (total) + " check out") + largest;
@@ -1114,11 +1167,7 @@ WriteOutcome runWrite (const WriteSettings& settings, const LogLine& log, const 
             return std::to_string (std::llabs (change.shiftTicks)) + " ticks (" + amount + " of a beat) " + (change.shiftTicks > 0 ? "later" : "earlier");
         };
 
-        if (! sessionEndKnown)
-        {
-            outcome.restSummary = "Rest of the session: not checked, because the session's length could not be read";
-        }
-        else if (restBefore.samples.empty())
+        if (restBefore.samples.empty())
         {
             outcome.restSummary = "Rest of the session: nothing after the music to check";
         }

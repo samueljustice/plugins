@@ -153,24 +153,63 @@ SessionReading SessionReader::read (ptsl::Client& client, const MusicFacts& musi
             r.selectionOut = r.selectionIn;
     }
 
+    // The files of the clips selected on the timeline.
     const auto files = client.fileLocations ("SelectedClipsTimeline");
 
     if (ended (files.reply))
         return r;
 
+    std::vector<ptsl::FileLocation> selected;
+
     if (files.ok())
+        selected = files.value;
+
+    // Where the music is: the clips of the selected tracks inside the edit selection (from the
+    // session info text, in samples) with how far into their file each starts (from the clip
+    // list). Read again only when the selection or the selected files change, as the clip list
+    // of a large session takes seconds.
+    if (r.hasSelection)
     {
-        for (const auto& file : files.value)
-            r.selectedFiles.push_back (fileNameOf (file.path));
+        std::vector<std::string> ids;
+        std::string key = std::to_string (r.selectionIn) + "/" + std::to_string (r.selectionOut);
 
-        // A multi-mono clip gives one file for each channel: it is still one clip.
-        r.selectedClips = clipsOf (r.selectedFiles);
-
-        if (r.selectedClips.size() == 1)
+        for (const auto& file : selected)
         {
-            r.selectedFileId = files.value.front().fileId;
-            r.fileIsMusic = ! music.fileName.empty() && clipNameOf (r.selectedFiles.front()) == clipNameOf (music.fileName);
+            ids.push_back (file.fileId);
+            key += "/" + file.fileId;
         }
+
+        if (key != placedKey)
+        {
+            bool stopped = false;
+            placed = placeOnSelectedTracks (client, r.selectionIn, r.selectionOut, ids, [&] (const ptsl::Reply& reply)
+            {
+                return stopped = stopped || ended (reply);
+            });
+
+            if (stopped)
+                return r;
+
+            placedKey = key;
+        }
+
+        if (selected.empty() && placed.found && ! placed.file.path.empty())
+            selected.push_back (placed.file);
+    }
+
+    r.clipFoundBy = ! files.value.empty() ? "selected clips" : ! selected.empty() ? "selected tracks" : "";
+
+    for (const auto& file : selected)
+        r.selectedFiles.push_back (fileNameOf (file.path));
+
+    // A multi-mono clip gives one file for each channel: it is still one clip.
+    r.selectedClips = clipsOf (r.selectedFiles);
+
+    if (r.selectedClips.size() == 1)
+    {
+        r.selectedFileId = selected.front().fileId;
+        r.selectedFilePath = selected.front().path;
+        r.fileIsMusic = ! music.fileName.empty() && clipNameOf (r.selectedFiles.front()) == clipNameOf (music.fileName);
     }
 
     if (! r.hasSelection)
@@ -179,74 +218,113 @@ SessionReading SessionReader::read (ptsl::Client& client, const MusicFacts& musi
     // Where the music starts: the clip's start, less how far into its file the clip starts.
     r.hasMusicStart = true;
     r.musicStart = r.selectionIn;
+    const double fileToSession = music.sampleRate > 0.0 && r.sampleRate > 0.0 ? r.sampleRate / music.sampleRate : 1.0;
+
+    if (placed.found && r.selectedClips.size() <= 1)
+    {
+        r.placedFromClips = true;
+        r.clipName = placed.place.clipName;
+        r.clipStart = placed.place.clipStart;
+        r.clipEnd = placed.place.clipEnd;
+        r.clipsInSelection = placed.place.clips;
+        r.clipsOffLine = placed.place.clipsOffLine;
+        r.musicStart = r.clipStart;
+
+        if (placed.place.offsetKnown)
+        {
+            r.trimSamples = (long long) std::llround ((double) placed.place.offset * fileToSession);
+            r.trim = r.trimSamples == 0 ? Trim::whole : Trim::found;
+            r.musicStart = r.clipStart - r.trimSamples;
+        }
+        else
+        {
+            r.trim = Trim::unknown;
+        }
+
+        return r;
+    }
 
     if (r.selectedClips.size() != 1 || ! (r.sampleRate > 0.0))
         return r;
 
+    // Without the clips of the selected tracks: a selection as long as the music holds all of it.
     const long long clipLength = r.selectionOut - r.selectionIn;
-    const double fileToSession = music.sampleRate > 0.0 ? r.sampleRate / music.sampleRate : 1.0;
     const auto musicLength = (long long) std::llround ((double) music.lengthSamples * fileToSession);
 
-    if (r.fileIsMusic && music.lengthSamples > 0 && std::llabs (clipLength - musicLength) <= 2)
-    {
-        r.trim = Trim::whole;
-        return r;
-    }
-
-    const auto key = r.selectedFileId + "/" + std::to_string (r.selectionIn) + "/" + std::to_string (r.selectionOut);
-
-    if (key != cachedKey)
-    {
-        cachedKey = key;
-        cachedTrim = Trim::unknown;
-        cachedTrimSamples = 0;
-
-        // The clips that use this file and are as long as the selection; they must agree on the offset.
-        const auto clips = client.clipList();
-
-        if (ended (clips.reply))
-        {
-            cachedKey.clear();
-            return r;
-        }
-
-        if (clips.ok() && ! r.selectedFileId.empty())
-        {
-            bool found = false, agree = true;
-            long long offset = 0;
-
-            for (const auto& clip : clips.value)
-            {
-                if (clip.fileId != r.selectedFileId || ! clip.sourceStart.known || ! clip.sourceEnd.known
-                    || clip.sourceStart.type != "BTType_Samples" || clip.sourceEnd.type != "BTType_Samples")
-                    continue;
-
-                const auto sourceLength = (long long) std::llround ((double) (clip.sourceEnd.position - clip.sourceStart.position) * fileToSession);
-
-                if (std::llabs (sourceLength - clipLength) > 2)
-                    continue;
-
-                const auto start = (long long) std::llround ((double) clip.sourceStart.position * fileToSession);
-                agree = agree && (! found || start == offset);
-                offset = start;
-                found = true;
-            }
-
-            if (found && agree)
-            {
-                cachedTrim = Trim::found;
-                cachedTrimSamples = offset;
-            }
-        }
-    }
-
-    r.trim = cachedTrim;
-    r.trimSamples = cachedTrimSamples;
-
-    if (r.trim == Trim::found)
-        r.musicStart = r.selectionIn - r.trimSamples;
-
+    r.trim = r.fileIsMusic && music.lengthSamples > 0 && std::llabs (clipLength - musicLength) <= 2 ? Trim::whole : Trim::unknown;
     return r;
+}
+
+SessionReader::Placed SessionReader::placeOnSelectedTracks (ptsl::Client& client, long long selectionIn, long long selectionOut,
+                                                            const std::vector<std::string>& fileIds,
+                                                            const std::function<bool (const ptsl::Reply&)>& ended)
+{
+    Placed placed;
+    const auto info = client.sessionInfoText (true);
+
+    if (ended (info.reply) || ! info.ok())
+        return placed;
+
+    const auto events = edlEventsOf (info.value);
+    bool any = false;
+
+    for (const auto& event : events)
+        any = any || (event.end > selectionIn && event.start < std::max (selectionOut, selectionIn + 1));
+
+    if (! any)
+        return placed;
+
+    const auto clips = client.clipList();
+
+    if (ended (clips.reply) || ! clips.ok())
+        return placed;
+
+    placed.place = placeMusic (events, selectionIn, selectionOut, clips.value, fileIds);
+    placed.found = placed.place.found;
+
+    if (! placed.found)
+        return placed;
+
+    // The file's path, when no clip was in Pro Tools' list of selected clips.
+    if (std::find (fileIds.begin(), fileIds.end(), placed.place.fileId) == fileIds.end())
+    {
+        const auto all = client.fileLocations ("All_Files");
+
+        if (ended (all.reply))
+            return placed;
+
+        for (const auto& file : all.value)
+            if (file.fileId == placed.place.fileId)
+                placed.file = file;
+    }
+
+    return placed;
+}
+
+bool readMaterialEnd (ptsl::Client& client, long long& end, std::string& problem)
+{
+    const auto info = client.sessionInfoText (false);
+
+    if (! info.ok())
+    {
+        problem = info.reply.message;
+        return false;
+    }
+
+    const auto events = edlEventsOf (info.value);
+
+    if (events.empty())
+    {
+        problem = "the session info has no clips in samples";
+        return false;
+    }
+
+    end = 0;
+
+    for (const auto& event : events)
+        end = std::max (end, event.end);
+
+    return true;
 }
 
 //==============================================================================

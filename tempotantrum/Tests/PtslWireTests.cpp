@@ -7,6 +7,7 @@
 #include "../Source/ptsl/PtslWire.h"
 #include "../Source/protools/PtslSession.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -407,7 +408,10 @@ int main()
         expect (points.size() == 6 && points.front() == 0 && points.back() == 480000, "one every 2 s, both ends");
 
         points = probePoints (0, 48000LL * 3600, 48000.0);
-        expect (points.size() == 300, "at most 300: " + std::to_string (points.size()));
+        expect (points.size() == 400, "at most 400: " + std::to_string (points.size()));
+
+        points = probePoints (0, 48000LL * 600, 48000.0);
+        expect (points.size() == 301 && points[1] == 96000, "10 minutes, one every 2 s: " + std::to_string (points.size()));
 
         expect (probePoints (10, 10, 48000.0).empty() && probePoints (0, 10, 0.0).empty(), "nothing to probe");
 
@@ -415,6 +419,181 @@ int main()
         expect (samplesOf ("2,880,000", n) && n == 2880000 && samplesOf ("-48", n) && n == -48 && ! samplesOf ("1|1|000", n), "samples");
         expect (secondsOfTimecode ("00:03:12:00") == 192.0 && secondsOfTimecode ("24:00:00:00") == 86400.0, "timecode");
         expect (minutesAndSeconds (192.7) == "3:12" && minutesAndSeconds (-1) == "0:00", "min:sec");
+    });
+
+    // The answers as Pro Tools 2026.11 gave them.
+    failed += run ("answer formats", []
+    {
+        using namespace tt::pt;
+        long long n = 0;
+        expect (samplesOf ("2882880", n) && n == 2882880, "samples");
+        expect (samplesOf ("1000141611150", n) && n == 1000141611150LL, "ticks as a large number");
+        expect (samplesOf ("1000065280000", n) && n == 1000065280000LL, "ticks at bar 1");
+
+        long long bar = 0, beat = 0, tick = 0;
+        expect (barsBeatsOf ("   20| 4| 491", bar, beat, tick) && bar == 20 && beat == 4 && tick == 491, "bars|beats with padding");
+        expect (barsBeatsOf ("1|2|000", bar, beat, tick) && bar == 1 && beat == 2 && tick == 0, "bars|beats as typed");
+        expect (barsBeatsOf ("  -21| 3| 155", bar, beat, tick) && bar == -21 && beat == 3 && tick == 155, "a bar before bar 0");
+        expect (! barsBeatsOf ("20|-4|000", bar, beat, tick) && ! barsBeatsOf ("-|1|000", bar, beat, tick), "a minus only on the bar");
+        expect (! barsBeatsOf ("20|4", bar, beat, tick) && ! barsBeatsOf ("20|4|491|1", bar, beat, tick) && ! barsBeatsOf ("a|1|000", bar, beat, tick)
+                    && ! barsBeatsOf ("2882880", bar, beat, tick),
+                "not bars|beats");
+
+        double s = 0.0;
+        expect (secondsOfMinSecs ("   1:00.060", s) && std::abs (s - 60.06) < 1e-9, "min:sec with padding");
+        expect (secondsOfMinSecs ("12:03", s) && s == 723.0, "min:sec without a fraction");
+        expect (! secondsOfMinSecs ("1:75.000", s) && ! secondsOfMinSecs ("00:58:00:00.00", s), "not min:sec");
+
+        expect (secondsOfTimecode ("00:58:00:00.00") == 3480.0, "timecode with sub-frames");
+        expect (secondsOfTimecode ("24:00:00:00") == 86400.0, "the default session length");
+
+        expect (sampleRateOfName ("SR_48000") == 48000.0 && sampleRateOfName ("SRate_96000") == 96000.0, "rates");
+        expect (sampleRateOfName ("SR_Unknown") == 0.0 && sampleRateOfName ("48000") == 0.0, "not rates");
+
+        expect (isStoppedState ("TS_TransportStopped") && isStoppedState ("TState_TransportStopped"), "stopped");
+        expect (! isStoppedState ("TS_TransportPlaying") && ! isStoppedState (""), "not stopped");
+
+        // Ticks are absolute, 960000 to the beat: 1|1|000 and 1|2|000 one beat apart.
+        expect (1000066240000LL - 1000065280000LL == 960000 && 1000069120000LL - 1000065280000LL == 4 * 960000, "ticks to the beat");
+    });
+
+    failed += run ("session info EDLs", []
+    {
+        using namespace tt::pt;
+
+        // The shape of the session info text with the track EDLs in samples, as Pro Tools 2026.11
+        // gives it: times right-aligned in padded columns, and the second channel of a stereo
+        // track after two blank lines with no column names of its own. Names are made up.
+        const std::string text =
+            "SESSION NAME:\tTest\n"
+            "SAMPLE RATE:\t48000.000000\n"
+            "BIT DEPTH:\t24-bit\n"
+            "SESSION START TIMECODE:\t00:58:00:00\n"
+            "TIMECODE FORMAT:\t29.97 Frame\n"
+            "\n"
+            "\n"
+            "T R A C K  L I S T I N G\n"
+            "TRACK NAME:\tMusic (Stereo)\n"
+            "COMMENTS:\tA comment\n"
+            "USER DELAY:\t0 Samples\n"
+            "STATE: \n"
+            "CHANNEL \tEVENT   \tCLIP NAME                     \tSTART TIME    \tEND TIME      \tDURATION      \tSTATE\n"
+            "1       \t1       \tTone-01.L                     \t       2786784\t       2788386\t          1602\tUnmuted\n"
+            "1       \t2       \tCue_01-02.L                   \t       2920943\t       3746470\t        825527\tUnmuted\n"
+            "1       \t3       \tCue_01-03.L                   \t       3746470\t       4012925\t        266455\tMuted\n"
+            "1       \t4       \tCue_01-04.L                   \t       4021780\t       4647843\t        626063\tUnmuted\n"
+            "\n"
+            "\n"
+            "2       \t1       \tTone-01.R                     \t       2786784\t       2788386\t          1602\tUnmuted\n"
+            "2       \t2       \tCue_01-02.R                   \t       2920943\t       3746470\t        825527\tUnmuted\n"
+            "2       \t3       \tCue_01-03.R                   \t       3746470\t       4012925\t        266455\tMuted\n"
+            "2       \t4       \tCue_01-04.R                   \t       4021780\t       4647843\t        626063\tUnmuted\n"
+            "\n"
+            "\n"
+            "TRACK NAME:\tEffects\n"
+            "COMMENTS:\t\n"
+            "USER DELAY:\t0 Samples\n"
+            "STATE: Hidden Inactive Muted\n"
+            "CHANNEL \tEVENT   \tCLIP NAME                     \tSTART TIME    \tEND TIME      \tDURATION      \tSTATE\n"
+            "1       \t1       \tHit.wav-14                    \t     272400000\t     272517988\t        117988\tUnmuted\n"
+            "\n"
+            "TRACK NAME:\tTimecode\n"
+            "CHANNEL \tEVENT   \tCLIP NAME                     \tSTART TIME    \tEND TIME      \tDURATION      \tSTATE\n"
+            "1       \t1       \tOther                         \t00:59:00:00   \t01:00:00:00   \t00:01:00:00   \tUnmuted\n";
+
+        const auto events = edlEventsOf (text);
+        expect (events.size() == 9, "nine clips in samples: " + std::to_string (events.size()));
+
+        if (events.size() == 9)
+        {
+            expect (events[1].track == "Music (Stereo)" && events[1].channel == 1 && events[1].clip == "Cue_01-02.L" && events[1].start == 2920943
+                        && events[1].end == 3746470,
+                    "a clip with padded times");
+            expect (events[5].channel == 2 && events[5].clip == "Cue_01-02.R" && events[5].start == 2920943, "the second channel, with no column names");
+            expect (events[8].track == "Effects" && events[8].end == 272517988, "a clip on a hidden, inactive track");
+        }
+
+        long long last = 0;
+
+        for (const auto& e : events)
+            last = std::max (last, e.end);
+
+        expect (last == 272517988, "the end of the last clip");
+        expect (edlEventsOf ("").empty() && edlEventsOf ("TRACK NAME:\tA\nCHANNEL\tEVENT\n1\t1\n").empty(), "no clips");
+
+        // The clip list's facts for those clips: one stereo file cut into three clips, the later
+        // two moved, and the whole-file clip, which is not on the track.
+        const auto clip = [] (const char* name, const char* file, long long sourceStart)
+        {
+            tt::ptsl::Clip c;
+            c.fullName = name;
+            c.fileId = file;
+            c.sourceStart.known = true;
+            c.sourceStart.type = "BTType_Samples";
+            c.sourceStart.position = sourceStart;
+            return c;
+        };
+
+        const std::vector<tt::ptsl::Clip> clips = {
+            clip ("Tone-01.L", "tone", 0),         clip ("Tone-01.R", "tone", 0),
+            clip ("Cue_01-02.L", "cue", 2766),      clip ("Cue_01-02.R", "cue", 2766),
+            clip ("Cue_01-03.L", "cue", 866356),    clip ("Cue_01-03.R", "cue", 866356),
+            clip ("Cue_01-04.L", "cue", 1138044),   clip ("Cue_01-04.R", "cue", 1138044),
+            clip ("Cue_01.L", "cue", 0),
+        };
+
+        auto place = placeMusic (events, 2882880, 4708704, clips, { "cue" });
+        expect (place.found && place.clipName == "Cue_01-02.L" && place.clipStart == 2920943 && place.offsetKnown && place.offset == 2766,
+                "the first clip of the selected file in the selection");
+        expect (place.clips == 3 && place.clipEnd == 4647843 && place.clipsOffLine == 2, "three clips, two moved: " + std::to_string (place.clipsOffLine));
+        expect (place.clipStart - place.offset == 2918177, "where the file starts on the timeline");
+
+        place = placeMusic (events, 2700000, 4708704, clips, {});
+        expect (place.found && place.clipName == "Tone-01.L", "with no file given, the first clip in the selection");
+
+        place = placeMusic (events, 2700000, 4708704, clips, { "other" });
+        expect (! place.found, "no clip of the file in the selection");
+
+        place = placeMusic (events, 3000000, 3000000, clips, { "cue" });
+        expect (place.found && place.clipName == "Cue_01-02.L" && place.clips == 1, "a cursor inside a clip");
+    });
+
+    failed += run ("survey plan", []
+    {
+        using namespace tt::pt;
+        constexpr double rate = 48000.0;
+
+        auto plan = planSurvey (2882880, 4708704, true, 9600000, rate);
+        expect (plan.before.use && plan.before.from == 0 && plan.before.to == 2882880, "before: session start to the music");
+        expect (plan.after.use && plan.after.from == 4708704 && plan.after.to == 9600000 && plan.afterSource == AfterEnd::lastClip, "after: to the last clip");
+
+        plan = planSurvey (0, 4708704, true, 48000LL * 3 * 3600, rate);
+        expect (! plan.before.use, "the music starts the session: nothing before it");
+        expect (plan.after.to == 48000LL * 2 * 3600 && plan.afterSource == AfterEnd::cappedAtTwoHours, "after: at most two hours from the start");
+
+        plan = planSurvey (2882880, 4708704, false, 0, rate);
+        expect (plan.after.to == 4708704 + 48000LL * 1800 && plan.afterSource == AfterEnd::halfHourAfterMusic, "after: 30 minutes when the clips are not known");
+
+        plan = planSurvey (2882880, 4708704, true, 4708704, rate);
+        expect (! plan.after.use, "the music is the last clip: nothing after it");
+
+        expect (! describeAfterEnd (AfterEnd::lastClip).empty() && ! describeAfterEnd (AfterEnd::halfHourAfterMusic).empty(), "said");
+
+        // At most 400 points a side, about 5 s at 13 ms a conversion.
+        expect (probePoints (plan.before.from, 48000LL * 2 * 3600, rate).size() <= (size_t) maxProbePoints, "points capped");
+    });
+
+    failed += run ("pin check in ticks", []
+    {
+        using namespace tt::pt;
+
+        // 165 BPM at 48 kHz in 960000 ticks to the beat: 55 ticks a sample.
+        const double perSample = 960000.0 * 165.0 / 60.0 / 48000.0;
+        expect (std::abs (perSample - 55.0) < 1e-9, "55 ticks a sample");
+        expect (samplesOffInTicks (1000141611150LL, 1000141611150LL, perSample) == 0.0, "the same ticks: no error");
+        expect (std::abs (samplesOffInTicks (1000141611150LL, 1000141611150LL + 110, perSample) - 2.0) < 1e-9, "110 ticks later is 2 samples");
+        expect (samplesOffInTicks (1000141611150LL, 1000141611150LL - 165, perSample) < -2.0, "165 ticks earlier is past 2 samples");
+        expect (samplesOffInTicks (1, 2, 0.0) == 0.0, "no rate");
     });
 
     std::printf ("\n%s: %d failed\n", failed == 0 ? "All passed" : "FAILED", failed);

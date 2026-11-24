@@ -1,5 +1,7 @@
 #include "PtslClient.h"
 
+#include "protools/PtslSession.h"     // the text of Pro Tools' answers: rates, states, times
+
 #include <JuceHeader.h>
 
 #include <algorithm>
@@ -112,7 +114,7 @@ void EditModeOptions::set (const std::string& key, bool value)
 
 bool Client::isStopped (const std::string& state)
 {
-    return state == "TS_TransportStopped" || state == "TState_TransportStopped";
+    return pt::isStoppedState (state);
 }
 
 #if TEMPOTANTRUM_HAS_PTSL
@@ -718,7 +720,7 @@ Answer<double> Client::sessionSampleRate()
     {
         // "SR_48000" or "SRate_48000".
         const auto text = parse (a.reply.body).getProperty ("sample_rate", juce::var()).toString();
-        a.value = text.fromLastOccurrenceOf ("_", false, false).getDoubleValue();
+        a.value = pt::sampleRateOfName (text.toStdString());
 
         if (! (a.value > 0.0))
         {
@@ -823,18 +825,58 @@ Answer<EditModeOptions> Client::editModeOptions()
     return a;
 }
 
+Reply Client::sendPaged (const std::string& command, const std::string& fields, const char* listKey,
+                         const std::function<void (const juce::var&)>& each, int timeoutMs)
+{
+    // A page at a time until a page comes back short. (A limit of 0 gives the whole list in one
+    // answer; pages keep each answer small.) An offset past the end is answered with an empty
+    // list and a warning, which is not a failure.
+    constexpr int pageSize = 500, mostPages = 200;
+    Reply reply;
+    double seconds = 0.0;
+
+    for (int page = 0, offset = 0; page < mostPages; ++page)
+    {
+        reply = send (command, "{" + fields + (fields.empty() ? "" : ",") + "\"pagination_request\":{\"limit\":" + std::to_string (pageSize)
+                                   + ",\"offset\":" + std::to_string (offset) + "}}", timeoutMs);
+        seconds += reply.seconds;
+
+        if (! reply.ok)
+            break;
+
+        const auto body = parse (reply.body);
+        auto list = body.getProperty (listKey, juce::var());
+
+        // GetClipList answers with "clip_list" although its message calls the list "clips".
+        if (! list.isArray() && std::strcmp (listKey, "clips") == 0)
+            list = body.getProperty ("clip_list", juce::var());
+
+        const auto* items = list.getArray();
+        const int count = items == nullptr ? 0 : items->size();
+
+        for (int i = 0; i < count; ++i)
+            each (items->getReference (i));
+
+        // The "total" Pro Tools gives is the length of this page, not of the whole list, so a
+        // short page is the only sign of the end.
+        offset += count;
+
+        if (count < pageSize)
+            break;
+    }
+
+    reply.seconds = seconds;
+    return reply;
+}
+
 Answer<std::vector<FileLocation>> Client::fileLocations (const std::string& filter)
 {
     Answer<std::vector<FileLocation>> a;
-    a.reply = send ("GetFileLocation", "{\"file_filters\":[" + quoted (filter) + "],\"pagination_request\":{\"limit\":0,\"offset\":0}}");
-
-    if (a.ok())
+    a.reply = sendPaged ("GetFileLocation", "\"file_filters\":[" + quoted (filter) + "]", "file_locations", [&a] (const juce::var& file)
     {
-        if (const auto* files = parse (a.reply.body).getProperty ("file_locations", juce::var()).getArray())
-            for (const auto& file : *files)
-                a.value.push_back ({ str (file.getProperty ("path", juce::var())), str (file.getProperty ("file_id", juce::var())),
-                                     (bool) file.getProperty ("info", juce::var()).getProperty ("is_online", false) });
-    }
+        a.value.push_back ({ str (file.getProperty ("path", juce::var())), str (file.getProperty ("file_id", juce::var())),
+                             (bool) file.getProperty ("info", juce::var()).getProperty ("is_online", false) });
+    });
 
     return a;
 }
@@ -860,14 +902,53 @@ Answer<std::string> Client::timeAsType (const std::string& location, const std::
     return a;
 }
 
+Answer<std::vector<Track>> Client::trackList()
+{
+    // Every track: the "all" filter, not inverted, as the SDK's own client asks.
+    Answer<std::vector<Track>> a;
+    a.reply = sendPaged ("GetTrackList", "\"track_filter_list\":[{\"filter\":\"TLFilter_All\",\"is_inverted\":false}],\"is_filter_list_additive\":true",
+                         "track_list", [&a] (const juce::var& track)
+    {
+        const auto attributes = track.getProperty ("track_attributes", juce::var());
+        const auto selected = attributes.getProperty ("is_selected", juce::var()).toString();
+        Track t;
+        t.name = str (track.getProperty ("name", juce::var()));
+        t.id = str (track.getProperty ("id", juce::var()));
+        t.type = str (track.getProperty ("type", juce::var()));
+        t.index = (int) int64Of (track.getProperty ("index", 0));
+        t.selected = selected.isNotEmpty() && ! selected.endsWith ("None") && ! selected.endsWith ("Unknown");
+        t.hasClips = (bool) attributes.getProperty ("contains_clips", false);
+        a.value.push_back (std::move (t));
+    });
+
+    return a;
+}
+
 Answer<int> Client::trackCount()
 {
     Answer<int> a;
-    a.reply = send ("GetTrackList", "{\"page_limit\":1000,\"pagination_request\":{\"limit\":0,\"offset\":0}}");
+    const auto tracks = trackList();
+    a.reply = tracks.reply;
+    a.value = (int) tracks.value.size();
+    return a;
+}
+
+Answer<std::string> Client::sessionInfoText (bool selectedTracksOnly)
+{
+    // A string answer only: nothing is written to a file. Clip and file lists, markers and
+    // plug-ins are left out; the track EDLs are given in samples.
+    Answer<std::string> a;
+    a.reply = send ("ExportSessionInfoAsText",
+                    std::string ("{\"include_file_list\":false,\"include_clip_list\":false,\"include_markers\":false,"
+                                 "\"include_plugin_list\":false,\"include_track_edls\":true,\"show_sub_frames\":false,"
+                                 "\"include_user_timestamps\":false,\"track_list_type\":")
+                        + (selectedTracksOnly ? "\"SelectedTracksOnly\"" : "\"AllTracks\"")
+                        + ",\"fade_handling_type\":\"DontShowCrossfades\",\"text_as_file_format\":\"UTF8\",\"output_type\":\"ESI_String\","
+                          "\"location_type\":\"TLType_Samples\"}",
+                    20000);
 
     if (a.ok())
-        if (const auto* tracks = parse (a.reply.body).getProperty ("track_list", juce::var()).getArray())
-            a.value = tracks->size();
+        a.value = str (parse (a.reply.body).getProperty ("session_info", juce::var()));
 
     return a;
 }
@@ -875,11 +956,6 @@ Answer<int> Client::trackCount()
 Answer<std::vector<Clip>> Client::clipList()
 {
     Answer<std::vector<Clip>> a;
-    a.reply = send ("GetClipList", "{\"pagination_request\":{\"limit\":0,\"offset\":0}}");
-
-    if (! a.ok())
-        return a;
-
     const auto position = [] (const juce::var& value)
     {
         Position p;
@@ -889,26 +965,19 @@ Answer<std::vector<Clip>> Client::clipList()
         return p;
     };
 
-    const auto body = parse (a.reply.body);
-    auto list = body.getProperty ("clip_list", juce::var());
-
-    if (! list.isArray())
-        list = body.getProperty ("clips", juce::var());
-
-    if (const auto* clips = list.getArray())
-        for (const auto& clip : *clips)
-        {
-            Clip c;
-            c.fileId = str (clip.getProperty ("file_id", juce::var()));
-            c.clipId = str (clip.getProperty ("clip_id", juce::var()));
-            c.fullName = str (clip.getProperty ("clip_full_name", juce::var()));
-            c.rootName = str (clip.getProperty ("clip_root_name", juce::var()));
-            c.start = position (clip.getProperty ("start_point", juce::var()));
-            c.end = position (clip.getProperty ("end_point", juce::var()));
-            c.sourceStart = position (clip.getProperty ("src_start_point", juce::var()));
-            c.sourceEnd = position (clip.getProperty ("src_end_point", juce::var()));
-            a.value.push_back (std::move (c));
-        }
+    a.reply = sendPaged ("GetClipList", {}, "clips", [&a, &position] (const juce::var& clip)
+    {
+        Clip c;
+        c.fileId = str (clip.getProperty ("file_id", juce::var()));
+        c.clipId = str (clip.getProperty ("clip_id", juce::var()));
+        c.fullName = str (clip.getProperty ("clip_full_name", juce::var()));
+        c.rootName = str (clip.getProperty ("clip_root_name", juce::var()));
+        c.start = position (clip.getProperty ("start_point", juce::var()));
+        c.end = position (clip.getProperty ("end_point", juce::var()));
+        c.sourceStart = position (clip.getProperty ("src_start_point", juce::var()));
+        c.sourceEnd = position (clip.getProperty ("src_end_point", juce::var()));
+        a.value.push_back (std::move (c));
+    }, 10000);
 
     return a;
 }
