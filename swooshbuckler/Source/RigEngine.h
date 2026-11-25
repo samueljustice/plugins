@@ -12,6 +12,7 @@
 #include "Room.h"
 #include "SwirlFx.h"
 #include "SweepFilter.h"
+#include "BusView.h"
 
 #include <array>
 #include <atomic>
@@ -474,6 +475,10 @@ public:
     float getPassNear(int bus) const { return m_passNearNow[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
     float getFilterOpen(int bus) const { return m_filterOpenNow[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
     float getFilterHz(int bus) const { return m_buses[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].sweep.getHz(); }
+    /** Any thread: what a bus's Filter and Swirl are doing, for the plate over the bus (busview::BusView: the
+        filter's place, Q, type, mix and travel, the Swirl's state, two traces and the bus's sound just after its
+        filter). Written once per chunk rendered, lock-free. */
+    const busview::BusView& getBusView(int bus) const { return m_views[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))]; }
     /** The width to render: Mono and Stereo are the stereo engine (a Mono output folds it itself); Quad and wider
         is the room. Before prepare(), or on the audio thread between process() calls: from one room width to
         another the speakers' gains glide across the next chunk; between stereo and a room the output fades out
@@ -1460,6 +1465,7 @@ private:
     std::atomic<int> m_hitBeatView { 0 };
     std::atomic<double> m_hitPreView { 0.0 }, m_hitPostView { 0.0 };
     std::array<ScopeRing, c_sections> m_scopes;
+    std::array<busview::BusView, c_maxBuses> m_views; // getBusView: written at the end of renderBus
     std::array<Head, 2> m_leadStart {}; // bus A's passes at the start of the chunk (linked buses)
     bool m_linkNow = false;             // the link in use: a change fades bus B out, swaps, and fades it back in
     float m_linkFade = 1.0f;

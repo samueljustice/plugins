@@ -252,6 +252,11 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     juce::ignoreUnused(sj::SincKernel::get()); // the doppler read's table is built here, not on the audio thread
     for (auto& scope : m_scopes)
         scope.prepare(sampleRate);
+    for (auto& view : m_views)
+    {
+        view.swirlTrace.prepare(sampleRate);
+        view.passTrace.prepare(sampleRate);
+    }
     const float controlRate = m_fs / static_cast<float>(c_chunk);
 
     for (auto& s : m_levelSprings) s.prepare(controlRate, 2.5f, 0.85f);
@@ -3880,7 +3885,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     // follows the whoosh, and a rhythm of its own. The filter glides from one chunk's place to the next. The
     // rhythm runs whether the filter is heard or not.
     const float f = p.filter;
-    const float mix = f <= 0.8f ? (1.0f - std::pow(10.0f, -1.875f * f)) / (1.0f - std::pow(10.0f, -1.5f)) : 1.0f;
+    const float mix = busview::filterMix(f);
     {
         const auto& filter = filterDetail;
         const float q = SweepFilter::q(filter, f);
@@ -3901,6 +3906,67 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
                 lane(2, bus.t);
         }
         bus.sweep.endChunk();
+    }
+
+    // For the plate over the bus (getBusView): where the filter and Swirl are, their traces, and the bus as the
+    // filter leaves it. Plain stores; nothing here allocates or waits.
+    if (busIndex < m_views.size())
+    {
+        auto& view = m_views[busIndex];
+        const auto& filter = filterDetail;
+        busview::FilterLook fl;
+        fl.type = filter.type;
+        fl.steep = filter.steep;
+        fl.hz = bus.sweep.getHz();
+        fl.q = SweepFilter::q(filter, f);
+        fl.mix = mix;
+        fl.trim = SweepFilter::trim(fl.q);
+        const float lowEnd = SweepFilter::placeHz(filter, SweepFilter::openHz(filter, f, 0.0f, -1.0f, fs), fs);
+        const float highEnd = SweepFilter::placeHz(filter, SweepFilter::openHz(filter, f, 1.0f, 1.0f, fs), fs);
+        fl.lowHz = std::min(lowEnd, highEnd);
+        fl.highHz = std::max(lowEnd, highEnd);
+
+        busview::SwirlLook sl;
+        sl.type = bus.swirlType;
+        sl.knob = p.swirl;
+        const bool tapeOrDoubler = bus.swirlType == SwirlTape || bus.swirlType == SwirlDoubler;
+        sl.on = tapeOrDoubler ? p.swirl > 1.0e-4f : bus.swirlOn;
+        sl.level = tapeOrDoubler && bus.swirlType == SwirlTape ? 1.0f : bus.swirlGain;
+        {
+            const float a = bus.swAL;
+            sl.phaserCoef = a;
+            // Where the all-passes turn (a quarter turn each), back from the coefficient: sj::Allpass1 with
+            // a = (1 - t) / (1 + t) turns at tan(pi f / fs) = t. For the Phaser alone that is the corner coefFor was
+            // given; Phaser + Flanger's side mirrors it to fs / 2 - fc, near the top of the band (see coefFor above).
+            const float t = (1.0f - a) / std::max(1.0e-6f, 1.0f + a);
+            sl.phaserHz = std::atan(std::max(t, 1.0e-6f)) * fs / sj::c_pi;
+            const float fbNow = bus.swFb;
+            sl.phaserFeedback = sj::clamp(fbNow, -c_swirlFeedbackMax, c_swirlFeedbackMax);
+            sl.flangerFeedback = sj::clamp((0.6f / 0.55f) * fbNow, -c_swirlFeedbackMax, c_swirlFeedbackMax);
+            sl.phaserMix = bus.swPhMix;
+            sl.flangerMix = bus.swFlMix;
+            sl.flangerMs = bus.swMsL;
+        }
+        if (tapeOrDoubler)
+        {
+            sl.offsetMs = bus.swirlFx.getLaneOffsetMs(0);
+            sl.dryGain = bus.swirlFx.getDryGain();
+            sl.wetGain = bus.swirlFx.getWetGain();
+            sl.loopGain = bus.swirlFx.getLoopGain(0);
+            sl.loopMs = static_cast<float>(bus.swirlFx.loopFloorMs());
+        }
+        view.publish(fl, sl);
+        // The traces: the copy's place (Tape Flanger), the delay (Doubler, Flanger, Phaser + Flanger) or the
+        // phaser's corner in octaves over 20 Hz (Phaser); and how near the nearest pass is.
+        const float traced = tapeOrDoubler ? sl.offsetMs
+                           : bus.swirlType == SwirlPhaser ? std::log2(std::max(sl.phaserHz, 20.0f) / 20.0f) : sl.flangerMs;
+        view.swirlTrace.push(traced, frames, bus.swirlType);
+        view.passTrace.push(m_passNearNow[busIndex], frames, 0);
+        for (int i = 0; i < frames; ++i)
+        {
+            const auto ii = static_cast<size_t>(i);
+            view.tap.push(0.5f * (bus.l[ii] + bus.r[ii] + (third ? bus.t[ii] : 0.0f))); // one scale, with a throw's lane or without
+        }
     }
 
     // Filtered by A: a low-pass that closes (18 kHz down to about 280 Hz) as bus A swells. It stays in the path

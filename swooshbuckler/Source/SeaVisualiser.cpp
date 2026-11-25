@@ -127,6 +127,15 @@ void OutputSpectrum::read(const SwooshbucklerAudioProcessor& processor)
     m_rate = static_cast<float>(processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0);
 }
 
+void OutputSpectrum::read(const float* samples, float rate)
+{
+    std::copy(samples, samples + c_fftSize, m_data.begin());
+    std::fill(m_data.begin() + c_fftSize, m_data.end(), 0.0f);
+    m_window.multiplyWithWindowingTable(m_data.data(), c_fftSize);
+    m_fft.performFrequencyOnlyForwardTransform(m_data.data(), true);
+    m_rate = rate > 0.0f ? rate : 48000.0f;
+}
+
 float OutputSpectrum::level(float magnitude, float hz)
 {
     // Tilt +3 dB/oct so noise reads flat, then map -84..-6 dB to 0..1
@@ -838,6 +847,8 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
         const juce::Rectangle<float> keepOut[] = { m_titleBox, m_recBox, m_reserved, m_roomShown > 0.01f ? roomPlanArea() : juce::Rectangle<float>(),
                                                    m_restNote.isNotEmpty() && m_roomShown < 0.99f ? restNoteArea() : juce::Rectangle<float>() };
         area = clearOf(area, keepOut, 5, placed.data(), static_cast<int>(numPlaced));
+        // Never past the water's foot (a plate over the sea's foot raises it).
+        area = area.withY(juce::jmax(8.0f, juce::jmin(area.getY(), static_cast<float>(getHeight() - m_foot) - c_frame - area.getHeight() - 4.0f)));
         if (numPlaced < placed.size())
             placed[numPlaced++] = area;
 
@@ -862,6 +873,13 @@ void SeaVisualiser::paint(juce::Graphics& g)
     // The nearest wave row lands on the bottom edge, so the sea fills the whole panel at any shape.
     m_zNear = juce::jlimit(0.25f, 1.2f, c_camHeight * m_focal / juce::jmax(1.0f, h * 1.02f - m_horizon));
     m_zStep = (6.2f - m_zNear) / static_cast<float>(c_rows);
+
+    // Only the frame's foot asked for (a plate over it repaints, or the room strip): nothing of the sea is there.
+    if (g.getClipBounds().getY() >= juce::roundToInt(scene.getBottom() - c_frame) + 1)
+    {
+        paintFrame(g);
+        return;
+    }
 
     namespace TC = Theme::Colours;
 
@@ -1018,6 +1036,13 @@ void SeaVisualiser::paint(juce::Graphics& g)
         g.fillRect(scene);
     }
 
+    paintFrame(g);
+}
+
+void SeaVisualiser::paintFrame(juce::Graphics& g)
+{
+    namespace TC = Theme::Colours;
+    const auto bounds = getLocalBounds().toFloat();
     // The frame: the sea is a rectangular window in an iron frame, a gusset plate with a bolt in each corner.
     // Painted over the opaque sea (cheap to repaint): the band, its two edges, the gussets and their bolts.
     g.setColour(TC::raised);

@@ -66,6 +66,13 @@
 //                             filled notches (Faders Together, so Ride counts down to the peak), three layers up at
 //                             once with wires on Swell and Varispeed (and the front again after Back), the Output EQ
 //                             plate over Bus B, flat and with a curve, the EQ key drawing that curve
+//   view-bus-a-filter-<low-pass-24|band-pass-24|notch-24|off>.png view-bus-b-filter.png
+//   view-bus-a-swirl-<type>.png view-bus-a-swirl-off.png view-bus-b-swirl-tape-flanger.png view-both-row.png
+//   view-eq-open-row.png view-morph-row.png view-714-row.png view-bus-a-resting.png
+//                             the plate over a bus with its Filter or Swirl layer open (what the filter and each
+//                             Swirl type are doing, live), both buses' plates at once, Bus B's gone under the EQ
+//                             plate and under the morph pad, both at 7.1.4, and Bus A's at rest (window-<name>.png the
+//                             whole window)
 //                             (--layers writes only these, and checks their texts)
 //   follow-pass.png follow-filter.png follow-menu.png motion-with-filter.png motion-menu.png
 //   motion-with-filter-resting.png (and window-... of each)
@@ -85,7 +92,8 @@
 // bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
 // cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png, and for surround room-strip.png,
 // output-room.png, sea-room.png, room-plan.png, drawn at 7.1.4, and layer-swirl.png, layer-filter.png, layer-together.png,
-// layer-swell.png and output-eq.png: the layers and the Output EQ). Run it as
+// layer-swell.png and output-eq.png: the layers and the Output EQ; filter-view.png and flanger-view.png: the plate
+// over Bus A with its Filter layer, and with a Tape Flanger behind its Swirl). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
@@ -264,6 +272,153 @@ namespace
             const auto name = "layer-" + slug(Layers::title(t));
             shots.crop(shots.shoot("window-" + name), name, panelOf(t));
         }
+        // The plates over the buses: what each bus's Filter and Swirl are doing, live, over the row above the bus.
+        {
+            const char* const touched[] = { ParamIDs::busDetail[0][ParamIDs::FilterType], ParamIDs::busDetail[0][ParamIDs::FilterSteep],
+                                            ParamIDs::busDetail[0][ParamIDs::FilterResonance], ParamIDs::busDetail[0][ParamIDs::FilterSweep],
+                                            ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::busDetail[1][ParamIDs::SwirlType],
+                                            ParamIDs::busDetail[1][ParamIDs::TapeFeedback], ParamIDs::bus[0][ParamIDs::Filter],
+                                            ParamIDs::bus[0][ParamIDs::Swirl], ParamIDs::bus[1][ParamIDs::Swirl] };
+            auto plateShot = [&](Layers::Target t, const juce::String& name, double seconds)
+            {
+                open(t);
+                rig.run(seconds);
+                const auto area = panelOf(t).getUnion(Editor::busPlateBounds(t.bus));
+                shots.crop(shots.shoot("window-" + name), name, area);
+            };
+            closeAll();
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSteep], 1.0f);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterResonance], 0.35f);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.3f);
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.6f);
+            plateShot({ Layers::Kind::Filter, 0 }, "view-bus-a-filter-low-pass-24", 2.0);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterType], 2.0f); // Band Pass
+            plateShot({ Layers::Kind::Filter, 0 }, "view-bus-a-filter-band-pass-24", 1.5);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterType], 3.0f); // Notch
+            plateShot({ Layers::Kind::Filter, 0 }, "view-bus-a-filter-notch-24", 1.5);
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.0f);
+            plateShot({ Layers::Kind::Filter, 0 }, "view-bus-a-filter-off", 2.0);
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.6f);
+            closeAll();
+            plateShot({ Layers::Kind::Filter, 1 }, "view-bus-b-filter", 2.0);
+            closeAll();
+            set(ParamIDs::bus[0][ParamIDs::Swirl], 0.7f);
+            for (int type = 0; type < ParamIDs::numSwirlTypes; ++type)
+            {
+                set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(type));
+                plateShot({ Layers::Kind::Swirl, 0 }, "view-bus-a-swirl-" + slug(ParamIDs::swirlTypeNames[type]), 4.5);
+            }
+            set(ParamIDs::bus[0][ParamIDs::Swirl], 0.0f);
+            plateShot({ Layers::Kind::Swirl, 0 }, "view-bus-a-swirl-off", 2.0);
+            closeAll();
+            // Bus B a Tape Flanger With the Pass (its default Motion), some feedback, and both buses' plates at once.
+            set(ParamIDs::busDetail[1][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            set(ParamIDs::busDetail[1][ParamIDs::TapeFeedback], 0.4f);
+            set(ParamIDs::bus[1][ParamIDs::Swirl], 0.8f);
+            plateShot({ Layers::Kind::Swirl, 1 }, "view-bus-b-swirl-tape-flanger", 4.5);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterType], 0.0f);
+            open({ Layers::Kind::Filter, 0 });
+            rig.run(1.0);
+            {
+                const auto window = shots.shoot("view-both");
+                shots.crop(window, "view-both-row", Editor::busPlateBounds(0).getUnion(ed.m_sections[1].bounds));
+            }
+            // What a frame of each plate costs: its refresh (the curves, the spectrum, the traces) and its paint, at the
+            // window's scale and at twice it, as the sea's is measured.
+            for (auto& plate : ed.m_busPlates)
+                for (float zoom : { 1.0f, 2.0f })
+                {
+                    const auto size = (plate->getLocalBounds().toFloat() * zoom).getSmallestIntegerContainer();
+                    juce::Image image(juce::Image::ARGB, size.getWidth(), size.getHeight(), true);
+                    constexpr int frames = 60;
+                    juce::Graphics g(image);
+                    g.addTransform(juce::AffineTransform::scale(zoom));
+                    plate->paint(g);
+                    // (The rig plays between the refreshes, as it does between frames, so each refresh is a live one:
+                    // the tap copied, its spectrum worked out, the traces read.)
+                    juce::int64 refreshTicks = 0;
+                    for (int i = 0; i < frames; ++i)
+                    {
+                        for (int b = 0; b < 2; ++b)
+                        {
+                            rig.block.clear();
+                            rig.midi.clear();
+                            proc.processBlock(rig.block, rig.midi);
+                        }
+                        const auto from = juce::Time::getHighResolutionTicks();
+                        plate->refresh();
+                        refreshTicks += juce::Time::getHighResolutionTicks() - from;
+                    }
+                    const bool live = ! plate->isResting();
+                    const double refreshMs = juce::Time::highResolutionTicksToSeconds(refreshTicks) * 1000.0 / frames;
+                    auto start = juce::Time::getHighResolutionTicks();
+                    for (int i = 0; i < frames; ++i)
+                        plate->paint(g);
+                    const double paintMs = juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - start) * 1000.0 / frames;
+                    std::cout << "bus " << (plate->getBus() == 0 ? "A" : "B") << " plate (" << (plate->getKind() == BusViewPlate::Kind::Filter ? "Filter" : "Swirl")
+                              << ") at " << juce::String(zoom, 1) << "x: refresh " << juce::String(refreshMs, 3) << (live ? " ms (live)" : " ms (at rest)")
+                              << ", paint " << juce::String(paintMs, 3) << " ms a frame" << std::endl;
+                }
+            // What the window pays when a plate asks for a repaint: its whole area painted again, the plate and what
+            // is under it (the plate is not opaque), against what is under it alone.
+            for (auto& plate : ed.m_busPlates)
+                for (float zoom : { 1.0f, 2.0f })
+                {
+                    auto timeArea = [&]
+                    {
+                        constexpr int frames = 30;
+                        const auto start = juce::Time::getHighResolutionTicks();
+                        for (int i = 0; i < frames; ++i)
+                            juce::ignoreUnused(ed.m_content.createComponentSnapshot(plate->getBounds(), true, zoom));
+                        return juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - start) * 1000.0 / frames;
+                    };
+                    const double withPlate = timeArea();
+                    plate->setVisible(false);
+                    const double under = timeArea();
+                    plate->setVisible(true);
+                    std::cout << "bus " << (plate->getBus() == 0 ? "A" : "B") << " plate's area at " << juce::String(zoom, 1) << "x: " << juce::String(withPlate, 3)
+                              << " ms a repaint, of which " << juce::String(under, 3) << " ms is what lies under it" << std::endl;
+                }
+            // The EQ plate over Bus B: Bus B's plate goes while it is up and comes back after it.
+            ed.setEqPlateOpen(true);
+            rig.run(0.5);
+            shots.crop(shots.shoot("view-eq-open"), "view-eq-open-row", Editor::busPlateBounds(1).getUnion(ed.m_sections[3].bounds));
+            ed.setEqPlateOpen(false);
+            rig.run(0.5);
+            // The morph pad over the sea: Bus B's plate makes way for it (and the pad for the plate when Bus B's
+            // layer is opened again); Bus A's stays, the pad's ropes kept off it.
+            ed.m_morphButton.setToggleState(true, juce::dontSendNotification);
+            ed.m_morphButton.onClick();
+            rig.run(0.5);
+            {
+                const auto window = shots.shoot("view-morph");
+                shots.crop(window, "view-morph-row", Editor::busPlateBounds(0).getUnion(Editor::busPlateBounds(1)).withTop(ed.m_sea.getY()));
+            }
+            ed.m_morphButton.setToggleState(false, juce::dontSendNotification);
+            ed.m_morphButton.onClick();
+            rig.run(0.3);
+            // At 7.1.4: the sea's water ends at Bus B's plate with the plan of the room above it.
+            widen(room::Width::Surround714);
+            rig.run(1.5);
+            shots.crop(shots.shoot("view-714"), "view-714-row", Editor::busPlateBounds(0).getUnion(Editor::busPlateBounds(1)).withTop(ed.m_sea.getY()));
+            widen(room::Width::Stereo);
+            rig.run(0.5);
+            // At rest: Bus A's plate drawn from the parameters, its Doubler row the longest there is.
+            closeAll();
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlDoubler));
+            set(ParamIDs::bus[0][ParamIDs::Swirl], 0.7f);
+            open({ Layers::Kind::Swirl, 0 });
+            rig.run(4.5);
+            for (int i = 0; i <= BusViewPlate::c_restFrames + 1; ++i)
+                ed.m_busPlates[0]->refresh();
+            shots.crop(shots.shoot("window-view-bus-a-resting"), "view-bus-a-resting", panelOf({ Layers::Kind::Swirl, 0 }).getUnion(Editor::busPlateBounds(0)));
+            closeAll();
+            for (const auto* id : touched)
+                if (auto* param = proc.getState().getParameter(id))
+                    param->setValueNotifyingHost(param->getDefaultValue());
+            rig.run(0.3);
+        }
+
         // Faders Together and Auto Swell on, so neither page rests.
         set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideTogether));
         set(ParamIDs::swellAuto, static_cast<float>(ParamIDs::AutoSwellClock));
@@ -501,6 +656,34 @@ namespace
         shot({ Layers::Kind::Swirl, 0 }, "layer-swirl");
         set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
         shot({ Layers::Kind::Filter, 0 }, "layer-filter");
+        // The plates over the bus: the Filter's (a Low Pass at 24 dB with some Resonance and Sweep) and the Tape
+        // Flanger's (With the Pass), each with the layer under it.
+        {
+            auto view = [&](Layers::Target t, const char* name, double seconds)
+            {
+                ed.openLayer(t);
+                settle();
+                rig.run(seconds);
+                shots.crop(shots.shoot(juce::String("window-") + name), name,
+                           ed.layerPanelBounds(Editor::panelFor(t)).getUnion(Editor::busPlateBounds(t.bus)), 2);
+                for (auto& host : ed.m_layers)
+                    host->close();
+                settle();
+            };
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSteep], 1.0f);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterResonance], 0.35f);
+            set(ParamIDs::busDetail[0][ParamIDs::FilterSweep], 0.3f);
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.6f);
+            view({ Layers::Kind::Filter, 0 }, "filter-view", 2.0);
+            set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlTape));
+            set(ParamIDs::bus[0][ParamIDs::Swirl], 0.8f);
+            view({ Layers::Kind::Swirl, 0 }, "flanger-view", 4.5);
+            for (const auto* id : { ParamIDs::busDetail[0][ParamIDs::FilterSteep], ParamIDs::busDetail[0][ParamIDs::FilterResonance],
+                                    ParamIDs::busDetail[0][ParamIDs::FilterSweep], ParamIDs::bus[0][ParamIDs::Filter],
+                                    ParamIDs::busDetail[0][ParamIDs::SwirlType], ParamIDs::bus[0][ParamIDs::Swirl] })
+                if (auto* param = proc.getState().getParameter(id))
+                    param->setValueNotifyingHost(param->getDefaultValue());
+        }
         set(ParamIDs::rideMode, static_cast<float>(ParamIDs::RideTogether));
         rig.run(1.0);
         shot({ Layers::Kind::Together, 0 }, "layer-together");

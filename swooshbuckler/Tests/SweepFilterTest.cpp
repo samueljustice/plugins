@@ -1,10 +1,12 @@
 // Bus filter test: the laws, the response of each type and slope against the analytic one, a held Low Pass against
-// sj::Svf to the bit, spurs under a 20 Hz sweep, stability at full Resonance, the rhythm's shapes, a change of Type.
+// sj::Svf to the bit, spurs under a 20 Hz sweep, stability at full Resonance, the rhythm's shapes, a change of Type,
+// and the curve the plate over a bus draws (busview::filterGain) against the filter's gain measured with sine tones.
 // Plain C++, no JUCE: SweepFilter is free of it.
 //
 //   SwooshbucklerSweepFilter   prints what it measures and ends with "ALL PASSED" (exit code 0) or "n FAILED".
 
 #include "SweepFilter.h"
+#include "BusView.h"
 
 #include <algorithm>
 #include <cmath>
@@ -352,6 +354,48 @@ int main()
         check(std::abs(peak12 - peak24) < 0.5 && std::abs(peak12 - db(10.2)) < 0.1, "low pass: the resonant peak is Q, the same at either slope");
         check(std::abs(bandPeak12) < 0.01 && std::abs(bandPeak24) < 0.01 && std::abs(bandRes12 - bandRes24) < 0.01, "band pass: level at the lowest Q, the same peak at either slope");
         check(notch12 < -60.0 && notch24 < -60.0 && std::abs(notchSide) < 0.2, "notch: more than 60 dB deep at its centre, level away from it");
+    }
+
+    std::cout << "The curve the plate over a bus draws (busview::filterGain) against the filter, with sine tones" << std::endl;
+    {
+        // The plate draws busview::filterGain at the render rate for the filter's place and Q: driven with a sine at
+        // each of these frequencies, the filter's gain is that curve's, for every type and slope, at a low, a middle
+        // and a resonant Q, wherever the filter is.
+        const double tones[] = { 40.0, 110.0, 315.0, 700.0, 1000.0, 1900.0, 4400.0, 9000.0, 15000.0 };
+        const float places[] = { 120.0f, 900.0f, 5000.0f };
+        const float qs[] = { 0.7f, 1.9f, 8.0f };
+        double worst = 0.0;
+        int points = 0;
+        for (int type = 0; type < SweepFilter::c_types; ++type)
+            for (int steep = 0; steep < 2; ++steep)
+                for (const float place : places)
+                    for (const float q : qs)
+                    {
+                        busview::FilterLook look;
+                        look.type = type;
+                        look.steep = steep != 0;
+                        look.hz = place;
+                        look.q = q;
+                        for (const double hz : tones)
+                        {
+                            const double drawn = busview::filterGain(look, hz, c_fs);
+                            if (drawn < 1.0e-3) // under -60 dB: off the foot of the plate's graph (-48 dB)
+                                continue;
+                            worst = std::max(worst, std::abs(db(measured(type, steep != 0, place, q, hz) / drawn)));
+                            ++points;
+                        }
+                    }
+        check(worst < 0.05, fmt("the drawn curve is the filter's measured gain within %.4f dB at %.0f points (every type, both slopes)", worst, points));
+        // What is heard: the dry and the filter mixed by the wheel's law, both ends.
+        busview::FilterLook look;
+        look.hz = 1000.0f;
+        look.mix = 0.0f;
+        const bool dryAtNothing = std::abs(busview::heardGain(look, 5000.0, c_fs) - 1.0) < 1.0e-9;
+        look.mix = 1.0f;
+        look.trim = 0.8f;
+        const bool allAtFull = std::abs(busview::heardGain(look, 300.0, c_fs) - static_cast<double>(look.trim) * busview::filterGain(look, 300.0, c_fs)) < 1.0e-9;
+        check(dryAtNothing && allAtFull && std::abs(busview::filterMix(0.0f)) < 1.0e-7f && std::abs(busview::filterMix(0.8f) - 1.0f) < 1.0e-5f && busview::filterMix(1.0f) == 1.0f,
+              "the heard line: the dry alone with Filter at 0%, the trimmed filter alone from 80% up");
     }
 
     std::cout << "Defaults against sj::Svf (the filter a bus runs when nothing behind the wheel is touched)" << std::endl;

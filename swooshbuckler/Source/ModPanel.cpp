@@ -378,6 +378,25 @@ juce::Rectangle<float> ModWires::knobArea(ModTarget* knob) const
     return getLocalArea(knob, knob->getLocalBounds()).toFloat();
 }
 
+void ModWires::setCovered(std::vector<juce::Rectangle<int>> areas)
+{
+    if (areas == m_covered)
+        return;
+    m_covered = std::move(areas);
+    rebuild();
+}
+
+bool ModWires::isUnderPlate(const ModTarget* t) const
+{
+    if (m_covered.empty() || t == nullptr || getParentComponent() == nullptr)
+        return false;
+    const auto centre = getLocalArea(t, t->getLocalBounds()).getCentre();
+    for (const auto& area : m_covered)
+        if (area.contains(centre))
+            return true;
+    return false;
+}
+
 ModTarget* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
 {
     // The nearest dial wins (neighbouring capture zones overlap a little in the bus rows).
@@ -385,7 +404,7 @@ ModTarget* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
     float bestDistance = 0.0f;
     for (const auto& [paramId, knob] : m_knobs)
     {
-        if (knob == nullptr || ! knob->isReachable()) // dimmed (e.g. bus B's linked Doppler) or scrolled away: no new wires
+        if (knob == nullptr || ! knob->isReachable() || isUnderPlate(knob)) // dimmed (e.g. bus B's linked Doppler), scrolled away or under a plate: no new wires
             continue;
         const float d = getLocalPoint(knob, knob->getDialCentre()).getDistanceFrom(p);
         if (d <= knob->getDialRadius() + 10.0f && (best == nullptr || d < bestDistance))
@@ -455,8 +474,8 @@ void ModWires::rebuild()
         auto* knob = it->second;
         const bool bipolar = isSourceBipolar ? isSourceBipolar(r.source) : m_matrix.isBipolar(r.source);
         arcs[knob].push_back({ ModPanel::sourceColour(r.source), r.depth, bipolar });
-        if (! Theme::isShownInWindow(*knob) || ! isTargetInView(knob))
-            continue; // scrolled out of view (a track lane): no plug or cable until it scrolls back
+        if (! Theme::isShownInWindow(*knob) || ! isTargetInView(knob) || isUnderPlate(knob))
+            continue; // scrolled out of view (a track lane) or under a plate: no plug or cable until it is back
         // Plugs sit on the dial's upper right, one per wire, around the rim.
         const int k = plugCount[knob]++;
         Plug plug;

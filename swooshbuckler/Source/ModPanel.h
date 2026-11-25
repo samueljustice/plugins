@@ -64,6 +64,10 @@ public:
     void setPanel(ModPanel* panel) { m_panel = panel; rebuild(); }
     void setShowCables(bool show) { m_showCables = show; rebuild(); }
     bool getShowCables() const { return m_showCables; }
+    /** Areas (in this overlay's coordinates) that a plate over the window covers: a control under one has no plug
+        or cable and takes no new wire while it is covered. Rebuilds when they change. */
+    void setCovered(std::vector<juce::Rectangle<int>> areas);
+    bool isUnderPlate(const ModTarget* t) const;
 
     // Dragging a new wire out of a jack (positions in this overlay's coordinates).
     void beginWire(int source, juce::Point<float> from);
@@ -113,6 +117,7 @@ private:
     juce::Rectangle<float> knobArea(ModTarget* knob) const;
     /** False when the control is inside a scrolling list (the track lanes) and scrolled out of its visible area. */
     static bool isTargetInView(const ModTarget* t);
+    std::vector<juce::Rectangle<int>> m_covered;
     ModTarget* knobAt(juce::Point<float> p, juce::String* id = nullptr) const;
     const Plug* plugAt(juce::Point<float> p) const;
     juce::Path cablePath(juce::Point<float> from, juce::Point<float> to, const juce::Point<float>* gate = nullptr) const;

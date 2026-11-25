@@ -1647,7 +1647,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_morphButton.setWantsKeyboardFocus(false);
     m_morphButton.getProperties().set("plain", true); // its text says the state: no lamp
     m_morphButton.setTooltip("Morph\nShows the morph pad over the sea. It blends bus A into bus B spectrally, not just a crossfade: the two sounds trade their tone and pitch. To morph two single sounds, drag the rope from the A or B handle under the pad onto a track. Switch it on with the On / Off button on the pad, then drag the dot or press its Play button to let it wander.");
-    m_morphButton.onClick = [this] { syncMorphPad(); };
+    m_morphButton.onClick = [this] { syncMorphPad(); applyLayers(); }; // the pad and Bus B's plate share the sea's foot
     m_content.addAndMakeVisible(m_morphButton);
 
     m_syncHits.setClickingTogglesState(true);
@@ -2033,6 +2033,13 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_eqPlate = std::make_unique<EqPlate>(p, *m_fonts);
     m_eqPlate->onClose = [this] { setEqPlateOpen(false); };
     m_content.addChildComponent(*m_eqPlate);
+    // The plates over the buses (what Filter and Swirl are doing), under the cables like the EQ's.
+    for (int b = 0; b < 2; ++b)
+    {
+        auto& plate = m_busPlates[static_cast<size_t>(b)];
+        plate = std::make_unique<BusViewPlate>(p, *m_fonts, b);
+        m_content.addChildComponent(*plate);
+    }
 
     m_content.addAndMakeVisible(m_wires);
     m_wires.setPanel(&m_modPanel);
@@ -2497,6 +2504,8 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
                        { Lay::pad, 9, bounds.getWidth() - 2 * Lay::pad, 22 });
     }
     m_eqPlate->setBounds(EqPlate::bounds());
+    for (int b = 0; b < 2; ++b)
+        m_busPlates[static_cast<size_t>(b)]->setBounds(busPlateBounds(b));
     applyLayers();
     rebuildWireTargets();
 
@@ -3973,8 +3982,9 @@ juce::String SwooshbucklerAudioProcessorEditor::roomRestNote() const
 {
     // The note in the sea at Mono and Stereo, where the plan of the room is drawn in a room: why the strip under it
     // rests, what wakes it, and that Render Variations still uses it. A first line, then the rest.
+    // (None while Bus B's plate stands over the sea's foot: the strip is put away under it.)
     const auto width = m_processor.getRoomWidth();
-    if (width >= room::Width::Quad)
+    if (width >= room::Width::Quad || (m_busPlates[1] != nullptr && m_busPlates[1]->isVisible()))
         return {};
     return "The room strip rests at " + juce::String(room::layout(width).name) + ".\n"
            + (m_processor.isApp() ? juce::String("Choose Quad or wider in Speakers to hear it. ")
@@ -4368,6 +4378,10 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
             m_eqKey.refresh();
         if (isEqPlateOpen() && (m_notchTick & 1) == 0)
             m_eqPlate->refresh();
+        if ((m_notchTick & 1) == 0)
+            for (auto& plate : m_busPlates)
+                if (plate->isVisible())
+                    plate->refresh();
         // A page shows or hides its Varispeed with the Swirl type: its cable follows.
         if ((m_notchTick % 6) == 0)
             for (const auto& host : m_layers)
@@ -4553,6 +4567,17 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
 //==============================================================================
 // The layers (design 2.0), Swell from the window, and the Output EQ's plate.
+juce::Rectangle<int> SwooshbucklerAudioProcessorEditor::busPlateBounds(int bus)
+{
+    // The row above the bus's panel, as the EQ plate takes the row above Output: the foot of the top row's panel
+    // the bus sits under, across that panel's whole width, so the panel is never half covered (Tracks for Bus A, the
+    // Sea for Bus B). That panel makes room above it while it is up (applyLayers): Tracks shows the lanes that fit
+    // whole, the sea's water ends at the plate's top.
+    const int y = Lay::topY + Lay::topH - Lay::rowH;
+    return bus == 0 ? juce::Rectangle<int>(Lay::left, y, Lay::right - Lay::left - Lay::gutter - Lay::seaW, Lay::rowH)
+                    : juce::Rectangle<int>(Lay::right - Lay::seaW, y, Lay::seaW, Lay::rowH);
+}
+
 juce::Rectangle<int> SwooshbucklerAudioProcessorEditor::layerPanelBounds(int panel) const
 {
     return panel == RidePanel ? m_performPanel : m_sections[static_cast<size_t>(panel == BusAPanel ? 0 : 1)].bounds;
@@ -4572,9 +4597,15 @@ void SwooshbucklerAudioProcessorEditor::toggleLayer(Layers::Target t)
 void SwooshbucklerAudioProcessorEditor::openLayer(Layers::Target t)
 {
     const int panel = panelFor(t);
-    // Bus B's layer under the EQ plate: the plate makes way.
+    // Bus B's layer under the EQ plate: the plate makes way. Its Filter or Swirl brings its plate over the sea's
+    // foot, where the morph pad docks: the pad makes way too (the Morph key shows it again, over the plate).
     if (panel == BusBPanel && isEqPlateOpen())
         setEqPlateOpen(false);
+    if (panel == BusBPanel && (t.kind == Layers::Kind::Filter || t.kind == Layers::Kind::Swirl) && m_morphButton.getToggleState())
+    {
+        m_morphButton.setToggleState(false, juce::dontSendNotification);
+        syncMorphPad();
+    }
     const juce::Colour accent = panel == RidePanel ? TC::flight : m_sections[static_cast<size_t>(panel - 1)].accent;
     m_layerOpenedAt[static_cast<size_t>(panel)] = ++m_layerCount;
     m_layers[static_cast<size_t>(panel)]->open(t, accent);
@@ -4674,6 +4705,40 @@ void SwooshbucklerAudioProcessorEditor::applyLayers()
             for (auto* c : std::initializer_list<juce::Component*> { &m_flightPath[1], m_direction[1].get(), m_side[1].get(), m_sectionScopes[1].get() })
                 c->setVisible(! under);
     }
+    // The plates over the buses: with their bus's Filter or Swirl layer up, fading in and out with it (not under
+    // the EQ plate, and Bus B's not while the morph pad is shown: the last asked for of the two wins).
+    std::vector<juce::Rectangle<int>> covered;
+    for (int b = 0; b < 2; ++b)
+    {
+        auto& plate = *m_busPlates[static_cast<size_t>(b)];
+        const auto& host = *m_layers[static_cast<size_t>(BusAPanel + b)];
+        const auto kind = host.getTarget().kind;
+        const bool show = host.getPage() != nullptr && host.showsLayer() && (kind == Layers::Kind::Filter || kind == Layers::Kind::Swirl)
+                          && ! (b == 1 && (eq || m_morphButton.getToggleState()));
+        if (show)
+        {
+            plate.setKind(kind == Layers::Kind::Filter ? BusViewPlate::Kind::Filter : BusViewPlate::Kind::Swirl);
+            plate.setAlpha(host.sideAlpha());
+            covered.push_back(plate.getBounds());
+            sides |= 16 << b;
+        }
+        if (show != plate.isVisible())
+        {
+            plate.setVisible(show);
+            if (show)
+                plate.refresh();
+        }
+    }
+    // The panels under them make room. Tracks: the lanes that fit whole above Bus A's plate, scrolling, and no drop
+    // line. The sea: its water ends at Bus B's plate's top (the plan of the room and the note go up with it), and the
+    // room strip goes (its cables with it), as Bus B's controls go under the EQ plate.
+    const bool plateA = m_busPlates[0]->isVisible(), plateB = m_busPlates[1]->isVisible();
+    m_hold.setCoveredFoot(plateA ? m_hold.getBottom() - busPlateBounds(0).getY() : 0);
+    m_sea.setFootHeight(plateB ? m_sea.getBottom() - busPlateBounds(1).getY() : c_roomFootH);
+    m_roomStrip.setVisible(! plateB);
+    m_sea.setRestNote(roomRestNote());
+    m_morphPad.setRopeCovered(covered);
+    m_wires.setCovered(std::move(covered));
     m_eqKey.setToggleState(eq, juce::dontSendNotification);
     if (sides != m_layerSides)
     {

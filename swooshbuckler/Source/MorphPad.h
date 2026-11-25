@@ -5,6 +5,7 @@
 #include "Theme.h"
 
 #include <array>
+#include <vector>
 #include <functional>
 #include <memory>
 
@@ -80,6 +81,9 @@ public:
     /** The track each side is roped to and its name (lane -1 = no rope: the side is its bus). */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);
     void setRopeOverlayParent(juce::Component* topLevel);
+    /** Plates over the window that hide what is under them (in the overlay parent's coordinates): no rope is drawn
+        over them. */
+    void setRopeCovered(std::vector<juce::Rectangle<int>> areas);
     /** What an unroped side is called and its colour ("Bus A" / "Bus B"). */
     void setBusLabels(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB);
     juce::String getTooltip() override;
@@ -156,6 +160,7 @@ private:
     // Rope state (overlay coordinates are recomputed from screen positions)
     juce::Component::SafePointer<juce::Component> m_overlayParent;
     std::unique_ptr<RopeOverlay> m_overlay;
+    std::vector<juce::Rectangle<int>> m_ropeCovered;
     int m_ropeSlot = -1;
     juce::Point<float> m_ropeEndScreen, m_ropeLastScreen, m_ropeOffset, m_ropeVelocity;
     int m_ropeHoverLane = -1;

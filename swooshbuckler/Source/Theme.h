@@ -493,6 +493,9 @@ namespace Theme
             context it was drawn into. lines > 1 for a paragraph. */
         virtual void textDrawn(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> box, juce::Rectangle<float> ink,
                                float fontHeight, Fit fit, bool shrunk, bool cut) = 0;
+        /** A plate that hides whatever is under it has just been painted over `area` (in the coordinates of the
+            graphics context): the texts drawn there before it are not seen. */
+        virtual void covered(juce::Graphics& g, juce::Rectangle<float> area) { juce::ignoreUnused(g, area); }
     };
     inline TextProbe*& textProbe()
     {

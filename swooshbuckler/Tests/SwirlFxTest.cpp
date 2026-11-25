@@ -6,6 +6,7 @@
 //   SwooshbucklerSwirlFx       prints what it measures and ends with "ALL PASSED" (exit code 0) or "n FAILED".
 
 #include "SwirlFx.h"
+#include "BusView.h"
 #include "TestClock.h"
 
 #include <algorithm>
@@ -439,6 +440,73 @@ int main()
                 fx.processTape(t, 1.0f, lanes, 32);
             check(std::abs(fx.getLaneOffsetMs(0) - t.depthMs) < 1.0e-3f && fx.getOffsetMs() == 0.0f,
                   "By Hand at rest: the copy waits Depth behind (" + num(fx.getLaneOffsetMs(0), 3) + " ms), the held offset in the middle");
+        }
+        {
+            // The comb the plate over a bus draws (busview::swirlTransfer, from the gains and the place the SwirlFx
+            // reports) against the Tape Flanger driven with sine tones: the copy held 2 ms behind (By Hand) and
+            // 1.2 ms ahead (With the Pass at the pass's closest point), Feedback 50%, 100% and -100%, inverted and
+            // not, from 180 Hz to 15 kHz, at 48 kHz (the copy read with the sinc) and 192 kHz (with the cubic).
+            double worst = 0.0;
+            int points = 0;
+            std::string worstAt;
+            for (const double rate : { 48000.0, 192000.0 })
+                for (const bool ahead : { false, true })
+                    for (const float feedback : { 0.5f, 1.0f, -1.0f })
+                        for (const bool invert : { false, true })
+                            for (const double hz : { 180.0, 610.0, 2400.0, 6100.0, 11000.0, 15000.0 })
+                            {
+                                SwirlFx fx;
+                                fx.prepare(rate);
+                                SwirlFx::Tape t;
+                                t.motion = ahead ? SwirlFx::WithPass : SwirlFx::ByHand;
+                                t.depthMs = ahead ? 4.0f : 2.0f;
+                                t.wobble = 0.0f;
+                                t.feedback = feedback;
+                                t.invert = invert;
+                                std::vector<float> a(32, 0.0f);
+                                SwirlFx::Lanes lanes;
+                                lanes.lane = { a.data(), nullptr, nullptr };
+                                lanes.count = 1;
+                                if (ahead)
+                                    lanes.passNearFrom = lanes.passNearTo = { 1.0f, 1.0f, 1.0f };
+                                const int settle = static_cast<int>(rate * 0.6), count = static_cast<int>(rate / 4.0);
+                                double re = 0.0, im = 0.0;
+                                for (int n = 0; n < settle + count; n += 32)
+                                {
+                                    for (int i = 0; i < 32; ++i)
+                                        a[static_cast<size_t>(i)] = 0.02f * static_cast<float>(std::sin(2.0 * 3.14159265358979323846 * hz * (n + i) / rate));
+                                    fx.processTape(t, 1.0f, lanes, 32);
+                                    if (n >= settle)
+                                        for (int i = 0; i < 32; ++i)
+                                        {
+                                            const double ph = 2.0 * 3.14159265358979323846 * hz * (n + i) / rate;
+                                            re += a[static_cast<size_t>(i)] * std::cos(ph);
+                                            im += a[static_cast<size_t>(i)] * std::sin(ph);
+                                        }
+                                }
+                                const double gain = 2.0 * std::sqrt(re * re + im * im) / (count / 32 * 32) / 0.02;
+                                busview::SwirlLook look;
+                                look.type = busview::SwirlTape;
+                                look.offsetMs = fx.getLaneOffsetMs(0);
+                                look.dryGain = fx.getDryGain();
+                                look.wetGain = fx.getWetGain();
+                                look.loopGain = fx.getLoopGain(0);
+                                look.loopMs = static_cast<float>(fx.loopFloorMs());
+                                const double drawn = std::abs(busview::swirlTransfer(look, hz, rate));
+                                if (drawn < 0.1 || gain < 0.1) // a notch: under -20 dB the sum is all rounding
+                                    continue;
+                                const double err = std::abs(20.0 * std::log10(gain / drawn));
+                                if (err > worst)
+                                {
+                                    worst = err;
+                                    worstAt = num(rate / 1000.0, 0) + " kHz, " + num(look.offsetMs, 2) + " ms, Feedback "
+                                              + std::to_string(static_cast<int>(std::lround(feedback * 100.0f))) + "%, " + num(hz, 0) + " Hz";
+                                }
+                                ++points;
+                            }
+            check(worst < 0.5 && points >= 100, "the comb the plate draws is the Tape Flanger's measured gain within " + num(worst, 3) + " dB at "
+                                                    + std::to_string(points) + " points (2 ms behind and 1.2 ms ahead, Feedback 50%, 100%, -100%, "
+                                                    "inverted and not, 180 Hz to 15 kHz, 48 and 192 kHz; worst at " + worstAt + ")");
         }
         const double sum = nullAt(1000.0, fs, false, 0.1f);
         check(std::abs(sum - 3.01) < 0.1, "not inverted, the copy and the dry add to +3 dB at d = 0 (" + num(sum, 2) + " dB)");

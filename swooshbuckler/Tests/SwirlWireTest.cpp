@@ -21,6 +21,8 @@
 //              Tape Flanger With the Filter goes through zero round the filter's most open moment, and none of it
 //              allocates
 //   speed      each Swirl type at 7.1.4 and 192 kHz with a throw in flight, against Phaser + Flanger
+//   view       what the plate over a bus reads (getBusView): the filter's place, Q, mix and travel chunk by chunk,
+//              the tap, and the Tape Flanger's copy, mix and trace, against the engine's own; reading allocates nothing
 
 #include <JuceHeader.h>
 #include "RigEngine.h"
@@ -1672,6 +1674,196 @@ int main(int argc, char* argv[])
         // twentieth of what the whole engine costs there, whichever is more.)
         check(tapeFed <= both + std::max(1.0, 0.05 * off) || !TestClock::holdsCostLimits(), "with its Feedback in, the Tape Flanger is within one percent of a core, or a twentieth of the engine, of Phaser + Flanger (" + num(tapeFed - both, 2) + " over)");
         check((doubler <= both + slack) || !TestClock::holdsCostLimits(), "the Doubler costs no more than Phaser + Flanger");
+    }
+
+    if (wanted("view"))
+    {
+        std::cout << "What the plate over a bus reads (getBusView)" << std::endl;
+        // The filter: a Low Pass at 24 dB with its own rhythm and Follow, the wheel held; chunk by chunk the view is
+        // where the filter is, its Q, mix and travel for that wheel.
+        {
+            auto q = plain();
+            q.levels[0] = 0.5f;
+            q.buses[0].filter = 0.55f;
+            q.filterDetail[0].steep = true;
+            q.filterDetail[0].resonance = 0.3f;
+            q.filterDetail[0].sweep = 0.5f;
+            q.filterDetail[0].rateHz = 2.0f;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            RigEngine* engine = e.get();
+            const auto& view = engine->getBusView(0);
+            const auto& detail = q.filterDetail[0];
+            const float fs = static_cast<float>(c_rate);
+            double worstHz = 0.0, worstQ = 0.0, worstMix = 0.0, worstTravel = 0.0, least = 1.0e9, most = 0.0;
+            std::uint32_t ticks = 0, firstTick = view.tick.load();
+            long made = 0;
+            run(*e, 2, c_rate, 6.0, false, [](int) {}, [&](int pos)
+            {
+                const long before = g_allocations.load();
+                const auto f = view.filter();
+                made += g_allocations.load() - before;
+                ++ticks;
+                if (pos < static_cast<int>(c_rate)) // the wheel's spring has settled after a second
+                    return;
+                worstHz = std::max(worstHz, static_cast<double>(std::abs(f.hz - engine->getFilterHz(0))));
+                worstQ = std::max(worstQ, static_cast<double>(std::abs(f.q - SweepFilter::q(detail, 0.55f))));
+                worstMix = std::max(worstMix, static_cast<double>(std::abs(f.mix - busview::filterMix(0.55f))));
+                const float lo = SweepFilter::openHz(detail, 0.55f, 0.0f, -1.0f, fs), hi = SweepFilter::openHz(detail, 0.55f, 1.0f, 1.0f, fs);
+                worstTravel = std::max({ worstTravel, static_cast<double>(std::abs(f.lowHz - lo) / lo), static_cast<double>(std::abs(f.highHz - hi) / hi) });
+                least = std::min(least, static_cast<double>(f.hz));
+                most = std::max(most, static_cast<double>(f.hz));
+                if (f.type != SweepFilter::LowPass || ! f.steep)
+                    worstHz = 1.0e9;
+            });
+            std::cout << "  the filter's place in the view against the filter: apart by " << num(worstHz, 6) << " Hz at the most; it moved from "
+                      << num(least, 0) << " to " << num(most, 0) << " Hz; Q " << num(worstQ, 6) << ", mix " << num(worstMix, 6) << ", travel "
+                      << num(100.0 * worstTravel, 4) << "% apart" << std::endl;
+            check(worstHz == 0.0 && most > 2.0 * least, "view: the filter's place is the filter's own, chunk by chunk, as its rhythm moves it");
+            check(worstQ < 1.0e-5 && worstMix < 1.0e-4 && worstTravel < 1.0e-4, "view: its Q, how much of it is heard and the ends of its travel are the laws' for the wheel");
+            check(view.tick.load() - firstTick == ticks && made == 0, "view: a tick for every chunk, and reading it allocates nothing");
+
+            // The tap: the bus's sound just after its filter.
+            float tapped[busview::Tap::c_size];
+            view.tap.copy(tapped, busview::Tap::c_size);
+            double sum = 0.0;
+            bool finiteTap = true;
+            for (const float x : tapped)
+            {
+                sum += static_cast<double>(x) * x;
+                finiteTap = finiteTap && std::isfinite(x);
+            }
+            check(finiteTap && sum > 1.0e-3, "view: the tap holds the bus's sound (" + num(10.0 * std::log10(sum / busview::Tap::c_size + 1.0e-30), 1) + " dB)");
+        }
+        // The Tape Flanger: the view's copy against the dry is the lane's own, chunk by chunk, and its mix is the
+        // wheel's; the trace fills with Tape Flanger points that go through zero with the passes.
+        {
+            auto q = plain();
+            q.levels[0] = 0.5f;
+            q.buses[0].swirl = 0.8f;
+            q.swirlDetail[0].type = RigEngine::SwirlTape;
+            q.swirlDetail[0].tape.invert = true;
+            q.swirlDetail[0].tape.feedback = 0.4f;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            RigEngine* engine = e.get();
+            const auto& view = engine->getBusView(0);
+            double worst = 0.0, worstGain = 0.0;
+            float lowest = 1.0e9f, highest = -1.0e9f;
+            run(*e, 2, c_rate, 10.0, false, [](int) {}, [&](int pos)
+            {
+                const auto s = view.swirl();
+                worst = std::max(worst, static_cast<double>(std::abs(s.offsetMs - engine->getSwirlLaneOffsetMs(0, 0))));
+                if (s.type != RigEngine::SwirlTape)
+                    worst = 1.0e9;
+                if (pos < static_cast<int>(c_rate))
+                    return;
+                const float m = SwirlFx::mixFor(0.8f) * 0.5f * static_cast<float>(c_twoPi) * 0.5f;
+                worstGain = std::max({ worstGain, static_cast<double>(std::abs(s.dryGain - std::cos(m))), static_cast<double>(std::abs(s.wetGain + std::sin(m))),
+                                       static_cast<double>(std::abs(s.loopGain - 0.36f)) });
+                lowest = std::min(lowest, s.offsetMs);
+                highest = std::max(highest, s.offsetMs);
+            });
+            int points = 0, below = 0;
+            for (int age = 0; age < busview::Trace::c_points; ++age)
+            {
+                float lo = 0.0f, hi = 0.0f;
+                int kind = -1;
+                view.swirlTrace.point(age, lo, hi, kind);
+                if (kind == RigEngine::SwirlTape)
+                {
+                    ++points;
+                    below += lo < 0.0f ? 1 : 0;
+                }
+            }
+            std::cout << "  Tape Flanger: the view's copy against the lane's apart by " << num(worst, 6) << " ms at the most; it ran from " << num(lowest, 2) << " to "
+                      << num(highest, 2) << " ms; the gains " << num(worstGain, 6) << " apart; " << points << " trace points, " << below << " of them through zero" << std::endl;
+            check(worst == 0.0 && worstGain < 1.0e-4, "view: the Tape Flanger's copy, its mix (inverted) and its feedback are the lane's own");
+            check(points == busview::Trace::c_points && below > 0 && lowest < 0.0f && highest > 0.0f, "view: the trace holds the last four seconds, through zero with the passes");
+        }
+    }
+
+    if (wanted("drawn"))
+    {
+        // The response the plate draws for Phaser + Flanger, Phaser and Flanger (busview::swirlTransfer of the view)
+        // against what the engine does to the sound: two engines on the same quiet noise (the phaser's loop has a soft
+        // clip, straight for a quiet sound; a loud one flattens its tallest peaks by a dB or so), Swirl at 0% and 80%,
+        // Follow and Depth at 0 so nothing sweeps; the transfer from the two taps (the bus just after its filter,
+        // which is at 0%) by cross-spectrum over 65536-point windows (long enough to resolve the peaks Feedback at
+        // 100% makes), compared off the notches (where either is under -12 dB).
+        std::cout << "The Swirl response the plate draws, against the engine's sound" << std::endl;
+        auto tapRun = [&](int type, float swirl, float feedback, busview::SwirlLook& look)
+        {
+            auto q = plain();
+            q.levels[0] = 0.1f;
+            q.buses[0].swirl = swirl;
+            q.swirlDetail[0].type = type;
+            q.swirlDetail[0].follow = 0.0f;
+            q.swirlDetail[0].depth = 0.0f;
+            q.swirlDetail[0].feedback = feedback;
+            auto e = std::make_unique<RigEngine>();
+            start(*e, noiseHold, q);
+            RigEngine* engine = e.get();
+            std::vector<float> got;
+            got.reserve(static_cast<size_t>(c_rate * 8.0) + 64);
+            run(*e, 2, c_rate, 8.0, false, [](int) {}, [&](int)
+            {
+                float chunk[c_chunk];
+                engine->getBusView(0).tap.copy(chunk, c_chunk);
+                got.insert(got.end(), chunk, chunk + c_chunk);
+            });
+            look = engine->getBusView(0).swirl();
+            return got;
+        };
+        struct Case { int type; float feedback; const char* name; };
+        for (const Case c : { Case { RigEngine::SwirlBoth, 0.55f, "Phaser + Flanger, Feedback 55%" }, Case { RigEngine::SwirlBoth, 1.0f, "Phaser + Flanger, Feedback 100%" },
+                              Case { RigEngine::SwirlFlanger, 0.55f, "Flanger, Feedback 55%" }, Case { RigEngine::SwirlFlanger, 1.0f, "Flanger, Feedback 100%" },
+                              Case { RigEngine::SwirlFlanger, -1.0f, "Flanger, Feedback -100%" }, Case { RigEngine::SwirlPhaser, 0.55f, "Phaser, Feedback 55%" },
+                              Case { RigEngine::SwirlPhaser, 1.0f, "Phaser, Feedback 100%" } })
+        {
+            busview::SwirlLook none, look;
+            const auto x = tapRun(c.type, 0.0f, c.feedback, none);
+            const auto y = tapRun(c.type, 0.8f, c.feedback, look);
+            constexpr int n = 65536, hop = 16384;
+            const double fs = c_rate;
+            double worst = 0.0, worstHz = 0.0, worstDrawn = 0.0, worstGot = 0.0;
+            int compared = 0;
+            for (double hz = 60.0; hz < 19000.0; hz *= 1.035)
+            {
+                std::complex<double> sxy = 0.0;
+                double sxx = 0.0;
+                const std::complex<double> turn = std::polar(1.0, -2.0 * 3.14159265358979323846 * hz / fs);
+                for (size_t from = static_cast<size_t>(3.0 * c_rate); from + static_cast<size_t>(n) <= std::min(x.size(), y.size()); from += static_cast<size_t>(hop))
+                {
+                    std::complex<double> X = 0.0, Y = 0.0, ph = 1.0;
+                    for (int k = 0; k < n; ++k)
+                    {
+                        const double win = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * k / n);
+                        X += win * static_cast<double>(x[from + static_cast<size_t>(k)]) * ph;
+                        Y += win * static_cast<double>(y[from + static_cast<size_t>(k)]) * ph;
+                        ph *= turn;
+                    }
+                    sxy += Y * std::conj(X);
+                    sxx += std::norm(X);
+                }
+                const double got = std::abs(sxy) / std::max(sxx, 1.0e-30), drawn = std::abs(busview::swirlTransfer(look, hz, fs));
+                if (drawn < 0.25 || got < 0.25)
+                    continue;
+                ++compared;
+                const double err = std::abs(20.0 * std::log10(got / drawn));
+                if (err > worst)
+                {
+                    worst = err;
+                    worstHz = hz;
+                    worstDrawn = drawn;
+                    worstGot = got;
+                }
+            }
+            std::cout << "  " << c.name << ": " << compared << " frequencies compared, worst " << num(worst, 2) << " dB at " << num(worstHz, 0) << " Hz (drawn "
+                      << num(20.0 * std::log10(std::max(worstDrawn, 1.0e-9)), 2) << ", measured " << num(20.0 * std::log10(std::max(worstGot, 1.0e-9)), 2) << ")" << std::endl;
+            check(look.type == c.type && look.on && compared > 100 && worst < 1.0,
+                  juce::String("drawn: the plate's response for ") + c.name + " is the engine's within " + num(worst, 2) + " dB, 60 Hz to 19 kHz");
+        }
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;

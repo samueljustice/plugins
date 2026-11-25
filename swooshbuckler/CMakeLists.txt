@@ -122,6 +122,7 @@ target_sources(Swooshbuckler
     Source/LayerPages.cpp
     Source/EqPlate.cpp
     Source/EqGraph.cpp
+    Source/BusViewPlate.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 

@@ -1131,13 +1131,17 @@ void CargoHoldView::resized()
     const int dropHeight = roomForMore ? (visible.empty() ? r.getHeight() : c_dropLine) : 0;
     const int laneArea = r.getHeight() - dropHeight - (roomForMore && ! visible.empty() ? gap : 0);
     const int laneHeight = visible.empty() ? 0 : juce::jmin(110, laneArea / juce::jlimit(1, inView, count));
-    const int shown = laneHeight * juce::jmin(count, inView);
+    // Under a plate: the lanes keep their size and as many as fit whole above it are in view.
+    const int covered = juce::jlimit(0, juce::jmax(0, r.getHeight() - 40), m_coveredFoot);
+    const int roomAbove = r.getHeight() - covered - (covered > 0 ? gap : 0);
+    const int fitting = covered > 0 && laneHeight > 0 ? juce::jlimit(1, inView, roomAbove / laneHeight) : inView;
+    const int shown = laneHeight * juce::jmin(count, fitting);
 
     // Only the room the lanes actually take is given to the list, so with one or two tracks the drop line stays
     // directly under the last lane instead of floating at the panel's bottom with a hole above it.
     m_viewport.setBounds(r.removeFromTop(visible.empty() ? 0 : shown));
     m_viewport.setSingleStepSizes(16, juce::jmax(1, laneHeight));
-    const int holderWidth = m_viewport.getWidth() - (count > inView ? 10 : 0);
+    const int holderWidth = m_viewport.getWidth() - (count > fitting ? 10 : 0);
     m_laneHolder.setSize(holderWidth, laneHeight * count);
     int y = 0;
     for (auto& lane : m_lanes)
@@ -1148,7 +1152,9 @@ void CargoHoldView::resized()
         y += laneHeight;
     }
 
-    if (roomForMore)
+    if (roomForMore && visible.empty() && covered > 0)
+        m_dropZone = r.withTrimmedBottom(covered + gap); // the room above the plate
+    else if (roomForMore && covered == 0)
     {
         if (! visible.empty()) r.removeFromTop(gap);
         m_dropZone = r.removeFromTop(dropHeight).reduced(visible.empty() ? 0 : 14, 0); // the slim line stays between the panel's bolts
@@ -1159,6 +1165,16 @@ void CargoHoldView::resized()
     }
     if (onLanesMoved)
         onLanesMoved(); // lanes appear, go and change size: their plugs move
+}
+
+void CargoHoldView::setCoveredFoot(int height)
+{
+    height = juce::jmax(0, height);
+    if (height == m_coveredFoot)
+        return;
+    m_coveredFoot = height;
+    resized();
+    repaint();
 }
 
 void CargoHoldView::changeListenerCallback(juce::ChangeBroadcaster*)

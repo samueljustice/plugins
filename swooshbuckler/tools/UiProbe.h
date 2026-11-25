@@ -10,6 +10,7 @@
 //   outside its box the ink runs past the box it was given (sideways or up and down)
 //   too small       under Theme::c_minTextSize at the window's 1.0 scale
 //   overlaps        two texts drawn on top of each other
+//   half covered    a plate (Theme::TextProbe::covered) hides part of it: a text wholly under one is not seen
 //   capitals        a word in capitals that is not an acronym; a control name not in Title Case; a sentence that
 //                   does not start with a capital
 //
@@ -93,6 +94,7 @@ namespace UiProbe
         float size = 0.0f;               // in the type scale's units at 1.0 scale
         Theme::Fit fit = Theme::Fit::Whole;
         bool shrunk = false, cut = false, clipped = false;
+        bool halfCovered = false; // a plate painted after it hides part of it
     };
 
     struct Fault
@@ -141,6 +143,19 @@ namespace UiProbe
             const float zoom = std::sqrt(std::abs(t.getDeterminant())) / m_scale; // a component with a transform of its own
             Text record { text, place(box), place(ink), fontHeight * zoom / Theme::Fonts::c_em, fit, shrunk, cut, ! clip.contains(ink.reduced(1.0f)) };
             texts.push_back(record);
+        }
+
+        void covered(juce::Graphics& g, juce::Rectangle<float> area) override
+        {
+            juce::ignoreUnused(g);
+            if (m_context == nullptr)
+                return;
+            // What the plate hides whole is not seen; what it hides in part is cut in two, and that is a fault.
+            const auto placed = area.transformedBy(m_context->transform()) / m_scale;
+            texts.erase(std::remove_if(texts.begin(), texts.end(), [&placed](const Text& t) { return placed.contains(t.ink.reduced(0.5f)); }), texts.end());
+            for (auto& t : texts)
+                if (placed.intersects(t.ink.reduced(0.5f)))
+                    t.halfCovered = true;
         }
 
         std::vector<Text> texts;
@@ -256,6 +271,8 @@ namespace UiProbe
                 faults.push_back({ "outside its box", "its ink is " + juce::String(t.ink.getHeight(), 1) + " tall in a box of " + juce::String(t.box.getHeight(), 1), t });
             if (t.size < Theme::c_minTextSize - 0.05f)
                 faults.push_back({ "too small", juce::String(t.size, 1) + " at 1.0 scale (the floor is " + juce::String(Theme::c_minTextSize, 0) + ")", t });
+            if (t.halfCovered)
+                faults.push_back({ "half covered", "a plate drawn over it hides part of it", t });
             if (const auto fault = capitalsFault(t.text, t.fit); fault.isNotEmpty())
                 faults.push_back({ "capitals", fault, t });
         }
@@ -280,6 +297,7 @@ namespace UiProbe
                                                        + juce::String(juce::roundToInt(b.getWidth())) + "x" + juce::String(juce::roundToInt(b.getHeight())); };
         const char* kinds[] = { "label", "sentence", "message", "name" };
         return "\"" + t.text + "\"  box " + r(t.box) + "  ink " + juce::String(t.ink.getWidth(), 1) + " wide  size " + juce::String(t.size, 1)
-               + "  " + kinds[static_cast<int>(t.fit)] + (t.shrunk ? "  shrunk" : "") + (t.cut ? "  cut" : "") + (t.clipped ? "  clipped" : "");
+               + "  " + kinds[static_cast<int>(t.fit)] + (t.shrunk ? "  shrunk" : "") + (t.cut ? "  cut" : "") + (t.clipped ? "  clipped" : "")
+               + (t.halfCovered ? "  half covered" : "");
     }
 }

@@ -204,6 +204,13 @@ public:
     /** Where a lane's copy sits against its dry at the end of the last call, in ms (Tape Flanger: d, either sign;
         Doubler: its delay). For the tests and the pictures. */
     float getLaneOffsetMs(int lane) const { return static_cast<float>(m_lane[static_cast<size_t>(lane < 0 ? 0 : (lane >= c_lanes ? c_lanes - 1 : lane))].offsetMs); }
+    /** The dry's and the copy's gains (the copy's negative when inverted) and a lane's feedback gain, at the end of
+        the last call: for the picture of the comb (busview::swirlTransfer). */
+    float getDryGain() const { return m_dryGain; }
+    float getWetGain() const { return m_wetGain; }
+    float getLoopGain(int lane) const { return m_lane[static_cast<size_t>(lane < 0 ? 0 : (lane >= c_lanes ? c_lanes - 1 : lane))].loopGain; }
+    /** The shortest the Tape Flanger's feedback loop is, in ms, at this rate (the copy's read is never shorter). */
+    double loopFloorMs() const { return std::max(c_feedbackFloorMs, 3000.0 / m_sampleRate); }
 
 private:
     enum Kind { None = 0, TapeFlanger, DoublerKind };

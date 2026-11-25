@@ -24,6 +24,8 @@ public:
 
     /** Takes the newest output and transforms it. */
     void read(const SwooshbucklerAudioProcessor& processor);
+    /** Transforms c_fftSize samples of another stream (a bus's, for the plate over it), taken at `rate`. */
+    void read(const float* samples, float rate);
     /** The rate the output was read at (the device's). */
     float rate() const { return m_rate; }
     /** The loudest bin from f0 up to f1, as a level (the tilt is taken at f0). */
@@ -253,6 +255,8 @@ private:
     float m_quietSeconds = 0.0f;
     float m_sinceStep = 0.0f;     // time gathered up since the last step: the sea's own rate, not the screen's
     bool m_labelsShown = true;
+    /** The iron frame round the water (its foot included), its edges and bolts. */
+    void paintFrame(juce::Graphics& g);
     juce::Rectangle<float> m_reserved, m_dock;
     juce::Rectangle<float> m_titleBox, m_recBox;
 

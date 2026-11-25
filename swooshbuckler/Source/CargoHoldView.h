@@ -37,6 +37,11 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    /** The bottom `height` pixels are covered by a plate (the window's plate over Bus A): the lanes that fit whole
+        above it are in view (the list scrolls a lane at a time, the lanes keep their size), the drop line under
+        loaded lanes is left out, and with no sounds the drop zone is the room above it. 0: nothing covered. */
+    void setCoveredFoot(int height);
+    int getCoveredFoot() const { return m_coveredFoot; }
     bool keyPressed(const juce::KeyPress&) override;
     void mouseUp(const juce::MouseEvent&) override; // a click on the drop zone browses for sounds
     void mouseMove(const juce::MouseEvent&) override;
@@ -130,4 +135,5 @@ private:
     static constexpr double c_takeNoteSeconds = 8.0;
     bool takeNoteShowing() const;
     juce::Rectangle<int> m_toolbar, m_statusArea, m_dropZone;
+    int m_coveredFoot = 0;
 };

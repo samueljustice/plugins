@@ -653,6 +653,25 @@ int main(int argc, char* argv[])
             rig.open();
             rig.run(0.2);
             checkTexts("first run (no sounds)", *rig.editor, 1.0f, 1.0f);
+            {
+                // Bus A's plate over an empty Tracks: the drop zone is the room above it, its two lines whole.
+                auto& ed = *rig.editor;
+                ed.openLayer({ Layers::Kind::Filter, 0 });
+                for (auto& host : ed.m_layers)
+                    host->finishFold();
+                ed.applyLayers();
+                rig.run(0.2);
+                const auto plate = Editor::busPlateBounds(0);
+                const auto drop = ed.m_hold.m_dropZone + ed.m_hold.getPosition();
+                check(ed.m_busPlates[0]->isVisible() && ! drop.isEmpty() && drop.getBottom() <= plate.getY() && ed.m_hold.m_viewport.getHeight() == 0,
+                      "bus plates: over an empty Tracks, the drop zone is the room above Bus A's plate");
+                checkTexts("first run, Bus A's plate up", ed, 1.0f, 1.0f);
+                ed.m_layers[1]->close();
+                for (auto& host : ed.m_layers)
+                    host->finishFold();
+                ed.applyLayers();
+                check(! ed.m_busPlates[0]->isVisible() && ed.m_hold.getCoveredFoot() == 0, "bus plates: closing the layer gives Tracks its foot back");
+            }
             check(rig.editor->m_playButton.getButtonText() == "Play" && Icons::get(rig.editor->m_playButton) == Icons::Icon::Play
                       && SwooshLookAndFeel::getStyle(rig.editor->m_playButton) == SwooshLookAndFeel::ButtonStyle::Primary,
                   "header: Play is the one filled button, with its glyph");
@@ -3285,6 +3304,138 @@ int main(int argc, char* argv[])
             check(before == 1 && shown && ! ed.isEqPlateOpen() && bDoppler->isVisible() && plugsOn(bDoppler) == 1 && ed.m_layers[2]->getPage() == nullptr,
                   "EQ: the key opens the plate exactly over Bus B, whose controls and cables hide under it; Esc puts it away and brings them back");
             proc.getMods().disconnect(bWire);
+        }
+
+        // The plates over the buses: each opens with its bus's Filter or Swirl layer, over the row above the bus, and
+        // goes with it (Back, Esc, a second double-click of the front wheel); Bus B's goes under the EQ plate and comes
+        // back after it. What the Filter's draws is the engine's filter.
+        {
+            auto& plateA = *ed.m_busPlates[0];
+            auto& plateB = *ed.m_busPlates[1];
+            for (auto& host : ed.m_layers)
+                host->close();
+            settle();
+            const bool noneAtFirst = ! plateA.isVisible() && ! plateB.isVisible() && ed.m_roomStrip.isVisible();
+            auto* filterA = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Filter]]);
+            set(ParamIDs::bus[0][ParamIDs::Filter], 0.6f);
+            doubleClick(*filterA, {});
+            settle();
+            rig.run(0.5);
+            const bool aFilter = plateA.isVisible() && plateA.getKind() == BusViewPlate::Kind::Filter && ! plateB.isVisible()
+                                 && plateA.getBounds() == Editor::busPlateBounds(0) && plateA.getBounds().getBottom() == ed.m_hold.getBottom()
+                                 && plateA.getX() == ed.m_hold.getX() && plateA.getWidth() == ed.m_hold.getWidth()
+                                 && plateA.getBottom() + 12 == ed.m_sections[0].bounds.getY();
+            // Tracks makes room: whole lanes above the plate, no drop line, and every one of its texts whole.
+            const auto list = ed.m_hold.m_viewport.getBounds() + ed.m_hold.getPosition();
+            int lanesInView = 0, laneHeight = 0;
+            for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
+                if (lane->isVisible() && lane->getHeight() > 0)
+                {
+                    laneHeight = lane->getHeight();
+                    lanesInView += ed.m_hold.m_viewport.getViewArea().contains(lane->getBounds()) ? 1 : 0;
+                }
+            const bool roomMade = list.getBottom() <= plateA.getY() && ed.m_hold.m_dropZone.isEmpty() && lanesInView >= 1 && laneHeight > 0
+                                  && list.getHeight() == lanesInView * laneHeight;
+            check(roomMade, "bus plates: Tracks shows " + juce::String(lanesInView) + " whole lanes above Bus A's plate, and no drop line");
+            ed.m_wires.rebuild();
+            checkTexts("Bus A's plate over Tracks", ed, 1.0f, 1.0f);
+            // The morph's ropes keep off it.
+            const bool ropesKeepOff = std::find(ed.m_morphPad.m_ropeCovered.begin(), ed.m_morphPad.m_ropeCovered.end(), plateA.getBounds()) != ed.m_morphPad.m_ropeCovered.end();
+            check(ropesKeepOff, "bus plates: the morph pad's ropes are not drawn over Bus A's plate");
+            plateA.refresh();
+            const auto drawn = plateA.getFilterLook();
+            const auto live = proc.getEngine().getBusView(0).filter();
+            const bool sameFilter = ! plateA.isResting() && std::abs(drawn.hz - live.hz) <= 0.0f && std::abs(drawn.q - live.q) <= 0.0f && std::abs(drawn.mix - live.mix) <= 0.0f && drawn.type == live.type
+                                    && std::abs(plateA.drawnFilterDb(1000.0) - 20.0 * std::log10(busview::filterGain(live, 1000.0, proc.getRenderRate()))) < 1.0e-4;
+            check(noneAtFirst && aFilter && sameFilter,
+                  "bus plates: a double-click on Bus A's Filter opens its plate over the row above Bus A, drawing the filter the engine has now");
+            const bool coveredA = std::find(ed.m_wires.m_covered.begin(), ed.m_wires.m_covered.end(), plateA.getBounds()) != ed.m_wires.m_covered.end();
+            doubleClick(*filterA, {});
+            settle();
+            const bool closedByWheel = ! plateA.isVisible() && ed.m_wires.m_covered.empty();
+            check(coveredA && closedByWheel, "bus plates: the controls under a plate lose their cables while it is up; a second double-click closes layer and plate");
+
+            ed.openLayer({ Layers::Kind::Swirl, 0 });
+            ed.openLayer({ Layers::Kind::Filter, 1 });
+            settle();
+            const bool both = plateA.isVisible() && plateA.getKind() == BusViewPlate::Kind::Swirl && plateB.isVisible()
+                              && plateB.getKind() == BusViewPlate::Kind::Filter && ! ed.m_roomStrip.isVisible() && ! plateA.getBounds().intersects(plateB.getBounds());
+            ed.openLayer({ Layers::Kind::Swirl, 1 });
+            settle();
+            const bool swapped = plateB.isVisible() && plateB.getKind() == BusViewPlate::Kind::Swirl;
+            rig.run(0.5);
+            for (const float scale : { 0.85f, 1.0f, 1.5f })
+            {
+                ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
+                rig.run(0.1);
+                checkTexts("both bus plates at " + juce::String(scale, 2), ed, 1.0f, scale);
+            }
+            ed.setSize(Editor::c_width, Editor::c_height);
+            check(both && swapped, "bus plates: each bus has its own (both up at once, apart), Bus B's covers the sea's foot (the room strip hides), and it follows the layer's kind");
+            check(ed.m_sea.getFootHeight() == ed.m_sea.getBottom() - plateB.getY() && ed.m_sea.roomPlanArea().getBottom() + static_cast<float>(ed.m_sea.getY()) <= static_cast<float>(plateB.getY()),
+                  "bus plates: the sea's water ends at Bus B's plate, with the plan of the room above it");
+
+            // The morph pad docks where Bus B's plate stands: the last one asked for wins, and the other comes back.
+            ed.m_morphButton.setToggleState(true, juce::dontSendNotification);
+            ed.m_morphButton.onClick();
+            rig.run(0.1);
+            const bool padWins = ed.m_morphPad.isVisible() && ! plateB.isVisible() && ed.m_layers[2]->isOpen() && plateA.isVisible();
+            checkTexts("the morph pad over Bus B's layer", ed, 1.0f, 1.0f);
+            ed.m_morphButton.setToggleState(false, juce::dontSendNotification);
+            ed.m_morphButton.onClick();
+            rig.run(0.1);
+            const bool plateBack = ! ed.m_morphPad.isVisible() && plateB.isVisible();
+            ed.m_morphButton.setToggleState(true, juce::dontSendNotification);
+            ed.m_morphButton.onClick();
+            ed.openLayer({ Layers::Kind::Filter, 1 });
+            settle();
+            const bool layerWins = ! ed.m_morphPad.isVisible() && ! ed.m_morphButton.getToggleState() && plateB.isVisible() && plateB.getKind() == BusViewPlate::Kind::Filter;
+            ed.openLayer({ Layers::Kind::Swirl, 1 });
+            settle();
+            check(padWins && plateBack && layerWins, "bus plates: the Morph key puts Bus B's plate away and gives it back; opening Bus B's Filter or Swirl puts the pad away");
+
+            // At rest (nothing rendered for a moment): drawn from the parameters, the row says so, and the texts fit
+            // (the Doubler's resting row is the longest there is, on Bus A's plate).
+            {
+                auto& host = *ed.m_layers[1];
+                set(ParamIDs::busDetail[0][ParamIDs::SwirlType], static_cast<float>(ParamIDs::SwirlDoubler));
+                set(ParamIDs::bus[0][ParamIDs::Swirl], 0.7f);
+                rig.run(1.5);
+                for (int i = 0; i <= BusViewPlate::c_restFrames + 1; ++i)
+                    plateA.refresh();
+                const bool resting = plateA.isResting() && host.isOpen() && plateA.getKind() == BusViewPlate::Kind::Swirl && plateA.m_row.startsWith("Not playing.");
+                for (const float scale : { 0.85f, 1.0f, 1.5f })
+                {
+                    ed.setSize(juce::roundToInt(Editor::c_width * scale), juce::roundToInt(Editor::c_height * scale));
+                    for (int i = 0; i <= BusViewPlate::c_restFrames + 1; ++i)
+                        plateA.refresh();
+                    checkTexts("Bus A's plate at rest (Doubler) at " + juce::String(scale, 2), ed, 1.0f, scale);
+                }
+                ed.setSize(Editor::c_width, Editor::c_height);
+                // And a plate at rest asks for no paint at all.
+                const int asked = plateA.m_repaintsAsked;
+                for (int i = 0; i < 10; ++i)
+                    plateA.refresh();
+                check(resting && asked == plateA.m_repaintsAsked, "bus plates: at rest the plate says so (\"" + plateA.m_row + "\") and stops repainting");
+                set(ParamIDs::busDetail[0][ParamIDs::SwirlType], 0.0f);
+                set(ParamIDs::bus[0][ParamIDs::Swirl], state.getParameter(ParamIDs::bus[0][ParamIDs::Swirl])->convertFrom0to1(state.getParameter(ParamIDs::bus[0][ParamIDs::Swirl])->getDefaultValue()));
+                rig.run(0.5);
+            }
+
+            ed.m_eqKey.onClick();
+            rig.run(0.1);
+            const bool underEq = ed.isEqPlateOpen() && ! plateB.isVisible() && plateA.isVisible() && ed.m_roomStrip.isVisible();
+            ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+            settle();
+            const bool backAfterEq = ! ed.isEqPlateOpen() && plateB.isVisible();
+            ed.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+            settle();
+            const bool escClosesB = ! plateB.isVisible() && plateA.isVisible() && ed.m_roomStrip.isVisible();
+            ed.m_layers[1]->getBackKey().onClick();
+            settle();
+            check(underEq && backAfterEq && escClosesB && ! plateA.isVisible(),
+                  "bus plates: the EQ plate takes Bus B's away and gives it back; Esc closes the newest layer and its plate, Back the other");
+            set(ParamIDs::bus[0][ParamIDs::Filter], state.getParameter(ParamIDs::bus[0][ParamIDs::Filter])->convertFrom0to1(state.getParameter(ParamIDs::bus[0][ParamIDs::Filter])->getDefaultValue()));
         }
 
         // Output EQ: a handle drag is one undo step; a cut parks and unparks.

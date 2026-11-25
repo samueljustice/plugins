@@ -122,6 +122,9 @@ public:
         juce::Graphics::ScopedSaveState clipped(g);
         for (int slot = 0; slot < 2; ++slot)
             g.excludeClipRegion(handleArea(slot));
+        // Nor over a plate that hides what is under it (the window's plates over the buses).
+        for (const auto& area : owner.m_ropeCovered)
+            g.excludeClipRegion(area);
 
         // The ropes that hang between a handle and its track (a little see-through: they cross other controls).
         for (int slot = 0; slot < 2; ++slot)
@@ -421,6 +424,15 @@ void MorphPad::setRopeOverlayParent(juce::Component* topLevel)
         if (auto* parent = m_overlay->getParentComponent(); parent != nullptr && parent != topLevel)
             parent->removeChildComponent(m_overlay.get());
     m_overlayParent = topLevel;
+}
+
+void MorphPad::setRopeCovered(std::vector<juce::Rectangle<int>> areas)
+{
+    if (areas == m_ropeCovered)
+        return;
+    m_ropeCovered = std::move(areas);
+    if (m_overlay != nullptr && m_overlay->isVisible())
+        m_overlay->repaint();
 }
 
 void MorphPad::setBusLabels(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB)

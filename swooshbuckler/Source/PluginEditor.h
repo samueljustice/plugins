@@ -4,6 +4,7 @@
 #include "CargoHoldView.h"
 #include "DetailLayer.h"
 #include "EqPlate.h"
+#include "BusViewPlate.h"
 #include "IconButton.h"
 #include "LookAndFeel.h"
 #include "ModPanel.h"
@@ -608,6 +609,18 @@ private:
     std::unique_ptr<EqPlate> m_eqPlate;
     void setEqPlateOpen(bool open);
     bool isEqPlateOpen() const { return m_eqPlate != nullptr && m_eqPlate->isVisible(); }
+    /** The plate over each bus (BusViewPlate), as tall as the EQ plate, at the foot of the panel in the row above
+        the bus (busPlateBounds), across that panel's whole width: Bus A's across Tracks, Bus B's across the sea. It
+        shows while that bus's Filter or Swirl layer shows and fades in and out with its fold. Each bus has its own, so
+        with both layers up both show (they do not meet). Bus B's goes while the EQ plate covers Bus B, and while the
+        morph pad is shown (the Morph key), and comes back after; opening Bus B's Filter or Swirl puts the pad away.
+        While one is up the panel under it makes room (CargoHoldView::setCoveredFoot: whole lanes above it, no drop
+        line; SeaVisualiser::setFootHeight: the water, the plan of the room and its note above it, the room strip and
+        its note gone, as Bus B's controls go under the EQ plate), the cables of anything under it hide
+        (ModWires::setCovered) and the morph pad's ropes keep off it (MorphPad::setRopeCovered). */
+    std::array<std::unique_ptr<BusViewPlate>, 2> m_busPlates;
+    static juce::Rectangle<int> busPlateBounds(int bus);
+    bool isBusPlateShown(int bus) const { return m_busPlates[static_cast<size_t>(juce::jlimit(0, 1, bus))] != nullptr && m_busPlates[static_cast<size_t>(juce::jlimit(0, 1, bus))]->isVisible(); }
     /** Swell held from the window (its button, its key, a click on the sea): the host's Swell parameter, written as a
         gesture while any of them holds it, so a DAW records the press. */
     enum SwellHold { HoldByButton = 1, HoldByKey = 2, HoldByPulse = 4 };
