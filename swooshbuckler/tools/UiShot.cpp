@@ -324,9 +324,11 @@ namespace
                 shots.crop(window, "view-both-row", Editor::busPlateBounds(0).getUnion(ed.m_sections[1].bounds));
             }
             // What a frame of each plate costs: its refresh (the curves, the spectrum, the traces) and its paint, at the
-            // window's scale and at twice it, as the sea's is measured.
+            // window's scale and at twice it, as the sea's is measured, and at two scales that are
+            // not whole numbers (1.5, and 1.7: the window at 85% on a screen of two pixels a point), where the plate keeps no
+            // image of what never moves.
             for (auto& plate : ed.m_busPlates)
-                for (float zoom : { 1.0f, 2.0f })
+                for (float zoom : { 1.0f, 1.5f, 1.7f, 2.0f })
                 {
                     const auto size = (plate->getLocalBounds().toFloat() * zoom).getSmallestIntegerContainer();
                     juce::Image image(juce::Image::ARGB, size.getWidth(), size.getHeight(), true);

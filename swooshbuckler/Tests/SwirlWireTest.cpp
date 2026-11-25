@@ -23,6 +23,8 @@
 //   speed      each Swirl type at 7.1.4 and 192 kHz with a throw in flight, against Phaser + Flanger
 //   view       what the plate over a bus reads (getBusView): the filter's place, Q, mix and travel chunk by chunk,
 //              the tap, and the Tape Flanger's copy, mix and trace, against the engine's own; reading allocates nothing
+//   drawn      the response the plate draws for Phaser + Flanger, Phaser and Flanger (busview::swirlTransfer) against
+//              the engine's sound, and the phaser's first notch the row names against that response
 
 #include <JuceHeader.h>
 #include "RigEngine.h"
@@ -1815,15 +1817,34 @@ int main(int argc, char* argv[])
             look = engine->getBusView(0).swirl();
             return got;
         };
-        struct Case { int type; float feedback; const char* name; };
+        // The lowest dip (1 dB or more under what is below it) of the phaser's part of the drawn response, by a fine
+        // scan from 20 Hz up; 0 for none.
+        auto lowestDip = [](const busview::SwirlLook& look, double fs)
+        {
+            double top = 0.0, before = 0.0, at = 0.0, atHz = 0.0;
+            for (double hz = 20.0; hz < 0.5 * fs; hz *= 1.0002)
+            {
+                const double g = busview::phaserGain(look, hz, fs);
+                if (before > 0.0 && at < before && at <= g && at < 0.891 * top)
+                    return atHz;
+                top = std::max(top, g);
+                before = at;
+                at = g;
+                atHz = hz;
+            }
+            return 0.0;
+        };
+        struct Case { int type; float feedback; const char* name; float swirl = 0.8f; };
         for (const Case c : { Case { RigEngine::SwirlBoth, 0.55f, "Phaser + Flanger, Feedback 55%" }, Case { RigEngine::SwirlBoth, 1.0f, "Phaser + Flanger, Feedback 100%" },
+                              Case { RigEngine::SwirlBoth, 0.55f, "Phaser + Flanger, Swirl 35%, Feedback 55%", 0.35f },
+                              Case { RigEngine::SwirlBoth, -1.0f, "Phaser + Flanger, Swirl 100%, Feedback -100%", 1.0f },
                               Case { RigEngine::SwirlFlanger, 0.55f, "Flanger, Feedback 55%" }, Case { RigEngine::SwirlFlanger, 1.0f, "Flanger, Feedback 100%" },
                               Case { RigEngine::SwirlFlanger, -1.0f, "Flanger, Feedback -100%" }, Case { RigEngine::SwirlPhaser, 0.55f, "Phaser, Feedback 55%" },
                               Case { RigEngine::SwirlPhaser, 1.0f, "Phaser, Feedback 100%" } })
         {
             busview::SwirlLook none, look;
             const auto x = tapRun(c.type, 0.0f, c.feedback, none);
-            const auto y = tapRun(c.type, 0.8f, c.feedback, look);
+            const auto y = tapRun(c.type, c.swirl, c.feedback, look);
             constexpr int n = 65536, hop = 16384;
             const double fs = c_rate;
             double worst = 0.0, worstHz = 0.0, worstDrawn = 0.0, worstGot = 0.0;
@@ -1863,6 +1884,54 @@ int main(int argc, char* argv[])
                       << num(20.0 * std::log10(std::max(worstDrawn, 1.0e-9)), 2) << ", measured " << num(20.0 * std::log10(std::max(worstGot, 1.0e-9)), 2) << ")" << std::endl;
             check(look.type == c.type && look.on && compared > 100 && worst < 1.0,
                   juce::String("drawn: the plate's response for ") + c.name + " is the engine's within " + num(worst, 2) + " dB, 60 Hz to 19 kHz");
+            if (c.type != RigEngine::SwirlBoth)
+                continue;
+            // The row's "the phaser's first notch at ...": the lowest dip of the phaser's part of that response (its
+            // Feedback moves it off where the all-passes alone would put it), found by a fine scan from 20 Hz up.
+            const double said = busview::phaserFirstNotchHz(look, fs);
+            const double found = lowestDip(look, fs);
+            auto offFlanger = look;
+            offFlanger.flangerMix = 0.0f;
+            const double partsAgree = std::abs(busview::phaserGain(look, 5000.0, fs) * static_cast<double>(look.level) - std::abs(busview::swirlTransfer(offFlanger, 5000.0, fs)));
+            std::cout << "    its phaser's first notch: said " << num(said, 0) << " Hz, the lowest dip of the drawn phaser " << num(found, 0) << " Hz (the all-passes turn at "
+                      << num(look.phaserHz, 0) << " Hz)" << std::endl;
+            check(partsAgree < 1.0e-9 && found > 0.0 && std::abs(said - found) < 0.005 * found,
+                  juce::String("drawn: the first notch the row names for ") + c.name + " is the lowest dip of the phaser it draws, within "
+                      + num(100.0 * std::abs(said - found) / std::max(found, 1.0), 2) + "%");
+        }
+        // And across the sweep (the engine's tunings for Phaser + Flanger, 260 Hz to 7.2 kHz mirrored about a quarter of
+        // the rate, Feedback from one end to the other, the wheel low and high): wherever the lowest dip is under
+        // 20 kHz, the row's figure is it.
+        {
+            double worst = 0.0, plainWorst = 0.0;
+            int under = 0, missed = 0;
+            for (const double fs : { 44100.0, 48000.0, 96000.0 })
+                for (const double wheel : { 0.3, 0.7, 1.0 })
+                    for (double feedback = -1.0; feedback <= 1.001; feedback += 0.25)
+                        for (double octave = 0.0; octave <= 4.81; octave += 0.3)
+                        {
+                            const double swirl = std::pow(wheel, 0.7);
+                            const double t = std::tan(3.14159265358979323846 * std::min(260.0 * std::exp2(octave), 0.45 * fs) / fs);
+                            busview::SwirlLook look;
+                            look.type = busview::SwirlBoth;
+                            look.on = true;
+                            look.phaserCoef = static_cast<float>((t - 1.0) / (t + 1.0));
+                            look.phaserHz = static_cast<float>(std::atan((1.0 - look.phaserCoef) / (1.0 + look.phaserCoef)) * fs / 3.14159265358979323846);
+                            look.phaserFeedback = static_cast<float>(std::clamp(feedback * swirl, -0.95, 0.95));
+                            look.phaserMix = static_cast<float>(std::clamp(2.0 * swirl, 0.0, 1.0) * 0.5);
+                            const double found = lowestDip(look, fs), said = busview::phaserFirstNotchHz(look, fs);
+                            if (found <= 0.0 || found >= 20000.0)
+                                continue;
+                            ++under;
+                            missed += said <= 0.0 ? 1 : 0;
+                            worst = std::max(worst, std::abs(said - found) / found);
+                            const double turn = std::tan(3.14159265358979323846 * static_cast<double>(look.phaserHz) / fs);
+                            plainWorst = std::max(plainWorst, std::abs(std::atan(std::tan(3.14159265358979323846 / 12.0) * turn) * fs / 3.14159265358979323846 - found) / found);
+                        }
+            check(under > 200 && missed == 0 && worst < 0.005,
+                  "drawn: across the sweep, Feedback and the wheel, the first notch the row names is the drawn phaser's lowest dip within " + num(100.0 * worst, 2)
+                      + "% (" + juce::String(under) + " states with it under 20 kHz; the all-passes alone, without Feedback, would be up to "
+                      + juce::String(juce::roundToInt(100.0 * plainWorst)) + "% out)");
         }
     }
 

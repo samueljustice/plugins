@@ -3349,6 +3349,29 @@ int main(int argc, char* argv[])
                                     && std::abs(plateA.drawnFilterDb(1000.0) - 20.0 * std::log10(busview::filterGain(live, 1000.0, proc.getRenderRate()))) < 1.0e-4;
             check(noneAtFirst && aFilter && sameFilter,
                   "bus plates: a double-click on Bus A's Filter opens its plate over the row above Bus A, drawing the filter the engine has now");
+            {
+                // From Filter 80% up the filter is all that is heard, but trimmed as its Q rises: the Heard line stays,
+                // and with the trim near nothing (no Resonance, the wheel under 80%: mixed in part) it stays too.
+                auto* resonance = state.getParameter(ParamIDs::busDetail[0][ParamIDs::FilterResonance]);
+                const float resonanceWas = resonance->convertFrom0to1(resonance->getValue());
+                set(ParamIDs::bus[0][ParamIDs::Filter], 0.9f);
+                set(ParamIDs::busDetail[0][ParamIDs::FilterResonance], resonance->convertFrom0to1(0.8f));
+                rig.run(1.5); // (the wheel's spring settles)
+                plateA.refresh();
+                const auto full = plateA.getFilterLook();
+                const double trimDb = 20.0 * std::log10(std::max(1.0e-9, static_cast<double>(full.trim)));
+                const bool heardWhenTrimmed = full.mix >= 0.999f && trimDb < -0.25 && plateA.showsHeard();
+                set(ParamIDs::bus[0][ParamIDs::Filter], 0.0f);
+                rig.run(1.5);
+                plateA.refresh();
+                const bool noneAtZero = ! plateA.showsHeard() && plateA.m_row.startsWith("Filter is at 0%");
+                check(heardWhenTrimmed && noneAtZero, "bus plates: with Filter at 90% the Heard line stays (mix " + juce::String(full.mix, 3) + ", the filter trimmed by "
+                                                          + juce::String(trimDb, 1) + " dB); at 0% there is none and the row says so (\"" + plateA.m_row + "\")");
+                set(ParamIDs::busDetail[0][ParamIDs::FilterResonance], resonanceWas);
+                set(ParamIDs::bus[0][ParamIDs::Filter], 0.6f);
+                rig.run(0.3);
+                plateA.refresh();
+            }
             const bool coveredA = std::find(ed.m_wires.m_covered.begin(), ed.m_wires.m_covered.end(), plateA.getBounds()) != ed.m_wires.m_covered.end();
             doubleClick(*filterA, {});
             settle();

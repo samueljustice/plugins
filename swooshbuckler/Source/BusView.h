@@ -211,18 +211,52 @@ namespace busview
         return out * static_cast<double>(s.level);
     }
 
-    /** The phaser's lowest notch for all-passes that turn at `turnHz` (six stages: the notches are where each stage
-        has turned 30, 90 and 150 degrees; feedback moves them a little). */
-    inline double phaserFirstNotchHz(double turnHz, double fs)
+    /** The phaser's part of swirlTransfer alone (the six all-passes in their loop, mixed in), as a gain. */
+    inline double phaserGain(const SwirlLook& s, double hz, double fs)
     {
-        const double t = std::tan(c_pi * std::clamp(turnHz, 1.0, 0.4999 * fs) / fs);
-        return std::atan(std::tan(c_pi / 12.0) * t) * fs / c_pi;
+        const Complex z1 = std::polar(1.0, -2.0 * c_pi * std::clamp(hz, 0.0, 0.5 * fs) / fs);
+        const double a = static_cast<double>(s.phaserCoef);
+        const Complex ap = (-a + z1) / (1.0 - a * z1);
+        Complex chain(1.0, 0.0);
+        for (int i = 0; i < c_phaserStages; ++i)
+            chain *= ap;
+        return std::abs(1.0 + static_cast<double>(s.phaserMix) * (chain / (1.0 - static_cast<double>(s.phaserFeedback) * z1 * chain) - 1.0));
+    }
+
+    /** The phaser's lowest notch, in Hz: the lowest dip of phaserGain. Without feedback the three notches are where
+        each of the six stages has turned 30, 90 and 150 degrees; Feedback moves the lowest by up to a quarter either
+        way, so it is looked for from there (0.6 to 1.6 times it, a hundredth at a step, then the three lowest
+        points' parabola). 0 when there is no dip in that span under half the rate (Feedback right up can fill it in). */
+    inline double phaserFirstNotchHz(const SwirlLook& s, double fs)
+    {
+        const double t = std::tan(c_pi * std::clamp(static_cast<double>(s.phaserHz), 1.0, 0.4999 * fs) / fs);
+        const double plain = std::atan(std::tan(c_pi / 12.0) * t) * fs / c_pi;
+        constexpr int c_steps = 100;
+        const double ratio = std::pow(1.6 / 0.6, 1.0 / c_steps);
+        double hz = 0.6 * plain, before = phaserGain(s, hz, fs), at = phaserGain(s, hz * ratio, fs);
+        for (int i = 1; i < c_steps && hz * ratio * ratio < 0.5 * fs; ++i)
+        {
+            const double after = phaserGain(s, hz * ratio * ratio, fs);
+            if (at < before && at <= after)
+            {
+                // The parabola through the three (in dB, over the steps): its lowest point.
+                const double b = std::log(std::max(before, 1.0e-9)), m = std::log(std::max(at, 1.0e-9)), e = std::log(std::max(after, 1.0e-9));
+                const double bend = b - 2.0 * m + e;
+                const double shift = bend > 1.0e-12 ? std::clamp(0.5 * (b - e) / bend, -1.0, 1.0) : 0.0;
+                return hz * std::pow(ratio, 1.0 + shift);
+            }
+            hz *= ratio;
+            before = at;
+            at = after;
+        }
+        return 0.0;
     }
 
     /**
      * A few seconds of one value, written a chunk at a time by the audio thread and read by the window: every bucket
      * of samples becomes one point (its lowest and highest value) and the kind it was written in (a Swirl type, so
-     * the window draws only the points of the type in use). Lock-free; a torn read draws one point slightly wrong.
+     * the window draws only the points of the type in use; a point is of one kind throughout). Lock-free; a torn
+     * read draws one point slightly wrong.
      */
     class Trace
     {
@@ -243,6 +277,14 @@ namespace busview
         {
             if (! std::isfinite(value))
                 value = 0.0f;
+            if (kind != m_kind)
+            {
+                // Another kind of value (Swirl's type changed): the point in hand starts again, so none mixes two.
+                m_kind = kind;
+                m_count = 0;
+                m_lo = 1.0e30f;
+                m_hi = -1.0e30f;
+            }
             m_lo = std::min(m_lo, value);
             m_hi = std::max(m_hi, value);
             m_count += frames;
@@ -278,7 +320,7 @@ namespace busview
         };
         std::array<Point, c_points> m_points;
         std::atomic<std::uint32_t> m_written { 0 };
-        int m_bucket = 800, m_count = 0;
+        int m_bucket = 800, m_count = 0, m_kind = -1;
         float m_lo = 1.0e30f, m_hi = -1.0e30f;
     };
 

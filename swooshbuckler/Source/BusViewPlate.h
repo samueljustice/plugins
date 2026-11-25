@@ -48,6 +48,22 @@ class OutputSpectrum;
  *     drawn (its notches are too close together to read), and the row says how far the copy wandered.
  *   With Swirl at 0% the curve is unlit and the row says none of it is heard.
  *
+ * How it is drawn (the picture only; none of it changes what is shown):
+ *   - the wells are a shade darker outside the plot, as the Output EQ's graph is outside 20 Hz and 20 kHz;
+ *   - what is behind (the spectrum, the passes) is a faint grey-blue shape with a line along its top, so the bus's
+ *     colour is kept for what the wheel is doing;
+ *   - the filter's curve is tinted under it, deepest at the head of the well and gone by its foot; its travel is a
+ *     faint band between two lines with a rail along the well's head, and the marker is a line down the well, a tab
+ *     on the rail and a stamped square on the curve (as the EQ's handles);
+ *   - a trace is one line through its points, fainter the older it is, with a stamped square on the newest point; a
+ *     point that wobbled further than the line shows has its whole range drawn behind the line;
+ *   - the Swirl response is tinted to the 0 dB line. Where a comb's peaks come closer than c_densePx (they crowd at
+ *     the top of a log axis) each tooth is no longer drawn: the band the teeth cover is, between a line along
+ *     their peaks and one along their notches, both lighter than the curve (which ends where the band starts);
+ *   - lines with sharp turns have beveled corners (a mitered one reaches past the point and deepens a notch).
+ *   What never moves (plate, wells, grids) is kept as an image while the context's scale is a whole number, and
+ *   drawn afresh at any other scale.
+ *
  * The graphs' labels are drawn last, each on a patch of the well's colour, so no curve runs through one.
  *
  * Read-only: it takes the clicks over its area (so nothing under it is reached through it) and no keys, so Esc stays
@@ -112,10 +128,14 @@ private:
     busview::FilterLook filterFromParameters() const;
     void refreshFilter();
     void refreshSwirl();
+    void buildTrace();
+    void buildResponse();
     void paintFilter(juce::Graphics&);
     void paintSwirl(juce::Graphics&);
+    void paintBase(juce::Graphics&) const;
+    int baseLayout() const;
     void paintFrequencyGrid(juce::Graphics&, juce::Rectangle<float> well, juce::Rectangle<float> plot, float topDb, float bottomDb,
-                            std::initializer_list<float> marked);
+                            std::initializer_list<float> marked) const;
     void paintFrequencyLabels(juce::Graphics&, juce::Rectangle<float> well, juce::Rectangle<float> plot);
     void paintTrace(juce::Graphics&, juce::Rectangle<float> well);
     juce::Rectangle<float> plotOf(juce::Rectangle<float> well) const;
@@ -140,6 +160,17 @@ private:
     static constexpr int c_spectrumStep = 3;
 
     juce::Path m_curve, m_curveFill, m_heard; // worked out in refresh()
+    juce::Path m_spectrumShape, m_spectrumLine; // the bus's sound behind the filter: its shape and the line along its top
+    static constexpr float c_railHeight = 3.0f; // the travel's rail along the head of the filter's well
+
+    // The Swirl response where a comb's teeth are closer than c_densePx: the band they cover, and the lines along
+    // their peaks and along their notches (m_curve ends where the band starts). The rest is buildResponse()'s
+    // working room.
+    static constexpr float c_densePx = 5.0f;
+    juce::Path m_combBand, m_combHead, m_combFoot;
+    std::vector<float> m_db;
+    std::vector<int> m_peaks, m_notches;
+    std::vector<juce::Point<float>> m_lows;
     float m_markerX = 0.0f, m_markerY = 0.0f, m_lowX = 0.0f, m_highX = 0.0f;
 
     // The Swirl's trace, newest last: lowest and highest of each point, whether it was written in the type in use,
@@ -148,10 +179,21 @@ private:
     std::array<bool, busview::Trace::c_points> m_traceHas {};
     float m_traceMin = 0.0f, m_traceMax = 0.0f;
     bool m_traceAny = false;
+    // Their pictures (buildTrace): the passes' shape and its top line, the trace's line, the ranges the line does not
+    // cover, and where the newest point is.
+    juce::Path m_nearShape, m_nearLine, m_traceLine;
+    juce::RectangleList<float> m_traceRange;
+    juce::Point<float> m_now;
+    bool m_nearAny = false, m_nowHas = false;
     std::uint32_t m_traceWritten = 0; // the traces' points written when last refreshed (a new one: repaint)
     bool m_dirty = true;              // repaint at the next refresh whatever it finds (a new kind or size)
     int m_repaintsAsked = 0;          // how many times refresh() has asked for a paint (the tests)
     juce::String m_row;
+
+    // What never moves (the plate, its wells and their grids), kept as an image for the layout it was drawn for
+    // (baseLayout(): the filter's one well, the Doubler's one, or the Swirl's two).
+    juce::Image m_base;
+    int m_baseLayout = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BusViewPlate)
 };
