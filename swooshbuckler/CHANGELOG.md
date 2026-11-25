@@ -1,5 +1,13 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+### See what Filter and Swirl are doing
+
+- **A plate over the bus while Filter's layer is open**, as the Output EQ's plate sits over Bus B. It draws the filter's response for its Type, slope and Resonance where the filter is right now, so it moves with the whoosh, Sweep's rhythm and any wire, with a square where the filter is, a band for how far it travels, a line for what the bus hears once the Filter wheel mixes it in, and the bus's own sound faint behind. The row under it reads the Type, where the filter is, its Q and its travel.
+- **A plate over the bus while Swirl's layer is open.** For the Tape Flanger: the copy against the dry over the last four seconds, with the passes behind it, so you can watch it go through zero in the middle of each whoosh, and the comb the two copies make now. Phaser + Flanger, Phaser and Flanger show their sweep and their response; the Doubler shows how far behind its copy plays.
+- The plates only show: everything is set on the layer under them. Bus A's stands over the foot of Tracks and Bus B's over the foot of the sea; both buses can have one up at once.
+
 ## 2.3.0
 
 ### Faders Together

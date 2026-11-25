@@ -267,7 +267,7 @@ The wander runs inside the rig, not in the window: the dot keeps flying with the
 
 The front of the window keeps to one knob for one idea. Five controls have more behind them, and each of those carries a **notch**, a small turned corner at its lower left: **Swirl** and **Filter** on each bus, **Rate**, and the **Swell** button. The notch is an outline while everything behind it is as it starts out, and filled once something there has been changed.
 
-- **Double-click the wheel**, or click its notch, and its panel turns over: the knob row gives way to what is behind that one control. On a bus the wheel itself stays in the first place, live. Swell opens from its notch or its right-click menu, since a press already swells. Nothing outside the panel is covered, and the panel's scope strip stays, so you see and hear what you are setting.
+- **Double-click the wheel**, or click its notch, and its panel turns over: the knob row gives way to what is behind that one control. On a bus the wheel itself stays in the first place, live. Swell opens from its notch or its right-click menu, since a press already swells. The panel's scope strip stays, so you see and hear what you are setting. Swirl and Filter also put up a plate above the bus that shows what they are doing, live: see [the Swirl plate](#the-swirl-plate) and [the Filter plate](#the-filter-plate).
 - The title bar names the layer ("Bus A / Swirl"). **Reset** puts everything on the layer back to its defaults in one Undo step and leaves the front wheel where it is. **Back** turns the panel back.
 - **Back**, **Esc**, or a second double-click on the front wheel closes it. Ride, Bus A and Bus B can each have one layer open; Esc closes the newest first. The window always opens on the front.
 - A control on a layer that does nothing in the current choice is drawn hollow and dashed, and its tooltip says why from its first line.
@@ -478,6 +478,19 @@ The Tape Flanger's clean path is 8 ms long, so that the copy can run ahead of it
 | **Rate** | 0.01–6 Hz (0.6 Hz) | How fast the delay wanders. |
 | **Feedback** | −68 to +68% (0%) | With Thicken off: how much of the copy is fed back into itself, either way up. |
 
+##### The Swirl plate
+
+<img src="docs/images/flanger-view.png" width="888" alt="The plate over Bus A showing its Tape Flanger: the copy against the dry over the last four seconds, and the comb it makes now">
+
+While Swirl's layer is open, a plate above the bus shows what the swirl is doing as you play. It only shows: everything is set on the layer under it. What it draws depends on the Type:
+
+- **Tape Flanger.** On the left, the copy against the dry over the last four seconds: later above the Through Zero line, earlier below it, with the bus's passes faint behind. With Motion on With the Pass you can watch it dip through zero in the middle of each whoosh. On the right, the comb the two copies make right now, with Feedback and Invert in it. The row under it says how far behind or ahead the copy is.
+- **Phaser + Flanger** and **Flanger.** The flanger's delay over the last four seconds, and the response now. The row says where the lowest notch of the phaser is.
+- **Phaser.** Where its notches are tuned over the last four seconds, and the response now.
+- **Doubler.** How far behind the copy plays over the last four seconds, and a sentence with how far it wandered. Its comb is not drawn: the notches are too close together to read.
+
+With Swirl at 0% the curve is drawn unlit and the row says none of it is heard.
+
 #### What is behind Filter
 
 <img src="docs/images/layer-filter.png" width="476" alt="Bus A turned over to what is behind Filter">
@@ -494,6 +507,21 @@ Double-click a bus's **Filter** (or click its notch). The Filter wheel stays how
 | **Follow** | 0–100% (100%) | How far the filter follows the whoosh. 100%: it opens with each pass. 0%: it stays put and the Filter wheel is a plain cutoff. |
 | **Sweep** | 0–100% (0%) | How far the filter's own rhythm moves it, up to three octaves either way. |
 | **Rate** | 0.05–20 Hz (1 Hz) | How fast that rhythm runs. It rests while Sweep is 0%. |
+
+##### The Filter plate
+
+<img src="docs/images/filter-view.png" width="888" alt="The plate over Bus A showing its filter: the response curve, its travel, what the bus hears and the bus's sound behind">
+
+While Filter's layer is open, a plate above the bus draws the filter, live, from 20 Hz to 20 kHz:
+
+- **The curve** is the filter's response for its Type, slope and Resonance, where the filter is right now. It moves as the whoosh, Sweep's rhythm or a wire moves the filter, and the square on it marks where the filter is.
+- **The shaded band** is how far the filter can travel with the wheels where they are: from where it sits closed to where it opens at the top of a pass. Closed At moves it, and Follow and Sweep widen it.
+- **The thin light line, Heard,** is what the bus hears once the Filter wheel has mixed the filter in. It is left out when it would be the curve itself.
+- **Behind it, faintly,** is the bus's own sound after the filter.
+
+The row under it reads the Type and slope, where the filter is, its Q and its travel ("Low Pass, 24 dB  At 483 Hz  Q 1.7  Travel 91 Hz to 1.38 kHz"). With Filter at 0% the curve is drawn unlit and the row says the bus is heard without it. While nothing plays, it is drawn where the filter sits closed, and the row says so.
+
+The plates stand at the foot of the panel above the bus, across its width: Bus A's over Tracks, Bus B's over the sea. Tracks shows the lanes that fit above it, and the sea draws its water above it and puts its room strip away. Both buses can have a plate up at once. The Output EQ's plate and the Morph pad share the place where Bus B's plate goes: whichever was opened last is shown, and the other comes back when it closes.
 
 ### Stowaway
 
