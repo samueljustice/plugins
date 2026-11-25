@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 2.4.0
 
 ### See what Filter and Swirl are doing
 
