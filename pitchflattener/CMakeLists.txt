@@ -8,7 +8,7 @@ endif()
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 3.1.1)
+project(PitchFlattener VERSION 3.1.2)
 
 # The C++ runtime is linked in on Windows, so the installer needs no redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
