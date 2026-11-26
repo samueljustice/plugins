@@ -14,6 +14,7 @@ One manual on its own, for a plug-in whose source isn't in this repository (a pr
 
     manuals.py --single <manual .md> <out dir> --id <id> --name <name> [--home <url> --home-label <text>]
                [--get <url> --get-label <text>] [--note <text>] [--noindex] [--inline-pictures]
+               [--maker <name> --brand-home <url> --brand-label <text>]
 
 It writes <out dir>/index.html. Pictures keep their relative paths (copy them next to the page); links to
 other files of that repository are left as plain text, since the page can't reach them. With
@@ -43,6 +44,9 @@ if len(sys.argv) > 1 and sys.argv[1] == "--single":
     ap.add_argument("--home-label", default="Sammy J's Plugins")
     ap.add_argument("--get", default=""); ap.add_argument("--get-label", default="Download")
     ap.add_argument("--note", default=""); ap.add_argument("--noindex", action="store_true")
+    ap.add_argument("--maker", default="Samuel Justice")
+    ap.add_argument("--brand-home", default="https://samueljustice.github.io/plugins/")
+    ap.add_argument("--brand-label", default="Sammy J's Plugins")
     ap.add_argument("--inline-pictures", action="store_true")
     SINGLE = ap.parse_args(sys.argv[2:])
     out, repo = SINGLE.out, "samueljustice/plugins"
@@ -364,7 +368,7 @@ THEMES = {
     # Azeret Mono for numbers and keys, amber pins over a blue waveform on a bar grid.
     "tempotantrum": {
         "fonts": ["Azeret+Mono:wght@400;500;700"],
-        "strap": "Sammy J / Tempo maps for Pro Tools",
+        "strap": "Sweet Justice Sound / Tempo maps for Pro Tools",
         "vars": "--bg:#141a23; --panel:#1b232f; --ink:#e6ecf3; --dim:#8a98a9; --line:#2c3746; --a1:#f2b441; --a2:#5f86b3; --a3:#f2b441; --a4:#5f86b3; --link:#f2b441;"
                 " --wave:#5f86b3; --warn:#e2607a;"
                 " --display:-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; --body:-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;"
@@ -696,8 +700,8 @@ def build(pid: str, name: str, folder: str) -> str:
   </main>
 </div>
 <div class="foot">
-  <span>Made by Samuel Justice</span>
-  <a href="{"https://samueljustice.github.io/plugins/" if SINGLE else "../"}">Sammy J's Plugins</a>
+  <span>Made by {html.escape(SINGLE.maker) if SINGLE else "Samuel Justice"}</span>
+  <a href="{html.escape(SINGLE.brand_home) if SINGLE else "../"}">{html.escape(SINGLE.brand_label) if SINGLE else "Sammy J's Plugins"}</a>
   <a href="https://www.sweetjusticesound.com" target="_blank" rel="noopener">www.sweetjusticesound.com</a>
 </div>
 <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Pictures">
