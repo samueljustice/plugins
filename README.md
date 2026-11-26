@@ -14,12 +14,12 @@
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
 ### Get them all
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.26.291/SammyJ-Plugins-2026-11-26-1528-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.26.291/SammyJ-Plugins-2026-11-26-1528-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.26.293/SammyJ-Plugins-2026-11-26-1535-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.26.293/SammyJ-Plugins-2026-11-26-1535-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.4.0 · Sound Advice 1.1.1 · Subbertone 1.4.0 · Pitch Flattener 3.1.1 · Reversinator 2.1.0 · Roarschach 1.3.3 · Tonal Recall 0.2.3.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.4.0 · Sound Advice 1.1.1 · Subbertone 1.4.1 · Pitch Flattener 3.1.1 · Reversinator 2.1.1 · Roarschach 1.3.3 · Tonal Recall 0.2.3.<br>
 Apps, VST3, AU and AAX. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
-Built 26 Nov 2026, 15:28 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
+Built 26 Nov 2026, 15:35 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
 <!-- get-them-all:end -->
 
 <sub>If these get some use in your work and you'd like to chip in, you can <a href="https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins">toss a coin in the jar</a> on PayPal. Every bit goes towards more of them.</sub>
