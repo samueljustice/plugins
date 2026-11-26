@@ -63,11 +63,16 @@ jobs:
     steps:
     - name: Find the release and its unsigned AAX
       id: find
+      env:
+        TRIGGER_RUN: ${{ github.event.workflow_run.id }}
       run: |
         gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json name --jq .name > /dev/null \
           || { echo "::error::No release $TAG"; exit 1; }
         prefix="${TAG%-v*}"
-        run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "build-release_$prefix.yml" --branch "$TAG" \
+        # Started by a build: use that build. Looking it up by tag right after it finishes can miss it,
+        # because the run list takes a few seconds to show it as successful.
+        run="$TRIGGER_RUN"
+        [[ -n "$run" ]] || run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "build-release_$prefix.yml" --branch "$TAG" \
                 --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
         artifacts=""
         [[ -n "$run" ]] && artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '.artifacts[].name')
