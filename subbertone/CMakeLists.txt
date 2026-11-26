@@ -69,6 +69,8 @@ juce_add_plugin(Subbertone
     # each channel would get its own sub and what LEARN learns would stay with one channel. Subbertone makes one sub
     # from the sum of its channels: a stereo track takes the stereo version.
     DISABLE_AAX_MULTI_MONO TRUE
+    # Where Pro Tools lists it in its plug-in menus (without this it goes under "Other").
+    AAX_CATEGORY AAX_ePlugInCategory_Harmonic
 )
 
 # Platform specific settings

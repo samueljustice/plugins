@@ -75,6 +75,8 @@ juce_add_plugin(PitchFlattener
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD ${PITCHFLATTENER_COPY_AFTER_BUILD}
     VST3_CATEGORIES "Fx" "Pitch"
+    # Where Pro Tools lists it in its plug-in menus (without this it goes under "Other").
+    AAX_CATEGORY AAX_ePlugInCategory_PitchShift
     AU_MAIN_TYPE "kAudioUnitType_Effect"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "This plugin listens to its input to learn a sound"

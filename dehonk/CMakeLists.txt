@@ -52,6 +52,8 @@ juce_add_plugin(DeHonk
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES "Fx" "EQ"
+    # Where Pro Tools lists it in its plug-in menus (without this it goes under "Other").
+    AAX_CATEGORY AAX_ePlugInCategory_EQ
     AU_MAIN_TYPE "kAudioUnitType_Effect"
     # The Standalone app needs an audio input, which macOS grants only with a usage description.
     MICROPHONE_PERMISSION_ENABLED TRUE

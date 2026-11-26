@@ -102,6 +102,8 @@ juce_add_plugin(DoomEQ
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES "Fx" "EQ"
+    # Where Pro Tools lists it in its plug-in menus (without this it goes under "Other").
+    AAX_CATEGORY AAX_ePlugInCategory_EQ
     AU_MAIN_TYPE "kAudioUnitType_Effect"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "DOOM EQ processes the audio input in real time."
