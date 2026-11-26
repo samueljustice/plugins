@@ -1,5 +1,9 @@
 # De-Honk changes
 
+## 0.0.4
+
+The fourth test build. Pro Tools now lists De-Honk under EQ in its plug-in menus instead of Other. Nothing else changes: the sound, the presets and saved sessions are as in 0.0.3.
+
 ## 0.0.3
 
 The third test build. It is published as a pre-release and is not in the Sammy J's Plugins installer.

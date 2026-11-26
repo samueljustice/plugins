@@ -1,8 +1,12 @@
-## De-Honk 0.0.3 (test build)
+## De-Honk 0.0.4 (test build)
 
 De-Honk is a plug-in by Samuel Justice for the master bus of a trailer mix, before the limiter. When many of the sounds and much of the music have each been through a bass enhancer or a saturator, their added harmonics pile up in the low mids as a nasal, boxy build-up. De-Honk listens for that build-up as the mix plays and takes it down with narrow cuts, leaving the bass and the body alone. It works in mono, stereo and surround up to 7.1.4.
 
-This is the third build for testing. Controls, presets and the sound may change before the first full release, and sessions saved with it may not open the same way in a later version. What each control does is in the [De-Honk README](https://github.com/samueljustice/plugins/blob/main/dehonk/README.md).
+This is the fourth build for testing. Controls, presets and the sound may change before the first full release, and sessions saved with it may not open the same way in a later version. What each control does is in the [De-Honk README](https://github.com/samueljustice/plugins/blob/main/dehonk/README.md).
+
+### New in 0.0.4
+
+- Pro Tools now lists De-Honk under **EQ** in its plug-in menus. It used to appear under Other. Nothing else changes from 0.0.3.
 
 ### New in 0.0.3
 

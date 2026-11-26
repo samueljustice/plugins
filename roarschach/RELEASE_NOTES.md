@@ -1,5 +1,7 @@
-## Roarschach 1.3.2
+## Roarschach 1.3.3
 
-A small fix to the IN tile. The AUTO switch is drawn smaller and sits clear of the input meter's 0 dB mark, which its outline used to touch. It is just as easy to click: the whole area around it still responds.
+Pro Tools now lists Roarschach under **Pitch Shift** in its plug-in menus. It used to appear under Other.
 
-Nothing else changes. The sound, the presets, latency and saved sessions are exactly as in 1.3.1.
+Nothing else changes: the sound, the presets and saved sessions are exactly as in 1.3.2.
+
+Want every plug-in at once? The [Sammy J's Plugins installer](https://github.com/samueljustice/plugins/releases/latest) installs the newest version of each.

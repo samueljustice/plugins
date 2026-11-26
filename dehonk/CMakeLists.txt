@@ -9,7 +9,7 @@ if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 # The version lives here and nowhere else; the release workflow checks the tag against it.
-project(DeHonk VERSION 0.0.3)
+project(DeHonk VERSION 0.0.4)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
