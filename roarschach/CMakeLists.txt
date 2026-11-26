@@ -68,6 +68,8 @@ juce_add_plugin(Roarschach
     PRODUCT_NAME "Roarschach"
     AU_MAIN_TYPE kAudioUnitType_Effect
     VST3_CATEGORIES Fx "Pitch Shift"
+    # Where Pro Tools lists it in its plug-in menus (without this it goes under "Other").
+    AAX_CATEGORY AAX_ePlugInCategory_PitchShift
     # Only used by a Standalone build, which takes its input from a microphone.
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "Roarschach processes the audio input in real time."

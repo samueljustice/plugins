@@ -51,6 +51,8 @@ juce_add_plugin(Reversinator
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES "Fx" "Delay"
+    # Where Pro Tools lists it in its plug-in menus (without this it goes under "Other").
+    AAX_CATEGORY AAX_ePlugInCategory_Delay
     AU_MAIN_TYPE "kAudioUnitType_Effect"
 )
 
