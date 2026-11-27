@@ -20,3 +20,4 @@ tonalrecall|tonalrecall-v|Tonal Recall|SammyJs Tonal Recall|
 #test dehonk|dehonk-v|De-Honk|SammyJs De-Honk|SammyJs De-Honk
 #test doomeq|doomeq-v|DOOM EQ|SammyJs DOOM EQ|SammyJs DOOM EQ
 #test body-language|body-language-v|Body Language|Body Language||samueljustice/body-language
+#test mixchecker|mixchecker-v|Mix Checker|Mix Checker|Mix Checker|samueljustice/mixchecker
